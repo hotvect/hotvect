@@ -1,0 +1,25 @@
+{
+  "single_categorical_1": 123,
+  "categoricals_1": [
+    4,
+    5,
+    6
+  ],
+  "single_numerical_1": 789.0,
+  "categorical_id_to_numericals_1": {
+    "10": 10.0,
+    "11": 11.0,
+    "12": 12.0
+  },
+  "single_string_1": "abc",
+  "strings_1": [
+    "13",
+    "14",
+    "15"
+  ],
+  "string_to_numericals_1": {
+    "16": 16.0,
+    "17": 17.0,
+    "18": 18.0
+  }
+}

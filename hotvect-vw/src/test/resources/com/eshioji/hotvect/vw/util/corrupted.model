@@ -1,0 +1,13 @@
+Version 8.8.1
+Id 
+Min label:-50
+Max label:50
+bits:18
+lda:0
+0 ngram:
+0 skip:
+options: --ftrl
+Checksum: 8387347
+:0
+0:123
+:0
