@@ -74,12 +74,13 @@ public class VwNamespacedInstanceEncoder<R extends Enum<R> & RawNamespace, H ext
         if (binary) {
             sb.append(targetVariable > 0 ? "1" : "-1");
         } else {
-            Utils.append(sb, targetVariable);
+            DoubleFormatUtils.formatDoubleFast(targetVariable, 6, 6, sb);
         }
 
         if (targetToImportanceWeight != null) {
             sb.append(" ");
-            Utils.append(sb, targetToImportanceWeight.applyAsDouble(targetVariable));
+            var weight = targetToImportanceWeight.applyAsDouble(targetVariable);
+            DoubleFormatUtils.formatDoubleFast(weight, 6, 6, sb);
         }
 
         var features = transformedAndHashed.asEnumMap();
@@ -103,7 +104,7 @@ public class VwNamespacedInstanceEncoder<R extends Enum<R> & RawNamespace, H ext
                 double value = values[j];
                 sb.append(feature);
                 sb.append(':');
-                Utils.append(sb, value);
+                DoubleFormatUtils.formatDoubleFast(value, 6, 6, sb);
                 sb.append(" ");
             }
 
