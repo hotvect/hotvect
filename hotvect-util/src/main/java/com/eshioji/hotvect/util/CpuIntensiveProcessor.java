@@ -27,7 +27,23 @@ public class CpuIntensiveProcessor<X, Y> {
     private final ExecutorService loader;
     private final Function<X, Y> mappingFun;
 
-    public CpuIntensiveProcessor(MetricRegistry metricRegistry, Function<X, Y> mappingFun, int queueLength, int batchSize) {
+    public CpuIntensiveProcessor(MetricRegistry metricRegistry, Function<X, Y> mappingFun){
+        this(metricRegistry,
+                mappingFun,
+                (Runtime.getRuntime().availableProcessors() > 1 ? Runtime.getRuntime().availableProcessors() - 1 : 1),
+                (int)(Runtime.getRuntime().availableProcessors() * 1.5),
+                5000);
+    }
+
+    public CpuIntensiveProcessor(MetricRegistry metricRegistry, Function<X, Y> mappingFun, int queueLength, int batchSize){
+        this(metricRegistry,
+                mappingFun,
+                (Runtime.getRuntime().availableProcessors() > 1 ? Runtime.getRuntime().availableProcessors() - 1 : 1),
+                queueLength,
+                batchSize);
+    }
+
+    public CpuIntensiveProcessor(MetricRegistry metricRegistry, Function<X, Y> mappingFun, int numThreads, int queueLength, int batchSize) {
         this.batchTimer = metricRegistry.timer(MetricRegistry.name(CpuIntensiveProcessor.class, "batch"));
         this.recordMeter = metricRegistry.meter(MetricRegistry.name(CpuIntensiveProcessor.class, "record"));
         this.queueLength = queueLength;
@@ -37,8 +53,8 @@ public class CpuIntensiveProcessor<X, Y> {
                 new ThreadFactoryBuilder().setNameFormat(CpuIntensiveProcessor.class + "loader-%s").build());
 
         this.cpuIntensiveExecutor = new ThreadPoolExecutor(
-                Runtime.getRuntime().availableProcessors() - 1,
-                Runtime.getRuntime().availableProcessors() - 1,
+                numThreads,
+                numThreads,
                 1, TimeUnit.DAYS,
                 new LinkedBlockingQueue<>(queueLength),
                 new ThreadFactoryBuilder().setNameFormat(CpuIntensiveProcessor.class + "-%s").build(),

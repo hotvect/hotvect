@@ -25,7 +25,18 @@ public class CpuIntensiveFileTransformer extends VerboseRunnable {
     private final File dest;
     private final Function<String, String> transformation;
 
-    public CpuIntensiveFileTransformer(MetricRegistry metricRegistry, File source, File dest, Function<String, String> transformation, int queueSize, int batchSize) {
+    public CpuIntensiveFileTransformer(MetricRegistry metricRegistry, File source, File dest, Function<String, String> transformation) {
+        this(metricRegistry,
+                source,
+                dest,
+                transformation,
+                (Runtime.getRuntime().availableProcessors() > 1 ? Runtime.getRuntime().availableProcessors() - 1 : 1),
+                (int)(Runtime.getRuntime().availableProcessors() * 1.5),
+                5000);
+    }
+
+
+    public CpuIntensiveFileTransformer(MetricRegistry metricRegistry, File source, File dest, Function<String, String> transformation, int numThreads, int queueSize, int batchSize) {
         this.metricRegistry = metricRegistry;
         this.queueSize = queueSize;
         this.batchSize = batchSize;
