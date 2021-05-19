@@ -10,6 +10,9 @@ import org.slf4j.LoggerFactory;
 
 import java.io.*;
 import java.nio.file.Path;
+import java.util.Collection;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 import java.util.stream.Stream;
@@ -72,13 +75,18 @@ public class CpuIntensiveFileTransformer extends VerboseRunnable {
         }
     }
 
-    private void process(CpuIntensiveProcessor<String, String> processor, java.util.concurrent.BlockingQueue<java.util.concurrent.Future<java.util.Collection<String>>> queue, BufferedWriter writer) throws InterruptedException, java.util.concurrent.ExecutionException, IOException {
+    private void process(CpuIntensiveProcessor<String, String> processor, BlockingQueue<Future<Collection<String>>> queue, BufferedWriter writer) throws InterruptedException, java.util.concurrent.ExecutionException, IOException {
         while (true) {
             var hadFinished = processor.hasLoadingFinished();
             var batch = queue.poll(1, TimeUnit.SECONDS);
             if (batch != null) {
                 // will throw if batch was a failure
                 for (String line : batch.get()) {
+                    if(line == null){
+                        // Returning null is allowed
+                        // Line is skipped in this case
+                        continue;
+                    }
                     writer.append(line);
                     writer.newLine();
                 }
