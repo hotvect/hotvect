@@ -1,6 +1,7 @@
 package com.eshioji.hotvect.core.util;
 
 import com.eshioji.hotvect.api.data.DataRecord;
+import com.eshioji.hotvect.api.data.Namespace;
 import com.eshioji.hotvect.api.data.raw.RawNamespace;
 import com.eshioji.hotvect.api.data.raw.RawValue;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -18,7 +19,7 @@ import static java.util.stream.Collectors.toMap;
  * A {@link DataRecordEncoder} that encodes a {@link DataRecord} into a JSON String
  * @param <K>
  */
-public class JsonRecordEncoder<K extends Enum<K> & RawNamespace> implements DataRecordEncoder<K> {
+public class JsonRecordEncoder<K extends Enum<K> & Namespace> implements DataRecordEncoder<K> {
     private static final ObjectMapper OM = new ObjectMapper();
 
     private Map<String, ?> pojonize(DataRecord<?, RawValue> input) {
