@@ -27,13 +27,13 @@
 
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
 
-        <maven.compiler.source>14</maven.compiler.source>
-        <maven.compiler.target>14</maven.compiler.target>
+        <maven.compiler.source>16</maven.compiler.source>
+        <maven.compiler.target>16</maven.compiler.target>
 
-        <jackson.version>2.11.1</jackson.version>
+        <jackson.version>2.12.3</jackson.version>
         <logback.version>1.2.3</logback.version>
 
-        <jmh.version>1.23</jmh.version>
+        <jmh.version>1.31</jmh.version>
         <quicktheories.version>0.26</quicktheories.version>
 
         <maven-clean-plugin.version>3.1.0</maven-clean-plugin.version>
@@ -112,12 +112,12 @@
             <dependency>
                 <groupId>com.google.guava</groupId>
                 <artifactId>guava</artifactId>
-                <version>29.0-jre</version>
+                <version>30.1.1-jre</version>
             </dependency>
             <dependency>
                 <groupId>it.unimi.dsi</groupId>
                 <artifactId>fastutil</artifactId>
-                <version>8.3.1</version>
+                <version>8.5.4</version>
             </dependency>
 
             <!-- Jackson -->
@@ -136,7 +136,7 @@
             <dependency>
                 <groupId>io.dropwizard.metrics</groupId>
                 <artifactId>metrics-core</artifactId>
-                <version>4.1.9</version>
+                <version>4.2.0</version>
             </dependency>
             <dependency>
                 <groupId>ch.qos.logback</groupId>
@@ -164,14 +164,14 @@
             <dependency>
                 <groupId>info.picocli</groupId>
                 <artifactId>picocli</artifactId>
-                <version>4.2.0</version>
+                <version>4.6.1</version>
             </dependency>
 
             <!-- GZIP -->
             <dependency>
                 <groupId>org.anarres</groupId>
                 <artifactId>parallelgzip</artifactId>
-                <version>1.0.3</version>
+                <version>1.0.5</version>
                 <exclusions>
                     <exclusion>
                         <groupId>com.google.code.findbugs</groupId>
@@ -184,7 +184,7 @@
             <dependency>
                 <groupId>org.junit.jupiter</groupId>
                 <artifactId>junit-jupiter</artifactId>
-                <version>5.6.2</version>
+                <version>5.7.2</version>
             </dependency>
             <dependency>
                 <groupId>org.openjdk.jmh</groupId>
