@@ -17,8 +17,8 @@ import java.util.stream.Stream;
 
 import static com.google.common.base.Preconditions.checkState;
 
-public class CpuIntensiveProcessor<X, Y> {
-    private static final Logger LOGGER = LoggerFactory.getLogger(CpuIntensiveProcessor.class);
+public class CpuIntensiveMapper<X, Y> {
+    private static final Logger LOGGER = LoggerFactory.getLogger(CpuIntensiveMapper.class);
     private final Timer batchTimer;
     private final Meter recordMeter;
     private final int queueLength;
@@ -27,7 +27,7 @@ public class CpuIntensiveProcessor<X, Y> {
     private final ExecutorService loader;
     private final Function<X, Y> mappingFun;
 
-    public CpuIntensiveProcessor(MetricRegistry metricRegistry, Function<X, Y> mappingFun){
+    public CpuIntensiveMapper(MetricRegistry metricRegistry, Function<X, Y> mappingFun){
         this(metricRegistry,
                 mappingFun,
                 (Runtime.getRuntime().availableProcessors() > 1 ? Runtime.getRuntime().availableProcessors() - 1 : 1),
@@ -35,7 +35,7 @@ public class CpuIntensiveProcessor<X, Y> {
                 5000);
     }
 
-    public CpuIntensiveProcessor(MetricRegistry metricRegistry, Function<X, Y> mappingFun, int queueLength, int batchSize){
+    public CpuIntensiveMapper(MetricRegistry metricRegistry, Function<X, Y> mappingFun, int queueLength, int batchSize){
         this(metricRegistry,
                 mappingFun,
                 (Runtime.getRuntime().availableProcessors() > 1 ? Runtime.getRuntime().availableProcessors() - 1 : 1),
@@ -43,21 +43,21 @@ public class CpuIntensiveProcessor<X, Y> {
                 batchSize);
     }
 
-    public CpuIntensiveProcessor(MetricRegistry metricRegistry, Function<X, Y> mappingFun, int numThreads, int queueLength, int batchSize) {
-        this.batchTimer = metricRegistry.timer(MetricRegistry.name(CpuIntensiveProcessor.class, "batch"));
-        this.recordMeter = metricRegistry.meter(MetricRegistry.name(CpuIntensiveProcessor.class, "record"));
+    public CpuIntensiveMapper(MetricRegistry metricRegistry, Function<X, Y> mappingFun, int numThreads, int queueLength, int batchSize) {
+        this.batchTimer = metricRegistry.timer(MetricRegistry.name(CpuIntensiveMapper.class, "batch"));
+        this.recordMeter = metricRegistry.meter(MetricRegistry.name(CpuIntensiveMapper.class, "record"));
         this.queueLength = queueLength;
         this.batchSize = batchSize;
 
         this.loader = Executors.newSingleThreadExecutor(
-                new ThreadFactoryBuilder().setNameFormat(CpuIntensiveProcessor.class + "loader-%s").build());
+                new ThreadFactoryBuilder().setNameFormat(CpuIntensiveMapper.class + "loader-%s").build());
 
         this.cpuIntensiveExecutor = new ThreadPoolExecutor(
                 numThreads,
                 numThreads,
                 1, TimeUnit.DAYS,
                 new LinkedBlockingQueue<>(queueLength),
-                new ThreadFactoryBuilder().setNameFormat(CpuIntensiveProcessor.class + "-%s").build(),
+                new ThreadFactoryBuilder().setNameFormat(CpuIntensiveMapper.class + "-%s").build(),
                 new ThreadPoolExecutor.CallerRunsPolicy()
         );
         this.mappingFun = mappingFun;

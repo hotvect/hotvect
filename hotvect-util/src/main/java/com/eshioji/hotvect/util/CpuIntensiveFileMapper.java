@@ -19,8 +19,8 @@ import java.util.stream.Stream;
 import java.util.zip.GZIPInputStream;
 
 
-public class CpuIntensiveFileTransformer extends VerboseRunnable {
-    private static final Logger LOGGER = LoggerFactory.getLogger(CpuIntensiveFileTransformer.class);
+public class CpuIntensiveFileMapper extends VerboseRunnable {
+    private static final Logger LOGGER = LoggerFactory.getLogger(CpuIntensiveFileMapper.class);
     private final MetricRegistry metricRegistry;
     private final int queueSize;
     private final int batchSize;
@@ -28,7 +28,7 @@ public class CpuIntensiveFileTransformer extends VerboseRunnable {
     private final File dest;
     private final Function<String, String> transformation;
 
-    public CpuIntensiveFileTransformer(MetricRegistry metricRegistry, File source, File dest, Function<String, String> transformation) {
+    public CpuIntensiveFileMapper(MetricRegistry metricRegistry, File source, File dest, Function<String, String> transformation) {
         this(metricRegistry,
                 source,
                 dest,
@@ -39,7 +39,7 @@ public class CpuIntensiveFileTransformer extends VerboseRunnable {
     }
 
 
-    public CpuIntensiveFileTransformer(MetricRegistry metricRegistry, File source, File dest, Function<String, String> transformation, int numThreads, int queueSize, int batchSize) {
+    public CpuIntensiveFileMapper(MetricRegistry metricRegistry, File source, File dest, Function<String, String> transformation, int numThreads, int queueSize, int batchSize) {
         this.metricRegistry = metricRegistry;
         this.queueSize = queueSize;
         this.batchSize = batchSize;
@@ -50,11 +50,11 @@ public class CpuIntensiveFileTransformer extends VerboseRunnable {
 
     @Override
     protected void doRun() {
-        var processor = new CpuIntensiveProcessor<>(metricRegistry, transformation, queueSize, batchSize);
+        var processor = new CpuIntensiveMapper<>(metricRegistry, transformation, queueSize, batchSize);
         try (var source = readData(this.source.toPath())) {
             var queue = processor.start(source);
             metricRegistry.register(
-                    MetricRegistry.name(CpuIntensiveFileTransformer.class, "queue", "size"),
+                    MetricRegistry.name(CpuIntensiveFileMapper.class, "queue", "size"),
                     (Gauge<Integer>) queue::size);
 
             var ext = Files.getFileExtension(dest.toPath().getFileName().toString());
@@ -75,7 +75,7 @@ public class CpuIntensiveFileTransformer extends VerboseRunnable {
         }
     }
 
-    private void process(CpuIntensiveProcessor<String, String> processor, BlockingQueue<Future<Collection<String>>> queue, BufferedWriter writer) throws InterruptedException, java.util.concurrent.ExecutionException, IOException {
+    private void process(CpuIntensiveMapper<String, String> processor, BlockingQueue<Future<Collection<String>>> queue, BufferedWriter writer) throws InterruptedException, java.util.concurrent.ExecutionException, IOException {
         while (true) {
             var hadFinished = processor.hasLoadingFinished();
             var batch = queue.poll(1, TimeUnit.SECONDS);

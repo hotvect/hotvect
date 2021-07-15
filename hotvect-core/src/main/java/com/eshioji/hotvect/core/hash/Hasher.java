@@ -1,7 +1,7 @@
 package com.eshioji.hotvect.core.hash;
 
 import com.eshioji.hotvect.api.data.DataRecord;
-import com.eshioji.hotvect.api.data.hashed.HashedNamespace;
+import com.eshioji.hotvect.api.data.Namespace;
 import com.eshioji.hotvect.api.data.hashed.HashedValue;
 import com.eshioji.hotvect.api.data.raw.RawValue;
 
@@ -11,13 +11,13 @@ import java.util.function.Function;
 /**
  * A function that converts all {@link RawValue} into {@link HashedValue} by hashing any strings
  */
-public class Hasher<H extends Enum<H> & HashedNamespace> implements Function<DataRecord<H, RawValue>, DataRecord<H, HashedValue>> {
-    private final Class<H> parseKey;
-    private final H[] parseKeys;
+public class Hasher<H extends Enum<H> & Namespace> implements Function<DataRecord<H, RawValue>, DataRecord<H, HashedValue>> {
+    private final Class<H> namespace;
+    private final H[] namespaces;
 
     public Hasher(Class<H> hashedNamespace) {
-        this.parseKey = hashedNamespace;
-        this.parseKeys = hashedNamespace.getEnumConstants();
+        this.namespace = hashedNamespace;
+        this.namespaces = hashedNamespace.getEnumConstants();
     }
 
     private static HashedValue hash(RawValue rawDataElementValue) {
@@ -62,8 +62,8 @@ public class Hasher<H extends Enum<H> & HashedNamespace> implements Function<Dat
      */
     @Override
     public DataRecord<H, HashedValue> apply(DataRecord<H, RawValue> input) {
-        DataRecord<H, HashedValue> ret = new DataRecord<>(parseKey);
-        for (H h : parseKeys) {
+        DataRecord<H, HashedValue> ret = new DataRecord<>(namespace);
+        for (H h : namespaces) {
             final RawValue toHash = input.get(h);
             if (toHash == null) {
                 continue;

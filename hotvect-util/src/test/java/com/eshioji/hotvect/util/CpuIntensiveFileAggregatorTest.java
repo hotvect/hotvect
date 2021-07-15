@@ -1,21 +1,26 @@
 package com.eshioji.hotvect.util;
 
 import com.codahale.metrics.MetricRegistry;
-import com.eshioji.hotvect.core.util.Pair;
-import com.google.common.hash.Hashing;
+import com.google.common.hash.BloomFilter;
+import com.google.common.hash.Funnels;
 import org.junit.jupiter.api.Test;
 
-import java.io.*;
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.IOException;
+import java.io.InputStreamReader;
 import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
-import java.util.function.Function;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.quicktheories.QuickTheory.qt;
+import static org.quicktheories.generators.SourceDSL.strings;
 
-class CpuIntensiveFileTransformerTest {
-
+@SuppressWarnings("UnstableApiUsage")
+class CpuIntensiveFileAggregatorTest {
     @Test
     void normalFile() throws Exception {
         var source = getAsFile("example.jsons");
@@ -28,26 +33,31 @@ class CpuIntensiveFileTransformerTest {
         test(source);
     }
 
-    private void test(File source) throws IOException {
+    private void test(File source) throws Exception {
         var mr = new MetricRegistry();
 
-        Function<String, String> fun = s ->
-                String.valueOf(Hashing.sha512().hashString(s, StandardCharsets.UTF_8).asInt());
-        var dest = getTempFile();
-        try {
-            var subject = new CpuIntensiveFileTransformer(mr, source, dest, fun);
-            subject.run();
-            try (var original = getAsReader("example.jsons");
-                 var processed = getAsReader(dest)) {
-                StreamUtils.zip(original.lines(), processed.lines(), (original1, actual) -> {
-                    var expected = Hashing.sha512().hashString(original1, StandardCharsets.UTF_8).asInt();
-                    var actualOut = Integer.valueOf(actual);
-                    return Pair.of(expected, actualOut);
-                }).forEach(p -> assertEquals(p._1, p._2));
-            }
-        } finally {
-            dest.delete();
-        }
+        final BloomFilter<String> firstBloomFilter = BloomFilter.create(
+                Funnels.stringFunnel(StandardCharsets.UTF_8),
+                1024 * 1024 * 100,
+                0.001
+        );
+
+        var subject = new CpuIntensiveFileAggregator<>(mr,
+                source,
+                () -> firstBloomFilter,
+                (acc, x) -> {
+                    acc.put(x);
+                    return acc;
+                }
+
+        );
+        var aggregated = subject.call();
+
+        qt().forAll(strings().ascii().ofLength(64)).checkAssert(
+                s -> assertFalse(aggregated.test(s))
+        );
+
+        assertEquals(firstBloomFilter, aggregated);
     }
 
     private File getTempFile() {
@@ -58,10 +68,10 @@ class CpuIntensiveFileTransformerTest {
         }
     }
 
-    private BufferedReader getAsReader(File file) {
+    private byte[] getAsByteArray(File file) {
         try {
-            return new BufferedReader(new InputStreamReader(new FileInputStream(file), StandardCharsets.UTF_8));
-        } catch (FileNotFoundException e) {
+            return Files.readAllBytes(file.toPath());
+        } catch (IOException e) {
             throw new RuntimeException(e);
         }
     }

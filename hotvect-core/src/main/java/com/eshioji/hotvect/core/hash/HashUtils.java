@@ -9,11 +9,14 @@ import com.google.common.primitives.Ints;
 import it.unimi.dsi.fastutil.ints.Int2DoubleMap;
 import it.unimi.dsi.fastutil.ints.IntCollection;
 
+import java.util.Arrays;
+
 /**
  * Hashing related utility codes
  */
 public class HashUtils {
-    private static final int MULTIPLIER = 16777619;
+    private static final int FNV1_32_INIT = 0x811c9dc5;
+    private static final int FNV1_PRIME_32 = 16777619;
 
     // Code adapted from Google Guava, which is licenced under Apache License 2.0
     // ---- start ---
@@ -90,7 +93,7 @@ public class HashUtils {
             HashedValue value = record.get(toInteract[0]);
             if (value != null) {
                 for (int el : value.getCategoricals()) {
-                    int hash = (featureDefinition.getFeatureNamespace() * MULTIPLIER) ^ HashUtils.hashInt(el);
+                    int hash = (featureDefinition.getFeatureNamespace() * FNV1_PRIME_32) ^ HashUtils.hashInt(el);
                     acc.add(hash & mask);
                 }
             }
@@ -125,7 +128,7 @@ public class HashUtils {
                 int[] set = values.get(h).getCategoricals();
                 int el = set[(i / j) % set.length];
                 n ^= HashUtils.hashInt(el);
-                n *= MULTIPLIER;
+                n *= FNV1_PRIME_32;
                 j *= set.length;
             }
             int ret = n & mask;
@@ -135,6 +138,15 @@ public class HashUtils {
 
 
     public static <C extends Enum<C> & HashedNamespace> int namespace(int mask, FeatureDefinition<C> fd, int featureName) {
-        return ((fd.getFeatureNamespace() * MULTIPLIER) ^ HashUtils.hashInt(featureName)) & mask;
+        return ((fd.getFeatureNamespace() * FNV1_PRIME_32) ^ HashUtils.hashInt(featureName)) & mask;
+    }
+
+    public static int hashInts(int... ints){
+        var ret = FNV1_32_INIT;
+        for (int i : ints) {
+            ret ^= i;
+            ret *= FNV1_PRIME_32;
+        }
+        return ret;
     }
 }

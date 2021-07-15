@@ -12,14 +12,14 @@ import java.util.stream.IntStream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
-class CpuIntensiveProcessorTest {
+class CpuIntensiveMapperTest {
 
     @Test
     void processInOrder() throws Exception{
         final var upperRange = 1_000_000;
         var mr = new MetricRegistry();
         Function<Integer, Integer> fun = x -> Hashing.sha512().hashInt(x).asInt();
-        var subject = new CpuIntensiveProcessor<>(mr, fun, 300, 1000);
+        var subject = new CpuIntensiveMapper<>(mr, fun, 300, 1000);
         var queue = subject.start(IntStream.range(0, upperRange).boxed());
         var actual = new ArrayList<Integer>();
         while (true) {
