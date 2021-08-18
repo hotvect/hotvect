@@ -1,8 +1,8 @@
 package com.eshioji.hotvect.core.transform;
 
 import com.eshioji.hotvect.api.data.DataRecord;
-import com.eshioji.hotvect.api.data.DataValue;
 import com.eshioji.hotvect.api.data.Namespace;
+import com.eshioji.hotvect.api.data.raw.RawValue;
 import com.eshioji.hotvect.core.util.AutoMapper;
 import com.google.common.collect.Sets;
 
@@ -20,12 +20,11 @@ import static java.util.stream.Collectors.toSet;
  *
  * @param <IN>
  * @param <OUT>
- * @param <V>
  */
-public class PassThroughTransformer<IN extends Enum<IN> & Namespace, OUT extends Enum<OUT> & Namespace, V extends DataValue>
-        implements Transformer<IN, OUT, V> {
-    private final AutoMapper<IN, OUT, V> autoMapper;
-    private final DataRecord<OUT, Transformation<IN, V>> transformations;
+public class PassThroughTransformer<IN extends Enum<IN> & Namespace, OUT extends Enum<OUT> & Namespace>
+        implements Transformer<IN, OUT, RawValue> {
+    private final AutoMapper<IN, OUT, RawValue> autoMapper;
+    private final DataRecord<OUT, Transformation<IN, RawValue>> transformations;
     private final OUT[] transformKeys;
 
     public PassThroughTransformer(Class<IN> inKey, Class<OUT> outKey) {
@@ -44,7 +43,7 @@ public class PassThroughTransformer<IN extends Enum<IN> & Namespace, OUT extends
          * @param transformations
          */
     @SuppressWarnings("unchecked")
-    public PassThroughTransformer(Class<IN> inKey, Class<OUT> outKey, EnumMap<OUT, Transformation<IN, V>> transformations) {
+    public PassThroughTransformer(Class<IN> inKey, Class<OUT> outKey, EnumMap<OUT, Transformation<IN, RawValue>> transformations) {
         this.autoMapper = new AutoMapper<>(inKey, outKey);
         this.transformations = new DataRecord<>(outKey);
         transformations.forEach(this.transformations::put);
@@ -77,11 +76,11 @@ public class PassThroughTransformer<IN extends Enum<IN> & Namespace, OUT extends
      * @return the transformed record
      */
     @Override
-    public DataRecord<OUT, V> apply(DataRecord<IN, V> toTransform) {
-        DataRecord<OUT, V> mapped = autoMapper.apply(toTransform);
+    public DataRecord<OUT, RawValue> apply(DataRecord<IN, RawValue> toTransform) {
+        DataRecord<OUT, RawValue> mapped = autoMapper.apply(toTransform);
         for (OUT p : transformKeys) {
-            Transformation<IN, V> transformation = transformations.get(p);
-            V parsed = transformation.apply(toTransform);
+            Transformation<IN, RawValue> transformation = transformations.get(p);
+            RawValue parsed = transformation.apply(toTransform);
             if (parsed != null) {
                 mapped.put(p, parsed);
             }

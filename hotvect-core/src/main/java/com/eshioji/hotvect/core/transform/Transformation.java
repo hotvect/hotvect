@@ -2,8 +2,8 @@ package com.eshioji.hotvect.core.transform;
 
 
 import com.eshioji.hotvect.api.data.DataRecord;
-import com.eshioji.hotvect.api.data.DataValue;
 import com.eshioji.hotvect.api.data.Namespace;
+import com.eshioji.hotvect.api.data.raw.RawValue;
 
 import java.util.function.Function;
 
@@ -12,8 +12,8 @@ import java.util.function.Function;
  * @param <IN>
  * @param <V>
  */
-public interface Transformation<IN extends Enum<IN> & Namespace, V extends DataValue>
-        extends Function<DataRecord<IN, V>, V> {
+public interface Transformation<IN extends Enum<IN> & Namespace, V>
+        extends Function<DataRecord<IN, V>, RawValue> {
 
     /**
      * Generates a new value using the specified record
@@ -21,5 +21,5 @@ public interface Transformation<IN extends Enum<IN> & Namespace, V extends DataV
      * @return a single value
      */
     @Override
-    V apply(DataRecord<IN, V> toTransform);
+    RawValue apply(DataRecord<IN, V> toTransform);
 }

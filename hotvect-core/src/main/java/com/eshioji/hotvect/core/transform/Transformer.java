@@ -1,8 +1,8 @@
 package com.eshioji.hotvect.core.transform;
 
 import com.eshioji.hotvect.api.data.DataRecord;
-import com.eshioji.hotvect.api.data.DataValue;
 import com.eshioji.hotvect.api.data.Namespace;
+import com.eshioji.hotvect.api.data.raw.RawValue;
 
 import java.util.function.Function;
 
@@ -12,8 +12,8 @@ import java.util.function.Function;
  * @param <OUT>
  * @param <V>
  */
-public interface Transformer<IN extends Enum<IN> & Namespace, OUT extends Enum<OUT> & Namespace, V extends DataValue>
-        extends Function<DataRecord<IN, V>, DataRecord<OUT, V>> {
+public interface Transformer<IN extends Enum<IN> & Namespace, OUT extends Enum<OUT> & Namespace, V>
+        extends Function<DataRecord<IN, V>, DataRecord<OUT, RawValue>> {
 
     /**
      * Transform the given record
@@ -21,5 +21,5 @@ public interface Transformer<IN extends Enum<IN> & Namespace, OUT extends Enum<O
      * @return transformed record
      */
     @Override
-    DataRecord<OUT, V> apply(DataRecord<IN, V> toTransform);
+    DataRecord<OUT, RawValue> apply(DataRecord<IN, V> toTransform);
 }

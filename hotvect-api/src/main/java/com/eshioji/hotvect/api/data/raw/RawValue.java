@@ -1,6 +1,5 @@
 package com.eshioji.hotvect.api.data.raw;
 
-import com.eshioji.hotvect.api.data.DataValue;
 import com.eshioji.hotvect.api.data.SparseVector;
 import com.eshioji.hotvect.api.data.hashed.HashedValue;
 
@@ -13,7 +12,7 @@ import static com.google.common.base.Preconditions.*;
 /**
  * Containers for feature values that may need hashing
  */
-public class RawValue implements DataValue {
+public class RawValue {
     private static final EnumSet<RawValueType> ALLOWS_CATEGORICALS = EnumSet.of(
             RawValueType.SINGLE_CATEGORICAL,
             RawValueType.CATEGORICALS,
