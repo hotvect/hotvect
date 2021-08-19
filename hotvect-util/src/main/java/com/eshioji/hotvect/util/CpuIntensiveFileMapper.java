@@ -58,7 +58,7 @@ public class CpuIntensiveFileMapper extends VerboseRunnable {
                     (Gauge<Integer>) queue::size);
 
             var ext = Files.getFileExtension(dest.toPath().getFileName().toString());
-            var isDestGzip = "gz".equals(ext.toLowerCase());
+            var isDestGzip = "gz".equalsIgnoreCase(ext);
 
             try (var file = new FileOutputStream(dest);
                  var sink = isDestGzip ? new ParallelGZIPOutputStream(file, 2) : file;
