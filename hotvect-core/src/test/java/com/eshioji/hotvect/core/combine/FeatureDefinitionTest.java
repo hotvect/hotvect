@@ -1,6 +1,6 @@
 package com.eshioji.hotvect.core.combine;
 
-import com.eshioji.hotvect.core.TestHashedNamespace;
+import com.eshioji.hotvect.core.TestFeatureNamespace;
 import com.google.common.hash.Hashing;
 import org.junit.jupiter.api.Test;
 
@@ -14,26 +14,26 @@ class FeatureDefinitionTest {
 
     @Test
     void getComponents() {
-        var subject = new FeatureDefinition<>(EnumSet.of(TestHashedNamespace.single_categorical_1));
-        TestHashedNamespace[] expected = {TestHashedNamespace.single_categorical_1};
+        var subject = new FeatureDefinition<>(EnumSet.of(TestFeatureNamespace.single_categorical_1));
+        TestFeatureNamespace[] expected = {TestFeatureNamespace.single_categorical_1};
         assertArrayEquals(expected, subject.getComponents());
     }
 
     @Test
     void featureCannotBeEmpty() {
-        assertThrows(IllegalArgumentException.class, () -> new FeatureDefinition<>(EnumSet.noneOf(TestHashedNamespace.class)));
+        assertThrows(IllegalArgumentException.class, () -> new FeatureDefinition<>(EnumSet.noneOf(TestFeatureNamespace.class)));
     }
 
     @Test
     void numericalMustBeSingleComponented() {
-        assertThrows(IllegalArgumentException.class, () -> new FeatureDefinition<>(EnumSet.of(TestHashedNamespace.single_numerical_1, TestHashedNamespace.single_string_1)));
+        assertThrows(IllegalArgumentException.class, () -> new FeatureDefinition<>(EnumSet.of(TestFeatureNamespace.single_numerical_1, TestFeatureNamespace.single_string_1)));
     }
 
     @Test
     void equality() {
-        var fd1 = new FeatureDefinition<>(EnumSet.of(TestHashedNamespace.single_categorical_1, TestHashedNamespace.strings_1));
-        var fd2 = new FeatureDefinition<>(EnumSet.of(TestHashedNamespace.strings_1, TestHashedNamespace.single_categorical_1));
-        var fd3 = new FeatureDefinition<>(EnumSet.of(TestHashedNamespace.strings_1));
+        var fd1 = new FeatureDefinition<>(EnumSet.of(TestFeatureNamespace.single_categorical_1, TestFeatureNamespace.strings_1));
+        var fd2 = new FeatureDefinition<>(EnumSet.of(TestFeatureNamespace.strings_1, TestFeatureNamespace.single_categorical_1));
+        var fd3 = new FeatureDefinition<>(EnumSet.of(TestFeatureNamespace.strings_1));
 
         assertEquals(fd1, fd2);
         assertEquals(fd1.hashCode(), fd2.hashCode());
@@ -43,18 +43,18 @@ class FeatureDefinitionTest {
 
     @Test
     void getName() {
-        var subject = new FeatureDefinition<>(EnumSet.of(TestHashedNamespace.single_categorical_1, TestHashedNamespace.strings_1));
+        var subject = new FeatureDefinition<>(EnumSet.of(TestFeatureNamespace.single_categorical_1, TestFeatureNamespace.strings_1));
         assertEquals("single_categorical_1^strings_1", subject.getName());
     }
 
     @Test
     void getFeatureNamespace() {
-        qt().forAll(enumValues(TestHashedNamespace.class)).checkAssert(x -> {
+        qt().forAll(enumValues(TestFeatureNamespace.class)).checkAssert(x -> {
             var subject = new FeatureDefinition<>(EnumSet.of(x));
             assertEquals(subject.getFeatureNamespace(), Hashing.murmur3_32().hashUnencodedChars(subject.getName()).asInt());
 
         });
-        var subject = new FeatureDefinition<>(EnumSet.of(TestHashedNamespace.single_categorical_1, TestHashedNamespace.strings_1));
+        var subject = new FeatureDefinition<>(EnumSet.of(TestFeatureNamespace.single_categorical_1, TestFeatureNamespace.strings_1));
         assertEquals(Hashing.murmur3_32().hashUnencodedChars("single_categorical_1^strings_1").asInt(), subject.getFeatureNamespace());
     }
 

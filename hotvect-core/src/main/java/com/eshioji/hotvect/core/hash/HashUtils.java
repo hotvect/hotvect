@@ -1,15 +1,12 @@
 package com.eshioji.hotvect.core.hash;
 
 import com.eshioji.hotvect.api.data.DataRecord;
-import com.eshioji.hotvect.api.data.hashed.HashedNamespace;
+import com.eshioji.hotvect.api.data.FeatureNamespace;
 import com.eshioji.hotvect.api.data.hashed.HashedValue;
 import com.eshioji.hotvect.core.combine.FeatureDefinition;
 import com.google.common.primitives.Chars;
 import com.google.common.primitives.Ints;
-import it.unimi.dsi.fastutil.ints.Int2DoubleMap;
 import it.unimi.dsi.fastutil.ints.IntCollection;
-
-import java.util.Arrays;
 
 /**
  * Hashing related utility codes
@@ -81,12 +78,12 @@ public class HashUtils {
      * @param featureDefinition Definition of features, which may include interaction features
      * @param acc Accumulator to which feaure hashes will be added
      * @param record Input hashed {@link DataRecord}
-     * @param <H> the {@link HashedNamespace} to be used
+     * @param <H> the {@link FeatureNamespace} to be used
      */
-    public static <H extends Enum<H> & HashedNamespace> void construct(int mask,
-                                                                       FeatureDefinition<H> featureDefinition,
-                                                                       IntCollection acc,
-                                                                       DataRecord<H, HashedValue> record) {
+    public static <H extends Enum<H> & FeatureNamespace> void construct(int mask,
+                                                                        FeatureDefinition<H> featureDefinition,
+                                                                        IntCollection acc,
+                                                                        DataRecord<H, HashedValue> record) {
         H[] toInteract = featureDefinition.getComponents();
         if (toInteract.length == 1) {
             // There is only one component
@@ -103,10 +100,10 @@ public class HashUtils {
         }
     }
 
-    protected static <H extends Enum<H> & HashedNamespace> void interact(int mask,
-                                                                         FeatureDefinition<H> fd,
-                                                                         IntCollection acc,
-                                                                         DataRecord<H, HashedValue> values) {
+    protected static <H extends Enum<H> & FeatureNamespace> void interact(int mask,
+                                                                          FeatureDefinition<H> fd,
+                                                                          IntCollection acc,
+                                                                          DataRecord<H, HashedValue> values) {
         H[] toInteract = fd.getComponents();
 
         // First, we calculate how many results we would be getting
@@ -137,7 +134,7 @@ public class HashUtils {
     }
 
 
-    public static <C extends Enum<C> & HashedNamespace> int namespace(int mask, FeatureDefinition<C> fd, int featureName) {
+    public static <C extends Enum<C> & FeatureNamespace> int namespace(int mask, FeatureDefinition<C> fd, int featureName) {
         return ((fd.getFeatureNamespace() * FNV1_PRIME_32) ^ HashUtils.hashInt(featureName)) & mask;
     }
 

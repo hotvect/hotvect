@@ -4,7 +4,7 @@ import com.eshioji.hotvect.api.data.DataRecord;
 import com.eshioji.hotvect.api.data.SparseVector;
 import com.eshioji.hotvect.api.data.hashed.HashedValue;
 import com.eshioji.hotvect.api.data.raw.RawValue;
-import com.eshioji.hotvect.core.TestHashedNamespace;
+import com.eshioji.hotvect.core.TestFeatureNamespace;
 import com.eshioji.hotvect.core.TestRawNamespace;
 import com.eshioji.hotvect.core.combine.Combiner;
 import com.eshioji.hotvect.core.hash.Hasher;
@@ -19,18 +19,18 @@ class VectorizerImplTest {
 
     @Test
     void apply() {
-        var mapper = new AutoMapper<TestRawNamespace, TestHashedNamespace, RawValue>(TestRawNamespace.class, TestHashedNamespace.class);
+        var mapper = new AutoMapper<TestRawNamespace, TestFeatureNamespace, RawValue>(TestRawNamespace.class, TestFeatureNamespace.class);
         DataRecord<TestRawNamespace, RawValue> initialInput = new DataRecord<>(TestRawNamespace.class);
 
-        Transformer<DataRecord<TestRawNamespace, RawValue>, TestHashedNamespace> transformer = record -> {
+        Transformer<DataRecord<TestRawNamespace, RawValue>, TestFeatureNamespace> transformer = record -> {
             assertSame(initialInput, record);
             return mapper.apply(initialInput);
         };
 
-        var hasher = new Hasher<>(TestHashedNamespace.class);
-        var combiner = new Combiner<TestHashedNamespace>(){
+        var hasher = new Hasher<>(TestFeatureNamespace.class);
+        var combiner = new Combiner<TestFeatureNamespace>(){
             @Override
-            public SparseVector apply(DataRecord<TestHashedNamespace, HashedValue> toCombine) {
+            public SparseVector apply(DataRecord<TestFeatureNamespace, HashedValue> toCombine) {
                 assertEquals(hasher.apply(mapper.apply(initialInput)), toCombine);
                 return new SparseVector(new int[]{1});
             }

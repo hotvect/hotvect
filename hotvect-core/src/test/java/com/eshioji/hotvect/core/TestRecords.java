@@ -21,13 +21,13 @@ public enum TestRecords {
         return new JsonRecordDecoder<>(TestRawNamespace.class).apply(testInputWithAllValueTypes());
     }
 
-    public static DataRecord<TestHashedNamespace, RawValue> mapped(DataRecord<TestRawNamespace, RawValue> toMap){
-        AutoMapper<TestRawNamespace, TestHashedNamespace, RawValue> automapper = new AutoMapper<>(TestRawNamespace.class, TestHashedNamespace.class);
+    public static DataRecord<TestFeatureNamespace, RawValue> mapped(DataRecord<TestRawNamespace, RawValue> toMap){
+        AutoMapper<TestRawNamespace, TestFeatureNamespace, RawValue> automapper = new AutoMapper<>(TestRawNamespace.class, TestFeatureNamespace.class);
         return automapper.apply(toMap);
     }
 
-    public static TestHashedNamespace mapped(TestRawNamespace rns){
-        return TestHashedNamespace.valueOf(rns.name());
+    public static TestFeatureNamespace mapped(TestRawNamespace rns){
+        return TestFeatureNamespace.valueOf(rns.name());
     }
     public static String testInputWithAllValueTypes() {
         try {

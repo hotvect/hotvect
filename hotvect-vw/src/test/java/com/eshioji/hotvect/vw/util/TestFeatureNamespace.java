@@ -1,9 +1,9 @@
-package com.eshioji.hotvect.core;
+package com.eshioji.hotvect.vw.util;
 
-import com.eshioji.hotvect.api.data.hashed.HashedNamespace;
+import com.eshioji.hotvect.api.data.FeatureNamespace;
 import com.eshioji.hotvect.api.data.hashed.HashedValueType;
 
-public enum TestHashedNamespace implements HashedNamespace {
+public enum TestFeatureNamespace implements FeatureNamespace {
     single_categorical_1(HashedValueType.CATEGORICAL),
     categoricals_1(HashedValueType.CATEGORICAL),
     single_numerical_1(HashedValueType.NUMERICAL),
@@ -15,7 +15,7 @@ public enum TestHashedNamespace implements HashedNamespace {
 
     private final HashedValueType hashedValueType;
 
-    TestHashedNamespace(HashedValueType hashedValueType) {
+    TestFeatureNamespace(HashedValueType hashedValueType) {
         this.hashedValueType = hashedValueType;
     }
 

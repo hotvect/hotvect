@@ -2,7 +2,7 @@ package com.eshioji.hotvect.core.combine;
 
 import com.eshioji.hotvect.api.data.DataRecord;
 import com.eshioji.hotvect.api.data.hashed.HashedValue;
-import com.eshioji.hotvect.core.TestHashedNamespace;
+import com.eshioji.hotvect.core.TestFeatureNamespace;
 import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
 
@@ -11,14 +11,14 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 
-import static com.eshioji.hotvect.core.TestHashedNamespace.*;
+import static com.eshioji.hotvect.core.TestFeatureNamespace.*;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 class InteractionCombinerTest {
 
     @Test
     void apply() {
-        Set<FeatureDefinition<TestHashedNamespace>> fds = ImmutableSet.of(
+        Set<FeatureDefinition<TestFeatureNamespace>> fds = ImmutableSet.of(
                 new FeatureDefinition<>(EnumSet.of(single_numerical_1)),
                 new FeatureDefinition<>(EnumSet.of(single_categorical_1)),
                 new FeatureDefinition<>(EnumSet.of(categorical_id_to_numericals_1)),
@@ -28,7 +28,7 @@ class InteractionCombinerTest {
         var subject = new InteractionCombiner<>(32, fds);
 
 
-        var testData = new DataRecord<TestHashedNamespace, HashedValue>(TestHashedNamespace.class);
+        var testData = new DataRecord<TestFeatureNamespace, HashedValue>(TestFeatureNamespace.class);
         testData.put(single_numerical_1, HashedValue.singleNumerical(2.0));
         testData.put(single_categorical_1, HashedValue.singleCategorical(1));
         testData.put(categorical_id_to_numericals_1, HashedValue.numericals(new int[]{1, 2, 3}, new double[]{6.0, 7.0, 8.0}));

@@ -2,7 +2,7 @@ package com.eshioji.hotvect.core.combine;
 
 
 import com.eshioji.hotvect.api.data.ValueType;
-import com.eshioji.hotvect.api.data.hashed.HashedNamespace;
+import com.eshioji.hotvect.api.data.FeatureNamespace;
 import com.eshioji.hotvect.api.data.hashed.HashedValueType;
 import com.eshioji.hotvect.core.hash.HashUtils;
 import com.google.common.base.Joiner;
@@ -15,7 +15,7 @@ import java.util.EnumSet;
 import static com.google.common.base.Preconditions.checkArgument;
 
 
-public class FeatureDefinition<H extends Enum<H> & HashedNamespace> implements Serializable {
+public class FeatureDefinition<H extends Enum<H> & FeatureNamespace> implements Serializable {
     private final ValueType valueType;
     private final EnumSet<H> components;
     private final H[] cachedComponents;

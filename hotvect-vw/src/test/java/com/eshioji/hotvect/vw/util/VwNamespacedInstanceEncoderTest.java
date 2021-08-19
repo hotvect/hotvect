@@ -13,8 +13,8 @@ import java.util.function.DoubleUnaryOperator;
 import static org.junit.jupiter.api.Assertions.*;
 
 class VwNamespacedInstanceEncoderTest {
-    private static final Transformer<DataRecord<TestRawNamespace, RawValue>, TestHashedNamespace> TRANSFORMER =
-            new PassThroughTransformer<>(TestRawNamespace.class, TestHashedNamespace.class);
+    private static final Transformer<DataRecord<TestRawNamespace, RawValue>, TestFeatureNamespace> TRANSFORMER =
+            new PassThroughTransformer<>(TestRawNamespace.class, TestFeatureNamespace.class);
 
 
     @Test
@@ -53,8 +53,8 @@ class VwNamespacedInstanceEncoderTest {
 
 
     private void testEncoding(Example<DataRecord<TestRawNamespace, RawValue>> testRecord, String expected, boolean binary, DoubleUnaryOperator weightFun) {
-        VwNamespacedInstanceEncoder<DataRecord<TestRawNamespace, RawValue>, TestHashedNamespace> subject;
-        subject = new VwNamespacedInstanceEncoder<>(TRANSFORMER, TestHashedNamespace.class, binary, weightFun);
+        VwNamespacedInstanceEncoder<DataRecord<TestRawNamespace, RawValue>, TestFeatureNamespace> subject;
+        subject = new VwNamespacedInstanceEncoder<>(TRANSFORMER, TestFeatureNamespace.class, binary, weightFun);
         var encoded = subject.apply(testRecord);
         assertEquals(expected, encoded);
     }}

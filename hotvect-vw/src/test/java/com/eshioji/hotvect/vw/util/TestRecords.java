@@ -4,7 +4,6 @@ import com.eshioji.hotvect.api.data.DataRecord;
 import com.eshioji.hotvect.api.data.raw.Example;
 import com.eshioji.hotvect.api.data.raw.RawValue;
 import com.eshioji.hotvect.core.util.AutoMapper;
-import com.eshioji.hotvect.core.util.DataRecordEncoder;
 import com.eshioji.hotvect.core.util.JsonRecordDecoder;
 import com.google.common.base.Charsets;
 import com.google.common.io.Resources;
@@ -23,13 +22,13 @@ public enum TestRecords {
         return new Example<>(new JsonRecordDecoder<>(TestRawNamespace.class).apply(testInputWithAllValueTypes()), 1.0);
     }
 
-    public static DataRecord<TestHashedNamespace, RawValue> mapped(DataRecord<TestRawNamespace, RawValue> toMap) {
-        AutoMapper<TestRawNamespace, TestHashedNamespace, RawValue> automapper = new AutoMapper<>(TestRawNamespace.class, TestHashedNamespace.class);
+    public static DataRecord<TestFeatureNamespace, RawValue> mapped(DataRecord<TestRawNamespace, RawValue> toMap) {
+        AutoMapper<TestRawNamespace, TestFeatureNamespace, RawValue> automapper = new AutoMapper<>(TestRawNamespace.class, TestFeatureNamespace.class);
         return automapper.apply(toMap);
     }
 
-    public static TestHashedNamespace mapped(TestRawNamespace rns) {
-        return TestHashedNamespace.valueOf(rns.name());
+    public static TestFeatureNamespace mapped(TestRawNamespace rns) {
+        return TestFeatureNamespace.valueOf(rns.name());
     }
 
     public static String testInputWithAllValueTypes() {

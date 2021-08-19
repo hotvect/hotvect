@@ -2,7 +2,7 @@ package com.eshioji.hotvect.core.hash;
 
 import com.eshioji.hotvect.api.data.DataRecord;
 import com.eshioji.hotvect.api.data.hashed.HashedValue;
-import com.eshioji.hotvect.core.TestHashedNamespace;
+import com.eshioji.hotvect.core.TestFeatureNamespace;
 import com.eshioji.hotvect.core.combine.FeatureDefinition;
 import com.eshioji.hotvect.testutils.TestUtils;
 import com.google.common.hash.Hashing;
@@ -50,9 +50,9 @@ class HashUtilsTest {
 
     @Test
     void emptyHashInteractions() {
-        var fd = new FeatureDefinition<>(EnumSet.of(TestHashedNamespace.single_categorical_1));
+        var fd = new FeatureDefinition<>(EnumSet.of(TestFeatureNamespace.single_categorical_1));
         IntSet acc = new IntOpenHashSet();
-        var record = new DataRecord<TestHashedNamespace, HashedValue>(TestHashedNamespace.class);
+        var record = new DataRecord<TestFeatureNamespace, HashedValue>(TestFeatureNamespace.class);
         HashUtils.construct(BIT_MASK, fd, acc, record);
         assertTrue(acc.isEmpty());
     }
@@ -61,12 +61,12 @@ class HashUtilsTest {
     void interactionsWithOneAbsentComponent() {
         var fd = new FeatureDefinition<>(
                 EnumSet.of(
-                TestHashedNamespace.single_categorical_1,
-                TestHashedNamespace.single_string_1));
+                TestFeatureNamespace.single_categorical_1,
+                TestFeatureNamespace.single_string_1));
 
         IntSet acc = new IntOpenHashSet();
-        var record = new DataRecord<TestHashedNamespace, HashedValue>(TestHashedNamespace.class);
-        record.put(TestHashedNamespace.single_categorical_1, HashedValue.singleCategorical(1));
+        var record = new DataRecord<TestFeatureNamespace, HashedValue>(TestFeatureNamespace.class);
+        record.put(TestFeatureNamespace.single_categorical_1, HashedValue.singleCategorical(1));
         HashUtils.construct(BIT_MASK, fd, acc, record);
         assertTrue(acc.isEmpty());
     }
@@ -75,13 +75,13 @@ class HashUtilsTest {
     void interactionsWIthOneEmptyComponent() {
         var fd = new FeatureDefinition<>(
                 EnumSet.of(
-                TestHashedNamespace.single_categorical_1,
-                TestHashedNamespace.single_string_1));
+                TestFeatureNamespace.single_categorical_1,
+                TestFeatureNamespace.single_string_1));
 
         IntSet acc = new IntOpenHashSet();
-        var record = new DataRecord<TestHashedNamespace, HashedValue>(TestHashedNamespace.class);
-        record.put(TestHashedNamespace.single_categorical_1, HashedValue.singleCategorical(1));
-        record.put(TestHashedNamespace.single_string_1, HashedValue.categoricals(new int[0]));
+        var record = new DataRecord<TestFeatureNamespace, HashedValue>(TestFeatureNamespace.class);
+        record.put(TestFeatureNamespace.single_categorical_1, HashedValue.singleCategorical(1));
+        record.put(TestFeatureNamespace.single_string_1, HashedValue.categoricals(new int[0]));
         HashUtils.construct(BIT_MASK, fd, acc, record);
         assertTrue(acc.isEmpty());
     }
@@ -91,12 +91,12 @@ class HashUtilsTest {
     @Test
     void interactionsWithSingleComponentCollision() {
         var numExamples = 10_000_000;
-        var fd = new FeatureDefinition<>(EnumSet.of(TestHashedNamespace.single_categorical_1));
+        var fd = new FeatureDefinition<>(EnumSet.of(TestFeatureNamespace.single_categorical_1));
 
         IntUnaryOperator hashFun = i -> {
             IntSet acc = new IntOpenHashSet();
-            var record = new DataRecord<TestHashedNamespace, HashedValue>(TestHashedNamespace.class);
-            record.put(TestHashedNamespace.single_categorical_1, HashedValue.singleCategorical(i));
+            var record = new DataRecord<TestFeatureNamespace, HashedValue>(TestFeatureNamespace.class);
+            record.put(TestFeatureNamespace.single_categorical_1, HashedValue.singleCategorical(i));
             HashUtils.construct(BIT_MASK, fd, acc, record);
             assertEquals(1, acc.size());
             return acc.iterator().nextInt();
@@ -114,14 +114,14 @@ class HashUtilsTest {
     void interactionsWithTwoSingleComponentCollision() {
         var numExamples = 10_000_000;
         var fd = new FeatureDefinition<>(EnumSet.of(
-                TestHashedNamespace.categoricals_1,
-                TestHashedNamespace.strings_1));
+                TestFeatureNamespace.categoricals_1,
+                TestFeatureNamespace.strings_1));
 
         IntUnaryOperator hashFun = i -> {
             IntCollection acc = new IntArrayList();
-            var record = new DataRecord<TestHashedNamespace, HashedValue>(TestHashedNamespace.class);
-            record.put(TestHashedNamespace.categoricals_1, HashedValue.singleCategorical(i));
-            record.put(TestHashedNamespace.strings_1, HashedValue.singleCategorical(i));
+            var record = new DataRecord<TestFeatureNamespace, HashedValue>(TestFeatureNamespace.class);
+            record.put(TestFeatureNamespace.categoricals_1, HashedValue.singleCategorical(i));
+            record.put(TestFeatureNamespace.strings_1, HashedValue.singleCategorical(i));
             HashUtils.construct(BIT_MASK, fd, acc, record);
             assertEquals(1, acc.size());
             return acc.iterator().nextInt();
@@ -139,17 +139,17 @@ class HashUtilsTest {
     void interactionsWithTwoMultiComponentCollision() {
         var numExamples = 10_000_000;
         var fd = new FeatureDefinition<>(EnumSet.of(
-                TestHashedNamespace.categoricals_1,
-                TestHashedNamespace.strings_1));
+                TestFeatureNamespace.categoricals_1,
+                TestFeatureNamespace.strings_1));
 
         LongSet raw = new LongOpenHashSet(numExamples * 3);
         Function<Pair<int[], int[]>, IntCollection> hashFun = xy -> {
             var x = xy._1;
             var y = xy._2;
             IntCollection acc = new IntArrayList();
-            var record = new DataRecord<TestHashedNamespace, HashedValue>(TestHashedNamespace.class);
-            record.put(TestHashedNamespace.categoricals_1, HashedValue.categoricals(x));
-            record.put(TestHashedNamespace.strings_1, HashedValue.categoricals(y));
+            var record = new DataRecord<TestFeatureNamespace, HashedValue>(TestFeatureNamespace.class);
+            record.put(TestFeatureNamespace.categoricals_1, HashedValue.categoricals(x));
+            record.put(TestFeatureNamespace.strings_1, HashedValue.categoricals(y));
             HashUtils.construct(BIT_MASK, fd, acc, record);
             assertEquals(x.length * y.length, acc.size());
             for (int xv : x) {
@@ -174,8 +174,8 @@ class HashUtilsTest {
     void consistencyOfInteractionHashes() {
         var numExamples = 100_000;
         var fd = new FeatureDefinition<>(EnumSet.of(
-                TestHashedNamespace.categoricals_1,
-                TestHashedNamespace.strings_1));
+                TestFeatureNamespace.categoricals_1,
+                TestFeatureNamespace.strings_1));
 
         Map<String, IntList> concatenatedToHash = new HashMap<>();
 
@@ -188,13 +188,13 @@ class HashUtilsTest {
             var concatenated = Arrays.toString(x) + "^" + Arrays.toString(y);
 
             IntList acc = new IntArrayList();
-            var record = new DataRecord<TestHashedNamespace, HashedValue>(TestHashedNamespace.class);
+            var record = new DataRecord<TestFeatureNamespace, HashedValue>(TestFeatureNamespace.class);
 
             TestUtils.shuffleArray(x);
             TestUtils.shuffleArray(y);
 
-            record.put(TestHashedNamespace.categoricals_1, HashedValue.categoricals(x));
-            record.put(TestHashedNamespace.strings_1, HashedValue.categoricals(y));
+            record.put(TestFeatureNamespace.categoricals_1, HashedValue.categoricals(x));
+            record.put(TestFeatureNamespace.strings_1, HashedValue.categoricals(y));
             HashUtils.construct(BIT_MASK, fd, acc, record);
             assertEquals(x.length * y.length, acc.size());
 

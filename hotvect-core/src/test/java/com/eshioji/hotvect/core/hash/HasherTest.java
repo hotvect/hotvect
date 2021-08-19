@@ -1,7 +1,7 @@
 package com.eshioji.hotvect.core.hash;
 
 import com.eshioji.hotvect.api.data.raw.RawValue;
-import com.eshioji.hotvect.core.TestHashedNamespace;
+import com.eshioji.hotvect.core.TestFeatureNamespace;
 import com.eshioji.hotvect.core.TestRawNamespace;
 import org.junit.jupiter.api.Test;
 
@@ -15,7 +15,7 @@ class HasherTest {
     @Test
     void hashRawValuesAndPreserveProcessedValues() {
         var testRecord = getTestRecord();
-        var subject = new Hasher<>(TestHashedNamespace.class);
+        var subject = new Hasher<>(TestFeatureNamespace.class);
         var hashed = subject.apply(mapped(testRecord));
 
         for (Map.Entry<TestRawNamespace, RawValue> e : testRecord.asEnumMap().entrySet()) {
@@ -40,7 +40,7 @@ class HasherTest {
     @Test
     void emptyInput() {
         var testRecord = getEmptyTestRecord();
-        var subject = new Hasher<>(TestHashedNamespace.class);
+        var subject = new Hasher<>(TestFeatureNamespace.class);
         var hashed = subject.apply(mapped(testRecord));
         assertTrue(hashed.asEnumMap().isEmpty());
     }

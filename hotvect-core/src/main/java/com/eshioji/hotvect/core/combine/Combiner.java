@@ -2,7 +2,7 @@ package com.eshioji.hotvect.core.combine;
 
 import com.eshioji.hotvect.api.data.DataRecord;
 import com.eshioji.hotvect.api.data.SparseVector;
-import com.eshioji.hotvect.api.data.hashed.HashedNamespace;
+import com.eshioji.hotvect.api.data.FeatureNamespace;
 import com.eshioji.hotvect.api.data.hashed.HashedValue;
 
 import java.util.function.Function;
@@ -10,7 +10,7 @@ import java.util.function.Function;
 /**
  * Interface for classes that constructs a feature vector from hashed records
  */
-public interface Combiner<H extends Enum<H> & HashedNamespace>
+public interface Combiner<H extends Enum<H> & FeatureNamespace>
         extends Function<DataRecord<H, HashedValue>, SparseVector> {
 
     /**

@@ -2,14 +2,14 @@ package com.eshioji.hotvect.core.vectorization;
 
 import com.eshioji.hotvect.api.data.DataRecord;
 import com.eshioji.hotvect.api.data.SparseVector;
-import com.eshioji.hotvect.api.data.hashed.HashedNamespace;
+import com.eshioji.hotvect.api.data.FeatureNamespace;
 import com.eshioji.hotvect.api.data.hashed.HashedValue;
 import com.eshioji.hotvect.api.data.raw.RawValue;
 import com.eshioji.hotvect.core.combine.Combiner;
 import com.eshioji.hotvect.core.hash.Hasher;
 import com.eshioji.hotvect.core.transform.Transformer;
 
-public class VectorizerImpl<R, OUT extends Enum<OUT> & HashedNamespace>
+public class VectorizerImpl<R, OUT extends Enum<OUT> & FeatureNamespace>
         implements Vectorizer<R> {
     private final Transformer<R, OUT> transformer;
     private final Hasher<OUT> hasher;

@@ -1,7 +1,7 @@
 package com.eshioji.hotvect.vw;
 
 import com.eshioji.hotvect.api.data.DataRecord;
-import com.eshioji.hotvect.api.data.hashed.HashedNamespace;
+import com.eshioji.hotvect.api.data.FeatureNamespace;
 import com.eshioji.hotvect.api.data.hashed.HashedValue;
 import com.eshioji.hotvect.api.data.raw.Example;
 import com.eshioji.hotvect.api.data.raw.RawNamespace;
@@ -10,15 +10,13 @@ import com.eshioji.hotvect.core.hash.Hasher;
 import com.eshioji.hotvect.core.transform.Transformer;
 import com.eshioji.hotvect.core.util.DataRecordEncoder;
 
-import java.text.DecimalFormat;
-import java.util.Arrays;
 import java.util.EnumMap;
 import java.util.Map;
 import java.util.function.DoubleUnaryOperator;
 
 import static com.google.common.base.Preconditions.checkState;
 
-public class VwNamespacedInstanceEncoder<R, H extends Enum<H> & HashedNamespace> implements DataRecordEncoder<Example<R>> {
+public class VwNamespacedInstanceEncoder<R, H extends Enum<H> & FeatureNamespace> implements DataRecordEncoder<Example<R>> {
     private final static char[] VALID_VW_NAMESPACE_CHARS = "abcdefghijklmnopqrstuvwxyz".toCharArray();
     private final boolean binary;
     private final DoubleUnaryOperator targetToImportanceWeight;

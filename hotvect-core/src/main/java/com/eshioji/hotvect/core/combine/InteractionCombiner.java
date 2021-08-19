@@ -2,7 +2,7 @@ package com.eshioji.hotvect.core.combine;
 
 import com.eshioji.hotvect.api.data.DataRecord;
 import com.eshioji.hotvect.api.data.SparseVector;
-import com.eshioji.hotvect.api.data.hashed.HashedNamespace;
+import com.eshioji.hotvect.api.data.FeatureNamespace;
 import com.eshioji.hotvect.api.data.hashed.HashedValue;
 import com.eshioji.hotvect.api.data.hashed.HashedValueType;
 import com.eshioji.hotvect.core.hash.HashUtils;
@@ -18,9 +18,9 @@ import static com.google.common.base.Preconditions.checkArgument;
 
 /**
  * A {@link Combiner} that creates specified feature interactions
- * @param <H> the {@link HashedNamespace} to be used
+ * @param <H> the {@link FeatureNamespace} to be used
  */
-public class InteractionCombiner<H extends Enum<H> & HashedNamespace> implements Combiner<H> {
+public class InteractionCombiner<H extends Enum<H> & FeatureNamespace> implements Combiner<H> {
     private static final ThreadLocal<CacheEntry> CACHE = new ThreadLocal<>() {
         @Override
         protected CacheEntry initialValue() {

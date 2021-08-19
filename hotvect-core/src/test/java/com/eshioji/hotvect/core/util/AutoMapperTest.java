@@ -1,7 +1,7 @@
 package com.eshioji.hotvect.core.util;
 
 import com.eshioji.hotvect.api.data.DataRecord;
-import com.eshioji.hotvect.core.TestHashedNamespace;
+import com.eshioji.hotvect.core.TestFeatureNamespace;
 import com.eshioji.hotvect.core.TestRawNamespace;
 import com.google.common.collect.Sets;
 import org.junit.jupiter.api.Test;
@@ -18,12 +18,12 @@ class AutoMapperTest {
     @Test
     void copiesMappedKeys() {
         var allRaw = EnumSet.allOf(TestRawNamespace.class).stream().map(Enum::name).collect(toSet());
-        var allHashed = EnumSet.allOf(TestHashedNamespace.class).stream().map(Enum::name).collect(toSet());
+        var allHashed = EnumSet.allOf(TestFeatureNamespace.class).stream().map(Enum::name).collect(toSet());
 
         var expectedToBeMapped = Sets.intersection(allRaw, allHashed);
         assert expectedToBeMapped.size() < allHashed.size();
 
-        AutoMapper<TestRawNamespace, TestHashedNamespace, String> subject = new AutoMapper<>(TestRawNamespace.class, TestHashedNamespace.class);
+        AutoMapper<TestRawNamespace, TestFeatureNamespace, String> subject = new AutoMapper<>(TestRawNamespace.class, TestFeatureNamespace.class);
 
         assertEquals(expectedToBeMapped, subject.mapped().keySet().stream().map(Enum::name).collect(toSet()));
 
