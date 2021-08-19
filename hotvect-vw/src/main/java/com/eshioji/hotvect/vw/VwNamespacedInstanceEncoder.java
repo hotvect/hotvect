@@ -3,6 +3,7 @@ package com.eshioji.hotvect.vw;
 import com.eshioji.hotvect.api.data.DataRecord;
 import com.eshioji.hotvect.api.data.hashed.HashedNamespace;
 import com.eshioji.hotvect.api.data.hashed.HashedValue;
+import com.eshioji.hotvect.api.data.raw.Example;
 import com.eshioji.hotvect.api.data.raw.RawNamespace;
 import com.eshioji.hotvect.api.data.raw.RawValue;
 import com.eshioji.hotvect.core.hash.Hasher;
@@ -17,24 +18,24 @@ import java.util.function.DoubleUnaryOperator;
 
 import static com.google.common.base.Preconditions.checkState;
 
-public class VwNamespacedInstanceEncoder<R extends Enum<R> & RawNamespace, H extends Enum<H> & HashedNamespace> implements DataRecordEncoder<R> {
+public class VwNamespacedInstanceEncoder<R, H extends Enum<H> & HashedNamespace> implements DataRecordEncoder<Example<R>> {
     private final static char[] VALID_VW_NAMESPACE_CHARS = "abcdefghijklmnopqrstuvwxyz".toCharArray();
     private final boolean binary;
     private final DoubleUnaryOperator targetToImportanceWeight;
 
     private final Class<H> hashedKey;
-    private final Transformer<R, H, RawValue> transformer;
+    private final Transformer<R, H> transformer;
     private final Hasher<H> hasher;
 
-    public VwNamespacedInstanceEncoder(Transformer<R, H, RawValue> transformer, Class<H> hashedKey) {
+    public VwNamespacedInstanceEncoder(Transformer<R, H> transformer, Class<H> hashedKey) {
         this(transformer, hashedKey, false, null);
     }
 
-    public VwNamespacedInstanceEncoder(Transformer<R, H, RawValue> transformer, Class<H> hashedKey, boolean binary) {
+    public VwNamespacedInstanceEncoder(Transformer<R, H> transformer, Class<H> hashedKey, boolean binary) {
         this(transformer, hashedKey, binary, null);
     }
 
-    public VwNamespacedInstanceEncoder(Transformer<R, H, RawValue> transformer, Class<H> hashedKey, boolean binary, DoubleUnaryOperator targetToImportanceWeight) {
+    public VwNamespacedInstanceEncoder(Transformer<R, H> transformer, Class<H> hashedKey, boolean binary, DoubleUnaryOperator targetToImportanceWeight) {
         this.hashedKey = hashedKey;
         this.transformer = transformer;
         this.hasher = new Hasher<>(hashedKey);
@@ -57,20 +58,20 @@ public class VwNamespacedInstanceEncoder<R extends Enum<R> & RawNamespace, H ext
     }
 
     @Override
-    public String apply(DataRecord<R, RawValue> toEncode) {
-        var transformedAndHashed = hasher.apply(transformer.apply(toEncode));
+    public String apply(Example<R> toEncode) {
+        var transformedAndHashed = hasher.apply(transformer.apply(toEncode.getRecord()));
         return vwEncode(toEncode, transformedAndHashed, binary, targetToImportanceWeight);
     }
 
 
     private String vwEncode(
-            DataRecord<R, RawValue> request,
+            Example<R> request,
             DataRecord<H, HashedValue> transformedAndHashed,
             boolean binary,
             DoubleUnaryOperator targetToImportanceWeight) {
         StringBuilder sb = new StringBuilder();
 
-        double targetVariable = readField(request, "target").getSingleNumerical();
+        double targetVariable = request.getTarget();
         if (binary) {
             sb.append(targetVariable > 0 ? "1" : "-1");
         } else {

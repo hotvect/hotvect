@@ -19,7 +19,7 @@ import static java.util.stream.Collectors.toMap;
  * A {@link DataRecordEncoder} that encodes a {@link DataRecord} into a JSON String
  * @param <K>
  */
-public class JsonRecordEncoder<K extends Enum<K> & Namespace> implements DataRecordEncoder<K> {
+public class JsonRecordEncoder<K extends Enum<K> & Namespace> implements DataRecordEncoder<DataRecord<K, RawValue>> {
     private static final ObjectMapper OM = new ObjectMapper();
 
     private Map<String, ?> pojonize(DataRecord<?, RawValue> input) {

@@ -7,7 +7,7 @@ import com.eshioji.hotvect.api.data.raw.RawValue;
 
 import java.util.function.Function;
 
-public interface Vectorizer<IN extends Enum<IN> & RawNamespace>
-        extends Function<DataRecord<IN, RawValue>, SparseVector> {
+public interface Vectorizer<R>
+        extends Function<R, SparseVector> {
 }
 

@@ -7,14 +7,13 @@ import com.eshioji.hotvect.api.data.raw.RawValue;
 import java.util.function.Function;
 
 /**
- * Interface for classes that encode {@link DataRecord} into a String
- * @param <K>
+ * TODO
  */
-public interface DataRecordEncoder<K extends Enum<K> & Namespace> extends Function<DataRecord<K, RawValue>, String> {
+public interface DataRecordEncoder<V> extends Function<V, String> {
     /**
      * @param toEncode {@link DataRecord} to be encoded
      * @return the encoded {@link String}
      */
     @Override
-    String apply(DataRecord<K, RawValue> toEncode);
+    String apply(V toEncode);
 }

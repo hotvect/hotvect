@@ -12,7 +12,7 @@ import com.eshioji.hotvect.core.vectorization.Vectorizer;
  * A {@link Scorer} which uses the specified {@link Vectorizer} and {@link Estimator}
  * @param <R>
  */
-public class ScorerImpl<R extends Enum<R> & RawNamespace> implements Scorer<R> {
+public class ScorerImpl<R> implements Scorer<R> {
     private final Vectorizer<R> vectorizer;
     private final Estimator estimator;
 
@@ -32,7 +32,7 @@ public class ScorerImpl<R extends Enum<R> & RawNamespace> implements Scorer<R> {
      * @return the score
      */
     @Override
-    public double applyAsDouble(DataRecord<R, RawValue> input) {
+    public double applyAsDouble(R input) {
         SparseVector vectorized = vectorizer.apply(input);
         return estimator.applyAsDouble(vectorized);
     }

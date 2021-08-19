@@ -1,6 +1,7 @@
 package com.eshioji.hotvect.vw.util;
 
 import com.eshioji.hotvect.api.data.DataRecord;
+import com.eshioji.hotvect.api.data.raw.Example;
 import com.eshioji.hotvect.api.data.raw.RawValue;
 import com.eshioji.hotvect.core.transform.PassThroughTransformer;
 import com.eshioji.hotvect.core.transform.Transformer;
@@ -12,7 +13,7 @@ import java.util.function.DoubleUnaryOperator;
 import static org.junit.jupiter.api.Assertions.*;
 
 class VwNamespacedInstanceEncoderTest {
-    private static final Transformer<TestRawNamespace, TestHashedNamespace, RawValue> TRANSFORMER =
+    private static final Transformer<DataRecord<TestRawNamespace, RawValue>, TestHashedNamespace> TRANSFORMER =
             new PassThroughTransformer<>(TestRawNamespace.class, TestHashedNamespace.class);
 
 
@@ -20,7 +21,7 @@ class VwNamespacedInstanceEncoderTest {
     void nonBinaryWithoutWeights() {
         var targetVariable = 99.1;
         var testRecord = TestRecords.getTestRecord();
-        testRecord.put(TestRawNamespace.target, RawValue.singleNumerical(targetVariable));
+        testRecord = new Example<>(testRecord.getRecord(), targetVariable);
         var expected = "99.1 |a 123:1  |b 4:1 5:1 6:1  |c 0:789  |d 10:10 11:11 12:12  |e 1118836419:1  |f 1729973133:1 -667790:1 -1526670773:1  |g 208855138:16 1505568724:17 -674937657:18 ";
         testEncoding(testRecord, expected, false);
     }
@@ -46,13 +47,13 @@ class VwNamespacedInstanceEncoderTest {
 //        testEncoding(targetVariable, featureVector, expected, true, d -> d * 2);
 //    }
 
-    private void testEncoding(DataRecord<TestRawNamespace, RawValue> testRecord, String expected, boolean binary) {
+    private void testEncoding(Example<DataRecord<TestRawNamespace, RawValue>> testRecord, String expected, boolean binary) {
         testEncoding(testRecord, expected, binary, null);
     }
 
 
-    private void testEncoding(DataRecord<TestRawNamespace, RawValue> testRecord, String expected, boolean binary, DoubleUnaryOperator weightFun) {
-        VwNamespacedInstanceEncoder<TestRawNamespace, TestHashedNamespace> subject;
+    private void testEncoding(Example<DataRecord<TestRawNamespace, RawValue>> testRecord, String expected, boolean binary, DoubleUnaryOperator weightFun) {
+        VwNamespacedInstanceEncoder<DataRecord<TestRawNamespace, RawValue>, TestHashedNamespace> subject;
         subject = new VwNamespacedInstanceEncoder<>(TRANSFORMER, TestHashedNamespace.class, binary, weightFun);
         var encoded = subject.apply(testRecord);
         assertEquals(expected, encoded);

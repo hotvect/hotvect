@@ -22,7 +22,7 @@ class VectorizerImplTest {
         var mapper = new AutoMapper<TestRawNamespace, TestHashedNamespace, RawValue>(TestRawNamespace.class, TestHashedNamespace.class);
         DataRecord<TestRawNamespace, RawValue> initialInput = new DataRecord<>(TestRawNamespace.class);
 
-        Transformer<TestRawNamespace, TestHashedNamespace, RawValue> transformer = record -> {
+        Transformer<DataRecord<TestRawNamespace, RawValue>, TestHashedNamespace> transformer = record -> {
             assertSame(initialInput, record);
             return mapper.apply(initialInput);
         };

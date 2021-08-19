@@ -7,10 +7,9 @@ import com.eshioji.hotvect.api.data.raw.RawValue;
 import java.util.function.ToDoubleFunction;
 
 /**
- * Interface for classes that score a raw {@link DataRecord}
- * @param <I> The {@link RawNamespace} on which this {@link Scorer} should operate.
+ * Interface for classes that scores an input
  */
-public interface Scorer<I extends Enum<I> & RawNamespace> extends ToDoubleFunction<DataRecord<I, RawValue>> {
+public interface Scorer<R> extends ToDoubleFunction<R> {
 
     /**
      * Score the given record
@@ -18,5 +17,5 @@ public interface Scorer<I extends Enum<I> & RawNamespace> extends ToDoubleFuncti
      * @return the score
      */
     @Override
-    double applyAsDouble(DataRecord<I, RawValue> record);
+    double applyAsDouble(R record);
 }

@@ -12,8 +12,8 @@ import java.util.function.Function;
  * @param <OUT>
  * @param <V>
  */
-public interface Transformer<IN extends Enum<IN> & Namespace, OUT extends Enum<OUT> & Namespace, V>
-        extends Function<DataRecord<IN, V>, DataRecord<OUT, RawValue>> {
+public interface Transformer<R, OUT extends Enum<OUT> & Namespace>
+        extends Function<R, DataRecord<OUT, RawValue>> {
 
     /**
      * Transform the given record
@@ -21,5 +21,5 @@ public interface Transformer<IN extends Enum<IN> & Namespace, OUT extends Enum<O
      * @return transformed record
      */
     @Override
-    DataRecord<OUT, RawValue> apply(DataRecord<IN, V> toTransform);
+    DataRecord<OUT, RawValue> apply(R toTransform);
 }

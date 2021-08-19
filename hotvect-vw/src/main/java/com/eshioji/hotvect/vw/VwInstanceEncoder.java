@@ -2,40 +2,42 @@ package com.eshioji.hotvect.vw;
 
 import com.eshioji.hotvect.api.data.DataRecord;
 import com.eshioji.hotvect.api.data.SparseVector;
+import com.eshioji.hotvect.api.data.raw.Example;
 import com.eshioji.hotvect.api.data.raw.RawNamespace;
 import com.eshioji.hotvect.api.data.raw.RawValue;
 import com.eshioji.hotvect.core.util.DataRecordEncoder;
 import com.eshioji.hotvect.core.vectorization.Vectorizer;
+import org.checkerframework.checker.units.qual.K;
 
 import java.util.Map;
 import java.util.function.DoubleUnaryOperator;
 
-public class VwInstanceEncoder<K extends Enum<K> & RawNamespace> implements DataRecordEncoder<K> {
+public class VwInstanceEncoder<R> implements DataRecordEncoder<Example<R>> {
     private final boolean binary;
-    private final Vectorizer<K> vectorizer;
+    private final Vectorizer<R> vectorizer;
     private final DoubleUnaryOperator targetToImportanceWeight;
 
-    public VwInstanceEncoder(Vectorizer<K> vectorizer) {
+    public VwInstanceEncoder(Vectorizer<R> vectorizer) {
         this.vectorizer = vectorizer;
         this.binary = false;
         this.targetToImportanceWeight = null;
     }
 
-    public VwInstanceEncoder(Vectorizer<K> vectorizer, boolean binary, DoubleUnaryOperator targetToImportanceWeight) {
+    public VwInstanceEncoder(Vectorizer<R> vectorizer, boolean binary, DoubleUnaryOperator targetToImportanceWeight) {
         this.vectorizer = vectorizer;
         this.binary = binary;
         this.targetToImportanceWeight = targetToImportanceWeight;
     }
 
 
-    public VwInstanceEncoder(Vectorizer<K> vectorizer, boolean binary) {
+    public VwInstanceEncoder(Vectorizer<R> vectorizer, boolean binary) {
         this.vectorizer = vectorizer;
         this.binary = binary;
         this.targetToImportanceWeight = null;
     }
 
     private String vwEncode(
-            DataRecord<K, RawValue> request,
+            Example<R> request,
             SparseVector vector,
             boolean binary,
             DoubleUnaryOperator targetToImportanceWeight) {
@@ -44,7 +46,7 @@ public class VwInstanceEncoder<K extends Enum<K> & RawNamespace> implements Data
 
         StringBuilder sb = new StringBuilder();
 
-        double targetVariable = readField(request, "target").getSingleNumerical();
+        double targetVariable = request.getTarget();
         if (binary) {
             sb.append(targetVariable > 0 ? "1" : "-1");
         } else {
@@ -70,15 +72,9 @@ public class VwInstanceEncoder<K extends Enum<K> & RawNamespace> implements Data
         return sb.toString();
     }
 
-    private RawValue readField(DataRecord<K, RawValue> record, String fieldName) {
-        return record.asEnumMap().entrySet().stream().filter(p ->
-                fieldName.equals(p.getKey().toString())
-        ).map(Map.Entry::getValue).findFirst().get();
-    }
-
     @Override
-    public String apply(DataRecord<K, RawValue> toEncode) {
-        SparseVector vector = vectorizer.apply(toEncode);
+    public String apply(Example<R> toEncode) {
+        SparseVector vector = vectorizer.apply(toEncode.getRecord());
         return vwEncode(toEncode, vector, binary, targetToImportanceWeight);
     }
 

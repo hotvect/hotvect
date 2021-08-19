@@ -2,6 +2,7 @@ package com.eshioji.hotvect.vw.util;
 
 import com.eshioji.hotvect.api.data.DataRecord;
 import com.eshioji.hotvect.api.data.SparseVector;
+import com.eshioji.hotvect.api.data.raw.Example;
 import com.eshioji.hotvect.api.data.raw.RawValue;
 import com.eshioji.hotvect.vw.VwInstanceEncoder;
 import org.junit.jupiter.api.Test;
@@ -48,8 +49,7 @@ class VwInstanceEncoderTest {
 
     private void testEncoding(double targetVariable, SparseVector featureVector, String expected, boolean binary, DoubleUnaryOperator weightFun) {
         var testRecord = new DataRecord<TestRawNamespace, RawValue>(TestRawNamespace.class);
-        testRecord.put(TestRawNamespace.target, RawValue.singleNumerical(targetVariable));
-        VwInstanceEncoder<TestRawNamespace> subject;
+        VwInstanceEncoder<DataRecord<TestRawNamespace, RawValue>> subject;
         if (weightFun == null) {
             subject = new VwInstanceEncoder<>(
                     testRawNamespaceRawValueDataRecord -> featureVector,
@@ -61,7 +61,7 @@ class VwInstanceEncoderTest {
                     weightFun
             );
         }
-        var encoded = subject.apply(testRecord);
+        var encoded = subject.apply(new Example<>(testRecord, targetVariable));
         assertEquals(expected, encoded);
     }
 }

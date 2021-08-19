@@ -1,5 +1,6 @@
 package com.eshioji.hotvect.core.transform;
 
+import com.eshioji.hotvect.api.data.DataRecord;
 import com.eshioji.hotvect.api.data.hashed.HashedNamespace;
 import com.eshioji.hotvect.api.data.hashed.HashedValueType;
 import com.eshioji.hotvect.api.data.raw.RawValue;
@@ -18,7 +19,7 @@ class PassThroughTransformerTest {
 
     @Test
     void apply() {
-        var transformations = new EnumMap<TestHashedNamespace, Transformation<TestRawNamespace, RawValue>>(TestHashedNamespace.class);
+        var transformations = new EnumMap<TestHashedNamespace, Transformation<DataRecord<TestRawNamespace, RawValue>>>(TestHashedNamespace.class);
         transformations.put(TestHashedNamespace.parsed_1, r -> {
             var x = r.get(TestRawNamespace.single_categorical_1).getSingleCategorical();
             return RawValue.singleCategorical(x * 10);
@@ -40,7 +41,7 @@ class PassThroughTransformerTest {
 
     @Test
     public void trytoTransformAutomappedfield() {
-        var transformations = new EnumMap<TestHashedNamespace, Transformation<TestRawNamespace, RawValue>>(TestHashedNamespace.class);
+        var transformations = new EnumMap<TestHashedNamespace, Transformation<DataRecord<TestRawNamespace, RawValue>>>(TestHashedNamespace.class);
         transformations.put(TestHashedNamespace.single_categorical_1, r -> {
             throw new AssertionError();
         });
@@ -70,14 +71,14 @@ class PassThroughTransformerTest {
 
     @Test
     public void mapCategoricalIntoNumerical() {
-        var transformations = new EnumMap<WrongType1, Transformation<TestRawNamespace, RawValue>>(WrongType1.class);
+        var transformations = new EnumMap<WrongType1, Transformation<DataRecord<TestRawNamespace, RawValue>>>(WrongType1.class);
         assertThrows(IllegalArgumentException.class, () -> new PassThroughTransformer<>(TestRawNamespace.class, WrongType1.class, transformations));
 
     }
 
     @Test
     public void mapNumericalIntoCategorical() {
-        var transformations = new EnumMap<WrongType2, Transformation<TestRawNamespace, RawValue>>(WrongType2.class);
+        var transformations = new EnumMap<WrongType2, Transformation<DataRecord<TestRawNamespace, RawValue>>>(WrongType2.class);
         assertThrows(IllegalArgumentException.class, () -> new PassThroughTransformer<>(TestRawNamespace.class, WrongType2.class, transformations));
     }
 

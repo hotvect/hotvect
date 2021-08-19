@@ -1,8 +1,10 @@
 package com.eshioji.hotvect.vw.util;
 
 import com.eshioji.hotvect.api.data.DataRecord;
+import com.eshioji.hotvect.api.data.raw.Example;
 import com.eshioji.hotvect.api.data.raw.RawValue;
 import com.eshioji.hotvect.core.util.AutoMapper;
+import com.eshioji.hotvect.core.util.DataRecordEncoder;
 import com.eshioji.hotvect.core.util.JsonRecordDecoder;
 import com.google.common.base.Charsets;
 import com.google.common.io.Resources;
@@ -17,8 +19,8 @@ public enum TestRecords {
     }
 
 
-    public static DataRecord<TestRawNamespace, RawValue> getTestRecord() {
-        return new JsonRecordDecoder<>(TestRawNamespace.class).apply(testInputWithAllValueTypes());
+    public static Example<DataRecord<TestRawNamespace, RawValue>> getTestRecord() {
+        return new Example<>(new JsonRecordDecoder<>(TestRawNamespace.class).apply(testInputWithAllValueTypes()), 1.0);
     }
 
     public static DataRecord<TestHashedNamespace, RawValue> mapped(DataRecord<TestRawNamespace, RawValue> toMap) {

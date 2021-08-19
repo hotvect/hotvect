@@ -15,7 +15,7 @@ class LabelExtractorTest {
     void withValue() {
         var dataRecord = TestRecords.getTestRecord();
         var subject = new LabelExtractor<TestRawNamespace>();
-        assertEquals(1, subject.applyAsDouble(dataRecord));
+        assertEquals(1, subject.applyAsDouble(dataRecord.getRecord()));
     }
 
     @Test
