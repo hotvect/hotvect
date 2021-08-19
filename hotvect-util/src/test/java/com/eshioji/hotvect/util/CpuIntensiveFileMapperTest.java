@@ -35,7 +35,7 @@ class CpuIntensiveFileMapperTest {
                 String.valueOf(Hashing.sha512().hashString(s, StandardCharsets.UTF_8).asInt());
         var dest = getTempFile();
         try {
-            var subject = new CpuIntensiveFileMapper(mr, source, dest, fun);
+            var subject = CpuIntensiveFileMapper.mapper(mr, source, dest, fun);
             subject.run();
             try (var original = getAsReader("example.jsons");
                  var processed = getAsReader(dest)) {
