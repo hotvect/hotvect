@@ -54,7 +54,7 @@ public class JsonRecordDecoder<R extends Enum<R> & RawNamespace> implements Data
 
     private RawValue parse(R key, JsonNode value) {
         switch (key.getValueType()) {
-            case SINGLE_CATEGORICAL -> {
+            case SINGLE_CATEGORICAL: {
                 checkState(value.isInt(),
                         "Expected integer but got %s:%s", value.getNodeType(), value);
                 if (value.isNull()) {
@@ -62,7 +62,7 @@ public class JsonRecordDecoder<R extends Enum<R> & RawNamespace> implements Data
                 }
                 return RawValue.singleCategorical(value.asInt());
             }
-            case CATEGORICALS -> {
+            case CATEGORICALS: {
                 checkState(value.isArray(),
                         "Expected array of integers but got %s:%s", value.getNodeType(), value);
                 if (value.isNull() || value.isEmpty()) {
@@ -79,13 +79,13 @@ public class JsonRecordDecoder<R extends Enum<R> & RawNamespace> implements Data
                 }
                 return RawValue.categoricals(names);
             }
-            case SINGLE_STRING -> {
+            case SINGLE_STRING: {
                 if (value.isNull()) {
                     return null;
                 }
                 return RawValue.singleString(value.asText());
             }
-            case STRINGS -> {
+            case STRINGS: {
                 checkState(value.isArray(),
                         "Expected array of strings but got %s:%s", value.getNodeType(), value);
                 if (value.isNull() || value.isEmpty()) {
@@ -100,7 +100,7 @@ public class JsonRecordDecoder<R extends Enum<R> & RawNamespace> implements Data
                 }
                 return RawValue.strings(names);
             }
-            case SINGLE_NUMERICAL -> {
+            case SINGLE_NUMERICAL: {
                 checkState(value.isNumber(),
                         "Expected a number but got %s:%s", value.getNodeType(), value);
                 if (value.isNull()) {
@@ -108,7 +108,7 @@ public class JsonRecordDecoder<R extends Enum<R> & RawNamespace> implements Data
                 }
                 return RawValue.singleNumerical(value.asDouble());
             }
-            case CATEGORICALS_TO_NUMERICALS -> {
+            case CATEGORICALS_TO_NUMERICALS: {
                 checkState(value.isObject(),
                         "Expected a map from integer to number, but got %s:%s", value.getNodeType(), value);
                 if (value.isNull() || value.isEmpty()) {
@@ -132,7 +132,7 @@ public class JsonRecordDecoder<R extends Enum<R> & RawNamespace> implements Data
                 }
                 return RawValue.categoricalsToNumericals(names, values);
             }
-            case STRINGS_TO_NUMERICALS -> {
+            case STRINGS_TO_NUMERICALS: {
                 checkState(value.isObject(),
                         "Expected a map from integer to number, but got %s:%s", value.getNodeType(), value);
                 if (value.isNull() || value.isEmpty()) {
@@ -153,7 +153,7 @@ public class JsonRecordDecoder<R extends Enum<R> & RawNamespace> implements Data
                 }
                 return RawValue.stringsToNumericals(names, values);
             }
-            default -> throw new AssertionError(String.format("Unknown type:%s", key.getValueType()));
+            default: throw new AssertionError(String.format("Unknown type:%s", key.getValueType()));
         }
     }
 }

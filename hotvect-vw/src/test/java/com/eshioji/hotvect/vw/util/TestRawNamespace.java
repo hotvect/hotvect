@@ -10,7 +10,9 @@ public enum TestRawNamespace implements RawNamespace {
     categorical_id_to_numericals_1(RawValueType.CATEGORICALS_TO_NUMERICALS),
     single_string_1(RawValueType.SINGLE_STRING),
     strings_1(RawValueType.STRINGS),
-    string_to_numericals_1(RawValueType.STRINGS_TO_NUMERICALS);
+    string_to_numericals_1(RawValueType.STRINGS_TO_NUMERICALS),
+
+    target(RawValueType.SINGLE_NUMERICAL);
 
     private final RawValueType valueType;
 

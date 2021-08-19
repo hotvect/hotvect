@@ -6,9 +6,9 @@ import com.eshioji.hotvect.core.ScorerSupplier;
 import com.eshioji.hotvect.core.score.ScorerImpl;
 import com.eshioji.hotvect.core.vectorization.Vectorizer;
 
-public class VwScorerSupplier<IN extends Enum<IN> & RawNamespace> implements ScorerSupplier<IN> {
+public class VwScorerSupplier<R> implements ScorerSupplier<R> {
     @Override
-    public Scorer<IN> apply(Vectorizer<IN> vectorizer, Readable modelParameters) {
+    public Scorer<R> apply(Vectorizer<R> vectorizer, Readable modelParameters) {
         var parameters = new VwModelImporter().apply(modelParameters);
         var estimator = new LogisticRegressionEstimator(0, parameters);
         return new ScorerImpl<>(vectorizer, estimator);

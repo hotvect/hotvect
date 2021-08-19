@@ -126,12 +126,17 @@ public class RawValue {
     @Override
     public String toString() {
         String header = "RawValue{type=" + valueType + ", value=";
-        return switch (valueType) {
-            case SINGLE_NUMERICAL, SINGLE_CATEGORICAL, CATEGORICALS, CATEGORICALS_TO_NUMERICALS -> header + hashedValue + "}";
-            case SINGLE_STRING -> header + singleString + "}";
-            case STRINGS -> header + Arrays.toString(strings) + "}";
-            case STRINGS_TO_NUMERICALS -> header + "(" + Arrays.toString(getStrings()) + " ," + Arrays.toString(getNumericals()) + ")" + "}";
-        };
+        switch (valueType) {
+            case SINGLE_NUMERICAL:
+            case SINGLE_CATEGORICAL:
+            case CATEGORICALS:
+            case CATEGORICALS_TO_NUMERICALS:
+                return header + hashedValue + "}";
+            case SINGLE_STRING: return header + singleString + "}";
+            case STRINGS: return header + Arrays.toString(strings) + "}";
+            case STRINGS_TO_NUMERICALS: return header + "(" + Arrays.toString(getStrings()) + " ," + Arrays.toString(getNumericals()) + ")" + "}";
+            default: throw new AssertionError();
+        }
     }
 
     @Override

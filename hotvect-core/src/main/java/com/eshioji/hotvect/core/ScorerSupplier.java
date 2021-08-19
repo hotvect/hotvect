@@ -6,7 +6,7 @@ import com.eshioji.hotvect.core.vectorization.Vectorizer;
 
 import java.util.function.BiFunction;
 
-public interface ScorerSupplier<IN extends Enum<IN> & RawNamespace> extends BiFunction<Vectorizer<IN>, Readable, Scorer<IN>> {
+public interface ScorerSupplier<R> extends BiFunction<Vectorizer<R>, Readable, Scorer<R>> {
     @Override
-    Scorer<IN> apply(Vectorizer<IN> vectorizer, Readable modelParameters);
+    Scorer<R> apply(Vectorizer<R> vectorizer, Readable modelParameters);
 }
