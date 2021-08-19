@@ -18,6 +18,10 @@ import java.util.stream.Stream;
 import static com.google.common.base.Preconditions.checkState;
 
 public class CpuIntensiveMapper<X, Y> {
+    static final int DEFAULT_THREAD_NUM = (Runtime.getRuntime().availableProcessors() > 1 ? Runtime.getRuntime().availableProcessors() - 1 : 1);
+    static final int DEFAULT_QUEUE_LENGTH = DEFAULT_THREAD_NUM * 2;
+    static final int DEFAULT_BATCH_SIZE = 5000;
+
     private static final Logger LOGGER = LoggerFactory.getLogger(CpuIntensiveMapper.class);
     private final Timer batchTimer;
     private final Meter recordMeter;
@@ -27,20 +31,13 @@ public class CpuIntensiveMapper<X, Y> {
     private final ExecutorService loader;
     private final Function<X, Y> mappingFun;
 
+
     public CpuIntensiveMapper(MetricRegistry metricRegistry, Function<X, Y> mappingFun){
         this(metricRegistry,
                 mappingFun,
-                (Runtime.getRuntime().availableProcessors() > 1 ? Runtime.getRuntime().availableProcessors() - 1 : 1),
-                (int)(Runtime.getRuntime().availableProcessors() * 1.5),
-                5000);
-    }
-
-    public CpuIntensiveMapper(MetricRegistry metricRegistry, Function<X, Y> mappingFun, int queueLength, int batchSize){
-        this(metricRegistry,
-                mappingFun,
-                (Runtime.getRuntime().availableProcessors() > 1 ? Runtime.getRuntime().availableProcessors() - 1 : 1),
-                queueLength,
-                batchSize);
+                DEFAULT_THREAD_NUM,
+                DEFAULT_QUEUE_LENGTH,
+               DEFAULT_BATCH_SIZE);
     }
 
     public CpuIntensiveMapper(MetricRegistry metricRegistry, Function<X, Y> mappingFun, int numThreads, int queueLength, int batchSize) {

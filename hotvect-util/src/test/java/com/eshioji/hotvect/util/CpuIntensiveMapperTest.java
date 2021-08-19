@@ -19,7 +19,7 @@ class CpuIntensiveMapperTest {
         final var upperRange = 1_000_000;
         var mr = new MetricRegistry();
         Function<Integer, Integer> fun = x -> Hashing.sha512().hashInt(x).asInt();
-        var subject = new CpuIntensiveMapper<>(mr, fun, 300, 1000);
+        var subject = new CpuIntensiveMapper<>(mr, fun, 2, 300, 1000);
         var queue = subject.start(IntStream.range(0, upperRange).boxed());
         var actual = new ArrayList<Integer>();
         while (true) {
