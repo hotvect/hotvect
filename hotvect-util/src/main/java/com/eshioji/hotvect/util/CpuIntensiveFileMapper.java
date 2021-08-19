@@ -45,12 +45,13 @@ public class CpuIntensiveFileMapper extends VerboseRunnable {
         this.batchSize = batchSize;
         this.source = source;
         this.dest = dest;
-        this.transformation = transformation;
+        this.mapTransformation = transformation;
+        this.nThreads = numThreads;
     }
 
     @Override
     protected void doRun() {
-        var processor = new CpuIntensiveMapper<>(metricRegistry, transformation, queueSize, batchSize);
+        var processor = new CpuIntensiveMapper<>(metricRegistry, mapTransformation, nThreads, queueSize, batchSize);
         try (var source = readData(this.source.toPath())) {
             var queue = processor.start(source);
             metricRegistry.register(
