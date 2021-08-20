@@ -1,36 +1,31 @@
 package com.eshioji.hotvect.vw;
 
-import com.eshioji.hotvect.api.data.DataRecord;
 import com.eshioji.hotvect.api.data.SparseVector;
 import com.eshioji.hotvect.api.data.raw.Example;
-import com.eshioji.hotvect.api.data.raw.RawNamespace;
-import com.eshioji.hotvect.api.data.raw.RawValue;
-import com.eshioji.hotvect.core.util.DataRecordEncoder;
+import com.eshioji.hotvect.api.codec.ExampleEncoder;
 import com.eshioji.hotvect.core.vectorization.Vectorizer;
-import org.checkerframework.checker.units.qual.K;
 
-import java.util.Map;
 import java.util.function.DoubleUnaryOperator;
 
-public class VwInstanceEncoder<R> implements DataRecordEncoder<Example<R>> {
+public class VwExampleEncoder<R> implements ExampleEncoder<R> {
     private final boolean binary;
     private final Vectorizer<R> vectorizer;
     private final DoubleUnaryOperator targetToImportanceWeight;
 
-    public VwInstanceEncoder(Vectorizer<R> vectorizer) {
+    public VwExampleEncoder(Vectorizer<R> vectorizer) {
         this.vectorizer = vectorizer;
         this.binary = false;
         this.targetToImportanceWeight = null;
     }
 
-    public VwInstanceEncoder(Vectorizer<R> vectorizer, boolean binary, DoubleUnaryOperator targetToImportanceWeight) {
+    public VwExampleEncoder(Vectorizer<R> vectorizer, boolean binary, DoubleUnaryOperator targetToImportanceWeight) {
         this.vectorizer = vectorizer;
         this.binary = binary;
         this.targetToImportanceWeight = targetToImportanceWeight;
     }
 
 
-    public VwInstanceEncoder(Vectorizer<R> vectorizer, boolean binary) {
+    public VwExampleEncoder(Vectorizer<R> vectorizer, boolean binary) {
         this.vectorizer = vectorizer;
         this.binary = binary;
         this.targetToImportanceWeight = null;

@@ -4,14 +4,14 @@ import com.eshioji.hotvect.api.data.DataRecord;
 import com.eshioji.hotvect.api.data.SparseVector;
 import com.eshioji.hotvect.api.data.raw.Example;
 import com.eshioji.hotvect.api.data.raw.RawValue;
-import com.eshioji.hotvect.vw.VwInstanceEncoder;
+import com.eshioji.hotvect.vw.VwExampleEncoder;
 import org.junit.jupiter.api.Test;
 
 import java.util.function.DoubleUnaryOperator;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
-class VwInstanceEncoderTest {
+class VwExampleEncoderTest {
 
     @Test
     void nonBinaryWithoutWeights() {
@@ -49,13 +49,13 @@ class VwInstanceEncoderTest {
 
     private void testEncoding(double targetVariable, SparseVector featureVector, String expected, boolean binary, DoubleUnaryOperator weightFun) {
         var testRecord = new DataRecord<TestRawNamespace, RawValue>(TestRawNamespace.class);
-        VwInstanceEncoder<DataRecord<TestRawNamespace, RawValue>> subject;
+        VwExampleEncoder<DataRecord<TestRawNamespace, RawValue>> subject;
         if (weightFun == null) {
-            subject = new VwInstanceEncoder<>(
+            subject = new VwExampleEncoder<>(
                     testRawNamespaceRawValueDataRecord -> featureVector,
                     binary);
         } else {
-            subject = new VwInstanceEncoder<>(
+            subject = new VwExampleEncoder<>(
                     testRawNamespaceRawValueDataRecord -> featureVector,
                     binary,
                     weightFun
