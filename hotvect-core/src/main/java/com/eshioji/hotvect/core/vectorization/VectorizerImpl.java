@@ -1,8 +1,8 @@
 package com.eshioji.hotvect.core.vectorization;
 
 import com.eshioji.hotvect.api.data.DataRecord;
-import com.eshioji.hotvect.api.data.SparseVector;
 import com.eshioji.hotvect.api.data.FeatureNamespace;
+import com.eshioji.hotvect.api.data.SparseVector;
 import com.eshioji.hotvect.api.data.hashed.HashedValue;
 import com.eshioji.hotvect.api.data.raw.RawValue;
 import com.eshioji.hotvect.core.combine.Combiner;

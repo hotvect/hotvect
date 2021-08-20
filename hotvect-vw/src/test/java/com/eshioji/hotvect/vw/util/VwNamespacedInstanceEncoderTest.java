@@ -10,7 +10,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.function.DoubleUnaryOperator;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 class VwNamespacedInstanceEncoderTest {
     private static final Transformer<DataRecord<TestRawNamespace, RawValue>, TestFeatureNamespace> TRANSFORMER =

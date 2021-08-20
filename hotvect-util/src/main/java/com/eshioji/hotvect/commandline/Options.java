@@ -5,14 +5,14 @@ import picocli.CommandLine;
 import java.io.File;
 
 class Options {
+    @CommandLine.Option(names = {"--algorithm-jar"}, paramLabel = "TODO", description = "TODO")
+    String algorithmJar;
+
     @CommandLine.Option(names = {"--encode"}, description = "Vectorize and encode")
     boolean encode;
 
     @CommandLine.Option(names = {"--predict"}, description = "Predict")
     boolean predict;
-
-    @CommandLine.Option(names = {"--model"}, paramLabel = "MODEL_FILE", description = "Model file")
-    File modelFile;
 
     @CommandLine.Option(names = {"--source"}, paramLabel = "SOURCE_FILE", description = "Source file")
     File sourceFile;
@@ -28,19 +28,6 @@ class Options {
 
     @CommandLine.Option(names = {"--meta-data"}, paramLabel = "Metadata location", description = "Metadata location", defaultValue = "metadata.json")
     File metadataLocation;
-
-    @CommandLine.Option(names = {"--example-decoder"}, paramLabel = "TODO", description = "TODO")
-    String exampleDecoderName;
-
-    @CommandLine.Option(names = {"--example-encoder"}, paramLabel = "TODO", description = "TODO")
-    public String exampleEncoderName;
-
-    @CommandLine.Option(names = {"--example-scorer"}, paramLabel = "TODO", description = "TODO")
-    public String scorerName;
-
-
-
-
 
     @CommandLine.Option(names = {"-h", "--help"}, usageHelp = true, description = "display a help message")
     private boolean helpRequested = false;

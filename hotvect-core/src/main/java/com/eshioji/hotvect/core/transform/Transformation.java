@@ -1,8 +1,6 @@
 package com.eshioji.hotvect.core.transform;
 
 
-import com.eshioji.hotvect.api.data.DataRecord;
-import com.eshioji.hotvect.api.data.Namespace;
 import com.eshioji.hotvect.api.data.raw.RawValue;
 
 import java.util.function.Function;

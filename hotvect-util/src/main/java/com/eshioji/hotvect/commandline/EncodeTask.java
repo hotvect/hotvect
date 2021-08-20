@@ -2,30 +2,27 @@ package com.eshioji.hotvect.commandline;
 
 
 import com.codahale.metrics.MetricRegistry;
-import com.eshioji.hotvect.api.ExampleEncoderFactory;
-import com.eshioji.hotvect.api.codec.ExampleEncoder;
+import com.eshioji.hotvect.hotdeploy.AlgorithmDefinition;
 import com.eshioji.hotvect.util.CpuIntensiveFileMapper;
 
 import java.util.HashMap;
 import java.util.Map;
 
 public class EncodeTask<R> extends Task<R> {
-    private final ExampleEncoder<R> exampleEncoder;
-
-    public EncodeTask(Options opts, MetricRegistry metricRegistry) throws Exception {
-        super(opts, metricRegistry);
-        ExampleEncoderFactory<R> eef = (ExampleEncoderFactory<R>) Class.forName(opts.exampleEncoderName).getDeclaredConstructor().newInstance();
-        this.exampleEncoder = eef.get();
-
+    public EncodeTask(Options opts, MetricRegistry metricRegistry, AlgorithmDefinition<R> algorithmDefinition) throws Exception {
+        super(opts, metricRegistry, algorithmDefinition);
     }
 
     @Override
     protected Map<String, String> perform() throws Exception {
-        var transformation = super.exampleDecoder.andThen(s -> s.map(this.exampleEncoder));
+        var exampleDecoder = super.algorithmDefinition.getExampleDecoder();
+        var exampleEncoder = super.algorithmDefinition.getExampleEncoder();
+
+        var transformation = exampleDecoder.andThen(s -> s.map(exampleEncoder));
         var processor = CpuIntensiveFileMapper.mapper(metricRegistry, opts.sourceFile, opts.destinationFile, transformation);
+
         processor.run();
         Map<String, String> metadata = new HashMap<>();
-        metadata.put("example_encoder", opts.exampleEncoderName);
         return metadata;
     }
 }

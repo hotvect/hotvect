@@ -1,9 +1,5 @@
 package com.eshioji.hotvect.api.scoring;
 
-import com.eshioji.hotvect.api.data.DataRecord;
-import com.eshioji.hotvect.api.data.raw.RawNamespace;
-import com.eshioji.hotvect.api.data.raw.RawValue;
-
 import java.util.function.ToDoubleFunction;
 
 /**

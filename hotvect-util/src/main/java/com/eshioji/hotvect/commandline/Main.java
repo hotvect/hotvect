@@ -2,11 +2,14 @@ package com.eshioji.hotvect.commandline;
 
 import com.codahale.metrics.MetricRegistry;
 import com.codahale.metrics.Slf4jReporter;
+import com.eshioji.hotvect.hotdeploy.AlgorithmDefinition;
+import com.eshioji.hotvect.hotdeploy.JarAlgorithmLoader;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import picocli.CommandLine;
 
+import java.nio.file.Path;
 import java.util.concurrent.TimeUnit;
 
 import static com.google.common.base.Preconditions.checkState;
@@ -41,13 +44,15 @@ public class Main {
 
     }
 
-    private static Task<?> getTask(Options opts) throws Exception {
+    private static <R> Task<R> getTask(Options opts) throws Exception {
         checkState(opts.encode ^ opts.predict, "Exactly one command (predict or encode) must be specified");
 
+        AlgorithmDefinition<R> algorithmDefinition = JarAlgorithmLoader.load(Path.of(opts.algorithmJar));
+
         if(opts.encode){
-            return new EncodeTask<>(opts, METRIC_REGISTRY);
+            return new EncodeTask<>(opts, METRIC_REGISTRY, algorithmDefinition);
         } else if (opts.predict){
-            return new PredictTask<>(opts, METRIC_REGISTRY);
+            return new PredictTask<>(opts, METRIC_REGISTRY, algorithmDefinition);
         } else {
             throw new UnsupportedOperationException("No command given. Available: encode or predict");
         }

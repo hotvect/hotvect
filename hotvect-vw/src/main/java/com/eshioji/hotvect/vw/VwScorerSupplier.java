@@ -1,6 +1,5 @@
 package com.eshioji.hotvect.vw;
 
-import com.eshioji.hotvect.api.ScorerFactory;
 import com.eshioji.hotvect.api.scoring.Scorer;
 import com.eshioji.hotvect.core.score.ScorerImpl;
 import com.eshioji.hotvect.core.vectorization.Vectorizer;

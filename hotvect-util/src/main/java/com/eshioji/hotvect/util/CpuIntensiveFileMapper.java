@@ -10,17 +10,13 @@ import org.slf4j.LoggerFactory;
 
 import java.io.*;
 import java.nio.file.Path;
-import java.util.Collection;
 import java.util.Iterator;
-import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 import java.util.stream.Stream;
 import java.util.zip.GZIPInputStream;
 
 import static com.eshioji.hotvect.util.CpuIntensiveMapper.*;
-import static com.google.common.base.Preconditions.checkArgument;
 
 
 public class CpuIntensiveFileMapper extends VerboseRunnable {

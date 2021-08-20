@@ -1,8 +1,8 @@
 package com.eshioji.hotvect.core.combine;
 
 
-import com.eshioji.hotvect.api.data.ValueType;
 import com.eshioji.hotvect.api.data.FeatureNamespace;
+import com.eshioji.hotvect.api.data.ValueType;
 import com.eshioji.hotvect.api.data.hashed.HashedValueType;
 import com.eshioji.hotvect.core.hash.HashUtils;
 import com.google.common.base.Joiner;

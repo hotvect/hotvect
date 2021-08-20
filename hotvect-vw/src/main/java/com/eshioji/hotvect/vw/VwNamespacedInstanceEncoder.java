@@ -1,5 +1,6 @@
 package com.eshioji.hotvect.vw;
 
+import com.eshioji.hotvect.api.codec.ExampleEncoder;
 import com.eshioji.hotvect.api.data.DataRecord;
 import com.eshioji.hotvect.api.data.FeatureNamespace;
 import com.eshioji.hotvect.api.data.hashed.HashedValue;
@@ -8,7 +9,6 @@ import com.eshioji.hotvect.api.data.raw.RawNamespace;
 import com.eshioji.hotvect.api.data.raw.RawValue;
 import com.eshioji.hotvect.core.hash.Hasher;
 import com.eshioji.hotvect.core.transform.Transformer;
-import com.eshioji.hotvect.api.codec.ExampleEncoder;
 
 import java.util.EnumMap;
 import java.util.Map;
