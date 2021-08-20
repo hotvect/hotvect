@@ -32,9 +32,6 @@ class Options {
     @CommandLine.Option(names = {"--example-decoder"}, paramLabel = "TODO", description = "TODO")
     String exampleDecoderName;
 
-    @CommandLine.Option(names = {"--flatmap-example-decoder"}, paramLabel = "TODO", description = "TODO")
-    String flatmapExampleDecoderName;
-
     @CommandLine.Option(names = {"--example-encoder"}, paramLabel = "TODO", description = "TODO")
     public String exampleEncoderName;
 

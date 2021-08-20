@@ -11,6 +11,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.function.Function;
+import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
@@ -31,8 +32,8 @@ class CpuIntensiveFileMapperTest {
     private void test(File source) throws IOException {
         var mr = new MetricRegistry();
 
-        Function<String, String> fun = s ->
-                String.valueOf(Hashing.sha512().hashString(s, StandardCharsets.UTF_8).asInt());
+        Function<String, Stream<String>> fun = s ->
+                Stream.of(String.valueOf(Hashing.sha512().hashString(s, StandardCharsets.UTF_8).asInt()));
         var dest = getTempFile();
         try {
             var subject = CpuIntensiveFileMapper.mapper(mr, source, dest, fun);

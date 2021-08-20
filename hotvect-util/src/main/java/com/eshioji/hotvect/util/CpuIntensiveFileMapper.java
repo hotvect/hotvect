@@ -31,42 +31,10 @@ public class CpuIntensiveFileMapper extends VerboseRunnable {
     private final int batchSize;
     private final File source;
     private final File dest;
-
-    // Either map or flatmap (did not want to treat everything as flatmap)
-    private final Function<String, String> mapTransformation;
     private final Function<String, Stream<String>> flatmapTransformation;
 
 
     public static CpuIntensiveFileMapper mapper(MetricRegistry metricRegistry,
-                                                File source,
-                                                File dest,
-                                                Function<String, String> mapFunction){
-        return mapper(metricRegistry,
-                source,
-                dest,
-                mapFunction,
-                DEFAULT_THREAD_NUM,
-                DEFAULT_QUEUE_LENGTH,
-                DEFAULT_BATCH_SIZE);
-    }
-
-    public static CpuIntensiveFileMapper mapper(MetricRegistry metricRegistry,
-                                                File source,
-                                                File dest,
-                                                Function<String, String> mapFunction,
-                                                int nThreads,
-                                                int queueLength,
-                                                int batchSize){
-        return new CpuIntensiveFileMapper(metricRegistry,
-                source,
-                dest,
-                mapFunction,
-                null,
-                nThreads,
-                queueLength,
-                batchSize);
-    }
-    public static CpuIntensiveFileMapper flatMapper(MetricRegistry metricRegistry,
                                                     File source,
                                                     File dest,
                                                     Function<String, Stream<String>> flatmapFunction,
@@ -76,37 +44,29 @@ public class CpuIntensiveFileMapper extends VerboseRunnable {
         return new CpuIntensiveFileMapper(metricRegistry,
                 source,
                 dest,
-                null,
                 flatmapFunction,
                 nThreads,
                 queueLength,
                 batchSize);
     }
 
-  public static CpuIntensiveFileMapper flatMapper(MetricRegistry metricRegistry, File source, File dest, Function<String, Stream<String>> flatmapFunction){
-        return flatMapper(metricRegistry, source, dest, flatmapFunction, DEFAULT_THREAD_NUM, DEFAULT_QUEUE_LENGTH, DEFAULT_BATCH_SIZE);
+  public static CpuIntensiveFileMapper mapper(MetricRegistry metricRegistry, File source, File dest, Function<String, Stream<String>> flatmapFunction){
+        return mapper(metricRegistry, source, dest, flatmapFunction, DEFAULT_THREAD_NUM, DEFAULT_QUEUE_LENGTH, DEFAULT_BATCH_SIZE);
     }
 
-    private CpuIntensiveFileMapper(MetricRegistry metricRegistry, File source, File dest, Function<String, String> mapFunction, Function<String, Stream<String>> flatMapFunction, int numThreads, int queueSize, int batchSize) {
-        checkArgument(mapFunction != null ^ flatMapFunction != null);
+    private CpuIntensiveFileMapper(MetricRegistry metricRegistry, File source, File dest, Function<String, Stream<String>> flatMapFunction, int numThreads, int queueSize, int batchSize) {
         this.metricRegistry = metricRegistry;
         this.queueSize = queueSize;
         this.batchSize = batchSize;
         this.source = source;
         this.dest = dest;
-        this.mapTransformation = mapFunction;
         this.flatmapTransformation = flatMapFunction;
         this.nThreads = numThreads;
     }
 
     @Override
     protected void doRun() {
-        CpuIntensiveMapper<String, ?> processor;
-        if (this.mapTransformation != null){
-            processor = new CpuIntensiveMapper<>(metricRegistry, mapTransformation, nThreads, queueSize, batchSize);
-        } else {
-            processor = new CpuIntensiveMapper<>(metricRegistry, flatmapTransformation, nThreads, queueSize, batchSize);
-        }
+        CpuIntensiveMapper<String, Stream<String>> processor = new CpuIntensiveMapper<>(metricRegistry, flatmapTransformation, nThreads, queueSize, batchSize);
 
         try (var source = readData(this.source.toPath())) {
             var ext = Files.getFileExtension(dest.toPath().getFileName().toString());
@@ -127,7 +87,7 @@ public class CpuIntensiveFileMapper extends VerboseRunnable {
         }
     }
 
-    private void process(Stream<String> source, CpuIntensiveMapper<String, ?> processor, BufferedWriter writer) throws InterruptedException, java.util.concurrent.ExecutionException, IOException {
+    private void process(Stream<String> source, CpuIntensiveMapper<String, Stream<String>> processor, BufferedWriter writer) throws InterruptedException, java.util.concurrent.ExecutionException, IOException {
         var queue = processor.start(source);
         metricRegistry.register(
                 MetricRegistry.name(CpuIntensiveFileMapper.class, "queue", "size"),
@@ -139,19 +99,13 @@ public class CpuIntensiveFileMapper extends VerboseRunnable {
             var batch = queue.poll(1, TimeUnit.SECONDS);
             if (batch != null) {
                 // will throw if batch was a failure
-                for (Object result : batch.get()) {
+                for (Stream<String> result : batch.get()) {
                     if(result == null){
-                        // Returning null is allowed
-                        // Line is skipped in this case
-                        continue;
-                    } else if(result instanceof String){
-                        // We had a map function
-                        writer.append((String)result);
-                        writer.newLine();
-                    } else if (result instanceof Stream){
+                        throw new NullPointerException("result");
+                    } else {
                         //TODO Add test for this path
                         // We had a flatmap function
-                        for(Iterator<String> it = ((Stream<String>) result).iterator(); it.hasNext() ;) {
+                        for(Iterator<String> it = result.iterator(); it.hasNext() ;) {
                             writer.append(it.next());
                             writer.newLine();
                         }
