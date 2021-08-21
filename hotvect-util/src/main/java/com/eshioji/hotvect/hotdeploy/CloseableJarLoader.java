@@ -1,30 +1,16 @@
 package com.eshioji.hotvect.hotdeploy;
 
-import com.google.common.collect.ImmutableList;
-
-import java.io.IOException;
+import java.net.URL;
 import java.nio.file.Path;
 
 public class CloseableJarLoader {
     private CloseableJarLoader() {
     }
 
-    public static CloseableJarHandle load(Path jarFile) {
-        ChildFirstCloseableClassloader classLoader = null;
-        try {
-            classLoader = new ChildFirstCloseableClassloader(ImmutableList.of(jarFile.toUri().toURL()));
+    public static CloseableJarHandle load(Path jarFile, ClassLoader parent) throws Exception {
+        URL[] classpaths = new URL[]{jarFile.toUri().toURL()};
+        try (var classLoader = new ChildFirstURLClassLoader(classpaths, parent)) {
             return new CloseableJarHandle(jarFile, classLoader);
-        } catch (Throwable e) {
-            // Attempt to close the class loader in any case to prevent memory leak
-            try {
-                if (classLoader != null) {
-                    classLoader.close();
-                }
-            } catch (IOException e1) {
-                throw new RuntimeException(e1);
-
-            }
-            throw new RuntimeException(e);
         }
     }
 

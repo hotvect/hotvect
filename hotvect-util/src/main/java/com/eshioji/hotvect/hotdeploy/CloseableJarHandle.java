@@ -6,10 +6,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 
 public class CloseableJarHandle implements Closeable {
-    private final ChildFirstCloseableClassloader classLoader;
+    private final ChildFirstURLClassLoader classLoader;
     private final Path jarFile;
 
-    public CloseableJarHandle(Path jarFile, ChildFirstCloseableClassloader classLoader) {
+    public CloseableJarHandle(Path jarFile, ChildFirstURLClassLoader classLoader) {
         this.jarFile = jarFile;
         this.classLoader = classLoader;
     }
@@ -25,7 +25,7 @@ public class CloseableJarHandle implements Closeable {
         }
     }
 
-    public ChildFirstCloseableClassloader getClassLoader() {
+    public ChildFirstURLClassLoader getClassLoader() {
         return classLoader;
     }
 }

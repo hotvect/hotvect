@@ -65,8 +65,15 @@ public class CloseableAlgorithmHandle<R> implements Closeable {
         }
     }
 
+    /**
+     * With Java9+, use --add-opens java.base/jdk.internal.loader=ALL-UNNAMED --add-opens java.base/java.net=ALL-UNNAMED
+     * @param jarPath
+     * @param <R>
+     * @return
+     * @throws Exception
+     */
     public static <R> CloseableAlgorithmHandle<R> loadAlgorithm(Path jarPath) throws Exception {
-        return new CloseableAlgorithmHandle<>(CloseableJarLoader.load(jarPath));
+        return new CloseableAlgorithmHandle<>(CloseableJarLoader.load(jarPath, CloseableAlgorithmHandle.class.getClassLoader()));
     }
 
 }

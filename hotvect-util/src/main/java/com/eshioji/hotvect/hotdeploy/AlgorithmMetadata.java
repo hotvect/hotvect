@@ -1,5 +1,7 @@
 package com.eshioji.hotvect.hotdeploy;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
+
 public class AlgorithmMetadata {
     private final String name;
     private final String instanceId;
@@ -7,7 +9,11 @@ public class AlgorithmMetadata {
     private final String exampleEncoderFactoryName;
     private final String scorerFactoryName;
 
-    public AlgorithmMetadata(String name, String instanceId, String exampleDecoderFactoryName, String exampleEncoderFactoryName, String scorerFactoryName) {
+    public AlgorithmMetadata(@JsonProperty("name") String name,
+                             @JsonProperty("instanceId")String instanceId,
+                             @JsonProperty("exampleDecoderFactoryName")String exampleDecoderFactoryName,
+                             @JsonProperty("exampleEncoderFactoryName")String exampleEncoderFactoryName,
+                             @JsonProperty("scorerFactoryName")String scorerFactoryName) {
         this.name = name;
         this.instanceId = instanceId;
         this.exampleDecoderFactoryName = exampleDecoderFactoryName;
