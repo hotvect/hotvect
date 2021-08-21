@@ -2,8 +2,7 @@ package com.eshioji.hotvect.commandline;
 
 import com.codahale.metrics.MetricRegistry;
 import com.codahale.metrics.Slf4jReporter;
-import com.eshioji.hotvect.hotdeploy.AlgorithmDefinition;
-import com.eshioji.hotvect.hotdeploy.JarAlgorithmLoader;
+import com.eshioji.hotvect.hotdeploy.CloseableAlgorithmHandle;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -46,15 +45,14 @@ public class Main {
 
     private static <R> Task<R> getTask(Options opts) throws Exception {
         checkState(opts.encode ^ opts.predict, "Exactly one command (predict or encode) must be specified");
-
-        AlgorithmDefinition<R> algorithmDefinition = JarAlgorithmLoader.load(Path.of(opts.algorithmJar));
-
-        if(opts.encode){
-            return new EncodeTask<>(opts, METRIC_REGISTRY, algorithmDefinition);
-        } else if (opts.predict){
-            return new PredictTask<>(opts, METRIC_REGISTRY, algorithmDefinition);
-        } else {
-            throw new UnsupportedOperationException("No command given. Available: encode or predict");
+        try(CloseableAlgorithmHandle<R> closeableAlgorithmHandle = CloseableAlgorithmHandle.loadAlgorithm(Path.of(opts.algorithmJar))){
+            if(opts.encode){
+                return new EncodeTask<>(opts, METRIC_REGISTRY, closeableAlgorithmHandle);
+            } else if (opts.predict){
+                return new PredictTask<>(opts, METRIC_REGISTRY, closeableAlgorithmHandle);
+            } else {
+                throw new UnsupportedOperationException("No command given. Available: encode or predict");
+            }
         }
     }
 

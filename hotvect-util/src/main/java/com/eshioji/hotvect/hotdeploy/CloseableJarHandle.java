@@ -5,11 +5,11 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
-public abstract class CloseableClassDefinition implements Closeable {
-    protected final ChildFirstCloseableClassloader classLoader;
+public class CloseableJarHandle implements Closeable {
+    private final ChildFirstCloseableClassloader classLoader;
     private final Path jarFile;
 
-    public CloseableClassDefinition(Path jarFile, ChildFirstCloseableClassloader classLoader) {
+    public CloseableJarHandle(Path jarFile, ChildFirstCloseableClassloader classLoader) {
         this.jarFile = jarFile;
         this.classLoader = classLoader;
     }
@@ -23,6 +23,10 @@ public abstract class CloseableClassDefinition implements Closeable {
                 Files.deleteIfExists(jarFile);
             }
         }
+    }
+
+    public ChildFirstCloseableClassloader getClassLoader() {
+        return classLoader;
     }
 }
 
