@@ -8,6 +8,10 @@ class Options {
     @CommandLine.Option(names = {"--algorithm-definition"}, paramLabel = "TODO", description = "TODO")
     String algorithmDefinition;
 
+    @CommandLine.Option(names = {"--model"}, paramLabel = "TODO", description = "TODO")
+    String modelParameterFile;
+
+
     @CommandLine.Option(names = {"--encode"}, description = "Vectorize and encode")
     boolean encode;
 

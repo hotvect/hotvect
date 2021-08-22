@@ -2,11 +2,13 @@ package com.eshioji.hotvect.commandline;
 
 import com.codahale.metrics.MetricRegistry;
 import com.eshioji.hotvect.api.AlgorithmDefinition;
+import com.eshioji.hotvect.api.scoring.Scorer;
 import com.eshioji.hotvect.util.VerboseCallable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.Map;
+import java.util.function.Function;
 import java.util.function.Supplier;
 
 public abstract class Task<R> extends VerboseCallable<Map<String, String>> {
@@ -36,8 +38,14 @@ public abstract class Task<R> extends VerboseCallable<Map<String, String>> {
         metadata.put("algorithm_name", algorithmDefinition.getAlgorithmName());
         return metadata;
     }
-    protected  <V> V instantiate(String exampleDecoderFactoryClassName) throws Exception {
-        return ((Supplier<V>)Class.forName(exampleDecoderFactoryClassName).getDeclaredConstructor().newInstance()).get();
+    protected <V> V instantiate(String supplierName) throws Exception {
+        return ((Supplier<V>)Class.forName(supplierName).getDeclaredConstructor().newInstance()).get();
     }
+
+    protected <V> V instantiate(String functionName, Readable parameter) throws Exception {
+        var fun = ((Function<Readable,V>)Class.forName(functionName).getDeclaredConstructor().newInstance());
+        return fun.apply(parameter);
+    }
+
 
 }
