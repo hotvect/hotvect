@@ -5,8 +5,8 @@ import picocli.CommandLine;
 import java.io.File;
 
 class Options {
-    @CommandLine.Option(names = {"--algorithm-jar"}, paramLabel = "TODO", description = "TODO")
-    String algorithmJar;
+    @CommandLine.Option(names = {"--algorithm-definition"}, paramLabel = "TODO", description = "TODO")
+    String algorithmDefinition;
 
     @CommandLine.Option(names = {"--encode"}, description = "Vectorize and encode")
     boolean encode;

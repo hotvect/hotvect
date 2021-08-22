@@ -1,24 +1,24 @@
 package com.eshioji.hotvect.commandline;
 
 import com.codahale.metrics.MetricRegistry;
-import com.eshioji.hotvect.hotdeploy.CloseableAlgorithmHandle;
+import com.eshioji.hotvect.api.AlgorithmDefinition;
 import com.eshioji.hotvect.util.VerboseCallable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.Map;
+import java.util.function.Supplier;
 
 public abstract class Task<R> extends VerboseCallable<Map<String, String>> {
     protected static final Logger LOGGER = LoggerFactory.getLogger(Task.class);
     protected final Options opts;
     protected final MetricRegistry metricRegistry;
-    protected final CloseableAlgorithmHandle<R> closeableAlgorithmHandle;
+    protected final AlgorithmDefinition algorithmDefinition;
 
-    public Task(Options opts, MetricRegistry metricRegistry, CloseableAlgorithmHandle<R> closeableAlgorithmHandle) throws Exception {
+    public Task(Options opts, MetricRegistry metricRegistry, AlgorithmDefinition algorithmDefinition) throws Exception {
         this.opts = opts;
         this.metricRegistry = metricRegistry;
-
-        this.closeableAlgorithmHandle = closeableAlgorithmHandle;
+        this.algorithmDefinition = algorithmDefinition;
     }
 
     protected abstract Map<String, String> perform() throws Exception;
@@ -33,8 +33,11 @@ public abstract class Task<R> extends VerboseCallable<Map<String, String>> {
         metadata.put("source_file", opts.sourceFile.toString());
         metadata.put("sample_pct", String.valueOf(opts.samplePct));
         metadata.put("sample_seed", String.valueOf(opts.sampleSeed));
-        metadata.put("algorithm_name", closeableAlgorithmHandle.getMetadata().getName());
-        metadata.put("instance_id", closeableAlgorithmHandle.getMetadata().getInstanceId());
+        metadata.put("algorithm_name", algorithmDefinition.getAlgorithmName());
         return metadata;
     }
+    protected  <V> V instantiate(String exampleDecoderFactoryClassName) throws Exception {
+        return ((Supplier<V>)Class.forName(exampleDecoderFactoryClassName).getDeclaredConstructor().newInstance()).get();
+    }
+
 }

@@ -2,7 +2,7 @@ package com.eshioji.hotvect.commandline;
 
 import com.codahale.metrics.MetricRegistry;
 import com.codahale.metrics.Slf4jReporter;
-import com.eshioji.hotvect.hotdeploy.CloseableAlgorithmHandle;
+import com.eshioji.hotvect.api.AlgorithmDefinition;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -45,14 +45,17 @@ public class Main {
 
     private static <R> Task<R> getTask(Options opts) throws Exception {
         checkState(opts.encode ^ opts.predict, "Exactly one command (predict or encode) must be specified");
-        try(CloseableAlgorithmHandle<R> closeableAlgorithmHandle = CloseableAlgorithmHandle.loadAlgorithm(Path.of(opts.algorithmJar))){
-            if(opts.encode){
-                return new EncodeTask<>(opts, METRIC_REGISTRY, closeableAlgorithmHandle);
-            } else if (opts.predict){
-                return new PredictTask<>(opts, METRIC_REGISTRY, closeableAlgorithmHandle);
-            } else {
-                throw new UnsupportedOperationException("No command given. Available: encode or predict");
-            }
+        var algorithmDefinitionFile = Path.of(opts.algorithmDefinition).toFile();
+        checkState(algorithmDefinitionFile.exists(), "Algorithm definition file does not exist:" + algorithmDefinitionFile.getAbsolutePath());
+
+        var algorithmDefinition = OM.readValue(algorithmDefinitionFile, AlgorithmDefinition.class);
+
+        if (opts.encode) {
+            return new EncodeTask<>(opts, METRIC_REGISTRY, algorithmDefinition);
+        } else if (opts.predict) {
+            return new PredictTask<>(opts, METRIC_REGISTRY, algorithmDefinition);
+        } else {
+            throw new UnsupportedOperationException("No command given. Available: encode or predict");
         }
     }
 
