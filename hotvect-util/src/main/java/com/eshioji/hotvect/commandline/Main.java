@@ -4,6 +4,7 @@ import com.codahale.metrics.MetricRegistry;
 import com.codahale.metrics.Slf4jReporter;
 import com.eshioji.hotvect.api.AlgorithmDefinition;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import picocli.CommandLine;
@@ -14,7 +15,12 @@ import java.util.concurrent.TimeUnit;
 import static com.google.common.base.Preconditions.checkState;
 
 public class Main {
-    private static final ObjectMapper OM = new ObjectMapper();
+    private static final ObjectMapper OM;
+    static {
+        OM = new ObjectMapper();
+        OM.setPropertyNamingStrategy(PropertyNamingStrategies.SNAKE_CASE);
+    }
+
     private static final Logger LOGGER = LoggerFactory.getLogger(Main.class);
     private static final MetricRegistry METRIC_REGISTRY = new MetricRegistry();
 
