@@ -21,6 +21,7 @@ import static java.util.stream.Collectors.toSet;
  * @param <IN>
  * @param <OUT>
  */
+@Deprecated
 public class PassThroughTransformer<IN extends Enum<IN> & Namespace, OUT extends Enum<OUT> & Namespace>
         implements Transformer<DataRecord<IN, RawValue>, OUT> {
     private final AutoMapper<IN, OUT, RawValue> autoMapper;
