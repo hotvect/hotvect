@@ -42,7 +42,7 @@ class CpuIntensiveFileAggregatorTest {
                 0.001
         );
 
-        var subject = new CpuIntensiveFileAggregator<>(mr,
+        var subject = CpuIntensiveFileAggregator.aggregator(mr,
                 source,
                 () -> firstBloomFilter,
                 (acc, x) -> {

@@ -12,8 +12,8 @@ import it.unimi.dsi.fastutil.ints.IntCollection;
  * Hashing related utility codes
  */
 public class HashUtils {
-    private static final int FNV1_32_INIT = 0x811c9dc5;
-    private static final int FNV1_PRIME_32 = 16777619;
+    public static final int FNV1_32_INIT = 0x811c9dc5;
+    public static final int FNV1_PRIME_32 = 16777619;
 
     // Code adapted from Google Guava, which is licenced under Apache License 2.0
     // ---- start ---
@@ -72,66 +72,6 @@ public class HashUtils {
     }
     // ---- end ---
 
-    /**
-     * Given a {@link DataRecord}, add the specified interactions to the accumulating {@link IntCollection}
-     * @param mask Bitmask to be used for feature hashing
-     * @param featureDefinition Definition of features, which may include interaction features
-     * @param acc Accumulator to which feaure hashes will be added
-     * @param record Input hashed {@link DataRecord}
-     * @param <H> the {@link FeatureNamespace} to be used
-     */
-    public static <H extends Enum<H> & FeatureNamespace> void construct(int mask,
-                                                                        FeatureDefinition<H> featureDefinition,
-                                                                        IntCollection acc,
-                                                                        DataRecord<H, HashedValue> record) {
-        H[] toInteract = featureDefinition.getComponents();
-        if (toInteract.length == 1) {
-            // There is only one component
-            HashedValue value = record.get(toInteract[0]);
-            if (value != null) {
-                for (int el : value.getCategoricals()) {
-                    int hash = (featureDefinition.getFeatureNamespace() * FNV1_PRIME_32) ^ HashUtils.hashInt(el);
-                    acc.add(hash & mask);
-                }
-            }
-        } else {
-            // There are more than one component - it is a interaction feature
-            interact(mask, featureDefinition, acc, record);
-        }
-    }
-
-    protected static <H extends Enum<H> & FeatureNamespace> void interact(int mask,
-                                                                          FeatureDefinition<H> fd,
-                                                                          IntCollection acc,
-                                                                          DataRecord<H, HashedValue> values) {
-        H[] toInteract = fd.getComponents();
-
-        // First, we calculate how many results we would be getting
-        int solutions = 1;
-        for (H h : toInteract) {
-            HashedValue data = values.get(h);
-            if (data == null) {
-                // If any of the elements for interaction is not available, abort
-                return;
-            }
-            solutions *= data.getCategoricals().length;
-        }
-
-        for (int i = 0; i < solutions; i++) {
-            int j = 1;
-            int n = fd.getFeatureNamespace();
-
-            for (H h : toInteract) {
-                int[] set = values.get(h).getCategoricals();
-                int el = set[(i / j) % set.length];
-                n ^= HashUtils.hashInt(el);
-                n *= FNV1_PRIME_32;
-                j *= set.length;
-            }
-            int ret = n & mask;
-            acc.add(ret);
-        }
-    }
 
 
     public static <C extends Enum<C> & FeatureNamespace> int namespace(int mask, FeatureDefinition<C> fd, int featureName) {

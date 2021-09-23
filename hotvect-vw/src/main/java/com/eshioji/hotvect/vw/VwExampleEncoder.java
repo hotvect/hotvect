@@ -1,31 +1,33 @@
 package com.eshioji.hotvect.vw;
 
-import com.eshioji.hotvect.api.codec.ExampleEncoder;
 import com.eshioji.hotvect.api.data.SparseVector;
 import com.eshioji.hotvect.api.data.raw.Example;
+import com.eshioji.hotvect.core.audit.AuditableExampleEncoder;
+import com.eshioji.hotvect.core.audit.AuditableVectorizer;
+import com.eshioji.hotvect.core.vectorization.DefaultVectorizer;
 import com.eshioji.hotvect.core.vectorization.Vectorizer;
 
 import java.util.function.DoubleUnaryOperator;
 
-public class VwExampleEncoder<R> implements ExampleEncoder<R> {
+public class VwExampleEncoder<R> implements AuditableExampleEncoder<R> {
     private final boolean binary;
-    private final Vectorizer<R> vectorizer;
+    private final AuditableVectorizer<R> vectorizer;
     private final DoubleUnaryOperator targetToImportanceWeight;
 
-    public VwExampleEncoder(Vectorizer<R> vectorizer) {
+    public VwExampleEncoder(AuditableVectorizer<R> vectorizer) {
         this.vectorizer = vectorizer;
         this.binary = false;
         this.targetToImportanceWeight = null;
     }
 
-    public VwExampleEncoder(Vectorizer<R> vectorizer, boolean binary, DoubleUnaryOperator targetToImportanceWeight) {
+    public VwExampleEncoder(AuditableVectorizer<R> vectorizer, boolean binary, DoubleUnaryOperator targetToImportanceWeight) {
         this.vectorizer = vectorizer;
         this.binary = binary;
         this.targetToImportanceWeight = targetToImportanceWeight;
     }
 
 
-    public VwExampleEncoder(Vectorizer<R> vectorizer, boolean binary) {
+    public VwExampleEncoder(AuditableVectorizer<R> vectorizer, boolean binary) {
         this.vectorizer = vectorizer;
         this.binary = binary;
         this.targetToImportanceWeight = null;
@@ -73,4 +75,8 @@ public class VwExampleEncoder<R> implements ExampleEncoder<R> {
         return vwEncode(toEncode, vector, binary, targetToImportanceWeight);
     }
 
+    @Override
+    public AuditableVectorizer<R> getVectorizer() {
+        return this.vectorizer;
+    }
 }

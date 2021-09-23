@@ -17,6 +17,8 @@ import java.util.function.Supplier;
 import java.util.stream.Stream;
 import java.util.zip.GZIPInputStream;
 
+import static com.eshioji.hotvect.util.CpuIntensiveMapper.*;
+
 public class CpuIntensiveFileAggregator<Z> extends VerboseCallable<Z> {
     private static final Logger LOGGER = LoggerFactory.getLogger(CpuIntensiveFileAggregator.class);
     private final MetricRegistry metricRegistry;
@@ -27,10 +29,10 @@ public class CpuIntensiveFileAggregator<Z> extends VerboseCallable<Z> {
     private final Supplier<Z> init;
     private final BiFunction<Z, String, Z> merge;
 
-    public CpuIntensiveFileAggregator(MetricRegistry metricRegistry,
-                                      File source,
-                                      Supplier<Z> init,
-                                      BiFunction<Z, String, Z> merge) {
+    private CpuIntensiveFileAggregator(MetricRegistry metricRegistry,
+                                       File source,
+                                       Supplier<Z> init,
+                                       BiFunction<Z, String, Z> merge) {
         this(metricRegistry,
                 source,
                 init,
@@ -41,11 +43,11 @@ public class CpuIntensiveFileAggregator<Z> extends VerboseCallable<Z> {
     }
 
 
-    public CpuIntensiveFileAggregator(MetricRegistry metricRegistry,
-                                      File source,
-                                      Supplier<Z> init,
-                                      BiFunction<Z, String, Z> merge,
-                                      int numThreads, int queueSize, int batchSize) {
+    private CpuIntensiveFileAggregator(MetricRegistry metricRegistry,
+                                       File source,
+                                       Supplier<Z> init,
+                                       BiFunction<Z, String, Z> merge,
+                                       int numThreads, int queueSize, int batchSize) {
         this.metricRegistry = metricRegistry;
         this.queueSize = queueSize;
         this.batchSize = batchSize;
@@ -54,6 +56,28 @@ public class CpuIntensiveFileAggregator<Z> extends VerboseCallable<Z> {
         this.init = init;
         this.merge = merge;
     }
+
+    public static <Z> CpuIntensiveFileAggregator<Z> aggregator(MetricRegistry metricRegistry,
+                                                               File source,
+                                                               Supplier<Z> init,
+                                                               BiFunction<Z, String, Z> merge,
+                                                               int nThreads,
+                                                               int queueLength,
+                                                               int batchSize) {
+        return new CpuIntensiveFileAggregator<>(metricRegistry,
+                source,
+                init,
+                merge,
+                nThreads,
+                queueLength,
+                batchSize);
+    }
+
+    public static <Z> CpuIntensiveFileAggregator<Z> aggregator(MetricRegistry metricRegistry, File source, Supplier<Z> init,
+                                                               BiFunction<Z, String, Z> merge) {
+        return aggregator(metricRegistry, source, init, merge, DEFAULT_THREAD_NUM, DEFAULT_QUEUE_LENGTH, DEFAULT_BATCH_SIZE);
+    }
+
 
     @Override
     protected Z doCall() throws Exception {

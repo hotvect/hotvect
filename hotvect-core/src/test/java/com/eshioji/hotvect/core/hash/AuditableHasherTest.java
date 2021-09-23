@@ -10,12 +10,12 @@ import java.util.Map;
 import static com.eshioji.hotvect.core.TestRecords.*;
 import static org.junit.jupiter.api.Assertions.*;
 
-class HasherTest {
+class AuditableHasherTest {
 
     @Test
     void hashRawValuesAndPreserveProcessedValues() {
         var testRecord = getTestRecord();
-        var subject = new Hasher<>(TestFeatureNamespace.class);
+        var subject = new AuditableHasher<>(TestFeatureNamespace.class);
         var hashed = subject.apply(mapped(testRecord));
 
         for (Map.Entry<TestRawNamespace, RawValue> e : testRecord.asEnumMap().entrySet()) {
@@ -54,7 +54,7 @@ class HasherTest {
     @Test
     void emptyInput() {
         var testRecord = getEmptyTestRecord();
-        var subject = new Hasher<>(TestFeatureNamespace.class);
+        var subject = new AuditableHasher<>(TestFeatureNamespace.class);
         var hashed = subject.apply(mapped(testRecord));
         assertTrue(hashed.asEnumMap().isEmpty());
     }

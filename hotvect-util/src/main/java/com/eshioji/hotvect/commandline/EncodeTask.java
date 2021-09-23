@@ -9,7 +9,6 @@ import com.eshioji.hotvect.util.CpuIntensiveFileMapper;
 
 import java.util.HashMap;
 import java.util.Map;
-import java.util.function.Supplier;
 
 public class EncodeTask<R> extends Task<R> {
     public EncodeTask(Options opts, MetricRegistry metricRegistry, AlgorithmDefinition algorithmDefinition) throws Exception {

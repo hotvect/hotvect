@@ -4,9 +4,13 @@ import com.eshioji.hotvect.api.data.DataRecord;
 import com.eshioji.hotvect.api.data.SparseVector;
 import com.eshioji.hotvect.api.data.raw.Example;
 import com.eshioji.hotvect.api.data.raw.RawValue;
+import com.eshioji.hotvect.core.audit.AuditableVectorizer;
+import com.eshioji.hotvect.core.audit.RawFeatureName;
 import com.eshioji.hotvect.vw.VwExampleEncoder;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
+import java.util.concurrent.ConcurrentMap;
 import java.util.function.DoubleUnaryOperator;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -52,11 +56,31 @@ class VwExampleEncoderTest {
         VwExampleEncoder<DataRecord<TestRawNamespace, RawValue>> subject;
         if (weightFun == null) {
             subject = new VwExampleEncoder<>(
-                    testRawNamespaceRawValueDataRecord -> featureVector,
+                    new AuditableVectorizer<>() {
+                        @Override
+                        public ConcurrentMap<Integer, List<RawFeatureName>> enableAudit() {
+                            throw new AssertionError("not implemented");
+                        }
+
+                        @Override
+                        public SparseVector apply(DataRecord<TestRawNamespace, RawValue> testRawNamespaceRawValueDataRecord) {
+                            return featureVector;
+                        }
+                    },
                     binary);
         } else {
             subject = new VwExampleEncoder<>(
-                    testRawNamespaceRawValueDataRecord -> featureVector,
+                    new AuditableVectorizer<>() {
+                        @Override
+                        public ConcurrentMap<Integer, List<RawFeatureName>> enableAudit() {
+                            throw new AssertionError("not implemented");
+                        }
+
+                        @Override
+                        public SparseVector apply(DataRecord<TestRawNamespace, RawValue> testRawNamespaceRawValueDataRecord) {
+                            return featureVector;
+                        }
+                    },
                     binary,
                     weightFun
             );
