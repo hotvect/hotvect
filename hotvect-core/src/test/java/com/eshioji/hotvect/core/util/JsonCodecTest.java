@@ -14,7 +14,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 
 public class JsonCodecTest {
     private final JsonRecordDecoder<TestRawNamespace> decoder = new JsonRecordDecoder<>(TestRawNamespace.class);
-    private final JsonRecordEncoder<TestRawNamespace> encoder = new JsonRecordEncoder<>();
+    private final JsonRecordEncoder encoder = new JsonRecordEncoder();
 
     @Test
     void allValueTypesCanBeRead() {
