@@ -29,15 +29,28 @@ public abstract class Task<R> extends VerboseCallable<Map<String, String>> {
     protected Map<String, String> doCall() throws Exception {
         LOGGER.info("Running {} from {} to {}", this.getClass().getSimpleName(), opts.sourceFile, opts.destinationFile);
         var metadata = perform();
-        metadata.put("task_type", opts.encode ? "encode" : "predict");
+        var taskType  = getTaskType(opts);
+        metadata.put("task_type", taskType);
         metadata.put("metadata_location", opts.metadataLocation.toString());
         metadata.put("destination_file", opts.destinationFile.toString());
         metadata.put("source_file", opts.sourceFile.toString());
-        metadata.put("sample_pct", String.valueOf(opts.samplePct));
-        metadata.put("sample_seed", String.valueOf(opts.sampleSeed));
+//        metadata.put("sample_pct", String.valueOf(opts.samplePct));
+//        metadata.put("sample_seed", String.valueOf(opts.sampleSeed));
         metadata.put("algorithm_name", algorithmDefinition.getAlgorithmName());
         return metadata;
     }
+
+    private String getTaskType(Options opts){
+        if (opts.encode){
+            return "encode";
+        } else if(opts.predict){
+            return "predict";
+        } else if(opts.audit){
+            return "audit";
+        }
+        throw new AssertionError();
+    }
+
     protected <V> V instantiate(String supplierName) throws Exception {
         return ((Supplier<V>)Class.forName(supplierName).getDeclaredConstructor().newInstance()).get();
     }

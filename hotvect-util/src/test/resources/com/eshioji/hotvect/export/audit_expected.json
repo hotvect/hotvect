@@ -1,0 +1,35 @@
+{
+  "target": 1.0,
+  "features": [
+    {
+      "index": 0,
+      "value": 1.0,
+      "feature_namespace": "dummy",
+      "feature_name": "dummy"
+    },
+    {
+      "index": 41320185,
+      "value": 1.0,
+      "feature_namespace": "feature1",
+      "feature_name": "a"
+    },
+    {
+      "index": 2528095,
+      "value": 1.0,
+      "feature_namespace": "feature2",
+      "feature_name": "a"
+    },
+    {
+      "index": 35156276,
+      "value": 1.0,
+      "feature_namespace": "feature1^feature2",
+      "feature_name": "a^a"
+    },
+    {
+      "index": 3379697,
+      "value": 0.0,
+      "feature_namespace": "feature3",
+      "feature_name": "0"
+    }
+  ]
+}

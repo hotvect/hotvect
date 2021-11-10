@@ -11,6 +11,7 @@ import java.io.Serializable;
 import java.lang.reflect.Array;
 import java.util.Arrays;
 import java.util.EnumSet;
+import java.util.stream.Collectors;
 
 import static com.google.common.base.Preconditions.checkArgument;
 
@@ -22,6 +23,9 @@ public class FeatureDefinition<H extends Enum<H> & FeatureNamespace> implements 
     private final String name;
     private final int namespace;
 
+    public FeatureDefinition(H first, H... rest){
+        this(EnumSet.of(first, rest));
+    }
     public FeatureDefinition(EnumSet<H> components) {
         checkArgument(components.size() > 0, "You can't have a feature with no components");
 

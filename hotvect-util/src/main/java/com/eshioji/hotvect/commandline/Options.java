@@ -11,6 +11,8 @@ class Options {
     @CommandLine.Option(names = {"--model"}, paramLabel = "TODO", description = "TODO")
     String modelParameterFile;
 
+    @CommandLine.Option(names = {"--audit"}, description = "Vectorize and audit")
+    boolean audit;
 
     @CommandLine.Option(names = {"--encode"}, description = "Vectorize and encode")
     boolean encode;
@@ -24,11 +26,11 @@ class Options {
     @CommandLine.Option(names = {"--dest"}, paramLabel = "DESTINATION_FILE", description = "Destination file")
     File destinationFile;
 
-    @CommandLine.Option(names = {"--sample-pct"}, paramLabel = "SAMPLE_PCT", description = "Sampling pct", defaultValue = "1.0")
-    double samplePct = 1.0;
-
-    @CommandLine.Option(names = {"--sample-seed"}, paramLabel = "Sample seed", description = "Sampling seed", defaultValue = "0")
-    int sampleSeed = 0;
+//    @CommandLine.Option(names = {"--sample-pct"}, paramLabel = "SAMPLE_PCT", description = "Sampling pct", defaultValue = "1.0")
+//    double samplePct = 1.0;
+//
+//    @CommandLine.Option(names = {"--sample-seed"}, paramLabel = "Sample seed", description = "Sampling seed", defaultValue = "0")
+//    int sampleSeed = 0;
 
     @CommandLine.Option(names = {"--meta-data"}, paramLabel = "Metadata location", description = "Metadata location", defaultValue = "metadata.json")
     File metadataLocation;
