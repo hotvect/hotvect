@@ -75,7 +75,9 @@ public class CpuIntensiveFileMapper extends VerboseRunnable {
     protected void doRun() {
         CpuIntensiveMapper<String, List<String>> processor = new CpuIntensiveMapper<>(metricRegistry, flatmapTransformation, nThreads, queueSize, batchSize);
 
-        ThreadPoolExecutor gzipWriters = getGzipWriters(3);
+        int gzipThreads = (Runtime.getRuntime().availableProcessors()/2 > 1 ? Runtime.getRuntime().availableProcessors() / 2 - 1 : 1);
+
+        ThreadPoolExecutor gzipWriters = getGzipWriters(gzipThreads);
 
 
         try (var source = readData(this.source.toPath())) {
