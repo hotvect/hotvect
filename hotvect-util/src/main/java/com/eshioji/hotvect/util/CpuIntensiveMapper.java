@@ -3,6 +3,7 @@ package com.eshioji.hotvect.util;
 import com.codahale.metrics.Meter;
 import com.codahale.metrics.MetricRegistry;
 import com.codahale.metrics.Timer;
+import com.eshioji.hotvect.core.util.ListTransform;
 import com.google.common.collect.Iterators;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import org.slf4j.Logger;
@@ -20,11 +21,10 @@ import static com.google.common.base.Preconditions.checkState;
 public class CpuIntensiveMapper<X, Y> {
     static final int DEFAULT_THREAD_NUM = (Runtime.getRuntime().availableProcessors() > 1 ? Runtime.getRuntime().availableProcessors() - 1 : 1);
     static final int DEFAULT_QUEUE_LENGTH = DEFAULT_THREAD_NUM * 2;
-    static final int DEFAULT_BATCH_SIZE = 5000;
+    static final int DEFAULT_BATCH_SIZE = 100;
 
     private static final Logger LOGGER = LoggerFactory.getLogger(CpuIntensiveMapper.class);
     private final Timer batchTimer;
-    private final Meter recordMeter;
     private final int queueLength;
     private final int batchSize;
     private final ThreadPoolExecutor cpuIntensiveExecutor;
@@ -42,7 +42,6 @@ public class CpuIntensiveMapper<X, Y> {
 
     public CpuIntensiveMapper(MetricRegistry metricRegistry, Function<X, Y> mappingFun, int numThreads, int queueLength, int batchSize) {
         this.batchTimer = metricRegistry.timer(MetricRegistry.name(CpuIntensiveMapper.class, "batch"));
-        this.recordMeter = metricRegistry.meter(MetricRegistry.name(CpuIntensiveMapper.class, "record"));
         this.queueLength = queueLength;
         this.batchSize = batchSize;
 
@@ -55,7 +54,7 @@ public class CpuIntensiveMapper<X, Y> {
                 1, TimeUnit.DAYS,
                 new LinkedBlockingQueue<>(queueLength),
                 new ThreadFactoryBuilder().setNameFormat(CpuIntensiveMapper.class + "-%s").build(),
-                new ThreadPoolExecutor.CallerRunsPolicy()
+                new CallerBlocksPolicy()
         );
         this.mappingFun = mappingFun;
 
@@ -115,9 +114,8 @@ public class CpuIntensiveMapper<X, Y> {
         @Override
         public Collection<Y> doCall() {
             var t = batchTimer.time();
-            var ys = batch.stream().map(mappingFun).collect(Collectors.toList());
+            var ys = ListTransform.map(batch, mappingFun);
             t.close();
-            recordMeter.mark(batch.size());
             return ys;
         }
     }

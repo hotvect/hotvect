@@ -5,11 +5,13 @@ import com.codahale.metrics.MetricRegistry;
 import com.eshioji.hotvect.api.AlgorithmDefinition;
 import com.eshioji.hotvect.api.codec.ExampleDecoder;
 import com.eshioji.hotvect.api.codec.ExampleEncoder;
+import com.eshioji.hotvect.core.util.ListTransform;
 import com.eshioji.hotvect.util.CpuIntensiveFileMapper;
 
 import java.util.HashMap;
 import java.util.Map;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 
 public class EncodeTask<R> extends Task<R> {
     public EncodeTask(Options opts, MetricRegistry metricRegistry, AlgorithmDefinition algorithmDefinition) throws Exception {
@@ -21,7 +23,7 @@ public class EncodeTask<R> extends Task<R> {
         ExampleDecoder<R> exampleDecoder = instantiate(super.algorithmDefinition.getExampleDecoderFactoryClassName());
         ExampleEncoder<R> exampleEncoder = instantiate(super.algorithmDefinition.getExampleEncoderFactoryClassName());
 
-        var transformation = exampleDecoder.andThen(s -> s.map(exampleEncoder));
+        var transformation = exampleDecoder.andThen(s -> ListTransform.map(s, exampleEncoder));
         var processor = CpuIntensiveFileMapper.mapper(metricRegistry, opts.sourceFile, opts.destinationFile, transformation);
 
         processor.run();

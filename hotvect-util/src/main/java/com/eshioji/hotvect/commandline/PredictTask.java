@@ -6,6 +6,7 @@ import com.eshioji.hotvect.api.AlgorithmDefinition;
 import com.eshioji.hotvect.api.codec.ExampleDecoder;
 import com.eshioji.hotvect.api.data.raw.Example;
 import com.eshioji.hotvect.api.scoring.Scorer;
+import com.eshioji.hotvect.core.util.ListTransform;
 import com.eshioji.hotvect.util.CpuIntensiveFileMapper;
 import com.google.common.io.Files;
 
@@ -14,6 +15,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.function.Function;
+import java.util.stream.Collectors;
 
 public class PredictTask<R> extends Task<R> {
     public PredictTask(Options opts, MetricRegistry metricRegistry, AlgorithmDefinition algorithmDefinition) throws Exception {
@@ -31,7 +33,7 @@ public class PredictTask<R> extends Task<R> {
                 scorer.applyAsDouble(x.getRecord()) + "," + x.getTarget();
 
         var transformation =
-                exampleDecoder.andThen(i -> i.map(scoreOutputFormatter));
+                exampleDecoder.andThen(i -> ListTransform.map(i, scoreOutputFormatter));
 
         var processor = CpuIntensiveFileMapper.mapper(metricRegistry, opts.sourceFile, opts.destinationFile, transformation);
         processor.run();

@@ -2,6 +2,7 @@ package com.eshioji.hotvect.util;
 
 import com.codahale.metrics.MetricRegistry;
 import com.eshioji.hotvect.core.util.Pair;
+import com.google.common.collect.ImmutableList;
 import com.google.common.hash.Hashing;
 import org.junit.jupiter.api.Test;
 
@@ -10,6 +11,7 @@ import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.util.List;
 import java.util.function.Function;
 import java.util.stream.Stream;
 
@@ -32,8 +34,8 @@ class CpuIntensiveFileMapperTest {
     private void test(File source) throws IOException {
         var mr = new MetricRegistry();
 
-        Function<String, Stream<String>> fun = s ->
-                Stream.of(String.valueOf(Hashing.sha512().hashString(s, StandardCharsets.UTF_8).asInt()));
+        Function<String, List<String>> fun = s ->
+                ImmutableList.of(String.valueOf(Hashing.sha512().hashString(s, StandardCharsets.UTF_8).asInt()));
         var dest = getTempFile();
         try {
             var subject = CpuIntensiveFileMapper.mapper(mr, source, dest, fun);
