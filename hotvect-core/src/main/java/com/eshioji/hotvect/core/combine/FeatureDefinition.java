@@ -22,6 +22,14 @@ public class FeatureDefinition<H extends Enum<H> & FeatureNamespace> implements 
     private final String name;
     private final int namespace;
 
+    public FeatureDefinition(H first) {
+        this(EnumSet.of(first));
+    }
+
+    public FeatureDefinition(H first, H... rest) {
+        this(EnumSet.of(first, rest));
+    }
+
     public FeatureDefinition(EnumSet<H> components) {
         checkArgument(components.size() > 0, "You can't have a feature with no components");
 

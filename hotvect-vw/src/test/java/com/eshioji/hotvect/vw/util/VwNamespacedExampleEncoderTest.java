@@ -5,14 +5,14 @@ import com.eshioji.hotvect.api.data.raw.Example;
 import com.eshioji.hotvect.api.data.raw.RawValue;
 import com.eshioji.hotvect.core.transform.PassThroughTransformer;
 import com.eshioji.hotvect.core.transform.Transformer;
-import com.eshioji.hotvect.vw.VwNamespacedInstanceEncoder;
+import com.eshioji.hotvect.vw.VwNamespacedExampleEncoder;
 import org.junit.jupiter.api.Test;
 
 import java.util.function.DoubleUnaryOperator;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
-class VwNamespacedInstanceEncoderTest {
+class VwNamespacedExampleEncoderTest {
     private static final Transformer<DataRecord<TestRawNamespace, RawValue>, TestFeatureNamespace> TRANSFORMER =
             new PassThroughTransformer<>(TestRawNamespace.class, TestFeatureNamespace.class);
 
@@ -53,8 +53,8 @@ class VwNamespacedInstanceEncoderTest {
 
 
     private void testEncoding(Example<DataRecord<TestRawNamespace, RawValue>> testRecord, String expected, boolean binary, DoubleUnaryOperator weightFun) {
-        VwNamespacedInstanceEncoder<DataRecord<TestRawNamespace, RawValue>, TestFeatureNamespace> subject;
-        subject = new VwNamespacedInstanceEncoder<>(TRANSFORMER, TestFeatureNamespace.class, binary, weightFun);
+        VwNamespacedExampleEncoder<DataRecord<TestRawNamespace, RawValue>, TestFeatureNamespace> subject;
+        subject = new VwNamespacedExampleEncoder<>(TRANSFORMER, TestFeatureNamespace.class, binary, weightFun);
         var encoded = subject.apply(testRecord);
         assertEquals(expected, encoded);
     }}

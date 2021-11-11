@@ -16,7 +16,7 @@ import java.util.function.DoubleUnaryOperator;
 
 import static com.google.common.base.Preconditions.checkState;
 
-public class VwNamespacedInstanceEncoder<R, H extends Enum<H> & FeatureNamespace> implements ExampleEncoder<R> {
+public class VwNamespacedExampleEncoder<R, H extends Enum<H> & FeatureNamespace> implements ExampleEncoder<R> {
     private final static char[] VALID_VW_NAMESPACE_CHARS = "abcdefghijklmnopqrstuvwxyz".toCharArray();
     private final boolean binary;
     private final DoubleUnaryOperator targetToImportanceWeight;
@@ -25,15 +25,15 @@ public class VwNamespacedInstanceEncoder<R, H extends Enum<H> & FeatureNamespace
     private final Transformer<R, H> transformer;
     private final Hasher<H> hasher;
 
-    public VwNamespacedInstanceEncoder(Transformer<R, H> transformer, Class<H> hashedKey) {
+    public VwNamespacedExampleEncoder(Transformer<R, H> transformer, Class<H> hashedKey) {
         this(transformer, hashedKey, false, null);
     }
 
-    public VwNamespacedInstanceEncoder(Transformer<R, H> transformer, Class<H> hashedKey, boolean binary) {
+    public VwNamespacedExampleEncoder(Transformer<R, H> transformer, Class<H> hashedKey, boolean binary) {
         this(transformer, hashedKey, binary, null);
     }
 
-    public VwNamespacedInstanceEncoder(Transformer<R, H> transformer, Class<H> hashedKey, boolean binary, DoubleUnaryOperator targetToImportanceWeight) {
+    public VwNamespacedExampleEncoder(Transformer<R, H> transformer, Class<H> hashedKey, boolean binary, DoubleUnaryOperator targetToImportanceWeight) {
         this.hashedKey = hashedKey;
         this.transformer = transformer;
         this.hasher = new Hasher<>(hashedKey);
@@ -112,12 +112,5 @@ public class VwNamespacedInstanceEncoder<R, H extends Enum<H> & FeatureNamespace
 
         return sb.toString();
     }
-
-    private static <IN extends Enum<IN> & RawNamespace> RawValue readField(DataRecord<IN, RawValue> record, String fieldName) {
-        return record.asEnumMap().entrySet().stream().filter(p ->
-                fieldName.equals(p.getKey().toString())
-        ).map(Map.Entry::getValue).findFirst().orElseThrow(()-> new IllegalStateException("Cannot find: field" + fieldName));
-    }
-
 
 }
