@@ -2,7 +2,6 @@ package com.eshioji.hotvect.commandline;
 
 import com.codahale.metrics.MetricRegistry;
 import com.eshioji.hotvect.api.AlgorithmDefinition;
-import com.eshioji.hotvect.api.scoring.Scorer;
 import com.eshioji.hotvect.util.VerboseCallable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -33,8 +32,6 @@ public abstract class Task<R> extends VerboseCallable<Map<String, String>> {
         metadata.put("metadata_location", opts.metadataLocation.toString());
         metadata.put("destination_file", opts.destinationFile.toString());
         metadata.put("source_file", opts.sourceFile.toString());
-        metadata.put("sample_pct", String.valueOf(opts.samplePct));
-        metadata.put("sample_seed", String.valueOf(opts.sampleSeed));
         metadata.put("algorithm_name", algorithmDefinition.getAlgorithmName());
         return metadata;
     }
