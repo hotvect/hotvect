@@ -21,30 +21,30 @@ class CpuIntensiveFileMapperTest {
 
     @Test
     void normalFile() throws Exception {
-        var source = getAsFile("example.jsons");
+        File source = getAsFile("example.jsons");
         test(source);
     }
 
     @Test
     void gzippedFile() throws Exception {
-        var source = getAsFile("example.jsons.gz");
+        File source = getAsFile("example.jsons.gz");
         test(source);
     }
 
     private void test(File source) throws IOException {
-        var mr = new MetricRegistry();
+        MetricRegistry mr = new MetricRegistry();
 
         Function<String, List<String>> fun = s ->
                 ImmutableList.of(String.valueOf(Hashing.sha512().hashString(s, StandardCharsets.UTF_8).asInt()));
-        var dest = getTempFile();
+        File dest = getTempFile();
         try {
-            var subject = CpuIntensiveFileMapper.mapper(mr, source, dest, fun);
+            CpuIntensiveFileMapper subject = CpuIntensiveFileMapper.mapper(mr, source, dest, fun);
             subject.run();
-            try (var original = getAsReader("example.jsons");
-                 var processed = getAsReader(dest)) {
+            try (BufferedReader original = getAsReader("example.jsons");
+                 BufferedReader processed = getAsReader(dest)) {
                 StreamUtils.zip(original.lines(), processed.lines(), (original1, actual) -> {
-                    var expected = Hashing.sha512().hashString(original1, StandardCharsets.UTF_8).asInt();
-                    var actualOut = Integer.valueOf(actual);
+                    int expected = Hashing.sha512().hashString(original1, StandardCharsets.UTF_8).asInt();
+                    Integer actualOut = Integer.valueOf(actual);
                     return Pair.of(expected, actualOut);
                 }).forEach(p -> assertEquals(p._1, p._2));
             }

@@ -27,7 +27,7 @@ public abstract class Task<R> extends VerboseCallable<Map<String, String>> {
     @Override
     protected Map<String, String> doCall() throws Exception {
         LOGGER.info("Running {} from {} to {}", this.getClass().getSimpleName(), opts.sourceFile, opts.destinationFile);
-        var metadata = perform();
+        Map<String, String> metadata = perform();
         metadata.put("task_type", opts.encode ? "encode" : "predict");
         metadata.put("metadata_location", opts.metadataLocation.toString());
         metadata.put("destination_file", opts.destinationFile.toString());
@@ -40,7 +40,7 @@ public abstract class Task<R> extends VerboseCallable<Map<String, String>> {
     }
 
     protected <V> V instantiate(String functionName, Readable parameter) throws Exception {
-        var fun = ((Function<Readable,V>)Class.forName(functionName).getDeclaredConstructor().newInstance());
+        Function<Readable, V> fun = ((Function<Readable,V>)Class.forName(functionName).getDeclaredConstructor().newInstance());
         return fun.apply(parameter);
     }
 

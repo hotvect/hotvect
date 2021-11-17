@@ -139,7 +139,7 @@ public class HashUtils {
     }
 
     public static int hashInts(int... ints){
-        var ret = FNV1_32_INIT;
+        int ret = FNV1_32_INIT;
         for (int i : ints) {
             ret ^= i;
             ret *= FNV1_PRIME_32;

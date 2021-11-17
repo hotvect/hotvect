@@ -21,7 +21,7 @@ import static com.google.common.base.Preconditions.checkArgument;
  * @param <H> the {@link FeatureNamespace} to be used
  */
 public class InteractionCombiner<H extends Enum<H> & FeatureNamespace> implements Combiner<H> {
-    private static final ThreadLocal<CacheEntry> CACHE = new ThreadLocal<>() {
+    private static final ThreadLocal<CacheEntry> CACHE = new ThreadLocal<CacheEntry>() {
         @Override
         protected CacheEntry initialValue() {
             return new CacheEntry();
@@ -54,7 +54,7 @@ public class InteractionCombiner<H extends Enum<H> & FeatureNamespace> implement
         if (bits == 32){
             this.bitMask = -1;
         } else {
-            var bitMask = BigInteger.TWO.pow(bits).subtract(BigInteger.ONE);
+            BigInteger bitMask = BigInteger.valueOf(2).pow(bits).subtract(BigInteger.ONE);
             this.bitMask = bitMask.intValueExact();
         }
 

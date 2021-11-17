@@ -13,12 +13,10 @@ import org.slf4j.LoggerFactory;
 
 import java.io.*;
 import java.nio.file.Path;
+import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
-import java.util.concurrent.ArrayBlockingQueue;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.ThreadPoolExecutor;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
 import java.util.function.Function;
 import java.util.stream.Stream;
 import java.util.zip.GZIPInputStream;
@@ -80,13 +78,13 @@ public class CpuIntensiveFileMapper extends VerboseRunnable {
         ThreadPoolExecutor gzipWriters = getGzipWriters(gzipThreads);
 
 
-        try (var source = readData(this.source.toPath())) {
-            var ext = Files.getFileExtension(dest.toPath().getFileName().toString());
-            var isDestGzip = "gz".equalsIgnoreCase(ext);
+        try (Stream<String> source = readData(this.source.toPath())) {
+            String ext = Files.getFileExtension(dest.toPath().getFileName().toString());
+            boolean isDestGzip = "gz".equalsIgnoreCase(ext);
 
-            try (var file = new FileOutputStream(dest);
-                 var sink = isDestGzip ? new ParallelGZIPOutputStream(file, gzipWriters) : file;
-                 var writer = new BufferedWriter(new OutputStreamWriter(sink, Charsets.UTF_8), 65536)
+            try (FileOutputStream file = new FileOutputStream(dest);
+                 OutputStream sink = isDestGzip ? new ParallelGZIPOutputStream(file, gzipWriters) : file;
+                 BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(sink, Charsets.UTF_8), 65536)
             ) {
                 process(source, processor, writer);
             }
@@ -112,15 +110,15 @@ public class CpuIntensiveFileMapper extends VerboseRunnable {
     }
 
     private void process(Stream<String> source, CpuIntensiveMapper<String, List<String>> processor, BufferedWriter writer) throws InterruptedException, java.util.concurrent.ExecutionException, IOException {
-        var queue = processor.start(source);
+        BlockingQueue<Future<Collection<List<String>>>> queue = processor.start(source);
         metricRegistry.register(
                 MetricRegistry.name(CpuIntensiveFileMapper.class, "queue", "size"),
                 (Gauge<Integer>) queue::size);
 
 
         while (true) {
-            var hadFinished = processor.hasLoadingFinished();
-            var batch = queue.poll(1, TimeUnit.SECONDS);
+            boolean hadFinished = processor.hasLoadingFinished();
+            Future<Collection<List<String>>> batch = queue.poll(1, TimeUnit.SECONDS);
             if (batch != null) {
                 // will throw if batch was a failure
                 for (List<String> result : batch.get()) {
@@ -147,10 +145,10 @@ public class CpuIntensiveFileMapper extends VerboseRunnable {
     }
 
     private static Stream<String> readData(Path source) throws IOException {
-        var ext = Files.getFileExtension(source.getFileName().toString());
-        var file = new FileInputStream(source.toFile());
-        var spout = "gz".equalsIgnoreCase(ext) ? new GZIPInputStream(file) : file;
-        var br = new BufferedReader(new InputStreamReader(spout, Charsets.UTF_8));
+        String ext = Files.getFileExtension(source.getFileName().toString());
+        FileInputStream file = new FileInputStream(source.toFile());
+        InputStream spout = "gz".equalsIgnoreCase(ext) ? new GZIPInputStream(file) : file;
+        BufferedReader br = new BufferedReader(new InputStreamReader(spout, Charsets.UTF_8));
         return br.lines();
     }
 

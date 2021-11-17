@@ -1,5 +1,7 @@
 package com.eshioji.hotvect.core.hash;
 
+import com.eshioji.hotvect.api.data.DataRecord;
+import com.eshioji.hotvect.api.data.hashed.HashedValue;
 import com.eshioji.hotvect.api.data.raw.RawValue;
 import com.eshioji.hotvect.core.TestFeatureNamespace;
 import com.eshioji.hotvect.core.TestRawNamespace;
@@ -14,12 +16,12 @@ class HasherTest {
 
     @Test
     void hashRawValuesAndPreserveProcessedValues() {
-        var testRecord = getTestRecord();
-        var subject = new Hasher<>(TestFeatureNamespace.class);
-        var hashed = subject.apply(mapped(testRecord));
+        DataRecord<TestRawNamespace, RawValue> testRecord = getTestRecord();
+        Hasher<TestFeatureNamespace> subject = new Hasher<>(TestFeatureNamespace.class);
+        DataRecord<TestFeatureNamespace, HashedValue> hashed = subject.apply(mapped(testRecord));
 
         for (Map.Entry<TestRawNamespace, RawValue> e : testRecord.asEnumMap().entrySet()) {
-            var actual = hashed.get(mapped(e.getKey()));
+            HashedValue actual = hashed.get(mapped(e.getKey()));
             switch (e.getKey().getValueType()){
                 case SINGLE_STRING:  {
                     assertEquals(1118836419, actual.getSingleCategorical());
@@ -53,9 +55,9 @@ class HasherTest {
 
     @Test
     void emptyInput() {
-        var testRecord = getEmptyTestRecord();
-        var subject = new Hasher<>(TestFeatureNamespace.class);
-        var hashed = subject.apply(mapped(testRecord));
+        DataRecord<TestRawNamespace, RawValue> testRecord = getEmptyTestRecord();
+        Hasher<TestFeatureNamespace> subject = new Hasher<>(TestFeatureNamespace.class);
+        DataRecord<TestFeatureNamespace, HashedValue> hashed = subject.apply(mapped(testRecord));
         assertTrue(hashed.asEnumMap().isEmpty());
     }
 

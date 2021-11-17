@@ -22,11 +22,11 @@ class SparseVectorTest {
     @Test
     void correctlyInitializes() {
         qt().forAll(vectors).checkAssert(x -> {
-            var names = x._1;
-            var values = x._2;
+            int[] names = x._1;
+            double[] values = x._2;
             assert names.length == values.length;
 
-            var subject = new SparseVector(names, values);
+            SparseVector subject = new SparseVector(names, values);
 
             assertArrayEquals(names, subject.indices());
             assertArrayEquals(values, subject.values());
@@ -37,10 +37,10 @@ class SparseVectorTest {
     @Test
     void correctlyInitializesWithNamesOnly() {
         qt().forAll(intArrays(integers().between(0, 3), integers().all())).checkAssert(x -> {
-            var subject = new SparseVector(x);
+            SparseVector subject = new SparseVector(x);
 
             assertArrayEquals(x, subject.indices());
-            var expectedValues = new double[x.length];
+            double[] expectedValues = new double[x.length];
             Arrays.fill(expectedValues, 1.0);
             assertArrayEquals(expectedValues, subject.values());
             assertEquals(x.length, subject.size());
@@ -59,12 +59,12 @@ class SparseVectorTest {
 
     @Test
     void equality() {
-        var data = testVectors();
+        Gen<Pair<int[], double[]>> data = testVectors();
         BiConsumer<Pair<int[], double[]>, Pair<int[], double[]>> assertSparseVectors = (x, y) -> {
-            var xp = new SparseVector(x._1, x._2);
-            var yp = new SparseVector(y._1, y._2);
+            SparseVector xp = new SparseVector(x._1, x._2);
+            SparseVector yp = new SparseVector(y._1, y._2);
 
-            var equal = Arrays.equals(x._1, y._1) && Arrays.equals(x._2, y._2);
+            boolean equal = Arrays.equals(x._1, y._1) && Arrays.equals(x._2, y._2);
             assertEquals(equal, xp.equals(yp));
             if (equal){
                 assertEquals(xp.hashCode(), yp.hashCode());

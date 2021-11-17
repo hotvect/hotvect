@@ -19,20 +19,20 @@ class PassThroughTransformerTest {
 
     @Test
     void apply() {
-        var transformations = new EnumMap<TestFeatureNamespace, Transformation<DataRecord<TestRawNamespace, RawValue>>>(TestFeatureNamespace.class);
+        EnumMap<TestFeatureNamespace, Transformation<DataRecord<TestRawNamespace, RawValue>>> transformations = new EnumMap<TestFeatureNamespace, Transformation<DataRecord<TestRawNamespace, RawValue>>>(TestFeatureNamespace.class);
         transformations.put(TestFeatureNamespace.parsed_1, r -> {
-            var x = r.get(TestRawNamespace.single_categorical_1).getSingleCategorical();
+            int x = r.get(TestRawNamespace.single_categorical_1).getSingleCategorical();
             return RawValue.singleCategorical(x * 10);
         });
 
-        var testRecord = getTestRecord();
+        DataRecord<TestRawNamespace, RawValue> testRecord = getTestRecord();
 
-        var subject = new PassThroughTransformer<>(TestRawNamespace.class, TestFeatureNamespace.class, transformations);
+        PassThroughTransformer<TestRawNamespace, TestFeatureNamespace> subject = new PassThroughTransformer<>(TestRawNamespace.class, TestFeatureNamespace.class, transformations);
 
 
-        var actual = subject.apply(testRecord);
+        DataRecord<TestFeatureNamespace, RawValue> actual = subject.apply(testRecord);
 
-        var expected = new AutoMapper<TestRawNamespace, TestFeatureNamespace, RawValue>(TestRawNamespace.class, TestFeatureNamespace.class).apply(testRecord);
+        DataRecord<TestFeatureNamespace, RawValue> expected = new AutoMapper<TestRawNamespace, TestFeatureNamespace, RawValue>(TestRawNamespace.class, TestFeatureNamespace.class).apply(testRecord);
         expected.put(TestFeatureNamespace.parsed_1, RawValue.singleCategorical(testRecord.get(TestRawNamespace.single_categorical_1).getSingleCategorical() * 10));
 
         assertEquals(expected, actual);
@@ -41,7 +41,7 @@ class PassThroughTransformerTest {
 
     @Test
     public void trytoTransformAutomappedfield() {
-        var transformations = new EnumMap<TestFeatureNamespace, Transformation<DataRecord<TestRawNamespace, RawValue>>>(TestFeatureNamespace.class);
+        EnumMap<TestFeatureNamespace, Transformation<DataRecord<TestRawNamespace, RawValue>>> transformations = new EnumMap<TestFeatureNamespace, Transformation<DataRecord<TestRawNamespace, RawValue>>>(TestFeatureNamespace.class);
         transformations.put(TestFeatureNamespace.single_categorical_1, r -> {
             throw new AssertionError();
         });
@@ -71,14 +71,14 @@ class PassThroughTransformerTest {
 
     @Test
     public void mapCategoricalIntoNumerical() {
-        var transformations = new EnumMap<WrongType1, Transformation<DataRecord<TestRawNamespace, RawValue>>>(WrongType1.class);
+        EnumMap<WrongType1, Transformation<DataRecord<TestRawNamespace, RawValue>>> transformations = new EnumMap<WrongType1, Transformation<DataRecord<TestRawNamespace, RawValue>>>(WrongType1.class);
         assertThrows(IllegalArgumentException.class, () -> new PassThroughTransformer<>(TestRawNamespace.class, WrongType1.class, transformations));
 
     }
 
     @Test
     public void mapNumericalIntoCategorical() {
-        var transformations = new EnumMap<WrongType2, Transformation<DataRecord<TestRawNamespace, RawValue>>>(WrongType2.class);
+        EnumMap<WrongType2, Transformation<DataRecord<TestRawNamespace, RawValue>>> transformations = new EnumMap<WrongType2, Transformation<DataRecord<TestRawNamespace, RawValue>>>(WrongType2.class);
         assertThrows(IllegalArgumentException.class, () -> new PassThroughTransformer<>(TestRawNamespace.class, WrongType2.class, transformations));
     }
 

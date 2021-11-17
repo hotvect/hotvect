@@ -11,14 +11,14 @@ class AlgorithmDefinitionTest {
 
     @Test
     void example() throws Exception {
-        var example = new AlgorithmDefinition();
+        AlgorithmDefinition example = new AlgorithmDefinition();
         example.setAlgorithmName("exampleName");
         example.setExampleDecoderFactoryClassName("com.exampleDecoderFactory");
         example.setExampleEncoderFactoryClassName("com.exampleEncoderFactory");
         example.setExampleScorerFactoryClassName("com.exampleScorerFactory");
-        var objectMapper = new ObjectMapper();
+        ObjectMapper objectMapper = new ObjectMapper();
         objectMapper.setPropertyNamingStrategy(PropertyNamingStrategies.SNAKE_CASE);
-        var s = objectMapper.writeValueAsString(example);
+        String s = objectMapper.writeValueAsString(example);
         System.out.println(s);
         System.out.println(objectMapper.readValue(s, AlgorithmDefinition.class));
     }

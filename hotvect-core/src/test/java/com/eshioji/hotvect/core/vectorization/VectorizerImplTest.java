@@ -19,7 +19,7 @@ class VectorizerImplTest {
 
     @Test
     void apply() {
-        var mapper = new AutoMapper<TestRawNamespace, TestFeatureNamespace, RawValue>(TestRawNamespace.class, TestFeatureNamespace.class);
+        AutoMapper<TestRawNamespace, TestFeatureNamespace, RawValue> mapper = new AutoMapper<TestRawNamespace, TestFeatureNamespace, RawValue>(TestRawNamespace.class, TestFeatureNamespace.class);
         DataRecord<TestRawNamespace, RawValue> initialInput = new DataRecord<>(TestRawNamespace.class);
 
         Transformer<DataRecord<TestRawNamespace, RawValue>, TestFeatureNamespace> transformer = record -> {
@@ -27,15 +27,12 @@ class VectorizerImplTest {
             return mapper.apply(initialInput);
         };
 
-        var hasher = new Hasher<>(TestFeatureNamespace.class);
-        var combiner = new Combiner<TestFeatureNamespace>(){
-            @Override
-            public SparseVector apply(DataRecord<TestFeatureNamespace, HashedValue> toCombine) {
-                assertEquals(hasher.apply(mapper.apply(initialInput)), toCombine);
-                return new SparseVector(new int[]{1});
-            }
+        Hasher<TestFeatureNamespace> hasher = new Hasher<>(TestFeatureNamespace.class);
+        Combiner<TestFeatureNamespace> combiner = toCombine -> {
+            assertEquals(hasher.apply(mapper.apply(initialInput)), toCombine);
+            return new SparseVector(new int[]{1});
         };
-        var subject = new VectorizerImpl<>(transformer, hasher, combiner);
+        VectorizerImpl<DataRecord<TestRawNamespace, RawValue>, TestFeatureNamespace> subject = new VectorizerImpl<>(transformer, hasher, combiner);
 
         assertEquals(new SparseVector(new int[]{1}), subject.apply(initialInput));
     }

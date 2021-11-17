@@ -1,6 +1,7 @@
 package com.eshioji.hotvect.vw.util;
 
 import com.eshioji.hotvect.vw.VwModelImporter;
+import it.unimi.dsi.fastutil.ints.Int2DoubleMap;
 import org.junit.jupiter.api.Test;
 
 import java.io.InputStreamReader;
@@ -16,9 +17,9 @@ class VwModelImporterTest {
 
     @Test
     void importModel() {
-        var subject = new VwModelImporter();
-        var model = new InputStreamReader(this.getClass().getResourceAsStream("test.model"), StandardCharsets.UTF_8);
-        var read = subject.apply(model);
+        VwModelImporter subject = new VwModelImporter();
+        InputStreamReader model = new InputStreamReader(this.getClass().getResourceAsStream("test.model"), StandardCharsets.UTF_8);
+        Int2DoubleMap read = subject.apply(model);
         Map<Integer, Double> expected = new HashMap<>();
         expected.put(0,1.0);
         expected.put(1,12.0);
@@ -43,15 +44,15 @@ class VwModelImporterTest {
 
     @Test
     void emptyModel() {
-        var subject = new VwModelImporter();
-        var model = new InputStreamReader(this.getClass().getResourceAsStream("empty.model"), StandardCharsets.UTF_8);
+        VwModelImporter subject = new VwModelImporter();
+        InputStreamReader model = new InputStreamReader(this.getClass().getResourceAsStream("empty.model"), StandardCharsets.UTF_8);
         assertThrows(IllegalStateException.class, () -> subject.apply(model));
     }
 
     @Test
     void corruptedModel() {
-        var subject = new VwModelImporter();
-        var model = new InputStreamReader(this.getClass().getResourceAsStream("corrupted.model"), StandardCharsets.UTF_8);
+        VwModelImporter subject = new VwModelImporter();
+        InputStreamReader model = new InputStreamReader(this.getClass().getResourceAsStream("corrupted.model"), StandardCharsets.UTF_8);
         assertThrows(IllegalStateException.class, () -> subject.apply(model));
     }
 

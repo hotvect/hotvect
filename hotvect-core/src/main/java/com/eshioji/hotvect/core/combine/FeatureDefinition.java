@@ -41,7 +41,7 @@ public class FeatureDefinition<H extends Enum<H> & FeatureNamespace> implements 
         this.components = components;
 
         @SuppressWarnings("unchecked")
-        H[] cached = components.toArray(i -> (H[]) Array.newInstance(components.iterator().next().getClass(), i));
+        H[] cached = components.toArray((H[]) Array.newInstance(components.iterator().next().getClass(), components.size()));
         this.cachedComponents = cached;
 
         this.name = Joiner.on("^").join(components);

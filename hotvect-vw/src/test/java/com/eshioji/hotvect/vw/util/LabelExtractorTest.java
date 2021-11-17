@@ -1,6 +1,8 @@
 package com.eshioji.hotvect.vw.util;
 
 
+import com.eshioji.hotvect.api.data.DataRecord;
+import com.eshioji.hotvect.api.data.raw.Example;
 import com.eshioji.hotvect.api.data.raw.RawValue;
 import com.eshioji.hotvect.vw.LabelExtractor;
 import org.junit.jupiter.api.Test;
@@ -14,17 +16,17 @@ class LabelExtractorTest {
 
     @Test
     void withValue() {
-        var dataRecord = TestRecords.getTestRecord();
-        var testInput = dataRecord.getRecord();
+        Example<DataRecord<TestRawNamespace, RawValue>> dataRecord = TestRecords.getTestRecord();
+        DataRecord<TestRawNamespace, RawValue> testInput = dataRecord.getRecord();
         testInput.put(TestRawNamespace.target, RawValue.singleNumerical(1.0));
-        var subject = new LabelExtractor<TestRawNamespace>();
+        LabelExtractor<TestRawNamespace> subject = new LabelExtractor<TestRawNamespace>();
         assertEquals(1, subject.applyAsDouble(dataRecord.getRecord()));
     }
 
     @Test
     void withOutValue() {
-        var dataRecord = TestRecords.getEmptyTestRecord();
-        var subject = new LabelExtractor<TestRawNamespace>();
+        DataRecord<TestRawNamespace, RawValue> dataRecord = TestRecords.getEmptyTestRecord();
+        LabelExtractor<TestRawNamespace> subject = new LabelExtractor<TestRawNamespace>();
         assertThrows(NoSuchElementException.class, () -> subject.applyAsDouble(dataRecord));
     }
 

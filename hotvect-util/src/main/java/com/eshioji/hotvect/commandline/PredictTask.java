@@ -13,6 +13,7 @@ import com.google.common.io.Files;
 import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -32,10 +33,10 @@ public class PredictTask<R> extends Task<R> {
         Function<Example<R>, String> scoreOutputFormatter = x ->
                 scorer.applyAsDouble(x.getRecord()) + "," + x.getTarget();
 
-        var transformation =
+        Function<String, List<String>> transformation =
                 exampleDecoder.andThen(i -> ListTransform.map(i, scoreOutputFormatter));
 
-        var processor = CpuIntensiveFileMapper.mapper(metricRegistry, opts.sourceFile, opts.destinationFile, transformation);
+        CpuIntensiveFileMapper processor = CpuIntensiveFileMapper.mapper(metricRegistry, opts.sourceFile, opts.destinationFile, transformation);
         processor.run();
         return new HashMap<>();
     }

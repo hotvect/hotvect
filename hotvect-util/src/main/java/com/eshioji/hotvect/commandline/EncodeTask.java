@@ -9,7 +9,9 @@ import com.eshioji.hotvect.core.util.ListTransform;
 import com.eshioji.hotvect.util.CpuIntensiveFileMapper;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
@@ -23,8 +25,8 @@ public class EncodeTask<R> extends Task<R> {
         ExampleDecoder<R> exampleDecoder = instantiate(super.algorithmDefinition.getExampleDecoderFactoryClassName());
         ExampleEncoder<R> exampleEncoder = instantiate(super.algorithmDefinition.getExampleEncoderFactoryClassName());
 
-        var transformation = exampleDecoder.andThen(s -> ListTransform.map(s, exampleEncoder));
-        var processor = CpuIntensiveFileMapper.mapper(metricRegistry, opts.sourceFile, opts.destinationFile, transformation);
+        Function<String, List<String>> transformation = exampleDecoder.andThen(s -> ListTransform.map(s, exampleEncoder));
+        CpuIntensiveFileMapper processor = CpuIntensiveFileMapper.mapper(metricRegistry, opts.sourceFile, opts.destinationFile, transformation);
 
         processor.run();
         Map<String, String> metadata = new HashMap<>();

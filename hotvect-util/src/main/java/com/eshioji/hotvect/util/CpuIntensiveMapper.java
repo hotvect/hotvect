@@ -5,6 +5,7 @@ import com.codahale.metrics.MetricRegistry;
 import com.codahale.metrics.Timer;
 import com.eshioji.hotvect.core.util.ListTransform;
 import com.google.common.collect.Iterators;
+import com.google.common.collect.UnmodifiableIterator;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -62,7 +63,7 @@ public class CpuIntensiveMapper<X, Y> {
 
     public BlockingQueue<Future<Collection<Y>>> start(Stream<X> input) {
         checkState(!this.loader.isShutdown(), "This processor is shutdown");
-        var queue = new LinkedBlockingQueue<Future<Collection<Y>>>(queueLength);
+        LinkedBlockingQueue<Future<Collection<Y>>> queue = new LinkedBlockingQueue<Future<Collection<Y>>>(queueLength);
         loader.submit(new LoadingTask(input, queue));
         this.loader.shutdown();
         return queue;
@@ -93,11 +94,11 @@ public class CpuIntensiveMapper<X, Y> {
 
         @Override
         protected void doRun() throws Exception {
-            var batches = Iterators.partition(input.iterator(), batchSize);
+            UnmodifiableIterator<List<X>> batches = Iterators.partition(input.iterator(), batchSize);
             // Batches are submitted in order and thus the futures are sorted by order
             while (batches.hasNext()) {
-                var batch = batches.next();
-                var batchFuture = cpuIntensiveExecutor.submit(new ComputationTask(batch));
+                List<X> batch = batches.next();
+                Future<Collection<Y>> batchFuture = cpuIntensiveExecutor.submit(new ComputationTask(batch));
                 this.queue.put(batchFuture);
             }
             LOGGER.debug("Loading finished");
@@ -113,8 +114,8 @@ public class CpuIntensiveMapper<X, Y> {
 
         @Override
         public Collection<Y> doCall() {
-            var t = batchTimer.time();
-            var ys = ListTransform.map(batch, mappingFun);
+            Timer.Context t = batchTimer.time();
+            List<Y> ys = ListTransform.map(batch, mappingFun);
             t.close();
             return ys;
         }

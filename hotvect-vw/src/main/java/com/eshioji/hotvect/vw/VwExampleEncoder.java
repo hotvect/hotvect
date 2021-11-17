@@ -50,7 +50,7 @@ public class VwExampleEncoder<R> implements ExampleEncoder<R> {
 
         if (targetToImportanceWeight != null) {
             sb.append(" ");
-            var weight = targetToImportanceWeight.applyAsDouble(targetVariable);
+            double weight = targetToImportanceWeight.applyAsDouble(targetVariable);
             DoubleFormatUtils.formatDoubleFast(weight, 6, 6, sb);
         }
         sb.append(" | ");

@@ -14,7 +14,7 @@ class FeatureDefinitionTest {
 
     @Test
     void getComponents() {
-        var subject = new FeatureDefinition<>(EnumSet.of(TestFeatureNamespace.single_categorical_1));
+        FeatureDefinition<TestFeatureNamespace> subject = new FeatureDefinition<>(EnumSet.of(TestFeatureNamespace.single_categorical_1));
         TestFeatureNamespace[] expected = {TestFeatureNamespace.single_categorical_1};
         assertArrayEquals(expected, subject.getComponents());
     }
@@ -31,9 +31,9 @@ class FeatureDefinitionTest {
 
     @Test
     void equality() {
-        var fd1 = new FeatureDefinition<>(EnumSet.of(TestFeatureNamespace.single_categorical_1, TestFeatureNamespace.strings_1));
-        var fd2 = new FeatureDefinition<>(EnumSet.of(TestFeatureNamespace.strings_1, TestFeatureNamespace.single_categorical_1));
-        var fd3 = new FeatureDefinition<>(EnumSet.of(TestFeatureNamespace.strings_1));
+        FeatureDefinition<TestFeatureNamespace> fd1 = new FeatureDefinition<>(EnumSet.of(TestFeatureNamespace.single_categorical_1, TestFeatureNamespace.strings_1));
+        FeatureDefinition<TestFeatureNamespace> fd2 = new FeatureDefinition<>(EnumSet.of(TestFeatureNamespace.strings_1, TestFeatureNamespace.single_categorical_1));
+        FeatureDefinition<TestFeatureNamespace> fd3 = new FeatureDefinition<>(EnumSet.of(TestFeatureNamespace.strings_1));
 
         assertEquals(fd1, fd2);
         assertEquals(fd1.hashCode(), fd2.hashCode());
@@ -43,18 +43,18 @@ class FeatureDefinitionTest {
 
     @Test
     void getName() {
-        var subject = new FeatureDefinition<>(EnumSet.of(TestFeatureNamespace.single_categorical_1, TestFeatureNamespace.strings_1));
+        FeatureDefinition<TestFeatureNamespace> subject = new FeatureDefinition<>(EnumSet.of(TestFeatureNamespace.single_categorical_1, TestFeatureNamespace.strings_1));
         assertEquals("single_categorical_1^strings_1", subject.getName());
     }
 
     @Test
     void getFeatureNamespace() {
         qt().forAll(enumValues(TestFeatureNamespace.class)).checkAssert(x -> {
-            var subject = new FeatureDefinition<>(EnumSet.of(x));
+            FeatureDefinition<TestFeatureNamespace> subject = new FeatureDefinition<>(EnumSet.of(x));
             assertEquals(subject.getFeatureNamespace(), Hashing.murmur3_32().hashUnencodedChars(subject.getName()).asInt());
 
         });
-        var subject = new FeatureDefinition<>(EnumSet.of(TestFeatureNamespace.single_categorical_1, TestFeatureNamespace.strings_1));
+        FeatureDefinition<TestFeatureNamespace> subject = new FeatureDefinition<>(EnumSet.of(TestFeatureNamespace.single_categorical_1, TestFeatureNamespace.strings_1));
         assertEquals(Hashing.murmur3_32().hashUnencodedChars("single_categorical_1^strings_1").asInt(), subject.getFeatureNamespace());
     }
 

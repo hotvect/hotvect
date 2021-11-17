@@ -6,6 +6,9 @@ import com.google.common.hash.Hashing;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 import java.util.stream.IntStream;
@@ -16,15 +19,15 @@ class CpuIntensiveMapperTest {
 
     @Test
     void processInOrder() throws Exception{
-        final var upperRange = 1_000_000;
-        var mr = new MetricRegistry();
+        final int upperRange = 1_000_000;
+        MetricRegistry mr = new MetricRegistry();
         Function<Integer, Integer> fun = x -> Hashing.sha512().hashInt(x).asInt();
-        var subject = new CpuIntensiveMapper<>(mr, fun, 2, 300, 1000);
-        var queue = subject.start(IntStream.range(0, upperRange).boxed());
-        var actual = new ArrayList<Integer>();
+        CpuIntensiveMapper<Integer, Integer> subject = new CpuIntensiveMapper<>(mr, fun, 2, 300, 1000);
+        BlockingQueue<Future<Collection<Integer>>> queue = subject.start(IntStream.range(0, upperRange).boxed());
+        ArrayList<Integer> actual = new ArrayList<Integer>();
         while (true) {
-            var hadFinished = subject.hasLoadingFinished();
-            var batch = queue.poll(1, TimeUnit.SECONDS);
+            boolean hadFinished = subject.hasLoadingFinished();
+            Future<Collection<Integer>> batch = queue.poll(1, TimeUnit.SECONDS);
             if (batch != null) {
                 // will throw if batch was a failure
                 actual.addAll(batch.get());

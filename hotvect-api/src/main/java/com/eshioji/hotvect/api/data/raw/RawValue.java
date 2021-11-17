@@ -146,7 +146,7 @@ public class RawValue {
         RawValue that = (RawValue) o;
 
         // Either this value does not have numericals, or they are equal
-        var numericalEquals = !ALLOWS_NUMERICALS.contains(this.getValueType()) || Arrays.equals(getNumericals(), that.getNumericals());
+        boolean numericalEquals = !ALLOWS_NUMERICALS.contains(this.getValueType()) || Arrays.equals(getNumericals(), that.getNumericals());
 
         return valueType == that.valueType &&
                 Objects.equals(hashedValue, that.hashedValue) &&

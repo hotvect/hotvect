@@ -57,16 +57,16 @@ public class CpuIntensiveFileAggregator<Z> extends VerboseCallable<Z> {
 
     @Override
     protected Z doCall() throws Exception {
-        var processor = new CpuIntensiveAggregator<>(metricRegistry, init, merge, numThread, queueSize, batchSize);
-        try (var source = readData(this.source.toPath())) {
+        CpuIntensiveAggregator<Z, String> processor = new CpuIntensiveAggregator<>(metricRegistry, init, merge, numThread, queueSize, batchSize);
+        try (Stream<String> source = readData(this.source.toPath())) {
             return processor.aggregate(source);
         }
     }
 
     private void process(CpuIntensiveMapper<String, String> processor, BlockingQueue<Future<Collection<String>>> queue, BufferedWriter writer) throws InterruptedException, java.util.concurrent.ExecutionException, IOException {
         while (true) {
-            var hadFinished = processor.hasLoadingFinished();
-            var batch = queue.poll(1, TimeUnit.SECONDS);
+            boolean hadFinished = processor.hasLoadingFinished();
+            Future<Collection<String>> batch = queue.poll(1, TimeUnit.SECONDS);
             if (batch != null) {
                 // will throw if batch was a failure
                 for (String line : batch.get()) {
@@ -88,10 +88,10 @@ public class CpuIntensiveFileAggregator<Z> extends VerboseCallable<Z> {
     }
 
     private static Stream<String> readData(Path source) throws IOException {
-        var ext = Files.getFileExtension(source.getFileName().toString());
-        var file = new FileInputStream(source.toFile());
-        var spout = "gz".equals(ext.toLowerCase()) ? new GZIPInputStream(file) : file;
-        var br = new BufferedReader(new InputStreamReader(spout, Charsets.UTF_8));
+        String ext = Files.getFileExtension(source.getFileName().toString());
+        FileInputStream file = new FileInputStream(source.toFile());
+        InputStream spout = "gz".equals(ext.toLowerCase()) ? new GZIPInputStream(file) : file;
+        BufferedReader br = new BufferedReader(new InputStreamReader(spout, Charsets.UTF_8));
         return br.lines();
     }
 

@@ -15,17 +15,17 @@ class VwExampleEncoderTest {
 
     @Test
     void nonBinaryWithoutWeights() {
-        var targetVariable = 99.1;
-        var featureVector = new SparseVector(new int[]{1, 2, 3}, new double[]{1.0, 2.0, 3.3456});
-        var expected = "99.1 | 1:1 2:2 3:3.3456 ";
+        double targetVariable = 99.1;
+        SparseVector featureVector = new SparseVector(new int[]{1, 2, 3}, new double[]{1.0, 2.0, 3.3456});
+        String expected = "99.1 | 1:1 2:2 3:3.3456 ";
         testEncoding(targetVariable, featureVector, expected, false);
     }
 
     @Test
     void binaryWithoutWeights() {
-        var targetVariable = 99.1;
-        var featureVector = new SparseVector(new int[]{1, 2, 3}, new double[]{1.0, 2.0, 3.3456});
-        var expected = "1 | 1:1 2:2 3:3.3456 ";
+        double targetVariable = 99.1;
+        SparseVector featureVector = new SparseVector(new int[]{1, 2, 3}, new double[]{1.0, 2.0, 3.3456});
+        String expected = "1 | 1:1 2:2 3:3.3456 ";
         testEncoding(targetVariable, featureVector, expected, true);
 
         targetVariable = 0;
@@ -36,9 +36,9 @@ class VwExampleEncoderTest {
 
     @Test
     void withWeights() {
-        var targetVariable = 99.1;
-        var featureVector = new SparseVector(new int[]{1, 2, 3}, new double[]{1.0, 2.0, 3.3456});
-        var expected = "1 198.2 | 1:1 2:2 3:3.3456 ";
+        double targetVariable = 99.1;
+        SparseVector featureVector = new SparseVector(new int[]{1, 2, 3}, new double[]{1.0, 2.0, 3.3456});
+        String expected = "1 198.2 | 1:1 2:2 3:3.3456 ";
         testEncoding(targetVariable, featureVector, expected, true, d -> d * 2);
     }
 
@@ -48,7 +48,7 @@ class VwExampleEncoderTest {
 
 
     private void testEncoding(double targetVariable, SparseVector featureVector, String expected, boolean binary, DoubleUnaryOperator weightFun) {
-        var testRecord = new DataRecord<TestRawNamespace, RawValue>(TestRawNamespace.class);
+        DataRecord<TestRawNamespace, RawValue> testRecord = new DataRecord<TestRawNamespace, RawValue>(TestRawNamespace.class);
         VwExampleEncoder<DataRecord<TestRawNamespace, RawValue>> subject;
         if (weightFun == null) {
             subject = new VwExampleEncoder<>(
@@ -61,7 +61,7 @@ class VwExampleEncoderTest {
                     weightFun
             );
         }
-        var encoded = subject.apply(new Example<>(testRecord, targetVariable));
+        String encoded = subject.apply(new Example<>(testRecord, targetVariable));
         assertEquals(expected, encoded);
     }
 }

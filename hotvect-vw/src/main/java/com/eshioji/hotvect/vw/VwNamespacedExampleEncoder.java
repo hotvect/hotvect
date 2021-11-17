@@ -44,7 +44,7 @@ public class VwNamespacedExampleEncoder<R, H extends Enum<H> & FeatureNamespace>
     public EnumMap<H, String> getNamespaceMapping(){
         EnumMap<H, String> ret = new EnumMap<>(hashedKey);
         for (H h : this.hashedKey.getEnumConstants()) {
-            var ns = h.ordinal();
+            int ns = h.ordinal();
             checkState(ns < VALID_VW_NAMESPACE_CHARS.length,
                     "Sorry you cannot have more than " + VALID_VW_NAMESPACE_CHARS.length +
                             "namespaces for VW");
@@ -57,7 +57,7 @@ public class VwNamespacedExampleEncoder<R, H extends Enum<H> & FeatureNamespace>
 
     @Override
     public String apply(Example<R> toEncode) {
-        var transformedAndHashed = hasher.apply(transformer.apply(toEncode.getRecord()));
+        DataRecord<H, HashedValue> transformedAndHashed = hasher.apply(transformer.apply(toEncode.getRecord()));
         return vwEncode(toEncode, transformedAndHashed, binary, targetToImportanceWeight);
     }
 
@@ -78,14 +78,14 @@ public class VwNamespacedExampleEncoder<R, H extends Enum<H> & FeatureNamespace>
 
         if (targetToImportanceWeight != null) {
             sb.append(" ");
-            var weight = targetToImportanceWeight.applyAsDouble(targetVariable);
+            double weight = targetToImportanceWeight.applyAsDouble(targetVariable);
             DoubleFormatUtils.formatDoubleFast(weight, 6, 6, sb);
         }
 
-        var features = transformedAndHashed.asEnumMap();
+        EnumMap<H, HashedValue> features = transformedAndHashed.asEnumMap();
 
         for (Map.Entry<H, HashedValue> entry : features.entrySet()) {
-            var ns = entry.getKey().ordinal();
+            int ns = entry.getKey().ordinal();
             checkState(ns < VALID_VW_NAMESPACE_CHARS.length,
                     "Sorry you cannot have more than " + VALID_VW_NAMESPACE_CHARS.length +
                             "namespaces for VW");
@@ -95,8 +95,8 @@ public class VwNamespacedExampleEncoder<R, H extends Enum<H> & FeatureNamespace>
             sb.append(namespace);
             sb.append(" ");
 
-            var indices = entry.getValue().getCategoricals();
-            var values = entry.getValue().getNumericals();
+            int[] indices = entry.getValue().getCategoricals();
+            double[] values = entry.getValue().getNumericals();
 
             for (int j = 0; j < indices.length; j++) {
                 int feature = indices[j];

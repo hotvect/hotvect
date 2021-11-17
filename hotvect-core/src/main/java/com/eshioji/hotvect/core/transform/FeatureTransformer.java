@@ -23,9 +23,9 @@ public class FeatureTransformer<R, OUT extends Enum<OUT> & FeatureNamespace> imp
 
     @Override
     public DataRecord<OUT, RawValue> apply(R toTransform) {
-        var ret = new DataRecord<OUT, RawValue>(this.featureKeyClass);
+        DataRecord<OUT, RawValue> ret = new DataRecord<OUT, RawValue>(this.featureKeyClass);
         for (OUT out : featureKeys) {
-            var processed = transformations.get(out).apply(toTransform);
+            RawValue processed = transformations.get(out).apply(toTransform);
             if (processed != null){
                 ret.put(out, processed);
             }
