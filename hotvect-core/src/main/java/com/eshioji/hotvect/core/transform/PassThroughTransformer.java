@@ -39,9 +39,9 @@ public class PassThroughTransformer<IN extends Enum<IN> & Namespace, OUT extends
          * key. If no function was registered for a key in the output, but a key with the same name exists in the input,
          * then the identity function is used (the value is simply copied over from input to output).
          *
-         * @param inKey
-         * @param outKey
-         * @param transformations
+         * @param inKey key class to pass value from
+         * @param outKey key class to pass value to
+         * @param transformations definition of transformation to perform on the values
          */
     @SuppressWarnings("unchecked")
     public PassThroughTransformer(Class<IN> inKey, Class<OUT> outKey, EnumMap<OUT, Transformation<DataRecord<IN, RawValue>>> transformations) {

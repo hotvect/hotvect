@@ -8,9 +8,8 @@ import java.util.function.Function;
 
 /**
  * Interface for classes that transform a {@link DataRecord}
- * @param <IN>
- * @param <OUT>
- * @param <V>
+ * @param <R> the input record type
+ * @param <OUT> the output key of the output {@link DataRecord}
  */
 public interface Transformer<R, OUT extends Enum<OUT> & Namespace>
         extends Function<R, DataRecord<OUT, RawValue>> {
