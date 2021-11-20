@@ -1,6 +1,7 @@
 package com.eshioji.hotvect.commandline;
 
 
+import com.codahale.metrics.Meter;
 import com.codahale.metrics.MetricRegistry;
 import com.eshioji.hotvect.api.AlgorithmDefinition;
 import com.eshioji.hotvect.api.codec.ExampleDecoder;
@@ -38,7 +39,14 @@ public class PredictTask<R> extends Task<R> {
 
         CpuIntensiveFileMapper processor = CpuIntensiveFileMapper.mapper(metricRegistry, opts.sourceFile, opts.destinationFile, transformation);
         processor.run();
-        return new HashMap<>();
+
+        Map<String, String> metadata = new HashMap<>();
+        Meter mainMeter = metricRegistry.meter(MetricRegistry.name(CpuIntensiveFileMapper.class, "record"));
+        metadata.put("mean_throughput", String.valueOf(mainMeter.getMeanRate()));
+        metadata.put("total_record_count", String.valueOf(mainMeter.getCount()));
+
+        return metadata;
+
     }
 
 }

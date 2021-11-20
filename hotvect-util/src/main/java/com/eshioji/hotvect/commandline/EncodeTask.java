@@ -1,6 +1,7 @@
 package com.eshioji.hotvect.commandline;
 
 
+import com.codahale.metrics.Meter;
 import com.codahale.metrics.MetricRegistry;
 import com.eshioji.hotvect.api.AlgorithmDefinition;
 import com.eshioji.hotvect.api.codec.ExampleDecoder;
@@ -32,6 +33,12 @@ public class EncodeTask<R> extends Task<R> {
         Map<String, String> metadata = new HashMap<>();
         metadata.put("example_decoder", exampleDecoder.getClass().getCanonicalName());
         metadata.put("example_encoder", exampleEncoder.getClass().getCanonicalName());
+
+        Meter mainMeter = metricRegistry.meter(MetricRegistry.name(CpuIntensiveFileMapper.class, "record"));
+        metadata.put("mean_throughput", String.valueOf(mainMeter.getMeanRate()));
+        metadata.put("total_record_count", String.valueOf(mainMeter.getCount()));
+
+
         return metadata;
     }
 
