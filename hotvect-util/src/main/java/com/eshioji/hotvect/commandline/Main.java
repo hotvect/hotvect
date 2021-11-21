@@ -1,19 +1,17 @@
 package com.eshioji.hotvect.commandline;
 
-import com.codahale.metrics.Metric;
-import com.codahale.metrics.MetricFilter;
 import com.codahale.metrics.MetricRegistry;
 import com.codahale.metrics.Slf4jReporter;
 import com.eshioji.hotvect.api.AlgorithmDefinition;
-import com.eshioji.hotvect.util.CpuIntensiveFileMapper;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.PropertyNamingStrategies;
+import com.google.common.base.Charsets;
+import com.google.common.io.Files;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import picocli.CommandLine;
 
 import java.io.File;
-import java.nio.file.Path;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
@@ -59,7 +57,8 @@ public class Main {
         File algorithmDefinitionFile = new File(opts.algorithmDefinition);
         checkState(algorithmDefinitionFile.exists(), "Algorithm definition file does not exist:" + algorithmDefinitionFile.getAbsolutePath());
 
-        AlgorithmDefinition algorithmDefinition = OM.readValue(algorithmDefinitionFile, AlgorithmDefinition.class);
+        AlgorithmDefinition algorithmDefinition = AlgorithmDefinition.parse(Files.asCharSource(algorithmDefinitionFile, Charsets.UTF_8).read());
+
 
         if (opts.encode) {
             return new EncodeTask<>(opts, METRIC_REGISTRY, algorithmDefinition);

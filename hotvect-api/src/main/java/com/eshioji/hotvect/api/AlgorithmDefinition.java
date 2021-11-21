@@ -1,40 +1,92 @@
 package com.eshioji.hotvect.api;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
+import java.util.Optional;
+
 public class AlgorithmDefinition {
-    private String algorithmName;
-    private String exampleDecoderFactoryClassName;
-    private String exampleEncoderFactoryClassName;
-    private String exampleScorerFactoryClassName;
+    private final String algorithmName;
+    private final String decoderFactoryName;
+    private final String vectorizerFactoryName;
+    private final String encoderFactoryName;
+    private final String scorerFactoryName;
+
+    private final Optional<JsonNode> vectorizerParameter;
+    private final Optional<JsonNode> trainDecoderParameter;
+    private final Optional<JsonNode> predictDecoderParameter;
+
+    public AlgorithmDefinition(String algorithmName, String decoderFactoryName, String vectorizerFactoryName, String encoderFactoryName, String scorerFactoryName, Optional<JsonNode> vectorizerParameter, Optional<JsonNode> trainDecoderParameter, Optional<JsonNode> predictDecoderParameter) {
+        this.algorithmName = algorithmName;
+        this.decoderFactoryName = decoderFactoryName;
+        this.vectorizerFactoryName = vectorizerFactoryName;
+        this.encoderFactoryName = encoderFactoryName;
+        this.scorerFactoryName = scorerFactoryName;
+        this.vectorizerParameter = vectorizerParameter;
+        this.trainDecoderParameter = trainDecoderParameter;
+        this.predictDecoderParameter = predictDecoderParameter;
+    }
 
     public String getAlgorithmName() {
         return algorithmName;
     }
 
-    public void setAlgorithmName(String algorithmName) {
-        this.algorithmName = algorithmName;
+    public String getDecoderFactoryName() {
+        return decoderFactoryName;
     }
 
-    public String getExampleDecoderFactoryClassName() {
-        return exampleDecoderFactoryClassName;
+    public String getVectorizerFactoryName() {
+        return vectorizerFactoryName;
     }
 
-    public void setExampleDecoderFactoryClassName(String exampleDecoderFactoryClassName) {
-        this.exampleDecoderFactoryClassName = exampleDecoderFactoryClassName;
+    public String getEncoderFactoryName() {
+        return encoderFactoryName;
     }
 
-    public String getExampleEncoderFactoryClassName() {
-        return exampleEncoderFactoryClassName;
+    public String getScorerFactoryName() {
+        return scorerFactoryName;
     }
 
-    public void setExampleEncoderFactoryClassName(String exampleEncoderFactoryClassName) {
-        this.exampleEncoderFactoryClassName = exampleEncoderFactoryClassName;
+    public Optional<JsonNode> getVectorizerParameter() {
+        return vectorizerParameter;
     }
 
-    public String getExampleScorerFactoryClassName() {
-        return exampleScorerFactoryClassName;
+    public Optional<JsonNode> getTrainDecoderParameter() {
+        return trainDecoderParameter;
     }
 
-    public void setExampleScorerFactoryClassName(String exampleScorerFactoryClassName) {
-        this.exampleScorerFactoryClassName = exampleScorerFactoryClassName;
+    public Optional<JsonNode> getPredictDecoderParameter() {
+        return predictDecoderParameter;
     }
+
+    @Override
+    public String toString() {
+        return "AlgorithmDefinition{" +
+                "algorithmName='" + algorithmName + '\'' +
+                ", decoderFactoryName='" + decoderFactoryName + '\'' +
+                ", vectorizerFactoryName='" + vectorizerFactoryName + '\'' +
+                ", encoderFactoryName='" + encoderFactoryName + '\'' +
+                ", scorerFactoryName='" + scorerFactoryName + '\'' +
+                ", vectorizerParameter=" + vectorizerParameter +
+                ", trainDecoderParameter=" + trainDecoderParameter +
+                ", predictDecoderParameter=" + predictDecoderParameter +
+                '}';
+    }
+
+    public static AlgorithmDefinition parse(String json) throws JsonProcessingException {
+        ObjectMapper om = new ObjectMapper();
+        JsonNode parsed = om.readTree(json);
+        return new AlgorithmDefinition(
+                parsed.get("algorithm_name").asText(),
+                parsed.get("decoder_factory_classname").asText(),
+                parsed.get("vectorizer_factory_classname").asText(),
+                parsed.get("encoder_factory_classname").asText(),
+                parsed.get("scorer_factory_classname").asText(),
+                Optional.ofNullable(parsed.get("vectorizer_parameters")),
+                Optional.ofNullable(parsed.get("train_decoder_parameters")),
+                Optional.ofNullable(parsed.get("predict_decoder_parameters"))
+        );
+    }
+
 }

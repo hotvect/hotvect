@@ -17,7 +17,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
-import java.util.stream.Collectors;
 
 public class PredictTask<R> extends Task<R> {
     public PredictTask(Options opts, MetricRegistry metricRegistry, AlgorithmDefinition algorithmDefinition) throws Exception {
@@ -26,11 +25,11 @@ public class PredictTask<R> extends Task<R> {
 
     @Override
     protected Map<String, String> perform() throws Exception {
-        ExampleDecoder<R> exampleDecoder = instantiate(algorithmDefinition.getExampleDecoderFactoryClassName());
+        ExampleDecoder<R> exampleDecoder = getPredictDecoder();
 
         Readable parameters = Files.newReader(new File(opts.modelParameterFile), StandardCharsets.UTF_8);
 
-        Scorer<R> scorer = instantiate(algorithmDefinition.getExampleScorerFactoryClassName(), parameters);
+        Scorer<R> scorer = getScorer(parameters);
         Function<Example<R>, String> scoreOutputFormatter = x ->
                 scorer.applyAsDouble(x.getRecord()) + "," + x.getTarget();
 
