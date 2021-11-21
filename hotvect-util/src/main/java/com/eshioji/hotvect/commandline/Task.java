@@ -57,7 +57,7 @@ public abstract class Task<R> extends VerboseCallable<Map<String, String>> {
     }
 
     protected ExampleEncoder<R> getTrainEncoder() throws Exception {
-        String factoryName = this.algorithmDefinition.getDecoderFactoryName();
+        String factoryName = this.algorithmDefinition.getEncoderFactoryName();
         Optional<JsonNode> parameter = this.algorithmDefinition.getTrainDecoderParameter();
         return ((ExampleEncoderFactory<R>)Class.forName(factoryName).getDeclaredConstructor().newInstance())
                 .apply(getVectorizer(), parameter);

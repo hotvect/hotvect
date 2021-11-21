@@ -4,7 +4,10 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import java.util.Objects;
 import java.util.Optional;
+
+import static com.google.common.base.Preconditions.checkArgument;
 
 public class AlgorithmDefinition {
     private final String algorithmName;
@@ -74,15 +77,21 @@ public class AlgorithmDefinition {
                 '}';
     }
 
+    private static JsonNode ensureExtract(JsonNode root, String fieldName){
+        JsonNode field = root.get(fieldName);
+        checkArgument(field != null,"You must specify:%s. Full input:%s", fieldName, root);
+        return field;
+    }
+
     public static AlgorithmDefinition parse(String json) throws JsonProcessingException {
         ObjectMapper om = new ObjectMapper();
         JsonNode parsed = om.readTree(json);
         return new AlgorithmDefinition(
-                parsed.get("algorithm_name").asText(),
-                parsed.get("decoder_factory_classname").asText(),
-                parsed.get("vectorizer_factory_classname").asText(),
-                parsed.get("encoder_factory_classname").asText(),
-                parsed.get("scorer_factory_classname").asText(),
+                ensureExtract(parsed, "algorithm_name").asText(),
+                ensureExtract(parsed, "decoder_factory_classname").asText(),
+                ensureExtract(parsed, "vectorizer_factory_classname").asText(),
+                ensureExtract(parsed, "encoder_factory_classname").asText(),
+                ensureExtract(parsed, "scorer_factory_classname").asText(),
                 Optional.ofNullable(parsed.get("vectorizer_parameters")),
                 Optional.ofNullable(parsed.get("train_decoder_parameters")),
                 Optional.ofNullable(parsed.get("predict_decoder_parameters"))
