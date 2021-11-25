@@ -9,13 +9,17 @@ import org.slf4j.LoggerFactory;
 import java.io.*;
 import java.nio.file.Path;
 import java.util.Collection;
+import java.util.List;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BiFunction;
+import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.stream.Stream;
 import java.util.zip.GZIPInputStream;
+
+import static com.eshioji.hotvect.util.CpuIntensiveMapper.*;
 
 public class CpuIntensiveFileAggregator<Z> extends VerboseCallable<Z> {
     private static final Logger LOGGER = LoggerFactory.getLogger(CpuIntensiveFileAggregator.class);
@@ -37,7 +41,7 @@ public class CpuIntensiveFileAggregator<Z> extends VerboseCallable<Z> {
                 merge,
                 (Runtime.getRuntime().availableProcessors() > 1 ? Runtime.getRuntime().availableProcessors() - 1 : 1),
                 (int) (Runtime.getRuntime().availableProcessors() * 3.0),
-                5000);
+                100);
     }
 
 
@@ -60,30 +64,6 @@ public class CpuIntensiveFileAggregator<Z> extends VerboseCallable<Z> {
         CpuIntensiveAggregator<Z, String> processor = new CpuIntensiveAggregator<>(metricRegistry, init, merge, numThread, queueSize, batchSize);
         try (Stream<String> source = readData(this.source.toPath())) {
             return processor.aggregate(source);
-        }
-    }
-
-    private void process(CpuIntensiveMapper<String, String> processor, BlockingQueue<Future<Collection<String>>> queue, BufferedWriter writer) throws InterruptedException, java.util.concurrent.ExecutionException, IOException {
-        while (true) {
-            boolean hadFinished = processor.hasLoadingFinished();
-            Future<Collection<String>> batch = queue.poll(1, TimeUnit.SECONDS);
-            if (batch != null) {
-                // will throw if batch was a failure
-                for (String line : batch.get()) {
-                    if (line == null) {
-                        // Returning null is allowed
-                        // Line is skipped in this case
-                        continue;
-                    }
-                    writer.append(line);
-                    writer.newLine();
-                }
-            } else if (hadFinished) {
-                // Last entry had been put on queue because loading had finished,
-                // The only consumer (this thread) since queried the queue and it was empty (batch == null)
-                // Means we are done
-                break;
-            }
         }
     }
 

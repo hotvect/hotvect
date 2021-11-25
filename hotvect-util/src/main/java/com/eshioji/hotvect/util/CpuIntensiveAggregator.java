@@ -36,7 +36,7 @@ public class CpuIntensiveAggregator<Z, X> {
                 merger,
                 (Runtime.getRuntime().availableProcessors() > 1 ? Runtime.getRuntime().availableProcessors() - 1 : 1),
                 (int) (Runtime.getRuntime().availableProcessors() * 1.5),
-                5000);
+                100);
     }
 
     public CpuIntensiveAggregator(MetricRegistry metricRegistry,
