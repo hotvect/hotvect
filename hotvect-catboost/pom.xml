@@ -9,24 +9,24 @@
         <version>0.0.4-SNAPSHOT</version>
     </parent>
 
-    <artifactId>hotvect-api</artifactId>
-    <name>Hotvect API</name>
+    <artifactId>hotvect-catboost</artifactId>
+    <name>Hotvect CatBoost</name>
 
     <dependencies>
         <dependency>
-            <groupId>com.google.guava</groupId>
-            <artifactId>guava</artifactId>
+            <groupId>com.eshioji.hotvect</groupId>
+            <artifactId>hotvect-api</artifactId>
         </dependency>
         <dependency>
-            <groupId>com.fasterxml.jackson.core</groupId>
-            <artifactId>jackson-core</artifactId>
+            <groupId>com.eshioji.hotvect</groupId>
+            <artifactId>hotvect-core</artifactId>
         </dependency>
         <dependency>
-            <groupId>com.fasterxml.jackson.core</groupId>
-            <artifactId>jackson-databind</artifactId>
+            <groupId>ai.catboost</groupId>
+            <artifactId>catboost-prediction</artifactId>
+            <version>1.0.3</version>
         </dependency>
 
-        <!-- TEST -->
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>
