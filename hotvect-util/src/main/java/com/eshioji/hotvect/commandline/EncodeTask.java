@@ -6,13 +6,18 @@ import com.codahale.metrics.MetricRegistry;
 import com.eshioji.hotvect.api.AlgorithmDefinition;
 import com.eshioji.hotvect.api.codec.ExampleDecoder;
 import com.eshioji.hotvect.api.codec.ExampleEncoder;
+import com.eshioji.hotvect.api.scoring.Scorer;
 import com.eshioji.hotvect.core.util.ListTransform;
 import com.eshioji.hotvect.util.CpuIntensiveFileMapper;
+import com.eshioji.hotvect.util.ZipFiles;
+import com.google.common.collect.ImmutableMap;
 
+import java.io.InputStream;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
+import java.util.zip.ZipFile;
 
 public class EncodeTask<R> extends MappingTask<R> {
     public EncodeTask(Options opts, MetricRegistry metricRegistry, AlgorithmDefinition algorithmDefinition) throws Exception {
@@ -23,7 +28,15 @@ public class EncodeTask<R> extends MappingTask<R> {
     protected Map<String, String> perform() throws Exception {
         ExampleDecoder<R> exampleDecoder = getTrainDecoder();
 
-        ExampleEncoder<R> exampleEncoder = getTrainEncoder();
+        ExampleEncoder<R> exampleEncoder;
+        if (opts.parameters != null){
+            try(ZipFile parameterFile = new ZipFile(opts.parameters)){
+                Map<String, InputStream> parameters = ZipFiles.parameters(parameterFile);
+                exampleEncoder = getTrainEncoder(parameters);
+            }
+        } else {
+            exampleEncoder = getTrainEncoder(ImmutableMap.of());
+        }
 
         Function<String, List<String>> transformation = exampleDecoder.andThen(s -> ListTransform.map(s, exampleEncoder));
 

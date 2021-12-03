@@ -9,5 +9,5 @@ import java.util.function.Supplier;
 
 public interface ExampleDecoderFactory<R> extends Function<Optional<JsonNode>, ExampleDecoder<R>> {
     @Override
-    ExampleDecoder<R> apply(Optional<JsonNode> parameters);
+    ExampleDecoder<R> apply(Optional<JsonNode> hyperparameters);
 }

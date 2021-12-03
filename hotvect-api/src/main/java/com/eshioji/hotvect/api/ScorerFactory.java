@@ -11,5 +11,5 @@ import java.util.function.Supplier;
 
 public interface ScorerFactory<R> extends BiFunction<Vectorizer<R>, Map<String, InputStream>, Scorer<R>> {
     @Override
-    Scorer<R> apply(Vectorizer<R> vectorizer, Map<String, InputStream> parameters);
+    Scorer<R> apply(Vectorizer<R> vectorizer, Map<String, InputStream> predictParameters);
 }

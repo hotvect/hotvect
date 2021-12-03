@@ -11,5 +11,5 @@ import java.util.function.Supplier;
 
 public interface ExampleEncoderFactory<R> extends BiFunction<Vectorizer<R>, Optional<JsonNode>, ExampleEncoder<R>> {
     @Override
-    ExampleEncoder<R> apply(Vectorizer<R> vectorizer, Optional<JsonNode> parameters);
+    ExampleEncoder<R> apply(Vectorizer<R> vectorizer, Optional<JsonNode> hyperparameters);
 }

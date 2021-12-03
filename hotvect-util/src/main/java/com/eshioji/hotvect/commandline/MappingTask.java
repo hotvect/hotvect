@@ -35,14 +35,17 @@ public abstract class MappingTask<R> extends Task {
         metadata.put("source_file", opts.sourceFile.toString());
         metadata.put("algorithm_name", algorithmDefinition.getAlgorithmName());
         metadata.put("algorithm_definition", algorithmDefinition.toString());
+        if (opts.parameters != null){
+            metadata.put("parameters", opts.parameters);
+        }
         return metadata;
     }
 
-    private Vectorizer<R> getVectorizer() throws Exception {
+    private Vectorizer<R> getVectorizer(Map<String, InputStream> parameter) throws Exception {
         String factoryName = this.algorithmDefinition.getVectorizerFactoryName();
-        Optional<JsonNode> parameter = this.algorithmDefinition.getVectorizerParameter();
+        Optional<JsonNode> hyperparameter = this.algorithmDefinition.getVectorizerParameter();
         return ((VectorizerFactory<R>)Class.forName(factoryName).getDeclaredConstructor().newInstance())
-                .apply(parameter);
+                .apply(hyperparameter, parameter);
     }
 
     protected ExampleDecoder<R> getTrainDecoder() throws Exception {
@@ -52,24 +55,24 @@ public abstract class MappingTask<R> extends Task {
                 .apply(parameter);
     }
 
-    protected ExampleEncoder<R> getTrainEncoder() throws Exception {
+    protected ExampleEncoder<R> getTrainEncoder(Map<String, InputStream> parameter) throws Exception {
         String factoryName = this.algorithmDefinition.getEncoderFactoryName();
-        Optional<JsonNode> parameter = this.algorithmDefinition.getTrainDecoderParameter();
+        Optional<JsonNode> hyperparameter = this.algorithmDefinition.getTrainDecoderParameter();
         return ((ExampleEncoderFactory<R>)Class.forName(factoryName).getDeclaredConstructor().newInstance())
-                .apply(getVectorizer(), parameter);
+                .apply(getVectorizer(parameter), hyperparameter);
     }
 
     protected ExampleDecoder<R> getPredictDecoder() throws Exception {
         String factoryName = this.algorithmDefinition.getDecoderFactoryName();
-        Optional<JsonNode> parameter = this.algorithmDefinition.getPredictDecoderParameter();
+        Optional<JsonNode> hyperparameter = this.algorithmDefinition.getPredictDecoderParameter();
         return ((ExampleDecoderFactory<R>)Class.forName(factoryName).getDeclaredConstructor().newInstance())
-                .apply(parameter);
+                .apply(hyperparameter);
     }
 
     protected Scorer<R> getScorer(Map<String, InputStream> parameter) throws Exception {
         String factoryName = this.algorithmDefinition.getScorerFactoryName();
         return ((ScorerFactory<R>)Class.forName(factoryName).getDeclaredConstructor().newInstance())
-                .apply(getVectorizer(), parameter);
+                .apply(getVectorizer(parameter), parameter);
     }
 
 
