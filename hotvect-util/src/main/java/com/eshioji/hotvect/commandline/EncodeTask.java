@@ -14,7 +14,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
 
-public class EncodeTask<R> extends Task<R> {
+public class EncodeTask<R> extends MappingTask<R> {
     public EncodeTask(Options opts, MetricRegistry metricRegistry, AlgorithmDefinition algorithmDefinition) throws Exception {
         super(opts, metricRegistry, algorithmDefinition);
     }

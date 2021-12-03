@@ -3,16 +3,17 @@ package com.eshioji.hotvect.commandline;
 import com.codahale.metrics.MetricRegistry;
 import com.codahale.metrics.Slf4jReporter;
 import com.eshioji.hotvect.api.AlgorithmDefinition;
+import com.eshioji.hotvect.util.VerboseCallable;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import com.google.common.base.Charsets;
-import com.google.common.collect.ImmutableList;
 import com.google.common.io.Files;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import picocli.CommandLine;
 
 import java.io.File;
+import java.io.IOException;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
@@ -20,6 +21,7 @@ import static com.google.common.base.Preconditions.checkState;
 
 public class Main {
     private static final ObjectMapper OM;
+
     static {
         OM = new ObjectMapper();
         OM.setPropertyNamingStrategy(PropertyNamingStrategies.SNAKE_CASE);
@@ -41,7 +43,7 @@ public class Main {
 
         try {
             reporter.start(10, TimeUnit.SECONDS);
-            Task<Object> task = getTask(opts);
+            VerboseCallable<Map<String, String>> task = getTask(opts);
             Map<String, String> metadata = task.call();
             OM.writeValue(opts.metadataLocation, metadata);
             LOGGER.info("Wrote metadata: location={}, metadata={}", opts.metadataLocation, metadata);
@@ -53,22 +55,30 @@ public class Main {
 
     }
 
-    private static <R> Task<R> getTask(Options opts) throws Exception {
-        checkState(
-                ImmutableList.of(opts.generateState, opts.encode, opts.predict).stream().mapToInt(x -> x ? 1 : 0).sum() == 1, "Exactly one command (predict or encode) must be specified");
-        File algorithmDefinitionFile = new File(opts.algorithmDefinition);
-        checkState(algorithmDefinitionFile.exists(), "Algorithm definition file does not exist:" + algorithmDefinitionFile.getAbsolutePath());
-
-        AlgorithmDefinition algorithmDefinition = AlgorithmDefinition.parse(Files.asCharSource(algorithmDefinitionFile, Charsets.UTF_8).read());
+    private static Task getTask(Options opts) throws Exception {
+//        checkState(
+//                ImmutableList.of(opts.generateState, opts.encode, opts.predict).stream().mapToInt(x -> x ? 1 : 0).sum() == 1, "Exactly one command (predict or encode) must be specified");
 
 
         if (opts.encode) {
+            AlgorithmDefinition algorithmDefinition = readAlgorithmDefinition(opts);
             return new EncodeTask<>(opts, METRIC_REGISTRY, algorithmDefinition);
         } else if (opts.predict) {
+            AlgorithmDefinition algorithmDefinition = readAlgorithmDefinition(opts);
             return new PredictTask<>(opts, METRIC_REGISTRY, algorithmDefinition);
+        } else if (opts.stateGenerator != null) {
+            return (GenerateStateTask) Class.forName(opts.stateGenerator).getDeclaredConstructor(Options.class, MetricRegistry.class).newInstance(opts, METRIC_REGISTRY);
         } else {
-            throw new UnsupportedOperationException("No command given. Available: encode or predict");
+            throw new UnsupportedOperationException("No command given. Available: encode, predict or generate-state");
+
         }
+    }
+
+    private static AlgorithmDefinition readAlgorithmDefinition(Options opts) throws IOException {
+        File algorithmDefinitionFile = new File(opts.algorithmDefinition);
+        checkState(algorithmDefinitionFile.exists(), "Algorithm definition file does not exist:" + algorithmDefinitionFile.getAbsolutePath());
+
+        return AlgorithmDefinition.parse(Files.asCharSource(algorithmDefinitionFile, Charsets.UTF_8).read());
     }
 
 }

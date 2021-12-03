@@ -10,20 +10,17 @@ import com.eshioji.hotvect.api.scoring.Scorer;
 import com.eshioji.hotvect.core.util.ListTransform;
 import com.eshioji.hotvect.util.CpuIntensiveFileMapper;
 import com.eshioji.hotvect.util.ZipFiles;
-import com.google.common.io.Files;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.File;
 import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
 import java.util.zip.ZipFile;
 
-public class PredictTask<R> extends Task<R> {
+public class PredictTask<R> extends MappingTask<R> {
     private static final Logger logger = LoggerFactory.getLogger(PredictTask.class);
 
     public PredictTask(Options opts, MetricRegistry metricRegistry, AlgorithmDefinition algorithmDefinition) throws Exception {

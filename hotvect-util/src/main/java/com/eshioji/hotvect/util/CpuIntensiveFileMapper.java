@@ -6,7 +6,6 @@ import com.codahale.metrics.MetricRegistry;
 import com.google.common.base.Charsets;
 import com.google.common.io.Files;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
-import org.anarres.parallelgzip.ParallelGZIPInputStream;
 import org.anarres.parallelgzip.ParallelGZIPOutputStream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -14,13 +13,11 @@ import org.slf4j.LoggerFactory;
 import java.io.*;
 import java.nio.file.Path;
 import java.util.Collection;
-import java.util.Iterator;
 import java.util.List;
 import java.util.concurrent.*;
 import java.util.function.Function;
 import java.util.stream.Stream;
 import java.util.zip.GZIPInputStream;
-import java.util.zip.GZIPOutputStream;
 
 import static com.eshioji.hotvect.util.CpuIntensiveMapper.*;
 
@@ -39,12 +36,12 @@ public class CpuIntensiveFileMapper extends VerboseRunnable {
 
 
     public static CpuIntensiveFileMapper mapper(MetricRegistry metricRegistry,
-                                                    File source,
-                                                    File dest,
-                                                    Function<String, List<String>> flatmapFunction,
-                                                    int nThreads,
-                                                    int queueLength,
-                                                    int batchSize) {
+                                                File source,
+                                                File dest,
+                                                Function<String, List<String>> flatmapFunction,
+                                                int nThreads,
+                                                int queueLength,
+                                                int batchSize) {
         return new CpuIntensiveFileMapper(metricRegistry,
                 source,
                 dest,
@@ -54,7 +51,7 @@ public class CpuIntensiveFileMapper extends VerboseRunnable {
                 batchSize);
     }
 
-  public static CpuIntensiveFileMapper mapper(MetricRegistry metricRegistry, File source, File dest, Function<String, List<String>> flatmapFunction){
+    public static CpuIntensiveFileMapper mapper(MetricRegistry metricRegistry, File source, File dest, Function<String, List<String>> flatmapFunction) {
         return mapper(metricRegistry, source, dest, flatmapFunction, DEFAULT_THREAD_NUM, DEFAULT_QUEUE_LENGTH, DEFAULT_BATCH_SIZE);
     }
 
@@ -73,7 +70,7 @@ public class CpuIntensiveFileMapper extends VerboseRunnable {
     protected void doRun() {
         CpuIntensiveMapper<String, List<String>> processor = new CpuIntensiveMapper<>(metricRegistry, flatmapTransformation, nThreads, queueSize, batchSize);
 
-        int gzipThreads = (Runtime.getRuntime().availableProcessors()/2 > 1 ? Runtime.getRuntime().availableProcessors() / 2 - 1 : 1);
+        int gzipThreads = (Runtime.getRuntime().availableProcessors() / 2 > 1 ? Runtime.getRuntime().availableProcessors() / 2 - 1 : 1);
 
         ThreadPoolExecutor gzipWriters = getGzipWriters(gzipThreads);
 
@@ -122,7 +119,7 @@ public class CpuIntensiveFileMapper extends VerboseRunnable {
             if (batch != null) {
                 // will throw if batch was a failure
                 for (List<String> result : batch.get()) {
-                    if(result == null){
+                    if (result == null) {
                         throw new NullPointerException("result");
                     } else {
                         //TODO Add test for this path

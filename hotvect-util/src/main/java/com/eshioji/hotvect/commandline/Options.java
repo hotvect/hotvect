@@ -17,11 +17,15 @@ class Options {
     @CommandLine.Option(names = {"--predict"}, description = "Predict")
     boolean predict;
 
-    @CommandLine.Option(names = {"--generate-state"}, description = "Generate state")
-    boolean generateState;
+    @CommandLine.Option(names = {"--generate-state"}, description = "Generator class name")
+    String stateGenerator;
 
     @CommandLine.Option(names = {"--source"}, paramLabel = "SOURCE_FILE", description = "Source file")
     File sourceFile;
+
+    @CommandLine.Option(names = {"--training-file"}, paramLabel = "TRAINING_FILE", description = "Training file")
+    File trainingFile;
+
 
     @CommandLine.Option(names = {"--dest"}, paramLabel = "DESTINATION_FILE", description = "Destination file")
     File destinationFile;

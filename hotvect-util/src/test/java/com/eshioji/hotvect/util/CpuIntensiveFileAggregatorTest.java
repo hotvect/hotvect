@@ -42,7 +42,7 @@ class CpuIntensiveFileAggregatorTest {
                 0.001
         );
 
-        CpuIntensiveFileAggregator<BloomFilter<String>> subject = new CpuIntensiveFileAggregator<>(mr,
+        CpuIntensiveFileAggregator<BloomFilter<String>> subject = CpuIntensiveFileAggregator.aggregator(mr,
                 source,
                 () -> firstBloomFilter,
                 (acc, x) -> {

@@ -8,18 +8,10 @@ import org.slf4j.LoggerFactory;
 
 import java.io.*;
 import java.nio.file.Path;
-import java.util.Collection;
-import java.util.List;
-import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
 import java.util.function.BiFunction;
-import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.stream.Stream;
 import java.util.zip.GZIPInputStream;
-
-import static com.eshioji.hotvect.util.CpuIntensiveMapper.*;
 
 public class CpuIntensiveFileAggregator<Z> extends VerboseCallable<Z> {
     private static final Logger LOGGER = LoggerFactory.getLogger(CpuIntensiveFileAggregator.class);
@@ -31,25 +23,34 @@ public class CpuIntensiveFileAggregator<Z> extends VerboseCallable<Z> {
     private final Supplier<Z> init;
     private final BiFunction<Z, String, Z> merge;
 
-    public CpuIntensiveFileAggregator(MetricRegistry metricRegistry,
-                                      File source,
-                                      Supplier<Z> init,
-                                      BiFunction<Z, String, Z> merge) {
-        this(metricRegistry,
+    public static <Z> CpuIntensiveFileAggregator<Z> aggregator(MetricRegistry metricRegistry,
+                                                               File source,
+                                                               Supplier<Z> init,
+                                                               BiFunction<Z, String, Z> merge,
+                                                               int numThreads, int queueSize, int batchSize) {
+        return new CpuIntensiveFileAggregator<>(metricRegistry, source, init, merge, numThreads, queueSize, batchSize);
+    }
+
+    public static <Z> CpuIntensiveFileAggregator<Z> aggregator(MetricRegistry metricRegistry,
+                                                               File source,
+                                                               Supplier<Z> init,
+                                                               BiFunction<Z, String, Z> merge) {
+        return new CpuIntensiveFileAggregator<>(metricRegistry,
                 source,
                 init,
                 merge,
                 (Runtime.getRuntime().availableProcessors() > 1 ? Runtime.getRuntime().availableProcessors() - 1 : 1),
                 (int) (Runtime.getRuntime().availableProcessors() * 3.0),
                 100);
+
     }
 
 
-    public CpuIntensiveFileAggregator(MetricRegistry metricRegistry,
-                                      File source,
-                                      Supplier<Z> init,
-                                      BiFunction<Z, String, Z> merge,
-                                      int numThreads, int queueSize, int batchSize) {
+    private CpuIntensiveFileAggregator(MetricRegistry metricRegistry,
+                                       File source,
+                                       Supplier<Z> init,
+                                       BiFunction<Z, String, Z> merge,
+                                       int numThreads, int queueSize, int batchSize) {
         this.metricRegistry = metricRegistry;
         this.queueSize = queueSize;
         this.batchSize = batchSize;
