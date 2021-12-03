@@ -5,8 +5,6 @@ import com.eshioji.hotvect.api.data.DataRecord;
 import com.eshioji.hotvect.api.data.FeatureNamespace;
 import com.eshioji.hotvect.api.data.hashed.HashedValue;
 import com.eshioji.hotvect.api.data.raw.Example;
-import com.eshioji.hotvect.api.data.raw.RawNamespace;
-import com.eshioji.hotvect.api.data.raw.RawValue;
 import com.eshioji.hotvect.core.hash.Hasher;
 import com.eshioji.hotvect.core.transform.Transformer;
 

@@ -11,6 +11,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.InputStream;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.Function;
@@ -70,7 +71,7 @@ public abstract class Task<R> extends VerboseCallable<Map<String, String>> {
                 .apply(parameter);
     }
 
-    protected Scorer<R> getScorer(Readable parameter) throws Exception {
+    protected Scorer<R> getScorer(Map<String, InputStream> parameter) throws Exception {
         String factoryName = this.algorithmDefinition.getScorerFactoryName();
         return ((ScorerFactory<R>)Class.forName(factoryName).getDeclaredConstructor().newInstance())
                 .apply(getVectorizer(), parameter);

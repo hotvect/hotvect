@@ -6,6 +6,7 @@ import com.eshioji.hotvect.api.AlgorithmDefinition;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import com.google.common.base.Charsets;
+import com.google.common.collect.ImmutableList;
 import com.google.common.io.Files;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -53,7 +54,8 @@ public class Main {
     }
 
     private static <R> Task<R> getTask(Options opts) throws Exception {
-        checkState(opts.encode ^ opts.predict, "Exactly one command (predict or encode) must be specified");
+        checkState(
+                ImmutableList.of(opts.generateState, opts.encode, opts.predict).stream().mapToInt(x -> x ? 1 : 0).sum() == 1, "Exactly one command (predict or encode) must be specified");
         File algorithmDefinitionFile = new File(opts.algorithmDefinition);
         checkState(algorithmDefinitionFile.exists(), "Algorithm definition file does not exist:" + algorithmDefinitionFile.getAbsolutePath());
 

@@ -9,16 +9,23 @@ import com.eshioji.hotvect.api.data.raw.Example;
 import com.eshioji.hotvect.api.scoring.Scorer;
 import com.eshioji.hotvect.core.util.ListTransform;
 import com.eshioji.hotvect.util.CpuIntensiveFileMapper;
+import com.eshioji.hotvect.util.ZipFiles;
 import com.google.common.io.Files;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.File;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
+import java.util.zip.ZipFile;
 
 public class PredictTask<R> extends Task<R> {
+    private static final Logger logger = LoggerFactory.getLogger(PredictTask.class);
+
     public PredictTask(Options opts, MetricRegistry metricRegistry, AlgorithmDefinition algorithmDefinition) throws Exception {
         super(opts, metricRegistry, algorithmDefinition);
     }
@@ -27,9 +34,13 @@ public class PredictTask<R> extends Task<R> {
     protected Map<String, String> perform() throws Exception {
         ExampleDecoder<R> exampleDecoder = getPredictDecoder();
 
-        Readable parameters = Files.newReader(new File(opts.modelParameterFile), StandardCharsets.UTF_8);
+        Scorer<R> scorer;
+        try(ZipFile parameterFile = new ZipFile(opts.parameters)){
+            Map<String, InputStream> parameters = ZipFiles.parameters(parameterFile);
+            logger.info("Parameters loaded {}",parameters.keySet());
+            scorer = getScorer(parameters);
+        }
 
-        Scorer<R> scorer = getScorer(parameters);
         Function<Example<R>, String> scoreOutputFormatter = x ->
                 scorer.applyAsDouble(x.getRecord()) + "," + x.getTarget();
 

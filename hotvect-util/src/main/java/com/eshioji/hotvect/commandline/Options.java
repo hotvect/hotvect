@@ -8,15 +8,17 @@ class Options {
     @CommandLine.Option(names = {"--algorithm-definition"}, paramLabel = "TODO", description = "TODO")
     String algorithmDefinition;
 
-    @CommandLine.Option(names = {"--model"}, paramLabel = "TODO", description = "TODO")
-    String modelParameterFile;
-
+    @CommandLine.Option(names = {"--parameters"}, paramLabel = "TODO", description = "TODO")
+    String parameters;
 
     @CommandLine.Option(names = {"--encode"}, description = "Vectorize and encode")
     boolean encode;
 
     @CommandLine.Option(names = {"--predict"}, description = "Predict")
     boolean predict;
+
+    @CommandLine.Option(names = {"--generate-state"}, description = "Generate state")
+    boolean generateState;
 
     @CommandLine.Option(names = {"--source"}, paramLabel = "SOURCE_FILE", description = "Source file")
     File sourceFile;

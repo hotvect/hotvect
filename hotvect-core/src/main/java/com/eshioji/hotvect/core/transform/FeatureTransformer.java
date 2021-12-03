@@ -11,7 +11,7 @@ import java.util.Set;
 import java.util.function.Function;
 
 //TODO Add test
-public class FeatureTransformer<R, OUT extends Enum<OUT> & FeatureNamespace> implements Transformer<R, OUT>{
+public class FeatureTransformer<R, OUT extends Enum<OUT> & FeatureNamespace> implements Transformer<R, OUT> {
     private final Class<OUT> featureKeyClass;
     private final EnumMap<OUT, Function<R, RawValue>> transformations;
     private final Set<OUT> featureKeys;
