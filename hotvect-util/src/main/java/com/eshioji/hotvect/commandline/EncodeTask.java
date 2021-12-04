@@ -6,7 +6,6 @@ import com.codahale.metrics.MetricRegistry;
 import com.eshioji.hotvect.api.AlgorithmDefinition;
 import com.eshioji.hotvect.api.codec.ExampleDecoder;
 import com.eshioji.hotvect.api.codec.ExampleEncoder;
-import com.eshioji.hotvect.api.scoring.Scorer;
 import com.eshioji.hotvect.core.util.ListTransform;
 import com.eshioji.hotvect.util.CpuIntensiveFileMapper;
 import com.eshioji.hotvect.util.ZipFiles;
@@ -19,7 +18,7 @@ import java.util.Map;
 import java.util.function.Function;
 import java.util.zip.ZipFile;
 
-public class EncodeTask<R> extends MappingTask<R> {
+public class EncodeTask<R> extends Task<R> {
     public EncodeTask(Options opts, MetricRegistry metricRegistry, AlgorithmDefinition algorithmDefinition) throws Exception {
         super(opts, metricRegistry, algorithmDefinition);
     }

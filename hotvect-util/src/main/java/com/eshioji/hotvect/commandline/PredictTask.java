@@ -20,7 +20,7 @@ import java.util.Map;
 import java.util.function.Function;
 import java.util.zip.ZipFile;
 
-public class PredictTask<R> extends MappingTask<R> {
+public class PredictTask<R> extends Task<R> {
     private static final Logger logger = LoggerFactory.getLogger(PredictTask.class);
 
     public PredictTask(Options opts, MetricRegistry metricRegistry, AlgorithmDefinition algorithmDefinition) throws Exception {

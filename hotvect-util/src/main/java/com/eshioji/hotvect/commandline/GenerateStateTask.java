@@ -1,21 +1,14 @@
 package com.eshioji.hotvect.commandline;
 
-import com.codahale.metrics.Meter;
 import com.codahale.metrics.MetricRegistry;
-import com.eshioji.hotvect.api.codec.ExampleDecoder;
-import com.eshioji.hotvect.api.codec.ExampleEncoder;
-import com.eshioji.hotvect.core.util.ListTransform;
-import com.eshioji.hotvect.util.CpuIntensiveAggregator;
-import com.eshioji.hotvect.util.CpuIntensiveFileMapper;
+import com.eshioji.hotvect.api.AlgorithmDefinition;
 
-import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
-import java.util.function.Function;
 
-public abstract class GenerateStateTask extends Task {
-    public GenerateStateTask(Options opts, MetricRegistry metricRegistry) {
-        super(opts, metricRegistry);
+public abstract class GenerateStateTask<R> extends Task<R> {
+
+    public GenerateStateTask(Options opts, MetricRegistry metricRegistry, AlgorithmDefinition algorithmDefinition) throws Exception {
+        super(opts, metricRegistry, algorithmDefinition);
     }
 
     @Override

@@ -15,6 +15,7 @@ import picocli.CommandLine;
 import java.io.File;
 import java.io.IOException;
 import java.util.Map;
+import java.util.concurrent.Callable;
 import java.util.concurrent.TimeUnit;
 
 import static com.google.common.base.Preconditions.checkState;
@@ -43,7 +44,7 @@ public class Main {
 
         try {
             reporter.start(10, TimeUnit.SECONDS);
-            VerboseCallable<Map<String, String>> task = getTask(opts);
+            Callable<Map<String, String>> task = getTask(opts);
             Map<String, String> metadata = task.call();
             OM.writeValue(opts.metadataLocation, metadata);
             LOGGER.info("Wrote metadata: location={}, metadata={}", opts.metadataLocation, metadata);
@@ -55,19 +56,20 @@ public class Main {
 
     }
 
-    private static Task getTask(Options opts) throws Exception {
+    private static Callable<Map<String, String>> getTask(Options opts) throws Exception {
 //        checkState(
 //                ImmutableList.of(opts.generateState, opts.encode, opts.predict).stream().mapToInt(x -> x ? 1 : 0).sum() == 1, "Exactly one command (predict or encode) must be specified");
 
+        AlgorithmDefinition algorithmDefinition = readAlgorithmDefinition(opts);
 
         if (opts.encode) {
-            AlgorithmDefinition algorithmDefinition = readAlgorithmDefinition(opts);
             return new EncodeTask<>(opts, METRIC_REGISTRY, algorithmDefinition);
         } else if (opts.predict) {
-            AlgorithmDefinition algorithmDefinition = readAlgorithmDefinition(opts);
             return new PredictTask<>(opts, METRIC_REGISTRY, algorithmDefinition);
         } else if (opts.stateGenerator != null) {
-            return (GenerateStateTask) Class.forName(opts.stateGenerator).getDeclaredConstructor(Options.class, MetricRegistry.class).newInstance(opts, METRIC_REGISTRY);
+            return (GenerateStateTask) Class.forName(opts.stateGenerator).getDeclaredConstructor(
+                    Options.class, MetricRegistry.class, AlgorithmDefinition.class
+            ).newInstance(opts, METRIC_REGISTRY, algorithmDefinition);
         } else {
             throw new UnsupportedOperationException("No command given. Available: encode, predict or generate-state");
 
