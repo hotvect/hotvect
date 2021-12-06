@@ -1,5 +1,6 @@
 package com.eshioji.hotvect.commandline;
 
+import com.codahale.metrics.Histogram;
 import com.codahale.metrics.MetricRegistry;
 import com.eshioji.hotvect.api.*;
 import com.eshioji.hotvect.api.codec.ExampleDecoder;
@@ -7,18 +8,24 @@ import com.eshioji.hotvect.api.codec.ExampleEncoder;
 import com.eshioji.hotvect.api.scoring.Scorer;
 import com.eshioji.hotvect.api.vectorization.Vectorizer;
 import com.eshioji.hotvect.util.VerboseCallable;
+import com.eshioji.hotvect.util.VerboseRunnable;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.InputStream;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 public abstract class Task<R> extends VerboseCallable<Map<String, String>>{
     protected final Logger LOGGER = LoggerFactory.getLogger(this.getClass());
     protected final Options opts;
     protected final MetricRegistry metricRegistry;
+
 
     protected final AlgorithmDefinition algorithmDefinition;
 
@@ -33,6 +40,18 @@ public abstract class Task<R> extends VerboseCallable<Map<String, String>>{
     @Override
     protected Map<String, String> doCall() throws Exception {
         LOGGER.info("Running {} from {} to {}", this.getClass().getSimpleName(), opts.sourceFile, opts.destinationFile);
+
+        Histogram memoryUsage = metricRegistry.histogram("memory_usage");
+        ScheduledExecutorService memoryUsageReporter = Executors.newSingleThreadScheduledExecutor(new ThreadFactoryBuilder().setNameFormat("memory-reporter").build());
+        Runnable reportMemoryUsage = new VerboseRunnable() {
+            @Override
+            protected void doRun() throws Exception {
+                // Best estimate of current RAM usage
+                memoryUsage.update(Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory());
+            }
+        };
+        memoryUsageReporter.schedule(reportMemoryUsage, 5, TimeUnit.SECONDS);
+
         Map<String, String> metadata = perform();
         metadata.put("task_type", this.getClass().getSimpleName());
         metadata.put("metadata_location", opts.metadataLocation.toString());
@@ -43,6 +62,11 @@ public abstract class Task<R> extends VerboseCallable<Map<String, String>>{
         if (opts.parameters != null){
             metadata.put("parameters", opts.parameters);
         }
+
+        metadata.put("memory_usage_95pct", String.valueOf(memoryUsage.getSnapshot().get95thPercentile()));
+        metadata.put("memory_usage_75pct", String.valueOf(memoryUsage.getSnapshot().get75thPercentile()));
+
+        memoryUsageReporter.shutdownNow();
         return metadata;
     }
 

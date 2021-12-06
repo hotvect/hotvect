@@ -3,7 +3,6 @@ package com.eshioji.hotvect.commandline;
 import com.codahale.metrics.MetricRegistry;
 import com.codahale.metrics.Slf4jReporter;
 import com.eshioji.hotvect.api.AlgorithmDefinition;
-import com.eshioji.hotvect.util.VerboseCallable;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import com.google.common.base.Charsets;
@@ -66,10 +65,9 @@ public class Main {
             return new EncodeTask<>(opts, METRIC_REGISTRY, algorithmDefinition);
         } else if (opts.predict) {
             return new PredictTask<>(opts, METRIC_REGISTRY, algorithmDefinition);
-        } else if (opts.stateGenerator != null) {
-            return (GenerateStateTask) Class.forName(opts.stateGenerator).getDeclaredConstructor(
-                    Options.class, MetricRegistry.class, AlgorithmDefinition.class
-            ).newInstance(opts, METRIC_REGISTRY, algorithmDefinition);
+        } else if (opts.stateDefinition != null) {
+            FeatureStateDefinition<?, ?> definition = (FeatureStateDefinition<?, ?>) Class.forName(opts.stateDefinition).getDeclaredConstructor().newInstance();
+            return definition.getGenerationTask(opts, METRIC_REGISTRY, algorithmDefinition);
         } else {
             throw new UnsupportedOperationException("No command given. Available: encode, predict or generate-state");
 

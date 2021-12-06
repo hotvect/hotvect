@@ -18,7 +18,7 @@ public class Options {
     public boolean predict;
 
     @CommandLine.Option(names = {"--generate-state"}, description = "Generator class name")
-    public String stateGenerator;
+    public String stateDefinition;
 
     @CommandLine.Option(names = {"--source"}, paramLabel = "SOURCE_FILE", description = "Source file")
     public File sourceFile;
