@@ -10,6 +10,7 @@ import com.eshioji.hotvect.api.vectorization.Vectorizer;
 import com.eshioji.hotvect.util.VerboseCallable;
 import com.eshioji.hotvect.util.VerboseRunnable;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.google.common.util.concurrent.MoreExecutors;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -17,11 +18,11 @@ import org.slf4j.LoggerFactory;
 import java.io.InputStream;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
-public abstract class Task<R> extends VerboseCallable<Map<String, String>>{
+public abstract class Task<R> extends VerboseCallable<Map<String, String>> {
     protected final Logger LOGGER = LoggerFactory.getLogger(this.getClass());
     protected final Options opts;
     protected final MetricRegistry metricRegistry;
@@ -42,7 +43,7 @@ public abstract class Task<R> extends VerboseCallable<Map<String, String>>{
         LOGGER.info("Running {} from {} to {}", this.getClass().getSimpleName(), opts.sourceFile, opts.destinationFile);
 
         Histogram memoryUsage = metricRegistry.histogram("memory_usage");
-        ScheduledExecutorService memoryUsageReporter = Executors.newSingleThreadScheduledExecutor(new ThreadFactoryBuilder().setNameFormat("memory-reporter").build());
+        ScheduledExecutorService memoryUsageReporter = exitingScheduledExecutor();
         Runnable reportMemoryUsage = new VerboseRunnable() {
             @Override
             protected void doRun() throws Exception {
@@ -51,56 +52,63 @@ public abstract class Task<R> extends VerboseCallable<Map<String, String>>{
             }
         };
         memoryUsageReporter.schedule(reportMemoryUsage, 5, TimeUnit.SECONDS);
+        try {
 
-        Map<String, String> metadata = perform();
-        metadata.put("task_type", this.getClass().getSimpleName());
-        metadata.put("metadata_location", opts.metadataLocation.toString());
-        metadata.put("destination_file", opts.destinationFile.toString());
-        metadata.put("source_file", opts.sourceFile.toString());
-        metadata.put("algorithm_name", algorithmDefinition.getAlgorithmName());
-        metadata.put("algorithm_definition", algorithmDefinition.toString());
-        if (opts.parameters != null){
-            metadata.put("parameters", opts.parameters);
+            Map<String, String> metadata = perform();
+            metadata.put("task_type", this.getClass().getSimpleName());
+            metadata.put("metadata_location", opts.metadataLocation.toString());
+            metadata.put("destination_file", opts.destinationFile.toString());
+            metadata.put("source_file", opts.sourceFile.toString());
+            metadata.put("algorithm_name", algorithmDefinition.getAlgorithmName());
+            metadata.put("algorithm_definition", algorithmDefinition.toString());
+            if (opts.parameters != null) {
+                metadata.put("parameters", opts.parameters);
+            }
+            metadata.put("memory_usage_95pct", String.valueOf(memoryUsage.getSnapshot().get95thPercentile()));
+            metadata.put("memory_usage_75pct", String.valueOf(memoryUsage.getSnapshot().get75thPercentile()));
+            return metadata;
+        } finally {
+            memoryUsageReporter.shutdownNow();
         }
+    }
 
-        metadata.put("memory_usage_95pct", String.valueOf(memoryUsage.getSnapshot().get95thPercentile()));
-        metadata.put("memory_usage_75pct", String.valueOf(memoryUsage.getSnapshot().get75thPercentile()));
-
-        memoryUsageReporter.shutdownNow();
-        return metadata;
+    private ScheduledExecutorService exitingScheduledExecutor() {
+        return MoreExecutors.getExitingScheduledExecutorService(
+                new ScheduledThreadPoolExecutor(1, new ThreadFactoryBuilder().setNameFormat("memory-reporter").build())
+        );
     }
 
     private Vectorizer<R> getVectorizer(Map<String, InputStream> parameter) throws Exception {
         String factoryName = this.algorithmDefinition.getVectorizerFactoryName();
         Optional<JsonNode> hyperparameter = this.algorithmDefinition.getVectorizerParameter();
-        return ((VectorizerFactory<R>)Class.forName(factoryName).getDeclaredConstructor().newInstance())
+        return ((VectorizerFactory<R>) Class.forName(factoryName).getDeclaredConstructor().newInstance())
                 .apply(hyperparameter, parameter);
     }
 
     protected ExampleDecoder<R> getTrainDecoder() throws Exception {
         String factoryName = this.algorithmDefinition.getDecoderFactoryName();
         Optional<JsonNode> parameter = this.algorithmDefinition.getTrainDecoderParameter();
-        return ((ExampleDecoderFactory<R>)Class.forName(factoryName).getDeclaredConstructor().newInstance())
+        return ((ExampleDecoderFactory<R>) Class.forName(factoryName).getDeclaredConstructor().newInstance())
                 .apply(parameter);
     }
 
     protected ExampleEncoder<R> getTrainEncoder(Map<String, InputStream> parameter) throws Exception {
         String factoryName = this.algorithmDefinition.getEncoderFactoryName();
         Optional<JsonNode> hyperparameter = this.algorithmDefinition.getTrainDecoderParameter();
-        return ((ExampleEncoderFactory<R>)Class.forName(factoryName).getDeclaredConstructor().newInstance())
+        return ((ExampleEncoderFactory<R>) Class.forName(factoryName).getDeclaredConstructor().newInstance())
                 .apply(getVectorizer(parameter), hyperparameter);
     }
 
     protected ExampleDecoder<R> getPredictDecoder() throws Exception {
         String factoryName = this.algorithmDefinition.getDecoderFactoryName();
         Optional<JsonNode> hyperparameter = this.algorithmDefinition.getPredictDecoderParameter();
-        return ((ExampleDecoderFactory<R>)Class.forName(factoryName).getDeclaredConstructor().newInstance())
+        return ((ExampleDecoderFactory<R>) Class.forName(factoryName).getDeclaredConstructor().newInstance())
                 .apply(hyperparameter);
     }
 
     protected Scorer<R> getScorer(Map<String, InputStream> parameter) throws Exception {
         String factoryName = this.algorithmDefinition.getScorerFactoryName();
-        return ((ScorerFactory<R>)Class.forName(factoryName).getDeclaredConstructor().newInstance())
+        return ((ScorerFactory<R>) Class.forName(factoryName).getDeclaredConstructor().newInstance())
                 .apply(getVectorizer(parameter), parameter);
     }
 
