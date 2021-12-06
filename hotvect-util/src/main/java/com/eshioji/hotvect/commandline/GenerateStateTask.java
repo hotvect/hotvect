@@ -50,13 +50,8 @@ public abstract class GenerateStateTask<R> extends Task<R> {
     }
 
     protected <S extends FeatureState> long serializeToDestination(BiConsumer<OutputStream, S> serializer, S featureState){
-        String ext = Files.getFileExtension(opts.destinationFile.toPath().getFileName().toString());
-        boolean isDestGzip = "gz".equalsIgnoreCase(ext);
-
-        try (FileOutputStream file = new FileOutputStream(opts.destinationFile);
-             OutputStream sink = isDestGzip ? new GZIPOutputStream(file) : file;
-        ) {
-            serializer.accept(sink, featureState);
+        try (FileOutputStream file = new FileOutputStream(opts.destinationFile)) {
+            serializer.accept(file, featureState);
         } catch (IOException e) {
             throw new RuntimeException(e);
         }

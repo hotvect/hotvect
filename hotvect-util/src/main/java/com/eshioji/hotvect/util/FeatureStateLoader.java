@@ -46,7 +46,7 @@ public class FeatureStateLoader<R> implements BiFunction<Optional<JsonNode>, Map
         for (Map.Entry<String, ObjectNode> entry : fsdInstructions.entrySet()) {
             String fsdName = entry.getValue().get("definition").asText();
             FeatureStateDefinition<R, ? extends FeatureState> fsd = (FeatureStateDefinition<R, ? extends FeatureState>) Class.forName(fsdName).getDeclaredConstructor().newInstance();
-            ret.put(fsdName, fsd);
+            ret.put(entry.getKey(), fsd);
         }
         return Collections.unmodifiableMap(ret);
     }
