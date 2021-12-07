@@ -4,7 +4,7 @@ import com.eshioji.hotvect.api.data.raw.RawValue;
 
 import java.util.function.Function;
 
-public class IdentityCached<V> implements Function<V, RawValue> {
+public class IdentityCached<V> implements Transformation<V> {
     private final Function<V, RawValue> functionToCache;
     private final ThreadLocal<CacheEntry> cache = ThreadLocal.withInitial(CacheEntry::new);
 
@@ -29,7 +29,7 @@ public class IdentityCached<V> implements Function<V, RawValue> {
         return cached.cached;
     }
 
-    public static <R> Function<R, RawValue> identityCached(Function<R, RawValue> toCache) {
+    public static <R> Transformation<R> identityCached(Function<R, RawValue> toCache) {
         return new IdentityCached<>(toCache);
     }
 }
