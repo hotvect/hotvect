@@ -7,7 +7,10 @@ import com.eshioji.hotvect.core.audit.AuditableExampleEncoder;
 import com.eshioji.hotvect.core.audit.AuditableVectorizer;
 import com.eshioji.hotvect.core.audit.RawFeatureName;
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.base.Joiner;
 
 import java.util.List;
@@ -38,18 +41,18 @@ public class AuditJsonEncoder<R> implements AuditableExampleEncoder<R> {
         int[] indices = vector.indices();
         double[] values = vector.values();
 
-        var root = OM.createObjectNode();
+        ObjectNode root = OM.createObjectNode();
         root.put("target", target);
 
-        var features = OM.createArrayNode();
+        ArrayNode features = OM.createArrayNode();
         root.set("features", features);
 
         for (int i = 0; i < indices.length; i++) {
-            var feature = OM.createObjectNode();
+            ObjectNode feature = OM.createObjectNode();
             feature.put("index", indices[i]);
             feature.put("value", values[i]);
 
-            var raws = names.get(indices[i]);
+            List<RawFeatureName> raws = names.get(indices[i]);
 
             String featureNamespace;
             String featureRawname;

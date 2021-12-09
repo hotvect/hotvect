@@ -45,7 +45,7 @@ class AuditJsonEncoderTest {
     ;
 
     private String extract(TestFeatureSpace fs, ArrayNode features) {
-        var feature = Iterators.find(features.iterator(), f -> {
+        JsonNode feature = Iterators.find(features.iterator(), f -> {
             try {
                 return TestFeatureSpace.valueOf(f.get("feature_namespace").asText()) == fs;
             } catch (IllegalArgumentException e) {
@@ -64,10 +64,10 @@ class AuditJsonEncoderTest {
 
     @Test
     void apply() throws Exception {
-        var subject = getSubject();
+        AuditJsonEncoder<Map<String, String>> subject = getSubject();
 
-        var expected = OM.readTree(AuditJsonEncoderTest.class.getResourceAsStream("audit_expected.json"));
-        var input = inputFromExpected(expected);
+        JsonNode expected = OM.readTree(AuditJsonEncoderTest.class.getResourceAsStream("audit_expected.json"));
+        Map<String, String> input = inputFromExpected(expected);
 
         JSONAssert.assertEquals(OM.writeValueAsString(expected),
                 subject.apply(new Example<>(input, 1.0)),

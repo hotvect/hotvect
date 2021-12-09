@@ -2,7 +2,8 @@ package com.eshioji.hotvect.vw;
 
 import com.eshioji.hotvect.api.data.SparseVector;
 import com.eshioji.hotvect.api.data.raw.Example;
-import com.eshioji.hotvect.core.vectorization.Vectorizer;
+import com.eshioji.hotvect.core.audit.AuditableExampleEncoder;
+import com.eshioji.hotvect.core.audit.AuditableVectorizer;
 
 import java.util.function.DoubleUnaryOperator;
 

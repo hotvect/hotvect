@@ -32,8 +32,8 @@ import static com.google.common.base.Preconditions.checkNotNull;
  *
  * @param <H> the {@link FeatureNamespace} to be used
  */
-public class InteractionCombiner<H extends Enum<H> & FeatureNamespace> implements Combiner<H> {
-    private static final ThreadLocal<CacheEntry> CACHE = new ThreadLocal<>() {
+public class InteractionCombiner<H extends Enum<H> & FeatureNamespace> implements AuditableCombiner<H> {
+    private final ThreadLocal<CacheEntry> CACHE = new ThreadLocal<CacheEntry>() {
         @Override
         protected CacheEntry initialValue() {
             return new CacheEntry();
@@ -128,8 +128,8 @@ public class InteractionCombiner<H extends Enum<H> & FeatureNamespace> implement
 
                     if (featureHash2SourceRawValue != null) {
                         // Audit enabled
-                        var hashedFeatureName = new HashedFeatureName(element, featureName);
-                        var sourceRawData = this.featureName2SourceRawValue.get(hashedFeatureName);
+                        HashedFeatureName hashedFeatureName = new HashedFeatureName(element, featureName);
+                        RawFeatureName sourceRawData = this.featureName2SourceRawValue.get(hashedFeatureName);
                         this.featureHash2SourceRawValue.put(featureHash, ImmutableList.of(sourceRawData));
                     }
                 }
@@ -170,7 +170,6 @@ public class InteractionCombiner<H extends Enum<H> & FeatureNamespace> implement
      * @param featureDefinition Definition of features, which may include interaction features
      * @param acc               Accumulator to which feaure hashes will be added
      * @param record            Input hashed {@link DataRecord}
-     * @param <H>               the {@link FeatureNamespace} to be used
      */
     private void construct(int mask,
                            FeatureDefinition<H> featureDefinition,
@@ -189,8 +188,8 @@ public class InteractionCombiner<H extends Enum<H> & FeatureNamespace> implement
 
                     if(this.featureHash2SourceRawValue != null){
                         // Audit enabled
-                        var hashedFeatureName = new HashedFeatureName(featureNamespace, el);
-                        var sourceRawData = this.featureName2SourceRawValue.get(hashedFeatureName);
+                        HashedFeatureName hashedFeatureName = new HashedFeatureName(featureNamespace, el);
+                        RawFeatureName sourceRawData = this.featureName2SourceRawValue.get(hashedFeatureName);
                         this.featureHash2SourceRawValue.put(finalHash, ImmutableList.of(sourceRawData));
                     }
 
@@ -242,8 +241,8 @@ public class InteractionCombiner<H extends Enum<H> & FeatureNamespace> implement
                     int[] featureNames = values.get(namespace).getCategoricals();
                     int featureName = featureNames[(i / j) % featureNames.length];
 
-                    var hashedFeatureName = new HashedFeatureName(namespace, featureName);
-                    var sourceRawData = this.featureName2SourceRawValue.get(hashedFeatureName);
+                    HashedFeatureName hashedFeatureName = new HashedFeatureName(namespace, featureName);
+                    RawFeatureName sourceRawData = this.featureName2SourceRawValue.get(hashedFeatureName);
                     rawFeatureNames.add(sourceRawData);
                     j *= featureNames.length;
                 }

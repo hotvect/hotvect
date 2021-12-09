@@ -1,6 +1,7 @@
 package com.eshioji.hotvect.core.util;
 
 import com.eshioji.hotvect.api.data.DataRecord;
+import com.eshioji.hotvect.api.data.SparseVector;
 import com.eshioji.hotvect.api.data.raw.RawValue;
 import com.google.common.collect.ImmutableMap;
 
@@ -35,9 +36,9 @@ public class DataRecords {
             case SINGLE_NUMERICAL:
                 return value.getSingleNumerical();
             case CATEGORICALS_TO_NUMERICALS: {
-                var vector = value.getCategoricalsToNumericals();
-                var names = vector.indices();
-                var values = vector.values();
+                SparseVector vector = value.getCategoricalsToNumericals();
+                int[] names = vector.indices();
+                double[] values = vector.values();
                 ImmutableMap.Builder<String, Double> ret = ImmutableMap.builder();
                 for (int i = 0; i < vector.size(); i++) {
                     ret.put(String.valueOf(names[i]), values[i]);
@@ -45,8 +46,8 @@ public class DataRecords {
                 return ret.build();
             }
             case STRINGS_TO_NUMERICALS:
-                var names = value.getStrings();
-                var values = value.getNumericals();
+                String[] names = value.getStrings();
+                double[] values = value.getNumericals();
                 ImmutableMap.Builder<String, Double> ret = ImmutableMap.builder();
                 for (int i = 0; i < names.length; i++) {
                     ret.put(String.valueOf(names[i]), values[i]);

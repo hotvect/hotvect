@@ -6,7 +6,7 @@ import com.eshioji.hotvect.api.data.raw.RawValue;
 import com.eshioji.hotvect.api.vectorization.Vectorizer;
 import com.eshioji.hotvect.core.combine.FeatureDefinition;
 import com.eshioji.hotvect.core.combine.InteractionCombiner;
-import com.eshioji.hotvect.core.hash.Hasher;
+import com.eshioji.hotvect.core.hash.AuditableHasher;
 import com.eshioji.hotvect.core.transform.*;
 import com.eshioji.hotvect.core.vectorization.VectorizerImpl;
 import com.eshioji.hotvect.util.FeatureStateLoader;
@@ -63,7 +63,7 @@ public class ParameterizedVectorizerFactory<K extends Enum<K> & FeatureNamespace
 
         Transformer<R, K> transformer = buildTransformer(featureDefinitions, featurestates);
 
-        Hasher<K> hasher = new Hasher<>(featureKeyClass);
+        AuditableHasher<K> hasher = new AuditableHasher<>(featureKeyClass);
 
         return new VectorizerImpl<>(
                 transformer,

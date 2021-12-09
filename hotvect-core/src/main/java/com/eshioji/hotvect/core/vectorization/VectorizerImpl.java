@@ -7,16 +7,16 @@ import com.eshioji.hotvect.api.data.hashed.HashedValue;
 import com.eshioji.hotvect.api.data.raw.RawValue;
 import com.eshioji.hotvect.api.vectorization.Vectorizer;
 import com.eshioji.hotvect.core.combine.Combiner;
-import com.eshioji.hotvect.core.hash.Hasher;
+import com.eshioji.hotvect.core.hash.AuditableHasher;
 import com.eshioji.hotvect.core.transform.Transformer;
 
 public class VectorizerImpl<R, OUT extends Enum<OUT> & FeatureNamespace>
         implements Vectorizer<R> {
     private final Transformer<R, OUT> transformer;
-    private final Hasher<OUT> hasher;
+    private final AuditableHasher<OUT> hasher;
     private final Combiner<OUT> combiner;
 
-    public VectorizerImpl(Transformer<R, OUT> transformer, Hasher<OUT> hasher, Combiner<OUT> combiner) {
+    public VectorizerImpl(Transformer<R, OUT> transformer, AuditableHasher<OUT> hasher, Combiner<OUT> combiner) {
         this.transformer = transformer;
         this.hasher = hasher;
         this.combiner = combiner;

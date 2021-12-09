@@ -7,6 +7,7 @@ import com.eshioji.hotvect.api.data.hashed.HashedValue;
 import com.eshioji.hotvect.api.data.raw.RawValue;
 import com.eshioji.hotvect.core.audit.AuditableCombiner;
 import com.eshioji.hotvect.core.audit.AuditableVectorizer;
+import com.eshioji.hotvect.core.audit.HashedFeatureName;
 import com.eshioji.hotvect.core.audit.RawFeatureName;
 import com.eshioji.hotvect.core.hash.AuditableHasher;
 import com.eshioji.hotvect.core.transform.Transformer;
@@ -34,7 +35,7 @@ public class DefaultVectorizer<R, OUT extends Enum<OUT> & FeatureNamespace> impl
 
     @Override
     public ConcurrentMap<Integer, List<RawFeatureName>> enableAudit() {
-        var featureName2SourceRawValue = hasher.enableAudit();
+        ConcurrentMap<HashedFeatureName, RawFeatureName> featureName2SourceRawValue = hasher.enableAudit();
         return this.combiner.enableAudit(featureName2SourceRawValue);
     }
 }

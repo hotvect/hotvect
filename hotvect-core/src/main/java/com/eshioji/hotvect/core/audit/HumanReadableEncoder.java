@@ -1,9 +1,11 @@
 package com.eshioji.hotvect.core.audit;
 
 import com.eshioji.hotvect.api.codec.ExampleEncoder;
+import com.eshioji.hotvect.api.data.DataRecord;
 import com.eshioji.hotvect.api.data.FeatureNamespace;
 import com.eshioji.hotvect.api.data.SparseVector;
 import com.eshioji.hotvect.api.data.raw.Example;
+import com.eshioji.hotvect.api.data.raw.RawValue;
 import com.eshioji.hotvect.core.transform.Transformer;
 import com.eshioji.hotvect.core.util.DataRecords;
 import com.eshioji.hotvect.core.util.JsonRecordEncoder;
@@ -25,8 +27,8 @@ public class HumanReadableEncoder<R> implements ExampleEncoder<R> {
 
     @Override
     public String apply(Example<R> toEncode) {
-        var target = toEncode.getTarget();
-        var transformed = this.transformer.apply(toEncode.getRecord());
+        double target = toEncode.getTarget();
+        DataRecord<?, RawValue> transformed = this.transformer.apply(toEncode.getRecord());
 
         Map<String, Object> pojonized = DataRecords.pojonize(transformed);
         pojonized.put("target", target);

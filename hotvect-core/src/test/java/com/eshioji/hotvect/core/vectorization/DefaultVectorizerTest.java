@@ -6,7 +6,7 @@ import com.eshioji.hotvect.api.data.raw.RawValue;
 import com.eshioji.hotvect.core.TestFeatureNamespace;
 import com.eshioji.hotvect.core.TestRawNamespace;
 import com.eshioji.hotvect.core.combine.Combiner;
-import com.eshioji.hotvect.core.hash.Hasher;
+import com.eshioji.hotvect.core.hash.AuditableHasher;
 import com.eshioji.hotvect.core.transform.Transformer;
 import com.eshioji.hotvect.core.util.AutoMapper;
 import org.junit.jupiter.api.Test;
@@ -26,7 +26,7 @@ class VectorizerImplTest {
             return mapper.apply(initialInput);
         };
 
-        Hasher<TestFeatureNamespace> hasher = new Hasher<>(TestFeatureNamespace.class);
+        AuditableHasher<TestFeatureNamespace> hasher = new AuditableHasher<>(TestFeatureNamespace.class);
         Combiner<TestFeatureNamespace> combiner = toCombine -> {
             assertEquals(hasher.apply(mapper.apply(initialInput)), toCombine);
             return new SparseVector(new int[]{1});

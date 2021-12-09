@@ -1,7 +1,7 @@
 package com.eshioji.hotvect.core.audit;
 
-import com.eshioji.hotvect.core.transform.Transformer;
-import com.eshioji.hotvect.core.vectorization.Vectorizer;
+
+import com.eshioji.hotvect.api.vectorization.Vectorizer;
 
 import java.util.List;
 import java.util.concurrent.ConcurrentMap;

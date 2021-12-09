@@ -5,7 +5,7 @@ import java.util.stream.Stream;
 
 public class TestUtils {
     public static Stream<Map<String, String>> testRecords() {
-        var rng = new Random(0);
+        Random rng = new Random(0);
         List<String> categoricals = new ArrayList<>();
         categoricals.add("");
         categoricals.add("a");

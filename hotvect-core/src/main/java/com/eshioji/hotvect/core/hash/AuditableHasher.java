@@ -51,7 +51,7 @@ public class AuditableHasher<H extends Enum<H> & FeatureNamespace> implements Fu
                 continue;
             }
 
-         final HashedValue hashed = hash(toHash);
+         final HashedValue hashed = HashUtils.hash(toHash);
             ret.put(namespace, hashed);
 
             if (auditState != null){

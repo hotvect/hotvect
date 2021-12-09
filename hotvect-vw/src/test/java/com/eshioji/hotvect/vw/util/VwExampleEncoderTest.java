@@ -56,7 +56,7 @@ class VwExampleEncoderTest {
         VwExampleEncoder<DataRecord<TestRawNamespace, RawValue>> subject;
         if (weightFun == null) {
             subject = new VwExampleEncoder<>(
-                    new AuditableVectorizer<>() {
+                    new AuditableVectorizer<DataRecord<TestRawNamespace, RawValue>>() {
                         @Override
                         public ConcurrentMap<Integer, List<RawFeatureName>> enableAudit() {
                             throw new AssertionError("not implemented");
@@ -70,7 +70,7 @@ class VwExampleEncoderTest {
                     binary);
         } else {
             subject = new VwExampleEncoder<>(
-                    new AuditableVectorizer<>() {
+                    new AuditableVectorizer<DataRecord<TestRawNamespace, RawValue>>() {
                         @Override
                         public ConcurrentMap<Integer, List<RawFeatureName>> enableAudit() {
                             throw new AssertionError("not implemented");
