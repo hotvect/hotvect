@@ -1,6 +1,7 @@
 package com.eshioji.hotvect.core.combine;
 
 import com.eshioji.hotvect.api.data.DataRecord;
+import com.eshioji.hotvect.api.data.SparseVector;
 import com.eshioji.hotvect.api.data.hashed.HashedValue;
 import com.eshioji.hotvect.core.TestFeatureNamespace;
 import com.google.common.collect.ImmutableSet;
@@ -25,16 +26,16 @@ class InteractionCombinerTest {
                 new FeatureDefinition<>(EnumSet.of(categoricals_1)),
                 new FeatureDefinition<>(EnumSet.of(categoricals_1, single_categorical_1))
         );
-        var subject = new InteractionCombiner<>(32, fds);
+        InteractionCombiner<TestFeatureNamespace> subject = new InteractionCombiner<>(32, fds);
 
 
-        var testData = new DataRecord<TestFeatureNamespace, HashedValue>(TestFeatureNamespace.class);
+        DataRecord<TestFeatureNamespace, HashedValue> testData = new DataRecord<TestFeatureNamespace, HashedValue>(TestFeatureNamespace.class);
         testData.put(single_numerical_1, HashedValue.singleNumerical(2.0));
         testData.put(single_categorical_1, HashedValue.singleCategorical(1));
         testData.put(categorical_id_to_numericals_1, HashedValue.numericals(new int[]{1, 2, 3}, new double[]{6.0, 7.0, 8.0}));
         testData.put(categoricals_1, HashedValue.categoricals(new int[]{1, 2, 3}));
 
-        var actual = subject.apply(testData);
+        SparseVector actual = subject.apply(testData);
         assertEquals(12, actual.size());
 
         Map<Integer, Double> expected = new HashMap<>();

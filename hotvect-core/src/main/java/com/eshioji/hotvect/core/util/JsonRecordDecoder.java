@@ -28,7 +28,7 @@ public class JsonRecordDecoder<R extends Enum<R> & RawNamespace> implements Data
     @Override
     public DataRecord<R, RawValue> apply(String serialized) {
         try {
-            var tree = (ObjectNode) OM.readTree(serialized);
+            ObjectNode tree = (ObjectNode) OM.readTree(serialized);
             return parse(tree);
         } catch (Throwable e) {
             throw new IllegalArgumentException(String.format("Invalid input:%s", serialized), e);
@@ -36,7 +36,7 @@ public class JsonRecordDecoder<R extends Enum<R> & RawNamespace> implements Data
     }
 
     private DataRecord<R, RawValue> parse(ObjectNode tree) {
-        var ret = new DataRecord<R, RawValue>(keyClass);
+        DataRecord<R, RawValue> ret = new DataRecord<R, RawValue>(keyClass);
 
         for (R key : keyClass.getEnumConstants()) {
             JsonNode value = tree.get(key.toString());
@@ -114,7 +114,7 @@ public class JsonRecordDecoder<R extends Enum<R> & RawNamespace> implements Data
                 if (value.isNull() || value.isEmpty()) {
                     return null;
                 }
-                var node = (ObjectNode) value;
+                ObjectNode node = (ObjectNode) value;
                 Iterable<Map.Entry<String, JsonNode>> it = node::fields;
                 int[] names = new int[value.size()];
                 double[] values = new double[value.size()];
@@ -138,7 +138,7 @@ public class JsonRecordDecoder<R extends Enum<R> & RawNamespace> implements Data
                 if (value.isNull() || value.isEmpty()) {
                     return null;
                 }
-                var node = (ObjectNode) value;
+                ObjectNode node = (ObjectNode) value;
                 Iterable<Map.Entry<String, JsonNode>> it = node::fields;
                 String[] names = new String[value.size()];
                 double[] values = new double[value.size()];

@@ -23,7 +23,7 @@ public class VwModelImporter implements Function<Readable, Int2DoubleMap> {
 
         Int2DoubleOpenHashMap weights = new Int2DoubleOpenHashMap();
 
-        var weightsStarted = false;
+        boolean weightsStarted = false;
         while (scanner.hasNextLine()) {
             String line = scanner.nextLine();
             Matcher m = WEIGHT_PATTERN.matcher(line);

@@ -32,9 +32,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
  *
  * @param <H> the {@link FeatureNamespace} to be used
  */
-public class InteractionCombiner<H extends Enum<H> & FeatureNamespace> implements AuditableCombiner<H> {
-
-    // Caching
+public class InteractionCombiner<H extends Enum<H> & FeatureNamespace> implements Combiner<H> {
     private static final ThreadLocal<CacheEntry> CACHE = new ThreadLocal<>() {
         @Override
         protected CacheEntry initialValue() {
@@ -84,7 +82,7 @@ public class InteractionCombiner<H extends Enum<H> & FeatureNamespace> implement
         if (bits == 32) {
             this.bitMask = -1;
         } else {
-            var bitMask = BigInteger.TWO.pow(bits).subtract(BigInteger.ONE);
+            BigInteger bitMask = BigInteger.valueOf(2).pow(bits).subtract(BigInteger.ONE);
             this.bitMask = bitMask.intValueExact();
         }
 

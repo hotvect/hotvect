@@ -15,8 +15,8 @@ class DataRecordTest {
     @Test
     public void initializedMapBehavesConsistently() {
         qt().forAll(generate()).checkAssert(x -> {
-            var enumMap = toEnumMap(x);
-            var subject = toDataRecord(enumMap);
+            EnumMap<ExampleRawNamespace, ExampleRawNamespace> enumMap = toEnumMap(x);
+            DataRecord<ExampleRawNamespace, ExampleRawNamespace> subject = toDataRecord(enumMap);
 
             assertEquals(enumMap, subject.asEnumMap());
 
@@ -39,9 +39,9 @@ class DataRecordTest {
     @Test
     public void mutationBehavesConsistently() {
         qt().forAll(generate()).checkAssert(x -> {
-            var subject = toDataRecord(x);
+            DataRecord<ExampleRawNamespace, ExampleRawNamespace> subject = toDataRecord(x);
 
-            var previous = subject.get(ExampleRawNamespace.strings_1);
+            ExampleRawNamespace previous = subject.get(ExampleRawNamespace.strings_1);
             assertEquals(x.get(ExampleRawNamespace.strings_1), previous);
 
             subject.put(ExampleRawNamespace.strings_1, ExampleRawNamespace.strings_1);
@@ -55,7 +55,7 @@ class DataRecordTest {
     @Test
     public void nullKeyNotAllowed() {
         assertThrows(NullPointerException.class, () -> {
-            var subject = new DataRecord<ExampleRawNamespace, String>(ExampleRawNamespace.class);
+            DataRecord<ExampleRawNamespace, String> subject = new DataRecord<ExampleRawNamespace, String>(ExampleRawNamespace.class);
             subject.put(null, null);
         });
     }
@@ -63,8 +63,8 @@ class DataRecordTest {
     @Test
     public void equality() {
         qt().forAll(generate(), generate()).checkAssert((x, y) -> {
-            var xd = toDataRecord(x);
-            var yd = toDataRecord(y);
+            DataRecord<ExampleRawNamespace, ExampleRawNamespace> xd = toDataRecord(x);
+            DataRecord<ExampleRawNamespace, ExampleRawNamespace> yd = toDataRecord(y);
             if(x.equals(y)){
                 assertEquals(xd.hashCode(), yd.hashCode());
                 assertEquals(xd, yd);

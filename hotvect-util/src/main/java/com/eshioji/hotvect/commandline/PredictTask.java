@@ -1,41 +1,59 @@
 package com.eshioji.hotvect.commandline;
 
 
+import com.codahale.metrics.Meter;
 import com.codahale.metrics.MetricRegistry;
 import com.eshioji.hotvect.api.AlgorithmDefinition;
 import com.eshioji.hotvect.api.codec.ExampleDecoder;
 import com.eshioji.hotvect.api.data.raw.Example;
 import com.eshioji.hotvect.api.scoring.Scorer;
+import com.eshioji.hotvect.core.util.ListTransform;
 import com.eshioji.hotvect.util.CpuIntensiveFileMapper;
-import com.google.common.io.Files;
+import com.eshioji.hotvect.util.ZipFiles;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-import java.io.File;
-import java.nio.charset.StandardCharsets;
+import java.io.InputStream;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
+import java.util.zip.ZipFile;
 
 public class PredictTask<R> extends Task<R> {
+    private static final Logger logger = LoggerFactory.getLogger(PredictTask.class);
+
     public PredictTask(Options opts, MetricRegistry metricRegistry, AlgorithmDefinition algorithmDefinition) throws Exception {
         super(opts, metricRegistry, algorithmDefinition);
     }
 
     @Override
     protected Map<String, String> perform() throws Exception {
-        ExampleDecoder<R> exampleDecoder = instantiate(algorithmDefinition.getExampleDecoderFactoryClassName());
+        ExampleDecoder<R> exampleDecoder = getPredictDecoder();
 
-        Readable parameters = Files.newReader(new File(opts.modelParameterFile), StandardCharsets.UTF_8);
+        Scorer<R> scorer;
+        try(ZipFile parameterFile = new ZipFile(opts.parameters)){
+            Map<String, InputStream> parameters = ZipFiles.parameters(parameterFile);
+            logger.info("Parameters loaded {}",parameters.keySet());
+            scorer = getScorer(parameters);
+        }
 
-        Scorer<R> scorer = instantiate(algorithmDefinition.getExampleScorerFactoryClassName(), parameters);
         Function<Example<R>, String> scoreOutputFormatter = x ->
                 scorer.applyAsDouble(x.getRecord()) + "," + x.getTarget();
 
-        var transformation =
-                exampleDecoder.andThen(i -> i.map(scoreOutputFormatter));
+        Function<String, List<String>> transformation =
+                exampleDecoder.andThen(i -> ListTransform.map(i, scoreOutputFormatter));
 
-        var processor = CpuIntensiveFileMapper.mapper(metricRegistry, opts.sourceFile, opts.destinationFile, transformation);
+        CpuIntensiveFileMapper processor = CpuIntensiveFileMapper.mapper(metricRegistry, opts.sourceFile, opts.destinationFile, transformation);
         processor.run();
-        return new HashMap<>();
+
+        Map<String, String> metadata = new HashMap<>();
+        Meter mainMeter = metricRegistry.meter(MetricRegistry.name(CpuIntensiveFileMapper.class, "record"));
+        metadata.put("mean_throughput", String.valueOf(mainMeter.getMeanRate()));
+        metadata.put("total_record_count", String.valueOf(mainMeter.getCount()));
+
+        return metadata;
+
     }
 
 }

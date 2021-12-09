@@ -4,6 +4,7 @@ import com.codahale.metrics.Meter;
 import com.codahale.metrics.MetricRegistry;
 import com.codahale.metrics.Timer;
 import com.google.common.collect.Iterators;
+import com.google.common.collect.UnmodifiableIterator;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -35,7 +36,7 @@ public class CpuIntensiveAggregator<Z, X> {
                 merger,
                 (Runtime.getRuntime().availableProcessors() > 1 ? Runtime.getRuntime().availableProcessors() - 1 : 1),
                 (int) (Runtime.getRuntime().availableProcessors() * 1.5),
-                5000);
+                100);
     }
 
     public CpuIntensiveAggregator(MetricRegistry metricRegistry,
@@ -76,10 +77,10 @@ public class CpuIntensiveAggregator<Z, X> {
 
     public Z aggregate(Stream<X> input) {
         checkState(!this.cpuIntensiveExecutor.isShutdown(), "This aggregator is shutdown");
-        var batches = Iterators.partition(input.iterator(), batchSize);
+        UnmodifiableIterator<List<X>> batches = Iterators.partition(input.iterator(), batchSize);
         // Batches are submitted in order and thus the futures are sorted by order
         while (batches.hasNext()) {
-            var batch = batches.next();
+            List<X> batch = batches.next();
             cpuIntensiveExecutor.submit(new ComputationTask(batch));
         }
         LOGGER.debug("Loading finished");
@@ -102,7 +103,7 @@ public class CpuIntensiveAggregator<Z, X> {
 
         @Override
         protected void doRun() throws Exception {
-            var t = batchTimer.time();
+            Timer.Context t = batchTimer.time();
             batch.forEach(
                     x -> CpuIntensiveAggregator.this.merger.apply(CpuIntensiveAggregator.this.state, x)
             );

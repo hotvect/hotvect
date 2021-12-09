@@ -11,7 +11,7 @@ import java.util.Set;
 import java.util.function.Function;
 
 //TODO Add test
-public class FeatureTransformer<R, OUT extends Enum<OUT> & FeatureNamespace> implements Transformer<R, OUT>{
+public class FeatureTransformer<R, OUT extends Enum<OUT> & FeatureNamespace> implements Transformer<R, OUT> {
     private final Class<OUT> featureKeyClass;
     private final EnumMap<OUT, Function<R, RawValue>> transformations;
     private final Set<OUT> featureKeys;
@@ -23,9 +23,9 @@ public class FeatureTransformer<R, OUT extends Enum<OUT> & FeatureNamespace> imp
 
     @Override
     public DataRecord<OUT, RawValue> apply(R toTransform) {
-        var ret = new DataRecord<OUT, RawValue>(this.featureKeyClass);
+        DataRecord<OUT, RawValue> ret = new DataRecord<OUT, RawValue>(this.featureKeyClass);
         for (OUT out : featureKeys) {
-            var processed = transformations.get(out).apply(toTransform);
+            RawValue processed = transformations.get(out).apply(toTransform);
             if (processed != null){
                 ret.put(out, processed);
             }

@@ -23,18 +23,18 @@ import static org.quicktheories.generators.SourceDSL.strings;
 class CpuIntensiveFileAggregatorTest {
     @Test
     void normalFile() throws Exception {
-        var source = getAsFile("example.jsons");
+        File source = getAsFile("example.jsons");
         test(source);
     }
 
     @Test
     void gzippedFile() throws Exception {
-        var source = getAsFile("example.jsons.gz");
+        File source = getAsFile("example.jsons.gz");
         test(source);
     }
 
     private void test(File source) throws Exception {
-        var mr = new MetricRegistry();
+        MetricRegistry mr = new MetricRegistry();
 
         final BloomFilter<String> firstBloomFilter = BloomFilter.create(
                 Funnels.stringFunnel(StandardCharsets.UTF_8),
@@ -42,7 +42,7 @@ class CpuIntensiveFileAggregatorTest {
                 0.001
         );
 
-        var subject = CpuIntensiveFileAggregator.aggregator(mr,
+          CpuIntensiveFileAggregator<BloomFilter<String>> subject = CpuIntensiveFileAggregator.aggregator(mr,
                 source,
                 () -> firstBloomFilter,
                 (acc, x) -> {
@@ -51,7 +51,7 @@ class CpuIntensiveFileAggregatorTest {
                 }
 
         );
-        var aggregated = subject.call();
+        BloomFilter<String> aggregated = subject.call();
 
         qt().forAll(strings().ascii().ofLength(64)).checkAssert(
                 s -> assertFalse(aggregated.test(s))

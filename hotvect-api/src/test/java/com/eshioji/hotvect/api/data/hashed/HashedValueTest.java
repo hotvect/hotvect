@@ -3,6 +3,7 @@ package com.eshioji.hotvect.api.data.hashed;
 import com.eshioji.hotvect.api.data.SparseVector;
 import org.junit.jupiter.api.Test;
 import org.quicktheories.api.Pair;
+import org.quicktheories.core.Gen;
 
 import java.util.Arrays;
 import java.util.function.BiConsumer;
@@ -19,12 +20,12 @@ class HashedValueTest {
     @Test
     void singleCategorical() {
         qt().forAll(integers().all()).checkAssert(x -> {
-            var subject = HashedValue.singleCategorical(x);
+            HashedValue subject = HashedValue.singleCategorical(x);
             assertEquals(x, subject.getSingleCategorical());
             assertThrows(IllegalStateException.class, subject::getSingleNumerical);
             assertArrayEquals(new double[]{1.0}, subject.getNumericals());
 
-            var actualVector = subject.getCategoricalsToNumericals();
+            SparseVector actualVector = subject.getCategoricalsToNumericals();
             assertEquals(new SparseVector(new int[]{x}, new double[]{1.0}), actualVector);
         });
     }
@@ -32,12 +33,12 @@ class HashedValueTest {
     @Test
     void singleNumerical() {
         qt().forAll(doubles().any()).checkAssert(x -> {
-            var subject = HashedValue.singleNumerical(x);
+            HashedValue subject = HashedValue.singleNumerical(x);
             assertEquals(x, subject.getSingleNumerical());
             assertThrows(IllegalStateException.class, subject::getSingleCategorical);
             assertArrayEquals(new int[]{0}, subject.getCategoricals());
 
-            var actualVector = subject.getCategoricalsToNumericals();
+            SparseVector actualVector = subject.getCategoricalsToNumericals();
             assertEquals(new SparseVector(new int[]{0}, new double[]{x}), actualVector);
         });
     }
@@ -45,33 +46,33 @@ class HashedValueTest {
     @Test
     void categoricals() {
         qt().forAll(categoricalVectors()).checkAssert(x -> {
-            var subject = HashedValue.categoricals(x);
+            HashedValue subject = HashedValue.categoricals(x);
             assertArrayEquals(x, subject.getCategoricals());
             assertThrows(IllegalStateException.class, subject::getSingleNumerical);
             if (x.length != 1) {
                 assertThrows(IllegalStateException.class, subject::getSingleCategorical);
             }
 
-            var expectedNumericals = new double[x.length];
+            double[] expectedNumericals = new double[x.length];
             Arrays.fill(expectedNumericals, 1.0);
             assertArrayEquals(expectedNumericals, subject.getNumericals());
 
-            var actualVector = subject.getCategoricalsToNumericals();
+            SparseVector actualVector = subject.getCategoricalsToNumericals();
             assertEquals(new SparseVector(x, expectedNumericals), actualVector);
         });
     }
 
     @Test
     void numericals() {
-        var data = categoricalVectors()
+        Gen<Pair<int[], double[]>> data = categoricalVectors()
                 .mutate((is, rand) -> Pair.of(is, doubleArrays(constant(is.length), doubles().any()).generate(rand)));
         qt().forAll(data).checkAssert(x -> {
 
-            var names = x._1;
-            var values = x._2;
+            int[] names = x._1;
+            double[] values = x._2;
             assert names.length == values.length;
 
-            var subject = HashedValue.numericals(names, values);
+            HashedValue subject = HashedValue.numericals(names, values);
             assertArrayEquals(names, subject.getCategoricals());
             assertThrows(IllegalStateException.class, subject::getSingleCategorical);
             if (names.length != 1) {
@@ -80,7 +81,7 @@ class HashedValueTest {
 
             assertArrayEquals(values, subject.getNumericals());
 
-            var actualVector = subject.getCategoricalsToNumericals();
+            SparseVector actualVector = subject.getCategoricalsToNumericals();
             assertEquals(new SparseVector(names, values), actualVector);
 
         });
@@ -105,8 +106,8 @@ class HashedValueTest {
     void equality(){
         // Single categorical
         BiConsumer<Integer, Integer> assertSingleCategorical = (x, y) -> {
-            var xp = HashedValue.singleCategorical(x);
-            var yp = HashedValue.singleCategorical(y);
+            HashedValue xp = HashedValue.singleCategorical(x);
+            HashedValue yp = HashedValue.singleCategorical(y);
             assertEquals(x.equals(y), xp.equals(yp));
             if (x.equals(y)){
                 assertEquals(xp.hashCode(), yp.hashCode());
@@ -117,14 +118,14 @@ class HashedValueTest {
                 .assuming((x, y) -> !x.equals(y))
                 .checkAssert(assertSingleCategorical);
 
-        var equalInts = generateEquals(integers().all());
+        Gen<Pair<Integer, Integer>> equalInts = generateEquals(integers().all());
         qt().forAll(equalInts)
                 .checkAssert(x -> assertSingleCategorical.accept(x._1, x._2));
 
         // Single numerical
         BiConsumer<Double, Double> assertSingleNumerical = (x, y) -> {
-            var xp = HashedValue.singleNumerical(x);
-            var yp = HashedValue.singleNumerical(y);
+            HashedValue xp = HashedValue.singleNumerical(x);
+            HashedValue yp = HashedValue.singleNumerical(y);
             assertEquals(x.equals(y), xp.equals(yp));
             if (x.equals(y)){
                 assertEquals(xp.hashCode(), yp.hashCode());
@@ -135,15 +136,15 @@ class HashedValueTest {
                 .assuming((x, y) -> !x.equals(y))
                 .checkAssert(assertSingleNumerical);
 
-        var equalDoubles = generateEquals(discreteDoubles());
+        Gen<Pair<Double, Double>> equalDoubles = generateEquals(discreteDoubles());
         qt().forAll(equalDoubles)
                 .checkAssert(x -> assertSingleNumerical.accept(x._1, x._2));
 
 
         // Categoricals
         BiConsumer<int[], int[]> assertCategoricals = (x, y) -> {
-            var xp = HashedValue.categoricals(x);
-            var yp = HashedValue.categoricals(y);
+            HashedValue xp = HashedValue.categoricals(x);
+            HashedValue yp = HashedValue.categoricals(y);
             assertEquals(Arrays.equals(x, y), xp.equals(yp));
             if (Arrays.equals(x, y)){
                 assertEquals(xp.hashCode(), yp.hashCode());
@@ -154,17 +155,17 @@ class HashedValueTest {
                 .assuming((x, y) -> !Arrays.equals(x, y))
                 .checkAssert(assertCategoricals);
 
-        var generateEquals = generateEquals(categoricalVectors());
+        Gen<Pair<int[], int[]>> generateEquals = generateEquals(categoricalVectors());
         qt().forAll(generateEquals)
                 .checkAssert(x -> assertCategoricals.accept(x._1, x._2));
 
         // Numericals
-        var data = testVectors();
+        Gen<Pair<int[], double[]>> data = testVectors();
         BiConsumer<Pair<int[], double[]>, Pair<int[], double[]>> assertNumericals = (x, y) -> {
-            var xp = HashedValue.numericals(x._1, x._2);
-            var yp = HashedValue.numericals(y._1, y._2);
+            HashedValue xp = HashedValue.numericals(x._1, x._2);
+            HashedValue yp = HashedValue.numericals(y._1, y._2);
 
-            var equal = Arrays.equals(x._1, y._1) && Arrays.equals(x._2, y._2);
+            boolean equal = Arrays.equals(x._1, y._1) && Arrays.equals(x._2, y._2);
             assertEquals(equal, xp.equals(yp));
             if (equal){
                 assertEquals(xp.hashCode(), yp.hashCode());

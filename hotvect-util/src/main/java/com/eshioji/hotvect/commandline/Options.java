@@ -4,36 +4,33 @@ import picocli.CommandLine;
 
 import java.io.File;
 
-class Options {
+public class Options {
     @CommandLine.Option(names = {"--algorithm-definition"}, paramLabel = "TODO", description = "TODO")
-    String algorithmDefinition;
+    public String algorithmDefinition;
 
-    @CommandLine.Option(names = {"--model"}, paramLabel = "TODO", description = "TODO")
-    String modelParameterFile;
-
-    @CommandLine.Option(names = {"--audit"}, description = "Vectorize and audit")
-    boolean audit;
+    @CommandLine.Option(names = {"--parameters"}, paramLabel = "TODO", description = "TODO")
+    public String parameters;
 
     @CommandLine.Option(names = {"--encode"}, description = "Vectorize and encode")
-    boolean encode;
+    public boolean encode;
 
     @CommandLine.Option(names = {"--predict"}, description = "Predict")
-    boolean predict;
+    public boolean predict;
+
+    @CommandLine.Option(names = {"--generate-state"}, description = "Generator class name")
+    public String stateDefinition;
 
     @CommandLine.Option(names = {"--source"}, paramLabel = "SOURCE_FILE", description = "Source file")
-    File sourceFile;
+    public File sourceFile;
+
+    @CommandLine.Option(names = {"--training-data"}, paramLabel = "TRAINING_FILE", description = "Training file")
+    public File trainingFile;
 
     @CommandLine.Option(names = {"--dest"}, paramLabel = "DESTINATION_FILE", description = "Destination file")
-    File destinationFile;
-
-//    @CommandLine.Option(names = {"--sample-pct"}, paramLabel = "SAMPLE_PCT", description = "Sampling pct", defaultValue = "1.0")
-//    double samplePct = 1.0;
-//
-//    @CommandLine.Option(names = {"--sample-seed"}, paramLabel = "Sample seed", description = "Sampling seed", defaultValue = "0")
-//    int sampleSeed = 0;
+    public File destinationFile;
 
     @CommandLine.Option(names = {"--meta-data"}, paramLabel = "Metadata location", description = "Metadata location", defaultValue = "metadata.json")
-    File metadataLocation;
+    public File metadataLocation;
 
     @CommandLine.Option(names = {"-h", "--help"}, usageHelp = true, description = "display a help message")
     private boolean helpRequested = false;

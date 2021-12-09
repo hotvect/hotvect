@@ -30,7 +30,7 @@ public class StreamUtils {
 
         Iterator<A> aIterator = Spliterators.iterator(aSpliterator);
         Iterator<B> bIterator = Spliterators.iterator(bSpliterator);
-        Iterator<C> cIterator = new Iterator<>() {
+        Iterator<C> cIterator = new Iterator<C>() {
             @Override
             public boolean hasNext() {
                 return aIterator.hasNext() && bIterator.hasNext();

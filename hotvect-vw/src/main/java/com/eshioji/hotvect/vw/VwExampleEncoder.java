@@ -2,9 +2,6 @@ package com.eshioji.hotvect.vw;
 
 import com.eshioji.hotvect.api.data.SparseVector;
 import com.eshioji.hotvect.api.data.raw.Example;
-import com.eshioji.hotvect.core.audit.AuditableExampleEncoder;
-import com.eshioji.hotvect.core.audit.AuditableVectorizer;
-import com.eshioji.hotvect.core.vectorization.DefaultVectorizer;
 import com.eshioji.hotvect.core.vectorization.Vectorizer;
 
 import java.util.function.DoubleUnaryOperator;
@@ -52,7 +49,7 @@ public class VwExampleEncoder<R> implements AuditableExampleEncoder<R> {
 
         if (targetToImportanceWeight != null) {
             sb.append(" ");
-            var weight = targetToImportanceWeight.applyAsDouble(targetVariable);
+            double weight = targetToImportanceWeight.applyAsDouble(targetVariable);
             DoubleFormatUtils.formatDoubleFast(weight, 6, 6, sb);
         }
         sb.append(" | ");

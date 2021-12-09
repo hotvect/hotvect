@@ -3,6 +3,7 @@ package com.eshioji.hotvect.core.hash;
 import com.eshioji.hotvect.api.data.DataRecord;
 import com.eshioji.hotvect.api.data.FeatureNamespace;
 import com.eshioji.hotvect.api.data.hashed.HashedValue;
+import com.eshioji.hotvect.api.data.raw.RawValue;
 import com.eshioji.hotvect.core.combine.FeatureDefinition;
 import com.google.common.primitives.Chars;
 import com.google.common.primitives.Ints;
@@ -79,11 +80,50 @@ public class HashUtils {
     }
 
     public static int hashInts(int... ints){
-        var ret = FNV1_32_INIT;
+        int ret = FNV1_32_INIT;
         for (int i : ints) {
             ret ^= i;
             ret *= FNV1_PRIME_32;
         }
         return ret;
     }
+
+    public static HashedValue hash(RawValue rawDataElementValue) {
+        switch (rawDataElementValue.getValueType()) {
+            case SINGLE_STRING: return HashedValue.singleCategorical(hashSingleString(rawDataElementValue.getSingleString()));
+            case STRINGS: return HashedValue.categoricals(hashStrings(rawDataElementValue.getStrings()));
+            case SINGLE_NUMERICAL: return HashedValue.singleNumerical(rawDataElementValue.getSingleNumerical());
+            case STRINGS_TO_NUMERICALS: return hashStringsToNumericals(rawDataElementValue.getStrings(), rawDataElementValue.getNumericals());
+            case SINGLE_CATEGORICAL:
+            case CATEGORICALS:
+            case CATEGORICALS_TO_NUMERICALS: return rawDataElementValue.getHashedValue();
+            default: throw new AssertionError();
+        }
+    }
+
+    private static int hashSingleString(String string) {
+        return HashUtils.hashUnencodedChars(string);
+    }
+
+    private static int[] hashStrings(String[] strings) {
+        int[] hashes = new int[strings.length];
+        for (int i = 0; i < strings.length; i++) {
+            String string = strings[i];
+            int hash = hashSingleString(string);
+            hashes[i] = hash;
+        }
+        return hashes;
+    }
+
+    private static HashedValue hashStringsToNumericals(String[] names, double[] values) {
+        int[] indices = new int[names.length];
+
+        for (int i = 0; i < names.length; i++) {
+            int hash = hashSingleString(names[i]);
+            indices[i] = hash;
+        }
+        return HashedValue.numericals(indices, values);
+    }
+
+
 }

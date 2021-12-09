@@ -35,42 +35,6 @@ public class AuditableHasher<H extends Enum<H> & FeatureNamespace> implements Fu
         return this.auditState.getFeatureName2SourceRawValue();
     }
 
-    private static HashedValue hash(RawValue rawDataElementValue) {
-        switch (rawDataElementValue.getValueType()) {
-            case SINGLE_STRING: return HashedValue.singleCategorical(hashSingleString(rawDataElementValue.getSingleString()));
-            case STRINGS: return HashedValue.categoricals(hashStrings(rawDataElementValue.getStrings()));
-            case SINGLE_NUMERICAL: return HashedValue.singleNumerical(rawDataElementValue.getSingleNumerical());
-            case STRINGS_TO_NUMERICALS: return hashStringsToNumericals(rawDataElementValue.getStrings(), rawDataElementValue.getNumericals());
-            case SINGLE_CATEGORICAL:
-            case CATEGORICALS:
-            case CATEGORICALS_TO_NUMERICALS: return rawDataElementValue.getHashedValue();
-            default: throw new AssertionError();
-        }
-    }
-
-    private static int hashSingleString(String string) {
-        return HashUtils.hashUnencodedChars(string);
-    }
-
-    private static int[] hashStrings(String[] strings) {
-        int[] hashes = new int[strings.length];
-        for (int i = 0; i < strings.length; i++) {
-            String string = strings[i];
-            int hash = hashSingleString(string);
-            hashes[i] = hash;
-        }
-        return hashes;
-    }
-
-    private static HashedValue hashStringsToNumericals(String[] names, double[] values) {
-        int[] indices = new int[names.length];
-
-        for (int i = 0; i < names.length; i++) {
-            int hash = hashSingleString(names[i]);
-            indices[i] = hash;
-        }
-        return HashedValue.numericals(indices, values);
-    }
 
     /**
      * Hash the given raw {@link DataRecord} to yield a hashed {@link DataRecord}.
@@ -87,14 +51,13 @@ public class AuditableHasher<H extends Enum<H> & FeatureNamespace> implements Fu
                 continue;
             }
 
-            final HashedValue hashed = hash(toHash);
+         final HashedValue hashed = hash(toHash);
             ret.put(namespace, hashed);
 
             if (auditState != null){
                 // Audit enabled
                 auditState.registerSourceRawValue(namespace, toHash, hashed);
-            }
-        }
+            }        }
         return ret;
     }
 

@@ -7,8 +7,7 @@ import java.util.function.Function;
 
 /**
  * Interface that defines a transformation for a single output value
- * @param <IN>
- * @param <V>
+ * @param <R>
  */
 public interface Transformation<R>
         extends Function<R, RawValue> {

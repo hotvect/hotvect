@@ -12,11 +12,11 @@ import java.util.stream.Collectors;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
- * A utility class that copies over values across {@link DataRecord}s that uses different enum classes as key.
- * The value is only copied if the two enum keys have the same name (string representation)
- * @param <FROM>
- * @param <TO>
- * @param <V>
+ A utility class that copies over values across {@link DataRecord}s that uses different enum classes as key.
+ The value is only copied if the two enum keys have the same name (string representation)
+ * @param <FROM> key class to map from
+ * @param <TO> key class to map to
+ * @param <V> the value being mapped
  */
 public class AutoMapper<FROM extends Enum<FROM>, TO extends Enum<TO>, V> implements Function<DataRecord<FROM, V>, DataRecord<TO, V>> {
 

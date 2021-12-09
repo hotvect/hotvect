@@ -7,7 +7,7 @@ import com.eshioji.hotvect.api.data.hashed.HashedValue;
 import com.eshioji.hotvect.api.data.raw.Example;
 import com.eshioji.hotvect.api.data.raw.RawNamespace;
 import com.eshioji.hotvect.api.data.raw.RawValue;
-import com.eshioji.hotvect.core.hash.AuditableHasher;
+import com.eshioji.hotvect.core.hash.Hasher;
 import com.eshioji.hotvect.core.transform.Transformer;
 
 import java.util.EnumMap;
@@ -16,7 +16,7 @@ import java.util.function.DoubleUnaryOperator;
 
 import static com.google.common.base.Preconditions.checkState;
 
-public class VwNamespacedInstanceEncoder<R, H extends Enum<H> & FeatureNamespace> implements ExampleEncoder<R> {
+public class VwNamespacedExampleEncoder<R, H extends Enum<H> & FeatureNamespace> implements ExampleEncoder<R> {
     private final static char[] VALID_VW_NAMESPACE_CHARS = "abcdefghijklmnopqrstuvwxyz".toCharArray();
     private final boolean binary;
     private final DoubleUnaryOperator targetToImportanceWeight;
@@ -25,15 +25,15 @@ public class VwNamespacedInstanceEncoder<R, H extends Enum<H> & FeatureNamespace
     private final Transformer<R, H> transformer;
     private final AuditableHasher<H> hasher;
 
-    public VwNamespacedInstanceEncoder(Transformer<R, H> transformer, Class<H> hashedKey) {
+    public VwNamespacedExampleEncoder(Transformer<R, H> transformer, Class<H> hashedKey) {
         this(transformer, hashedKey, false, null);
     }
 
-    public VwNamespacedInstanceEncoder(Transformer<R, H> transformer, Class<H> hashedKey, boolean binary) {
+    public VwNamespacedExampleEncoder(Transformer<R, H> transformer, Class<H> hashedKey, boolean binary) {
         this(transformer, hashedKey, binary, null);
     }
 
-    public VwNamespacedInstanceEncoder(Transformer<R, H> transformer, Class<H> hashedKey, boolean binary, DoubleUnaryOperator targetToImportanceWeight) {
+    public VwNamespacedExampleEncoder(Transformer<R, H> transformer, Class<H> hashedKey, boolean binary, DoubleUnaryOperator targetToImportanceWeight) {
         this.hashedKey = hashedKey;
         this.transformer = transformer;
         this.hasher = new AuditableHasher<>(hashedKey);
@@ -44,7 +44,7 @@ public class VwNamespacedInstanceEncoder<R, H extends Enum<H> & FeatureNamespace
     public EnumMap<H, String> getNamespaceMapping(){
         EnumMap<H, String> ret = new EnumMap<>(hashedKey);
         for (H h : this.hashedKey.getEnumConstants()) {
-            var ns = h.ordinal();
+            int ns = h.ordinal();
             checkState(ns < VALID_VW_NAMESPACE_CHARS.length,
                     "Sorry you cannot have more than " + VALID_VW_NAMESPACE_CHARS.length +
                             "namespaces for VW");
@@ -57,7 +57,7 @@ public class VwNamespacedInstanceEncoder<R, H extends Enum<H> & FeatureNamespace
 
     @Override
     public String apply(Example<R> toEncode) {
-        var transformedAndHashed = hasher.apply(transformer.apply(toEncode.getRecord()));
+        DataRecord<H, HashedValue> transformedAndHashed = hasher.apply(transformer.apply(toEncode.getRecord()));
         return vwEncode(toEncode, transformedAndHashed, binary, targetToImportanceWeight);
     }
 
@@ -78,14 +78,14 @@ public class VwNamespacedInstanceEncoder<R, H extends Enum<H> & FeatureNamespace
 
         if (targetToImportanceWeight != null) {
             sb.append(" ");
-            var weight = targetToImportanceWeight.applyAsDouble(targetVariable);
+            double weight = targetToImportanceWeight.applyAsDouble(targetVariable);
             DoubleFormatUtils.formatDoubleFast(weight, 6, 6, sb);
         }
 
-        var features = transformedAndHashed.asEnumMap();
+        EnumMap<H, HashedValue> features = transformedAndHashed.asEnumMap();
 
         for (Map.Entry<H, HashedValue> entry : features.entrySet()) {
-            var ns = entry.getKey().ordinal();
+            int ns = entry.getKey().ordinal();
             checkState(ns < VALID_VW_NAMESPACE_CHARS.length,
                     "Sorry you cannot have more than " + VALID_VW_NAMESPACE_CHARS.length +
                             "namespaces for VW");
@@ -95,8 +95,8 @@ public class VwNamespacedInstanceEncoder<R, H extends Enum<H> & FeatureNamespace
             sb.append(namespace);
             sb.append(" ");
 
-            var indices = entry.getValue().getCategoricals();
-            var values = entry.getValue().getNumericals();
+            int[] indices = entry.getValue().getCategoricals();
+            double[] values = entry.getValue().getNumericals();
 
             for (int j = 0; j < indices.length; j++) {
                 int feature = indices[j];
@@ -112,12 +112,5 @@ public class VwNamespacedInstanceEncoder<R, H extends Enum<H> & FeatureNamespace
 
         return sb.toString();
     }
-
-    private static <IN extends Enum<IN> & RawNamespace> RawValue readField(DataRecord<IN, RawValue> record, String fieldName) {
-        return record.asEnumMap().entrySet().stream().filter(p ->
-                fieldName.equals(p.getKey().toString())
-        ).map(Map.Entry::getValue).findFirst().orElseThrow(()-> new IllegalStateException("Cannot find: field" + fieldName));
-    }
-
 
 }

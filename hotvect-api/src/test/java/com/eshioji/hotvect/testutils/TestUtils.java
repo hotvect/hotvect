@@ -1,6 +1,7 @@
 package com.eshioji.hotvect.testutils;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.hash.Hashing;
 import org.quicktheories.api.Pair;
@@ -25,8 +26,8 @@ public enum TestUtils {
     public static void assertJsonEquals(String json1, String json2) {
 
         try {
-            var tree1 = mapper.readTree(json1);
-            var tree2 = mapper.readTree(json2);
+            JsonNode tree1 = mapper.readTree(json1);
+            JsonNode tree2 = mapper.readTree(json2);
             if (!tree1.equals(tree2)) {
                 throw new AssertionError(String.format("%s differs from %s", tree1, tree2));
             }
@@ -102,7 +103,7 @@ public enum TestUtils {
 
 
     public static IntStream ints(long seed) {
-        var rng = new Random(seed);
+        Random rng = new Random(seed);
         return IntStream.concat(
                 IntStream.of(Integer.MIN_VALUE, -1, 0, 1, Integer.MAX_VALUE),
                 IntStream.generate(rng::nextInt));
@@ -113,7 +114,7 @@ public enum TestUtils {
     }
 
     public static Stream<Pair<int[], int[]>> twoIntArrays(long seed) {
-        var ints = ints(seed);
+        IntStream ints = ints(seed);
         return ints.mapToObj(i -> Pair.of(generateCategoricals(i), generateCategoricals(i)));
     }
 
@@ -143,9 +144,9 @@ public enum TestUtils {
 
 
     private static int[] generateCategoricals(final int seed) {
-        var size = Math.abs(Hashing.murmur3_32().hashInt(seed).asInt() % 3) + 1;
-        var ret = new int[size];
-        var h = seed;
+        int size = Math.abs(Hashing.murmur3_32().hashInt(seed).asInt() % 3) + 1;
+        int[] ret = new int[size];
+        int h = seed;
         for (int i = 0; i < ret.length; i++) {
             h ^= Hashing.murmur3_32().hashInt(h).asInt();
             ret[i] = h;
