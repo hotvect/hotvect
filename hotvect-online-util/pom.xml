@@ -6,41 +6,19 @@
     <parent>
         <groupId>com.eshioji.hotvect</groupId>
         <artifactId>hotvect-parent</artifactId>
-        <version>0.0.3-SNAPSHOT</version>
+        <version>0.0.4-SNAPSHOT</version>
     </parent>
 
-    <artifactId>hotvect-util</artifactId>
-    <name>Hotvect Util</name>
+    <artifactId>hotvect-online-util</artifactId>
+    <name>Hotvect Online Util</name>
 
     <dependencies>
         <dependency>
-            <groupId>io.dropwizard.metrics</groupId>
-            <artifactId>metrics-core</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>ch.qos.logback</groupId>
-            <artifactId>logback-core</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>ch.qos.logback</groupId>
-            <artifactId>logback-classic</artifactId>
-            <exclusions>
-                <exclusion>
-                    <groupId>org.slf4j</groupId>
-                    <artifactId>slf4j-api</artifactId>
-                </exclusion>
-            </exclusions>
-        </dependency>
-
-        <dependency>
             <groupId>org.slf4j</groupId>
             <artifactId>slf4j-api</artifactId>
+            <scope>provided</scope>
         </dependency>
 
-        <dependency>
-            <groupId>info.picocli</groupId>
-            <artifactId>picocli</artifactId>
-        </dependency>
         <dependency>
             <groupId>com.eshioji.hotvect</groupId>
             <artifactId>hotvect-api</artifactId>
@@ -48,20 +26,6 @@
         <dependency>
             <groupId>com.eshioji.hotvect</groupId>
             <artifactId>hotvect-core</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>com.eshioji.hotvect</groupId>
-            <artifactId>hotvect-vw</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.anarres</groupId>
-            <artifactId>parallelgzip</artifactId>
-            <exclusions>
-                <exclusion>
-                    <groupId>com.google.code.findbugs</groupId>
-                    <artifactId>jsr305</artifactId>
-                </exclusion>
-            </exclusions>
         </dependency>
 
         <dependency>

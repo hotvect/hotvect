@@ -1,7 +1,6 @@
 package com.eshioji.hotvect.commandline;
 
 import com.codahale.metrics.Histogram;
-import com.codahale.metrics.MetricRegistry;
 import com.eshioji.hotvect.api.*;
 import com.eshioji.hotvect.api.codec.ExampleDecoder;
 import com.eshioji.hotvect.api.codec.ExampleEncoder;
@@ -24,25 +23,20 @@ import java.util.concurrent.TimeUnit;
 
 public abstract class Task<R> extends VerboseCallable<Map<String, String>> {
     protected final Logger LOGGER = LoggerFactory.getLogger(this.getClass());
-    protected final Options opts;
-    protected final MetricRegistry metricRegistry;
+    protected final OfflineTaskContext offlineTaskContext;
 
-
-    protected final AlgorithmDefinition algorithmDefinition;
-
-    public Task(Options opts, MetricRegistry metricRegistry, AlgorithmDefinition algorithmDefinition) throws Exception {
-        this.opts = opts;
-        this.metricRegistry = metricRegistry;
-        this.algorithmDefinition = algorithmDefinition;
+    protected Task(OfflineTaskContext offlineTaskContext) {
+        this.offlineTaskContext = offlineTaskContext;
     }
+
 
     protected abstract Map<String, String> perform() throws Exception;
 
     @Override
     protected Map<String, String> doCall() throws Exception {
-        LOGGER.info("Running {} from {} to {}", this.getClass().getSimpleName(), opts.sourceFile, opts.destinationFile);
+        LOGGER.info("Running {} from {} to {}", this.getClass().getSimpleName(), offlineTaskContext.getOptions().sourceFile, offlineTaskContext.getOptions().destinationFile);
 
-        Histogram memoryUsage = metricRegistry.histogram("memory_usage");
+        Histogram memoryUsage = this.offlineTaskContext.getMetricRegistry().histogram("memory_usage");
         ScheduledExecutorService memoryUsageReporter = exitingScheduledExecutor();
         Runnable reportMemoryUsage = new VerboseRunnable() {
             @Override
@@ -55,14 +49,15 @@ public abstract class Task<R> extends VerboseCallable<Map<String, String>> {
         try {
 
             Map<String, String> metadata = perform();
+            metadata.put("algorithm_jar", offlineTaskContext.getOptions().algorithmJar);
             metadata.put("task_type", this.getClass().getSimpleName());
-            metadata.put("metadata_location", opts.metadataLocation.toString());
-            metadata.put("destination_file", opts.destinationFile.toString());
-            metadata.put("source_file", opts.sourceFile.toString());
-            metadata.put("algorithm_name", algorithmDefinition.getAlgorithmName());
-            metadata.put("algorithm_definition", algorithmDefinition.toString());
-            if (opts.parameters != null) {
-                metadata.put("parameters", opts.parameters);
+            metadata.put("metadata_location", offlineTaskContext.getOptions().metadataLocation.toString());
+            metadata.put("destination_file", offlineTaskContext.getOptions().destinationFile.toString());
+            metadata.put("source_file", offlineTaskContext.getOptions().sourceFile.toString());
+            metadata.put("algorithm_name", offlineTaskContext.getAlgorithmDefinition().getAlgorithmName());
+            metadata.put("algorithm_definition", offlineTaskContext.getAlgorithmDefinition().toString());
+            if (offlineTaskContext.getOptions().parameters != null) {
+                metadata.put("parameters", offlineTaskContext.getOptions().parameters);
             }
             metadata.put("memory_usage_95pct", String.valueOf(memoryUsage.getSnapshot().get95thPercentile()));
             metadata.put("memory_usage_75pct", String.valueOf(memoryUsage.getSnapshot().get75thPercentile()));
@@ -79,37 +74,41 @@ public abstract class Task<R> extends VerboseCallable<Map<String, String>> {
     }
 
     private Vectorizer<R> getVectorizer(Map<String, InputStream> parameter) throws Exception {
-        String factoryName = this.algorithmDefinition.getVectorizerFactoryName();
-        Optional<JsonNode> hyperparameter = this.algorithmDefinition.getVectorizerParameter();
-        return ((VectorizerFactory<R>) Class.forName(factoryName).getDeclaredConstructor().newInstance())
+        String factoryName = this.offlineTaskContext.getAlgorithmDefinition().getVectorizerFactoryName();
+        Optional<JsonNode> hyperparameter = this.offlineTaskContext.getAlgorithmDefinition().getVectorizerParameter();
+        return ((VectorizerFactory<R>) loadClass(factoryName).getDeclaredConstructor().newInstance())
                 .apply(hyperparameter, parameter);
     }
 
     protected ExampleDecoder<R> getTrainDecoder() throws Exception {
-        String factoryName = this.algorithmDefinition.getDecoderFactoryName();
-        Optional<JsonNode> parameter = this.algorithmDefinition.getTrainDecoderParameter();
-        return ((ExampleDecoderFactory<R>) Class.forName(factoryName).getDeclaredConstructor().newInstance())
+        String factoryName = this.offlineTaskContext.getAlgorithmDefinition().getDecoderFactoryName();
+        Optional<JsonNode> parameter = this.offlineTaskContext.getAlgorithmDefinition().getTrainDecoderParameter();
+        return ((ExampleDecoderFactory<R>) loadClass(factoryName).getDeclaredConstructor().newInstance())
                 .apply(parameter);
     }
 
     protected ExampleEncoder<R> getTrainEncoder(Map<String, InputStream> parameter) throws Exception {
-        String factoryName = this.algorithmDefinition.getEncoderFactoryName();
-        Optional<JsonNode> hyperparameter = this.algorithmDefinition.getTrainDecoderParameter();
-        return ((ExampleEncoderFactory<R>) Class.forName(factoryName).getDeclaredConstructor().newInstance())
+        String factoryName = this.offlineTaskContext.getAlgorithmDefinition().getEncoderFactoryName();
+        Optional<JsonNode> hyperparameter = this.offlineTaskContext.getAlgorithmDefinition().getTrainDecoderParameter();
+        return ((ExampleEncoderFactory<R>) loadClass(factoryName).getDeclaredConstructor().newInstance())
                 .apply(getVectorizer(parameter), hyperparameter);
     }
 
     protected ExampleDecoder<R> getPredictDecoder() throws Exception {
-        String factoryName = this.algorithmDefinition.getDecoderFactoryName();
-        Optional<JsonNode> hyperparameter = this.algorithmDefinition.getPredictDecoderParameter();
-        return ((ExampleDecoderFactory<R>) Class.forName(factoryName).getDeclaredConstructor().newInstance())
+        String factoryName = this.offlineTaskContext.getAlgorithmDefinition().getDecoderFactoryName();
+        Optional<JsonNode> hyperparameter = this.offlineTaskContext.getAlgorithmDefinition().getPredictDecoderParameter();
+        return ((ExampleDecoderFactory<R>) loadClass(factoryName).getDeclaredConstructor().newInstance())
                 .apply(hyperparameter);
     }
 
     protected Scorer<R> getScorer(Map<String, InputStream> parameter) throws Exception {
-        String factoryName = this.algorithmDefinition.getScorerFactoryName();
-        return ((ScorerFactory<R>) Class.forName(factoryName).getDeclaredConstructor().newInstance())
+        String factoryName = this.offlineTaskContext.getAlgorithmDefinition().getScorerFactoryName();
+        return ((ScorerFactory<R>) loadClass(factoryName).getDeclaredConstructor().newInstance())
                 .apply(getVectorizer(parameter), parameter);
+    }
+
+    protected final <T> Class<T> loadClass(String className) throws ClassNotFoundException {
+        return (Class<T>) Class.forName(className, true, this.offlineTaskContext.getClassLoader());
     }
 
 

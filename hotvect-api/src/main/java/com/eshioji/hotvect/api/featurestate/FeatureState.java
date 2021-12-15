@@ -1,4 +1,4 @@
-package com.eshioji.hotvect.core.transform;
+package com.eshioji.hotvect.api.featurestate;
 
 public interface FeatureState {
     long generatedAtUnixMilliSec();

@@ -5,7 +5,7 @@
 
     <groupId>com.eshioji.hotvect</groupId>
     <artifactId>hotvect-parent</artifactId>
-    <version>0.0.3-SNAPSHOT</version>
+    <version>0.0.4-SNAPSHOT</version>
     <packaging>pom</packaging>
 
     <name>Hotvect Project</name>
@@ -18,7 +18,8 @@
         <module>hotvect-api</module>
         <module>hotvect-core</module>
         <module>hotvect-vw</module>
-        <module>hotvect-util</module>
+        <module>hotvect-online-util</module>
+        <module>hotvect-offline-util</module>
         <module>hotvect-all</module>
     </modules>
 
@@ -104,7 +105,12 @@
             </dependency>
             <dependency>
                 <groupId>com.eshioji.hotvect</groupId>
-                <artifactId>hotvect-util</artifactId>
+                <artifactId>hotvect-offline-util</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.eshioji.hotvect</groupId>
+                <artifactId>hotvect-online-util</artifactId>
                 <version>${project.version}</version>
             </dependency>
 

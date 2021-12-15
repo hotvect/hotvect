@@ -16,4 +16,12 @@ public class Example<R> {
     public double getTarget() {
         return target;
     }
+
+    @Override
+    public String toString() {
+        return "Example{" +
+                "record=" + record +
+                ", target=" + target +
+                '}';
+    }
 }

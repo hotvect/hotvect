@@ -1,7 +1,7 @@
-package com.eshioji.hotvect.util;
+package com.eshioji.hotvect.onlineutils.hotdeploy;
 
-import com.eshioji.hotvect.commandline.FeatureStateDefinition;
-import com.eshioji.hotvect.core.transform.FeatureState;
+import com.eshioji.hotvect.api.featurestate.FeatureStateCodec;
+import com.eshioji.hotvect.api.featurestate.FeatureState;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.collect.ImmutableMap;
@@ -11,11 +11,17 @@ import java.util.*;
 import java.util.function.BiFunction;
 
 public class FeatureStateLoader<R> implements BiFunction<Optional<JsonNode>, Map<String, InputStream>, Map<String, FeatureState>> {
+    private final ClassLoader classLoader;
+
+    public FeatureStateLoader(ClassLoader classLoader) {
+        this.classLoader = classLoader;
+    }
+
     @Override
     public Map<String, FeatureState> apply(Optional<JsonNode> hyperparameters, Map<String, InputStream> serializedFeatureStates) {
         try {
             Map<String, ObjectNode> fsdInstructions = extract(hyperparameters);
-            Map<String, FeatureStateDefinition<R, ? extends FeatureState>> featureStateDefinitions = instantiate(fsdInstructions);
+            Map<String, FeatureStateCodec<? extends FeatureState>> featureStateDefinitions = instantiate(fsdInstructions);
             return hydrate(featureStateDefinitions, serializedFeatureStates);
         } catch (Exception e) {
             throw new RuntimeException(e);
@@ -41,19 +47,19 @@ public class FeatureStateLoader<R> implements BiFunction<Optional<JsonNode>, Map
         return b.build();
     }
 
-    private Map<String, FeatureStateDefinition<R, ? extends FeatureState>> instantiate(Map<String, ObjectNode> fsdInstructions) throws Exception {
-        Map<String, FeatureStateDefinition<R, ? extends FeatureState>> ret = new HashMap<>();
+    private Map<String, FeatureStateCodec<? extends FeatureState>> instantiate(Map<String, ObjectNode> fsdInstructions) throws Exception {
+        Map<String, FeatureStateCodec<? extends FeatureState>> ret = new HashMap<>();
         for (Map.Entry<String, ObjectNode> entry : fsdInstructions.entrySet()) {
-            String fsdName = entry.getValue().get("definition").asText();
-            FeatureStateDefinition<R, ? extends FeatureState> fsd = (FeatureStateDefinition<R, ? extends FeatureState>) Class.forName(fsdName).getDeclaredConstructor().newInstance();
+            String fsCodecName = entry.getValue().get("codec").asText();
+            FeatureStateCodec<? extends FeatureState> fsd = (FeatureStateCodec<? extends FeatureState>) Class.forName(fsCodecName, true, classLoader).getDeclaredConstructor().newInstance();
             ret.put(entry.getKey(), fsd);
         }
         return Collections.unmodifiableMap(ret);
     }
 
-    private Map<String, FeatureState> hydrate(Map<String, FeatureStateDefinition<R, ? extends FeatureState>> featureStateDefinitions, Map<String, InputStream> parameters) {
+    private Map<String, FeatureState> hydrate(Map<String, FeatureStateCodec<? extends FeatureState>> featureStateDefinitions, Map<String, InputStream> parameters) {
         Map<String, FeatureState> hydrated = new HashMap<>();
-        for (Map.Entry<String, FeatureStateDefinition<R, ? extends FeatureState>> entry : featureStateDefinitions.entrySet()) {
+        for (Map.Entry<String, FeatureStateCodec<? extends FeatureState>> entry : featureStateDefinitions.entrySet()) {
             String featureStateName = entry.getKey();
             InputStream is = parameters.get(featureStateName);
             hydrated.put(featureStateName, entry.getValue().getDeserializer().apply(is));

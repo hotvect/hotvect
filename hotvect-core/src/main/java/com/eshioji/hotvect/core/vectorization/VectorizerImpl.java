@@ -10,6 +10,7 @@ import com.eshioji.hotvect.core.combine.Combiner;
 import com.eshioji.hotvect.core.hash.AuditableHasher;
 import com.eshioji.hotvect.core.transform.Transformer;
 
+@Deprecated
 public class VectorizerImpl<R, OUT extends Enum<OUT> & FeatureNamespace>
         implements Vectorizer<R> {
     private final Transformer<R, OUT> transformer;

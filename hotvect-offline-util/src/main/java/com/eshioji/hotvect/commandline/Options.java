@@ -5,6 +5,9 @@ import picocli.CommandLine;
 import java.io.File;
 
 public class Options {
+    @CommandLine.Option(names = {"--algorithm-jar"}, paramLabel = "TODO", description = "TODO")
+    public String algorithmJar;
+
     @CommandLine.Option(names = {"--algorithm-definition"}, paramLabel = "TODO", description = "TODO")
     public String algorithmDefinition;
 

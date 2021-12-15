@@ -1,6 +1,7 @@
 package com.eshioji.hotvect.core.transform;
 
 import com.eshioji.hotvect.api.data.FeatureNamespace;
+import com.eshioji.hotvect.api.featurestate.FeatureState;
 
 import java.util.EnumMap;
 import java.util.Map;

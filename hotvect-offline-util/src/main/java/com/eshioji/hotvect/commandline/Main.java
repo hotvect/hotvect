@@ -3,6 +3,8 @@ package com.eshioji.hotvect.commandline;
 import com.codahale.metrics.MetricRegistry;
 import com.codahale.metrics.Slf4jReporter;
 import com.eshioji.hotvect.api.AlgorithmDefinition;
+import com.eshioji.hotvect.api.featurestate.FeatureStateCodec;
+import com.eshioji.hotvect.onlineutils.hotdeploy.HotVectClassLoader;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import com.google.common.base.Charsets;
@@ -13,6 +15,8 @@ import picocli.CommandLine;
 
 import java.io.File;
 import java.io.IOException;
+import java.net.URL;
+import java.net.URLClassLoader;
 import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.concurrent.TimeUnit;
@@ -60,14 +64,20 @@ public class Main {
 //                ImmutableList.of(opts.generateState, opts.encode, opts.predict).stream().mapToInt(x -> x ? 1 : 0).sum() == 1, "Exactly one command (predict or encode) must be specified");
 
         AlgorithmDefinition algorithmDefinition = readAlgorithmDefinition(opts);
+        URL algoJarLocation = new File(opts.algorithmJar).toURI().toURL();
+        ClassLoader algoClassLoader
+                = new URLClassLoader(new URL[]{algoJarLocation});
+        OfflineTaskContext offlineTaskContext = new OfflineTaskContext(algoClassLoader, METRIC_REGISTRY, opts, algorithmDefinition);
 
         if (opts.encode) {
-            return new EncodeTask<>(opts, METRIC_REGISTRY, algorithmDefinition);
+            return new EncodeTask<>(offlineTaskContext);
         } else if (opts.predict) {
-            return new PredictTask<>(opts, METRIC_REGISTRY, algorithmDefinition);
+            return new PredictTask<>(offlineTaskContext);
         } else if (opts.stateDefinition != null) {
-            FeatureStateDefinition<?, ?> definition = (FeatureStateDefinition<?, ?>) Class.forName(opts.stateDefinition).getDeclaredConstructor().newInstance();
-            return definition.getGenerationTask(opts, METRIC_REGISTRY, algorithmDefinition);
+            return (GenerateStateTask<?>) Class.forName(
+                    opts.stateDefinition, true, offlineTaskContext.getClassLoader()
+            ).getDeclaredConstructor(OfflineTaskContext.class)
+                    .newInstance(offlineTaskContext);
         } else {
             throw new UnsupportedOperationException("No command given. Available: encode, predict or generate-state");
 

@@ -6,7 +6,7 @@
     <parent>
         <groupId>com.eshioji.hotvect</groupId>
         <artifactId>hotvect-parent</artifactId>
-        <version>0.0.3-SNAPSHOT</version>
+        <version>0.0.4-SNAPSHOT</version>
     </parent>
 
     <artifactId>hotvect-all</artifactId>
@@ -24,7 +24,11 @@
         </dependency>
         <dependency>
             <groupId>com.eshioji.hotvect</groupId>
-            <artifactId>hotvect-util</artifactId>
+            <artifactId>hotvect-online-util</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.eshioji.hotvect</groupId>
+            <artifactId>hotvect-offline-util</artifactId>
         </dependency>
         <dependency>
             <groupId>com.eshioji.hotvect</groupId>

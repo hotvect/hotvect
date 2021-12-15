@@ -1,15 +1,15 @@
-package com.eshioji.hotvect.server;
+package com.eshioji.hotvect.onlineutils.hotdeploy;
 
 import com.eshioji.hotvect.api.VectorizerFactory;
 import com.eshioji.hotvect.api.data.FeatureNamespace;
 import com.eshioji.hotvect.api.data.raw.RawValue;
+import com.eshioji.hotvect.api.featurestate.FeatureState;
 import com.eshioji.hotvect.api.vectorization.Vectorizer;
 import com.eshioji.hotvect.core.combine.FeatureDefinition;
 import com.eshioji.hotvect.core.combine.InteractionCombiner;
 import com.eshioji.hotvect.core.hash.AuditableHasher;
 import com.eshioji.hotvect.core.transform.*;
-import com.eshioji.hotvect.core.vectorization.VectorizerImpl;
-import com.eshioji.hotvect.util.FeatureStateLoader;
+import com.eshioji.hotvect.core.vectorization.DefaultVectorizer;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.google.common.collect.Sets;
 
@@ -54,7 +54,7 @@ public class ParameterizedVectorizerFactory<K extends Enum<K> & FeatureNamespace
         int hashbits = hyperparameters.map(x -> x.get("hash_bits"))
                 .orElseThrow(() -> new RuntimeException("hash_bits not present")).asInt();
 
-        FeatureStateLoader<R> featureStateLoader = new FeatureStateLoader<>();
+        FeatureStateLoader<R> featureStateLoader = new FeatureStateLoader<>(featureKeyClass.getClassLoader());
         Map<String, FeatureState> featurestates = featureStateLoader.apply(hyperparameters, parameters);
 
         FeatureDefinitionExtractor<K> featureDefinitionExtractor = new FeatureDefinitionExtractor<>(this.featureKeyClass);
@@ -65,7 +65,7 @@ public class ParameterizedVectorizerFactory<K extends Enum<K> & FeatureNamespace
 
         AuditableHasher<K> hasher = new AuditableHasher<>(featureKeyClass);
 
-        return new VectorizerImpl<>(
+        return new DefaultVectorizer<>(
                 transformer,
                 hasher,
                 new InteractionCombiner<>(hashbits, featureDefinitions)
