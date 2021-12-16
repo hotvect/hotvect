@@ -6,7 +6,7 @@ from typing import Dict, List
 
 import pandas as pd
 
-import hotvect.mlutils
+import hotvect.mlutils as mlutils
 from hotvect.utils import trydelete, runshell, read_json, to_zip_archive, ensure_file_exists, clean_dir, ensure_dir_exists
 
 logging.basicConfig(level=logging.WARNING)
@@ -281,7 +281,7 @@ class Task:
         trydelete(metadata_location)
 
         df = pd.read_csv(self.score_file_path(algorithm_definition), header=None)
-        lower_auc, mean_auc, upper_auc = hotvect.mlutils.bootstrap_roc_auc(df[1], df[0])
+        lower_auc, mean_auc, upper_auc = mlutils.bootstrap_roc_auc(df[1], df[0])
 
         meta_data = {
             'upper_auc': upper_auc,
