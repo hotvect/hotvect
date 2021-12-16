@@ -3,13 +3,12 @@ package com.eshioji.hotvect.commandline;
 
 import com.codahale.metrics.Meter;
 import com.codahale.metrics.MetricRegistry;
-import com.eshioji.hotvect.api.AlgorithmDefinition;
 import com.eshioji.hotvect.api.codec.ExampleDecoder;
 import com.eshioji.hotvect.api.data.raw.Example;
 import com.eshioji.hotvect.api.scoring.Scorer;
 import com.eshioji.hotvect.core.util.ListTransform;
 import com.eshioji.hotvect.util.CpuIntensiveFileMapper;
-import com.eshioji.hotvect.util.ZipFiles;
+import com.eshioji.hotvect.onlineutils.hotdeploy.ZipFiles;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

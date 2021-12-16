@@ -3,8 +3,6 @@ package com.eshioji.hotvect.commandline;
 import com.codahale.metrics.MetricRegistry;
 import com.codahale.metrics.Slf4jReporter;
 import com.eshioji.hotvect.api.AlgorithmDefinition;
-import com.eshioji.hotvect.api.featurestate.FeatureStateCodec;
-import com.eshioji.hotvect.onlineutils.hotdeploy.HotVectClassLoader;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import com.google.common.base.Charsets;

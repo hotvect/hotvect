@@ -19,7 +19,7 @@ package com.eshioji.hotvect.onlineutils.hotdeploy;
 
 /*
  * This code was adapted from https://github.com/apache/spark/blob/b61dce23d2ee7ca95770bc7c390029aae8c65f7e/core/src/main/java/org/apache/spark/util/ChildFirstURLClassLoader.java
- * Under the Apache v2.0 license. The inheritance from MutableClassLoader was removed, and the findClass method was additionally overridden
+ * Under the Apache v2.0 license.
  */
 
 import java.io.IOException;
@@ -30,52 +30,33 @@ import java.util.Collections;
 import java.util.Enumeration;
 
 /**
- * A class loader that gives preference to its own URLs over the parent class loader
+ * A class loader that exclusively reads from its own URL
  * when loading classes and resources.
  */
-class ChildFirstURLClassLoader extends URLClassLoader {
+class ChildOnlyClassLoader extends URLClassLoader {
 
-    private ParentClassLoader parent;
-
-    public ChildFirstURLClassLoader(URL[] urls, ClassLoader parent) {
+    public ChildOnlyClassLoader(URL[] urls) {
         super(urls, null);
-        this.parent = new ParentClassLoader(parent);
     }
 
     @Override
     protected Class<?> findClass(String name) throws ClassNotFoundException {
-        try {
-            // first try to use the URLClassLoader findClass
-            return super.findClass(name);
-        } catch (ClassNotFoundException e) {
-            // if that fails, we ask our real parent classloader to load the class (we give up)
-            return parent.loadClass(name);
-        }
+        return super.findClass(name);
     }
 
     @Override
     public Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {
-        try {
-            return super.loadClass(name, resolve);
-        } catch (ClassNotFoundException cnf) {
-            return parent.loadClass(name, resolve);
-        }
+        return super.loadClass(name, resolve);
     }
 
     @Override
     public Enumeration<URL> getResources(String name) throws IOException {
         ArrayList<URL> urls = Collections.list(super.getResources(name));
-        urls.addAll(Collections.list(parent.getResources(name)));
         return Collections.enumeration(urls);
     }
 
     @Override
     public URL getResource(String name) {
-        URL url = super.getResource(name);
-        if (url != null) {
-            return url;
-        } else {
-            return parent.getResource(name);
-        }
+        return super.getResource(name);
     }
 }
