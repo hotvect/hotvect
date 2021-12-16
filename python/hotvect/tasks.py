@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+from datetime import datetime
 from shutil import copyfile
 from typing import Dict, List
 
@@ -21,9 +22,12 @@ class Task:
                  train_data_path,
                  validation_data_path,
                  state_source_base_path=None,
+                 run_id="default",
                  enable_gzip=True,
                  jvm_options=None
                  ):
+        self.run_id = run_id
+
         # Utilities
         self.hotvect_util_jar_path = hotvect_util_jar_path
 
@@ -62,10 +66,10 @@ class Task:
         logging.info(f'Initialized:{self.__dict__}')
 
     def metadata_path(self, algorithm_definition: Dict) -> str:
-        return os.path.join(self.metadata_base_path, algorithm_definition['algorithm_name'])
+        return os.path.join(self.metadata_base_path, algorithm_definition['algorithm_name'], self.run_id)
 
     def output_path(self, algorithm_definition: Dict) -> str:
-        return os.path.join(self.output_base_path, algorithm_definition['algorithm_name'])
+        return os.path.join(self.output_base_path, algorithm_definition['algorithm_name'], self.run_id)
 
     def state_output_path(self, algorithm_definition: Dict, state_name: str):
         state_filename = f'{state_name}'
@@ -96,7 +100,7 @@ class Task:
     def predict_parameter_file_path(self, algorithm_definition: Dict) -> str:
         return os.path.join(
             self.output_path(algorithm_definition),
-            'predict.parameters.zip'
+            f"{algorithm_definition['algorithm_name']}-{self.run_id}.parameters.zip"
         )
 
     def encode_parameter_file_path(self, algorithm_definition: Dict) -> str:
@@ -116,6 +120,18 @@ class Task:
             json.dump(algorithm_definition, fp)
 
         return algorithm_definition_path
+
+    def _write_data(self, algorithm_definition: Dict, data: Dict, dest_file_name: str) -> str:
+        """Write algorithm definition so that Java can read it"""
+        dest = os.path.join(
+            self.output_path(algorithm_definition),
+            dest_file_name
+        )
+        trydelete(dest)
+        with open(dest, 'w') as fp:
+            json.dump(data, fp)
+
+        return dest
 
     def clean(self, algorithm_definition) -> None:
         for file in [
@@ -250,10 +266,21 @@ class Task:
 
     def package_predict_parameters(self, algorithm_definition: Dict) -> Dict:
         predict_parameter_package_location = self.predict_parameter_file_path(algorithm_definition)
+
         trydelete(predict_parameter_package_location)
 
+        # Add the model file
         to_package = [self.model_file_path(algorithm_definition)]
+
+        # Add all the feature states
         to_package.extend(list(self.feature_states.values()))
+
+        run_metadata = {
+            'algorithm_name': algorithm_definition['algorithm_name'],
+            'run_id': self.run_id,
+            'ran_at': datetime.now().isoformat(),
+            'algorithm_definition': algorithm_definition,
+        }
 
         to_zip_archive(to_package, predict_parameter_package_location)
         return {
