@@ -26,7 +26,8 @@ class Task:
                  enable_gzip=True,
                  jvm_options=None
                  ):
-        self.run_id = run_id
+        self.run_id: str = run_id
+        self.ran_at: str = datetime.now().isoformat()
 
         # Utilities
         self.hotvect_util_jar_path = hotvect_util_jar_path
@@ -150,6 +151,9 @@ class Task:
 
     def run_all(self, algorithm_definition: Dict, clean=True) -> Dict:
         result = {
+            'algorithm_name': algorithm_definition['algorithm_name'],
+            'run_id': self.run_id,
+            'ran_at': self.ran_at,
             'algorithm_definition': algorithm_definition
         }
         self.clean(algorithm_definition)
@@ -275,15 +279,13 @@ class Task:
         # Add all the feature states
         to_package.extend(list(self.feature_states.values()))
 
-        run_metadata = {
-            'algorithm_name': algorithm_definition['algorithm_name'],
-            'run_id': self.run_id,
-            'ran_at': datetime.now().isoformat(),
-            'algorithm_definition': algorithm_definition,
-        }
 
         to_zip_archive(to_package, predict_parameter_package_location)
         return {
+            'algorithm_name': algorithm_definition['algorithm_name'],
+            'run_id': self.run_id,
+            'ran_at': self.ran_at,
+            'algorithm_definition': algorithm_definition,
             'sources': to_package,
             'package': predict_parameter_package_location
         }
