@@ -15,7 +15,6 @@ import java.io.InputStreamReader;
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.util.Map;
-import java.util.function.Function;
 import java.util.zip.ZipFile;
 
 public class AlgorithmHolder<R> implements AutoCloseable {
@@ -53,25 +52,21 @@ public class AlgorithmHolder<R> implements AutoCloseable {
      * It also closes and removes the jarfile that was downloaded.
      * However, it does not unload the class definitions that were loaded through the classloader.
      * These must be removed through a reboot
+     *
      * @throws Exception
      */
     @Override
     public void close() throws Exception {
         this.classLoader.close();
-        algorithmJar.delete();
     }
 
     public Scorer<R> load(File parameterFile) throws MalformedAlgorithmException {
-        try {
-            Vectorizer<R> vectorizer = getVectorizer(parameterFile);
-            return getScorer(vectorizer, parameterFile);
-        }finally {
-            parameterFile.delete();
-        }
+        Vectorizer<R> vectorizer = getVectorizer(parameterFile);
+        return getScorer(vectorizer, parameterFile);
     }
 
     private Scorer<R> getScorer(Vectorizer<R> vectorizer, File file) throws MalformedAlgorithmException {
-        try(ZipFile parameterFile = new ZipFile(file)){
+        try (ZipFile parameterFile = new ZipFile(file)) {
             Map<String, InputStream> parameters = ZipFiles.parameters(parameterFile);
             return this.scorerFactory.apply(vectorizer, parameters);
         } catch (Exception e) {
@@ -80,7 +75,7 @@ public class AlgorithmHolder<R> implements AutoCloseable {
     }
 
     private Vectorizer<R> getVectorizer(File file) throws MalformedAlgorithmException {
-        try(ZipFile parameterFile = new ZipFile(file)){
+        try (ZipFile parameterFile = new ZipFile(file)) {
             Map<String, InputStream> parameters = ZipFiles.parameters(parameterFile);
             return this.vectorizerFactory.apply(algorithmDefinition.getVectorizerParameter(), parameters);
         } catch (Exception e) {
