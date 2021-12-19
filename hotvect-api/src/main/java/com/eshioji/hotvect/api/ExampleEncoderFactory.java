@@ -9,7 +9,7 @@ import java.util.function.BiFunction;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
-public interface ExampleEncoderFactory<R> extends BiFunction<Vectorizer<R>, Optional<JsonNode>, ExampleEncoder<R>> {
+public interface ExampleEncoderFactory<R> extends Function<Vectorizer<R>, ExampleEncoder<R>> {
     @Override
-    ExampleEncoder<R> apply(Vectorizer<R> vectorizer, Optional<JsonNode> hyperparameters);
+    ExampleEncoder<R> apply(Vectorizer<R> vectorizer);
 }

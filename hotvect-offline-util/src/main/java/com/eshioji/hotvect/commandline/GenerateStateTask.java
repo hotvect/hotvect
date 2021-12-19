@@ -2,7 +2,6 @@ package com.eshioji.hotvect.commandline;
 
 import com.codahale.metrics.MetricRegistry;
 import com.codahale.metrics.Slf4jReporter;
-import com.eshioji.hotvect.api.AlgorithmDefinition;
 import com.eshioji.hotvect.api.featurestate.FeatureState;
 import com.eshioji.hotvect.util.CpuIntensiveFileAggregator;
 
@@ -27,7 +26,7 @@ public abstract class GenerateStateTask<R> extends Task<R> {
         metadata.put("destination_file", this.offlineTaskContext.getOptions().destinationFile.toString());
         metadata.put("source_file", this.offlineTaskContext.getOptions().sourceFile.toString());
         metadata.put("training_file", this.offlineTaskContext.getOptions().trainingFile.toString());
-        metadata.put("state_generator", this.offlineTaskContext.getOptions().stateDefinition);
+        metadata.put("state_generator", this.offlineTaskContext.getOptions().generateStateTask);
         return metadata;
     }
 

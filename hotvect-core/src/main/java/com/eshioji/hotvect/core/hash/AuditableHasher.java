@@ -4,16 +4,12 @@ import com.eshioji.hotvect.api.data.DataRecord;
 import com.eshioji.hotvect.api.data.FeatureNamespace;
 import com.eshioji.hotvect.api.data.hashed.HashedValue;
 import com.eshioji.hotvect.api.data.raw.RawValue;
-import com.eshioji.hotvect.core.audit.HasherAuditState;
 import com.eshioji.hotvect.core.audit.HashedFeatureName;
+import com.eshioji.hotvect.core.audit.HasherAuditState;
 import com.eshioji.hotvect.core.audit.RawFeatureName;
-import com.eshioji.hotvect.core.combine.FeatureDefinition;
-import it.unimi.dsi.fastutil.ints.IntCollection;
 
-import java.util.concurrent.ConcurrentMap;
+import java.util.Map;
 import java.util.function.Function;
-
-import static com.eshioji.hotvect.core.hash.HashUtils.FNV1_PRIME_32;
 
 
 /**
@@ -30,7 +26,7 @@ public class AuditableHasher<H extends Enum<H> & FeatureNamespace> implements Fu
         this.auditState = null;
     }
 
-    public ConcurrentMap<HashedFeatureName, RawFeatureName> enableAudit(){
+    public ThreadLocal<Map<HashedFeatureName, RawFeatureName>> enableAudit() {
         this.auditState = new HasherAuditState();
         return this.auditState.getFeatureName2SourceRawValue();
     }
@@ -39,11 +35,19 @@ public class AuditableHasher<H extends Enum<H> & FeatureNamespace> implements Fu
     /**
      * Hash the given raw {@link DataRecord} to yield a hashed {@link DataRecord}.
      * Note that this class does not hash integers (it only hashes strings).
+     *
      * @param input the raw {@link DataRecord} to hash
      * @return hashed {@link DataRecord}
      */
     @Override
     public DataRecord<H, HashedValue> apply(DataRecord<H, RawValue> input) {
+        if (auditState != null) {
+            // Audit is enabled. Hasher is the first entry point, so we clear our thread local cache to prepare for
+            // the audit of this invocation
+            auditState.getFeatureName2SourceRawValue().get().clear();
+        }
+
+
         DataRecord<H, HashedValue> ret = new DataRecord<>(namespace);
         for (H namespace : namespaces) {
             final RawValue toHash = input.get(namespace);
@@ -51,13 +55,14 @@ public class AuditableHasher<H extends Enum<H> & FeatureNamespace> implements Fu
                 continue;
             }
 
-         final HashedValue hashed = HashUtils.hash(toHash);
+            final HashedValue hashed = HashUtils.hash(toHash);
             ret.put(namespace, hashed);
 
-            if (auditState != null){
+            if (auditState != null) {
                 // Audit enabled
                 auditState.registerSourceRawValue(namespace, toHash, hashed);
-            }        }
+            }
+        }
         return ret;
     }
 

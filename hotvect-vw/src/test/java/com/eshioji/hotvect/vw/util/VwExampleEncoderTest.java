@@ -10,6 +10,7 @@ import com.eshioji.hotvect.vw.VwExampleEncoder;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ConcurrentMap;
 import java.util.function.DoubleUnaryOperator;
 
@@ -56,9 +57,9 @@ class VwExampleEncoderTest {
         VwExampleEncoder<DataRecord<TestRawNamespace, RawValue>> subject;
         if (weightFun == null) {
             subject = new VwExampleEncoder<>(
-                    new AuditableVectorizer<DataRecord<TestRawNamespace, RawValue>>() {
+                    new AuditableVectorizer<>() {
                         @Override
-                        public ConcurrentMap<Integer, List<RawFeatureName>> enableAudit() {
+                        public ThreadLocal<Map<Integer, List<RawFeatureName>>> enableAudit() {
                             throw new AssertionError("not implemented");
                         }
 
@@ -70,9 +71,9 @@ class VwExampleEncoderTest {
                     binary);
         } else {
             subject = new VwExampleEncoder<>(
-                    new AuditableVectorizer<DataRecord<TestRawNamespace, RawValue>>() {
+                    new AuditableVectorizer<>() {
                         @Override
-                        public ConcurrentMap<Integer, List<RawFeatureName>> enableAudit() {
+                        public ThreadLocal<Map<Integer, List<RawFeatureName>>> enableAudit() {
                             throw new AssertionError("not implemented");
                         }
 

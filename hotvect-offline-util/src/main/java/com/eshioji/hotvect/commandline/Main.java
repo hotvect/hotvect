@@ -18,7 +18,9 @@ import java.net.URLClassLoader;
 import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Stream;
 
+import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
 
 public class Main {
@@ -58,28 +60,40 @@ public class Main {
     }
 
     private static Callable<Map<String, String>> getTask(Options opts) throws Exception {
-//        checkState(
-//                ImmutableList.of(opts.generateState, opts.encode, opts.predict).stream().mapToInt(x -> x ? 1 : 0).sum() == 1, "Exactly one command (predict or encode) must be specified");
+        validate(opts);
 
-        AlgorithmDefinition algorithmDefinition = readAlgorithmDefinition(opts);
-        URL algoJarLocation = new File(opts.algorithmJar).toURI().toURL();
-        ClassLoader algoClassLoader
-                = new URLClassLoader(new URL[]{algoJarLocation});
-        OfflineTaskContext offlineTaskContext = new OfflineTaskContext(algoClassLoader, METRIC_REGISTRY, opts, algorithmDefinition);
+        OfflineTaskContext offlineTaskContext = getOfflineTaskContext(opts);
 
         if (opts.encode) {
             return new EncodeTask<>(offlineTaskContext);
         } else if (opts.predict) {
             return new PredictTask<>(offlineTaskContext);
-        } else if (opts.stateDefinition != null) {
+        } else if (opts.generateStateTask != null) {
             return (GenerateStateTask<?>) Class.forName(
-                    opts.stateDefinition, true, offlineTaskContext.getClassLoader()
-            ).getDeclaredConstructor(OfflineTaskContext.class)
+                            opts.generateStateTask, true, offlineTaskContext.getClassLoader()
+                    ).getDeclaredConstructor(OfflineTaskContext.class)
                     .newInstance(offlineTaskContext);
+        } else if (opts.audit) {
+            return new AuditTask<>(offlineTaskContext);
         } else {
             throw new UnsupportedOperationException("No command given. Available: encode, predict or generate-state");
 
         }
+    }
+
+    private static OfflineTaskContext getOfflineTaskContext(Options opts) throws IOException {
+        AlgorithmDefinition algorithmDefinition = readAlgorithmDefinition(opts);
+        URL algoJarLocation = new File(opts.algorithmJar).toURI().toURL();
+        ClassLoader algoClassLoader
+                = new URLClassLoader(new URL[]{algoJarLocation});
+        OfflineTaskContext offlineTaskContext = new OfflineTaskContext(algoClassLoader, METRIC_REGISTRY, opts, algorithmDefinition);
+        return offlineTaskContext;
+    }
+
+    private static void validate(Options opts) {
+        boolean exactlyOneTask = Stream.of(opts.encode, opts.predict, opts.audit, opts.generateStateTask != null).filter(x -> x).count() == 1;
+        checkArgument(exactlyOneTask, "You must specify exactly one of: encode, predict, audit, generate-state");
+        // TODO do more
     }
 
     private static AlgorithmDefinition readAlgorithmDefinition(Options opts) throws IOException {

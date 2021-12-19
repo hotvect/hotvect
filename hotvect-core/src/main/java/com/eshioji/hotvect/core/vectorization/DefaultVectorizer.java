@@ -13,6 +13,7 @@ import com.eshioji.hotvect.core.hash.AuditableHasher;
 import com.eshioji.hotvect.core.transform.Transformer;
 
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ConcurrentMap;
 
 public class DefaultVectorizer<R, OUT extends Enum<OUT> & FeatureNamespace> implements AuditableVectorizer<R> {
@@ -34,8 +35,8 @@ public class DefaultVectorizer<R, OUT extends Enum<OUT> & FeatureNamespace> impl
     }
 
     @Override
-    public ConcurrentMap<Integer, List<RawFeatureName>> enableAudit() {
-        ConcurrentMap<HashedFeatureName, RawFeatureName> featureName2SourceRawValue = hasher.enableAudit();
+    public ThreadLocal<Map<Integer, List<RawFeatureName>>> enableAudit() {
+        ThreadLocal<Map<HashedFeatureName, RawFeatureName>> featureName2SourceRawValue = hasher.enableAudit();
         return this.combiner.enableAudit(featureName2SourceRawValue);
     }
 }

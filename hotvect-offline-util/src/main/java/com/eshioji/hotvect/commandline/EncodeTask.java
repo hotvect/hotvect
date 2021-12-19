@@ -5,6 +5,7 @@ import com.codahale.metrics.Meter;
 import com.codahale.metrics.MetricRegistry;
 import com.eshioji.hotvect.api.codec.ExampleDecoder;
 import com.eshioji.hotvect.api.codec.ExampleEncoder;
+import com.eshioji.hotvect.api.vectorization.Vectorizer;
 import com.eshioji.hotvect.core.util.ListTransform;
 import com.eshioji.hotvect.util.CpuIntensiveFileMapper;
 import com.eshioji.hotvect.onlineutils.hotdeploy.ZipFiles;
@@ -31,10 +32,12 @@ public class EncodeTask<R> extends Task<R> {
         if (this.offlineTaskContext.getOptions().parameters != null){
             try(ZipFile parameterFile = new ZipFile(this.offlineTaskContext.getOptions().parameters)){
                 Map<String, InputStream> parameters = ZipFiles.parameters(parameterFile);
-                exampleEncoder = getTrainEncoder(parameters);
+                var vectorizer = getVectorizer(parameters);
+                exampleEncoder = getTrainEncoder(vectorizer);
             }
         } else {
-            exampleEncoder = getTrainEncoder(ImmutableMap.of());
+            var vectorizer = getVectorizer(ImmutableMap.of());
+            exampleEncoder = getTrainEncoder(vectorizer);
         }
 
         Function<String, List<String>> transformation = exampleDecoder.andThen(s -> ListTransform.map(s, exampleEncoder));

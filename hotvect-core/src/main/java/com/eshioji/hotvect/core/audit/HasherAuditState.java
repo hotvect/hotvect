@@ -4,18 +4,20 @@ import com.eshioji.hotvect.api.data.FeatureNamespace;
 import com.eshioji.hotvect.api.data.hashed.HashedValue;
 import com.eshioji.hotvect.api.data.raw.RawValue;
 
+import java.util.HashMap;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
 public class HasherAuditState {
-    private final ConcurrentMap<HashedFeatureName, RawFeatureName> featureName2SourceRawValue = new ConcurrentHashMap<>();
+    private final ThreadLocal<Map<HashedFeatureName, RawFeatureName>> featureName2SourceRawValue = ThreadLocal.withInitial(HashMap::new);
 
     public void registerSourceRawValue(FeatureNamespace namespace, RawValue toHash, HashedValue hashed) {
         int[] featureNames = hashed.getCategoricals();
         for (int i = 0; i < featureNames.length; i++) {
             String sourceValue = extractSourceValue(toHash, i);
             int featureName = featureNames[i];
-            featureName2SourceRawValue.put(new HashedFeatureName(namespace, featureName), new RawFeatureName(namespace, sourceValue));
+            featureName2SourceRawValue.get().put(new HashedFeatureName(namespace, featureName), new RawFeatureName(namespace, sourceValue));
         }
     }
 
@@ -36,7 +38,7 @@ public class HasherAuditState {
 
     }
 
-    public ConcurrentMap<HashedFeatureName, RawFeatureName> getFeatureName2SourceRawValue(){
+    public ThreadLocal<Map<HashedFeatureName, RawFeatureName>> getFeatureName2SourceRawValue(){
         return this.featureName2SourceRawValue;
     }
 }

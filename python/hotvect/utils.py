@@ -68,6 +68,14 @@ def clean_dir(d: str):
     return
 
 
+def prepare_dir(f: str):
+    p = Path(f)
+    if p.is_dir():
+        clean_dir(f)
+    else:
+        clean_dir(str(p.parent))
+
+
 def ensure_file_exists(file: str):
     if not os.path.isfile(file):
         raise ValueError(f'{file} not found')

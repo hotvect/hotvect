@@ -16,10 +16,7 @@ import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 
 import java.lang.reflect.Array;
 import java.math.BigInteger;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
@@ -33,7 +30,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
  * @param <H> the {@link FeatureNamespace} to be used
  */
 public class InteractionCombiner<H extends Enum<H> & FeatureNamespace> implements AuditableCombiner<H> {
-    private final ThreadLocal<CacheEntry> CACHE = new ThreadLocal<CacheEntry>() {
+    private final ThreadLocal<CacheEntry> CACHE = new ThreadLocal<>() {
         @Override
         protected CacheEntry initialValue() {
             return new CacheEntry();
@@ -55,18 +52,18 @@ public class InteractionCombiner<H extends Enum<H> & FeatureNamespace> implement
 
 
     // Auditing
-    private ConcurrentMap<HashedFeatureName, RawFeatureName> featureName2SourceRawValue;
-    private ConcurrentMap<Integer, List<RawFeatureName>> featureHash2SourceRawValue;
+    private ThreadLocal<Map<HashedFeatureName, RawFeatureName>> featureName2SourceRawValue;
+    private ThreadLocal<Map<Integer, List<RawFeatureName>>> featureHash2SourceRawValue;
 
     // Parameters for combinations
     private final int bitMask;
     private final FeatureDefinition<H>[] featureDefinitions;
 
     @Override
-    public ConcurrentMap<Integer, List<RawFeatureName>> enableAudit(ConcurrentMap<HashedFeatureName, RawFeatureName> featureName2SourceRawValue) {
+    public ThreadLocal<Map<Integer, List<RawFeatureName>>> enableAudit(ThreadLocal<Map<HashedFeatureName, RawFeatureName>> featureName2SourceRawValue) {
         checkNotNull(featureName2SourceRawValue, "featureName2SourceRawValue");
         this.featureName2SourceRawValue = featureName2SourceRawValue;
-        this.featureHash2SourceRawValue = new ConcurrentHashMap<>();
+        this.featureHash2SourceRawValue = ThreadLocal.withInitial(HashMap::new);
         return this.featureHash2SourceRawValue;
     }
 
@@ -129,8 +126,8 @@ public class InteractionCombiner<H extends Enum<H> & FeatureNamespace> implement
                     if (featureHash2SourceRawValue != null) {
                         // Audit enabled
                         HashedFeatureName hashedFeatureName = new HashedFeatureName(element, featureName);
-                        RawFeatureName sourceRawData = this.featureName2SourceRawValue.get(hashedFeatureName);
-                        this.featureHash2SourceRawValue.put(featureHash, ImmutableList.of(sourceRawData));
+                        RawFeatureName sourceRawData = this.featureName2SourceRawValue.get().get(hashedFeatureName);
+                        this.featureHash2SourceRawValue.get().put(featureHash, ImmutableList.of(sourceRawData));
                     }
                 }
 
@@ -189,8 +186,8 @@ public class InteractionCombiner<H extends Enum<H> & FeatureNamespace> implement
                     if(this.featureHash2SourceRawValue != null){
                         // Audit enabled
                         HashedFeatureName hashedFeatureName = new HashedFeatureName(featureNamespace, el);
-                        RawFeatureName sourceRawData = this.featureName2SourceRawValue.get(hashedFeatureName);
-                        this.featureHash2SourceRawValue.put(finalHash, ImmutableList.of(sourceRawData));
+                        RawFeatureName sourceRawData = this.featureName2SourceRawValue.get().get(hashedFeatureName);
+                        this.featureHash2SourceRawValue.get().put(finalHash, ImmutableList.of(sourceRawData));
                     }
 
                 }
@@ -242,12 +239,12 @@ public class InteractionCombiner<H extends Enum<H> & FeatureNamespace> implement
                     int featureName = featureNames[(i / j) % featureNames.length];
 
                     HashedFeatureName hashedFeatureName = new HashedFeatureName(namespace, featureName);
-                    RawFeatureName sourceRawData = this.featureName2SourceRawValue.get(hashedFeatureName);
+                    RawFeatureName sourceRawData = this.featureName2SourceRawValue.get().get(hashedFeatureName);
                     rawFeatureNames.add(sourceRawData);
                     j *= featureNames.length;
                 }
 
-                this.featureHash2SourceRawValue.put(finalHash, ImmutableList.copyOf(rawFeatureNames));
+                this.featureHash2SourceRawValue.get().put(finalHash, ImmutableList.copyOf(rawFeatureNames));
             }
 
         }

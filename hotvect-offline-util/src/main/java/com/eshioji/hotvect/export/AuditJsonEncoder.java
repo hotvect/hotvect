@@ -3,24 +3,22 @@ package com.eshioji.hotvect.export;
 import com.eshioji.hotvect.api.codec.ExampleEncoder;
 import com.eshioji.hotvect.api.data.SparseVector;
 import com.eshioji.hotvect.api.data.raw.Example;
-import com.eshioji.hotvect.core.audit.AuditableExampleEncoder;
 import com.eshioji.hotvect.core.audit.AuditableVectorizer;
 import com.eshioji.hotvect.core.audit.RawFeatureName;
 import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.base.Joiner;
 
 import java.util.List;
-import java.util.concurrent.ConcurrentMap;
+import java.util.Map;
 
 import static com.google.common.base.Preconditions.checkState;
 
-public class AuditJsonEncoder<R> implements AuditableExampleEncoder<R> {
+public class AuditJsonEncoder<R> implements ExampleEncoder<R> {
     private static final ObjectMapper OM = new ObjectMapper();
-    private final ConcurrentMap<Integer, List<RawFeatureName>> names;
+    private final ThreadLocal<Map<Integer, List<RawFeatureName>>> names;
     private final AuditableVectorizer<R> vectorizer;
 
     public AuditJsonEncoder(AuditableVectorizer<R> vectorizer) {
@@ -31,12 +29,12 @@ public class AuditJsonEncoder<R> implements AuditableExampleEncoder<R> {
     @Override
     public String apply(Example<R> toEncode) {
         SparseVector vector = vectorizer.apply(toEncode.getRecord());
-        return jsonEncode(toEncode, vector, names);
+        return jsonEncode(toEncode, vector, names.get());
     }
 
     private static final Joiner JOIN_ON_HAT = Joiner.on("^");
 
-    private String jsonEncode(Example<R> toEncode, SparseVector vector, ConcurrentMap<Integer, List<RawFeatureName>> names) {
+    private String jsonEncode(Example<R> toEncode, SparseVector vector, Map<Integer, List<RawFeatureName>> names) {
         double target = toEncode.getTarget();
         int[] indices = vector.indices();
         double[] values = vector.values();
@@ -81,8 +79,4 @@ public class AuditJsonEncoder<R> implements AuditableExampleEncoder<R> {
 
     }
 
-    @Override
-    public AuditableVectorizer<R> getVectorizer() {
-        return this.vectorizer;
-    }
 }

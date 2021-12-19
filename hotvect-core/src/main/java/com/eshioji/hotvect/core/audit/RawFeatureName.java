@@ -33,4 +33,12 @@ public class RawFeatureName {
     public int hashCode() {
         return Objects.hash(featureNamespace, sourceRawValue);
     }
+
+    @Override
+    public String toString() {
+        return "RawFeatureName{" +
+                "featureNamespace=" + featureNamespace +
+                ", sourceRawValue='" + sourceRawValue + '\'' +
+                '}';
+    }
 }

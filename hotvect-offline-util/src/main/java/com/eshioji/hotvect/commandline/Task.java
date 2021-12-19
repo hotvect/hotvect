@@ -6,6 +6,7 @@ import com.eshioji.hotvect.api.codec.ExampleDecoder;
 import com.eshioji.hotvect.api.codec.ExampleEncoder;
 import com.eshioji.hotvect.api.scoring.Scorer;
 import com.eshioji.hotvect.api.vectorization.Vectorizer;
+import com.eshioji.hotvect.export.AuditJsonEncoder;
 import com.eshioji.hotvect.util.VerboseCallable;
 import com.eshioji.hotvect.util.VerboseRunnable;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -73,7 +74,7 @@ public abstract class Task<R> extends VerboseCallable<Map<String, String>> {
         );
     }
 
-    private Vectorizer<R> getVectorizer(Map<String, InputStream> parameter) throws Exception {
+    protected Vectorizer<R> getVectorizer(Map<String, InputStream> parameter) throws Exception {
         String factoryName = this.offlineTaskContext.getAlgorithmDefinition().getVectorizerFactoryName();
         Optional<JsonNode> hyperparameter = this.offlineTaskContext.getAlgorithmDefinition().getVectorizerParameter();
         return ((VectorizerFactory<R>) loadClass(factoryName).getDeclaredConstructor().newInstance())
@@ -87,11 +88,10 @@ public abstract class Task<R> extends VerboseCallable<Map<String, String>> {
                 .apply(parameter);
     }
 
-    protected ExampleEncoder<R> getTrainEncoder(Map<String, InputStream> parameter) throws Exception {
+    protected ExampleEncoder<R> getTrainEncoder(Vectorizer<R> vectorizer) throws Exception {
         String factoryName = this.offlineTaskContext.getAlgorithmDefinition().getEncoderFactoryName();
-        Optional<JsonNode> hyperparameter = this.offlineTaskContext.getAlgorithmDefinition().getTrainDecoderParameter();
         return ((ExampleEncoderFactory<R>) loadClass(factoryName).getDeclaredConstructor().newInstance())
-                .apply(getVectorizer(parameter), hyperparameter);
+                .apply(vectorizer);
     }
 
     protected ExampleDecoder<R> getPredictDecoder() throws Exception {

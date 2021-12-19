@@ -20,8 +20,11 @@ public class Options {
     @CommandLine.Option(names = {"--predict"}, description = "Predict")
     public boolean predict;
 
+    @CommandLine.Option(names = {"--audit"}, description = "Audit")
+    public boolean audit;
+
     @CommandLine.Option(names = {"--generate-state"}, description = "Generator class name")
-    public String stateDefinition;
+    public String generateStateTask;
 
     @CommandLine.Option(names = {"--source"}, paramLabel = "SOURCE_FILE", description = "Source file")
     public File sourceFile;

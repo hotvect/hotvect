@@ -8,12 +8,12 @@ from typing import Dict, List
 import pandas as pd
 
 import hotvect.mlutils as mlutils
-from hotvect.utils import trydelete, runshell, read_json, to_zip_archive, ensure_file_exists, clean_dir, ensure_dir_exists
+from hotvect.utils import trydelete, runshell, read_json, to_zip_archive, ensure_file_exists, clean_dir, ensure_dir_exists, prepare_dir
 
 logging.basicConfig(level=logging.WARNING)
 
 
-class Task:
+class Hotvect:
     def __init__(self,
                  hotvect_util_jar_path,
                  algorithm_jar_path,
@@ -96,6 +96,13 @@ class Task:
         return os.path.join(
             self.output_path(algorithm_definition),
             'validation_scores.csv'
+        )
+
+    def audit_data_file_path(self, algorithm_definition: Dict) -> str:
+        encode_suffix = 'audit.jsonl.gz' if self.enable_gzip else 'audit.jsonl'
+        return os.path.join(
+            self.output_path(algorithm_definition),
+            encode_suffix
         )
 
     def predict_parameter_file_path(self, algorithm_definition: Dict) -> str:
@@ -326,3 +333,22 @@ class Task:
         trydelete(self.model_file_path(algorithm_definition))
         trydelete(self.score_file_path(algorithm_definition))
         trydelete(self.output_path(algorithm_definition))
+
+    def audit(self, algorithm_definition: Dict) -> None:
+        metadata_location = os.path.join(self.metadata_path(algorithm_definition), 'audit_metadata.json')
+        trydelete(metadata_location)
+
+        audit_data_location = self.audit_data_file_path(algorithm_definition)
+        trydelete(audit_data_location)
+
+        cmd = self._base_command(algorithm_definition, metadata_location)
+        cmd.append('--audit')
+        if self.feature_states:
+            # We have feature states
+            cmd.extend(['--parameters', self.encode_parameter_file_path(algorithm_definition)])
+        cmd.extend(['--source', self.train_data_path])
+        cmd.extend(['--dest', audit_data_location])
+        runshell(cmd)
+        return read_json(metadata_location)
+
+

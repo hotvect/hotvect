@@ -2,18 +2,18 @@ import copy
 import json
 from typing import List, Dict
 
-from hotvect.tasks import Task
+from hotvect.pyhotvec import Hotvect
 
 
 class FeatureSelectionTask:
     def __init__(self,
-                 task: Task,
+                 hotvect: Hotvect,
                  base_algorithm_definition: Dict,
                  anchor_features: List[List[str]],
                  candidate_features: List[List[str]],
                  result_path: str
                  ):
-        self.task = task
+        self.hotvect = hotvect
         self.base_algorithm_definition = base_algorithm_definition
         self.anchor_features = anchor_features
         self.candidate_features = candidate_features
@@ -38,7 +38,7 @@ class FeatureSelectionTask:
             features = copy.deepcopy(anchor_features)
             features.append(next_feature)
             algorithm_definition = self._build_algorighm_definition(name_suffix=name, features=features)
-            result = self.task.run_all(algorithm_definition)
+            result = self.hotvect.run_all(algorithm_definition)
             results[name] = {
                 'features': result['algorithm_definition']['vectorizer_parameters']['features'],
                 'evaluate': result['evaluate'],
