@@ -1,16 +1,26 @@
 import json
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, tzinfo, timedelta
 from shutil import copyfile
 from typing import Dict, List
 
-import pandas as pd
-
 import hotvect.mlutils as mlutils
-from hotvect.utils import trydelete, runshell, read_json, to_zip_archive, ensure_file_exists, clean_dir, ensure_dir_exists, prepare_dir
+import pandas as pd
+from hotvect.utils import trydelete, runshell, read_json, to_zip_archive, ensure_file_exists, clean_dir, \
+    ensure_dir_exists
 
 logging.basicConfig(level=logging.WARNING)
+
+
+# Courtesy of https://stackoverflow.com/a/23705687/234901
+# Under CC BY-SA 3.0
+class SimpleUTC(tzinfo):
+    def tzname(self, **kwargs):
+        return "UTC"
+
+    def utcoffset(self, dt):
+        return timedelta(0)
 
 
 class Hotvect:
@@ -28,6 +38,7 @@ class Hotvect:
                  ):
         self.run_id: str = run_id
         self.ran_at: str = datetime.now().isoformat()
+        self.ran_at: str = datetime.utcnow().replace(tzinfo=SimpleUTC()).isoformat()
 
         # Utilities
         self.hotvect_util_jar_path = hotvect_util_jar_path

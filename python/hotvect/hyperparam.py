@@ -2,7 +2,7 @@ import copy
 import json
 from typing import List, Dict
 
-from hotvect.pyhotvec import Hotvect
+from hotvect.pyhotvect import Hotvect
 
 
 class FeatureSelectionTask:

@@ -1,10 +1,13 @@
 package com.eshioji.hotvect.onlineutils.hotdeploy;
 
 import com.eshioji.hotvect.api.AlgorithmDefinition;
+import com.eshioji.hotvect.api.AlgorithmParameterMetadata;
 import com.eshioji.hotvect.api.ScorerFactory;
 import com.eshioji.hotvect.api.VectorizerFactory;
 import com.eshioji.hotvect.api.scoring.Scorer;
 import com.eshioji.hotvect.api.vectorization.Vectorizer;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Charsets;
 import com.google.common.io.CharStreams;
 
@@ -14,10 +17,15 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.net.URL;
 import java.net.URLClassLoader;
+import java.time.Instant;
+import java.time.ZonedDateTime;
 import java.util.Map;
 import java.util.zip.ZipFile;
 
+import static com.google.common.base.Preconditions.checkNotNull;
+
 public class AlgorithmHolder<R> implements AutoCloseable {
+    private static final ObjectMapper OM = new ObjectMapper();
     private final File algorithmJar;
     private final URLClassLoader classLoader;
     private final AlgorithmDefinition algorithmDefinition;
@@ -38,12 +46,20 @@ public class AlgorithmHolder<R> implements AutoCloseable {
 
     }
 
-    private AlgorithmDefinition readAlgorithmDefinition(URL urls) {
+    private AlgorithmDefinition readAlgorithmDefinition(URL urls) throws MalformedAlgorithmException {
         try (ChildOnlyClassLoader loader = new ChildOnlyClassLoader(new URL[]{urls})) {
-            String algoDefJson = CharStreams.toString(new InputStreamReader(loader.getResourceAsStream("algorithm_definition.json"), Charsets.UTF_8));
-            return AlgorithmDefinition.parse(algoDefJson);
+
+            try (InputStream is = loader.getResourceAsStream("algorithm_definition.json")) {
+                if (is == null) {
+                    throw new MalformedAlgorithmException("algorithm_definition.json is not found in URL:" + urls);
+                }
+
+                String algoDefJson = CharStreams.toString(new InputStreamReader(is, Charsets.UTF_8));
+
+                return AlgorithmDefinition.parse(algoDefJson);
+            }
         } catch (IOException e) {
-            throw new RuntimeException(e);
+            throw new MalformedAlgorithmException(e);
         }
     }
 
@@ -60,13 +76,25 @@ public class AlgorithmHolder<R> implements AutoCloseable {
         this.classLoader.close();
     }
 
-    public Scorer<R> load(File parameterFile) throws MalformedAlgorithmException {
+    public AlgorithmInstance<R> load(File parameterFile) throws MalformedAlgorithmException {
+        AlgorithmParameterMetadata algorithmParameterMetadata = readAlgorithmParameterMetadata(parameterFile);
         Vectorizer<R> vectorizer = getVectorizer(parameterFile);
-        return getScorer(vectorizer, parameterFile);
+        Scorer<R> scorer = getScorer(vectorizer, parameterFile);
+        if (!algorithmDefinition.getAlgorithmName().equals(algorithmParameterMetadata.getAlgorithmName())) {
+            throw new MalformedAlgorithmException(
+                    String.format(
+                            "Algorithm name of supplied parameter does not match: expected %s but got %s",
+                            algorithmDefinition.getAlgorithmName(), algorithmParameterMetadata.getAlgorithmName()
+                    )
+            );
+
+        }
+        return new AlgorithmInstance<>(algorithmDefinition, algorithmParameterMetadata, scorer);
     }
 
     private Scorer<R> getScorer(Vectorizer<R> vectorizer, File file) throws MalformedAlgorithmException {
         try (ZipFile parameterFile = new ZipFile(file)) {
+
             Map<String, InputStream> parameters = ZipFiles.parameters(parameterFile);
             return this.scorerFactory.apply(vectorizer, parameters);
         } catch (Exception e) {
@@ -78,6 +106,26 @@ public class AlgorithmHolder<R> implements AutoCloseable {
         try (ZipFile parameterFile = new ZipFile(file)) {
             Map<String, InputStream> parameters = ZipFiles.parameters(parameterFile);
             return this.vectorizerFactory.apply(algorithmDefinition.getVectorizerParameter(), parameters);
+        } catch (Exception e) {
+            throw new MalformedAlgorithmException(e);
+        }
+    }
+
+    private AlgorithmParameterMetadata readAlgorithmParameterMetadata(File file) throws MalformedAlgorithmException {
+        try (ZipFile parameterFile = new ZipFile(file)) {
+            Map<String, InputStream> parameters = ZipFiles.parameters(parameterFile);
+
+            if (parameters.get("algorithm_parameters.json") == null) {
+                throw new MalformedAlgorithmException("algorithm_parameters.json not found in the parameter package. Only found:" + parameters.keySet());
+            }
+
+            String algorithmParameterMetadata = CharStreams.toString(new InputStreamReader(parameters.get("algorithm_parameters.json"), Charsets.UTF_8));
+            JsonNode parsed = OM.readTree(algorithmParameterMetadata);
+            return new AlgorithmParameterMetadata(
+                    checkNotNull(parsed.get("parameter_id").asText(), "parameter_id not found"),
+                    checkNotNull(ZonedDateTime.parse(parsed.get("ran_at").asText()).toInstant(), "ran_at not found"),
+                    checkNotNull(parsed.get("algorithm_name").asText(), "algorithm_name not found")
+            );
         } catch (Exception e) {
             throw new MalformedAlgorithmException(e);
         }

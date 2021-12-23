@@ -1,4 +1,4 @@
-package com.eshioji.hotvect.onlineutils.hotdeploy;
+package com.eshioji.hotvect.core.featurestate;
 
 import com.eshioji.hotvect.api.featurestate.FeatureStateCodec;
 import com.eshioji.hotvect.api.featurestate.FeatureState;
