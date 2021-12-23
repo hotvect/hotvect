@@ -126,7 +126,7 @@ class Hotvect:
     def predict_parameter_file_path(self) -> str:
         return os.path.join(
             self.output_path(),
-            f"{self.algorithm_definition['algorithm_name']}-{self.run_id}.parameters.zip"
+            f"{self.algorithm_definition['algorithm_name']}@{self.run_id}.parameters.zip"
         )
 
     def encode_parameter_file_path(self) -> str:
