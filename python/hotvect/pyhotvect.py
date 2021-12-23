@@ -298,7 +298,6 @@ class Hotvect:
 
     def package_predict_parameters(self) -> Dict:
         predict_parameter_package_location = self.predict_parameter_file_path()
-
         trydelete(predict_parameter_package_location)
 
         # Add the model file
@@ -307,15 +306,20 @@ class Hotvect:
         # Add all the feature states
         to_package.extend(list(self.feature_states.values()))
 
-        to_zip_archive(to_package, predict_parameter_package_location)
-        return {
+        # Add the algo parameters
+        algorithm_parameters = {
             'algorithm_name': self.algorithm_definition['algorithm_name'],
-            'run_id': self.run_id,
+            'parameter_id': self.run_id,
             'ran_at': self.ran_at,
             'algorithm_definition': self.algorithm_definition,
             'sources': to_package,
             'package': predict_parameter_package_location
         }
+        algo_parameters_path = self._write_data(algorithm_parameters, 'algorithm_parameters.json')
+        to_package.append(algo_parameters_path)
+
+        to_zip_archive(to_package, predict_parameter_package_location)
+        return algorithm_parameters
 
     def predict(self) -> Dict:
         metadata_location = os.path.join(self.metadata_path(), 'predict_metadata.json')
