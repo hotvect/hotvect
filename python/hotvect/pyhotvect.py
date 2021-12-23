@@ -37,7 +37,6 @@ class Hotvect:
                  jvm_options=None
                  ):
         self.run_id: str = run_id
-        self.ran_at: str = datetime.now().isoformat()
         self.ran_at: str = datetime.utcnow().replace(tzinfo=SimpleUTC()).isoformat()
 
         # Utilities
@@ -167,7 +166,10 @@ class Hotvect:
             clean_dir(directory)
         logging.info('Cleaned output and metadata')
 
-    def run_all(self, algorithm_definition: Dict, clean=True) -> Dict:
+    def run_all(self, algorithm_definition: Dict, run_id=None, clean=True) -> Dict:
+        if run_id:
+            self.run_id = run_id
+
         result = {
             'algorithm_name': algorithm_definition['algorithm_name'],
             'run_id': self.run_id,
@@ -297,7 +299,6 @@ class Hotvect:
         # Add all the feature states
         to_package.extend(list(self.feature_states.values()))
 
-
         to_zip_archive(to_package, predict_parameter_package_location)
         return {
             'algorithm_name': algorithm_definition['algorithm_name'],
@@ -361,5 +362,3 @@ class Hotvect:
         cmd.extend(['--dest', audit_data_location])
         runshell(cmd)
         return read_json(metadata_location)
-
-
