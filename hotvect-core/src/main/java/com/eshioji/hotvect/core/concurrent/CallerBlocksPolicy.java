@@ -17,7 +17,7 @@
  * Code adapted from: https://raw.githubusercontent.com/spring-projects/spring-integration/main/spring-integration-core/src/main/java/org/springframework/integration/util/CallerBlocksPolicy.java
  */
 
-package com.eshioji.hotvect.util;
+package com.eshioji.hotvect.core.concurrent;
 
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.RejectedExecutionException;

@@ -4,6 +4,7 @@ import com.eshioji.hotvect.vw.VwModelImporter;
 import it.unimi.dsi.fastutil.ints.Int2DoubleMap;
 import org.junit.jupiter.api.Test;
 
+import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
@@ -19,7 +20,7 @@ class VwModelImporterTest {
     void importModel() {
         VwModelImporter subject = new VwModelImporter();
         InputStreamReader model = new InputStreamReader(this.getClass().getResourceAsStream("test.model"), StandardCharsets.UTF_8);
-        Int2DoubleMap read = subject.apply(model);
+        Int2DoubleMap read = subject.apply(new BufferedReader(model));
         Map<Integer, Double> expected = new HashMap<>();
         expected.put(0,1.0);
         expected.put(1,12.0);
@@ -46,14 +47,14 @@ class VwModelImporterTest {
     void emptyModel() {
         VwModelImporter subject = new VwModelImporter();
         InputStreamReader model = new InputStreamReader(this.getClass().getResourceAsStream("empty.model"), StandardCharsets.UTF_8);
-        assertThrows(IllegalStateException.class, () -> subject.apply(model));
+        assertThrows(IllegalStateException.class, () -> subject.apply(new BufferedReader(model)));
     }
 
     @Test
     void corruptedModel() {
         VwModelImporter subject = new VwModelImporter();
         InputStreamReader model = new InputStreamReader(this.getClass().getResourceAsStream("corrupted.model"), StandardCharsets.UTF_8);
-        assertThrows(IllegalStateException.class, () -> subject.apply(model));
+        assertThrows(IllegalStateException.class, () -> subject.apply(new BufferedReader(model)));
     }
 
 

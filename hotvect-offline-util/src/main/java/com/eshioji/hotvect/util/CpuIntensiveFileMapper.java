@@ -3,6 +3,8 @@ package com.eshioji.hotvect.util;
 import com.codahale.metrics.Gauge;
 import com.codahale.metrics.Meter;
 import com.codahale.metrics.MetricRegistry;
+import com.eshioji.hotvect.core.concurrent.CpuIntensiveMapper;
+import com.eshioji.hotvect.core.concurrent.VerboseRunnable;
 import com.google.common.base.Charsets;
 import com.google.common.io.Files;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
@@ -19,10 +21,14 @@ import java.util.function.Function;
 import java.util.stream.Stream;
 import java.util.zip.GZIPInputStream;
 
-import static com.eshioji.hotvect.util.CpuIntensiveMapper.*;
+import static com.eshioji.hotvect.core.concurrent.CpuIntensiveMapper.*;
 
 
 public class CpuIntensiveFileMapper extends VerboseRunnable {
+    static final int DEFAULT_THREAD_NUM = (Runtime.getRuntime().availableProcessors() > 1 ? Runtime.getRuntime().availableProcessors() - 1 : 1);
+    static final int DEFAULT_QUEUE_LENGTH = DEFAULT_THREAD_NUM * 2;
+    static final int DEFAULT_BATCH_SIZE = 100;
+
     private static final Logger LOGGER = LoggerFactory.getLogger(CpuIntensiveFileMapper.class);
     private final MetricRegistry metricRegistry;
     private final Meter recordMeter;

@@ -6,13 +6,24 @@
     <parent>
         <groupId>com.eshioji.hotvect</groupId>
         <artifactId>hotvect-parent</artifactId>
-        <version>0.0.8</version>
+        <version>0.0.10</version>
     </parent>
 
     <artifactId>hotvect-core</artifactId>
     <name>Hotvect Feature Transformation</name>
 
     <dependencies>
+
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.dropwizard.metrics</groupId>
+            <artifactId>metrics-core</artifactId>
+        </dependency>
+
         <dependency>
             <groupId>com.eshioji.hotvect</groupId>
             <artifactId>hotvect-api</artifactId>

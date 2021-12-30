@@ -1,6 +1,5 @@
-package com.eshioji.hotvect.util;
+package com.eshioji.hotvect.core.concurrent;
 
-import com.codahale.metrics.Meter;
 import com.codahale.metrics.MetricRegistry;
 import com.codahale.metrics.Timer;
 import com.eshioji.hotvect.core.util.ListTransform;
@@ -14,7 +13,6 @@ import java.util.Collection;
 import java.util.List;
 import java.util.concurrent.*;
 import java.util.function.Function;
-import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import static com.google.common.base.Preconditions.checkState;

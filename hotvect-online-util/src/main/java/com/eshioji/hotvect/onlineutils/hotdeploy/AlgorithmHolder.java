@@ -11,10 +11,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Charsets;
 import com.google.common.io.CharStreams;
 
-import java.io.File;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
+import java.io.*;
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.time.Instant;
@@ -118,14 +115,14 @@ public class AlgorithmHolder<R> implements AutoCloseable {
             if (parameters.get("algorithm_parameters.json") == null) {
                 throw new MalformedAlgorithmException("algorithm_parameters.json not found in the parameter package. Only found:" + parameters.keySet());
             }
-
-            String algorithmParameterMetadata = CharStreams.toString(new InputStreamReader(parameters.get("algorithm_parameters.json"), Charsets.UTF_8));
-            JsonNode parsed = OM.readTree(algorithmParameterMetadata);
-            return new AlgorithmParameterMetadata(
-                    checkNotNull(parsed.get("parameter_id").asText(), "parameter_id not found"),
-                    checkNotNull(ZonedDateTime.parse(parsed.get("ran_at").asText()).toInstant(), "ran_at not found"),
-                    checkNotNull(parsed.get("algorithm_name").asText(), "algorithm_name not found")
-            );
+            try(var reader = new BufferedReader(new InputStreamReader(parameters.get("algorithm_parameters.json"), Charsets.UTF_8))){
+                JsonNode parsed = OM.readTree(reader);
+                return new AlgorithmParameterMetadata(
+                        checkNotNull(parsed.get("parameter_id").asText(), "parameter_id not found"),
+                        checkNotNull(ZonedDateTime.parse(parsed.get("ran_at").asText()).toInstant(), "ran_at not found"),
+                        checkNotNull(parsed.get("algorithm_name").asText(), "algorithm_name not found")
+                );
+            }
         } catch (Exception e) {
             throw new MalformedAlgorithmException(e);
         }

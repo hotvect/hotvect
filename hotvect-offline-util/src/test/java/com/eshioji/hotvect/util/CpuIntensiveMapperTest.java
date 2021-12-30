@@ -1,6 +1,7 @@
 package com.eshioji.hotvect.util;
 
 import com.codahale.metrics.MetricRegistry;
+import com.eshioji.hotvect.core.concurrent.CpuIntensiveMapper;
 import com.eshioji.hotvect.core.util.Pair;
 import com.google.common.hash.Hashing;
 import org.junit.jupiter.api.Test;

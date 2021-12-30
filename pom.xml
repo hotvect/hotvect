@@ -5,7 +5,7 @@
 
     <groupId>com.eshioji.hotvect</groupId>
     <artifactId>hotvect-parent</artifactId>
-    <version>0.0.8</version>
+    <version>0.0.10</version>
     <packaging>pom</packaging>
 
     <name>Hotvect Project</name>

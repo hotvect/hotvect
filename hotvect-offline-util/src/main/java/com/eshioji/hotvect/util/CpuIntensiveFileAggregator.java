@@ -1,6 +1,8 @@
 package com.eshioji.hotvect.util;
 
 import com.codahale.metrics.MetricRegistry;
+import com.eshioji.hotvect.core.concurrent.CpuIntensiveAggregator;
+import com.eshioji.hotvect.core.concurrent.VerboseCallable;
 import com.google.common.base.Charsets;
 import com.google.common.io.Files;
 import org.slf4j.Logger;
