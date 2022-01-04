@@ -29,11 +29,15 @@ public class AlgorithmHolder<R> implements AutoCloseable {
     private final VectorizerFactory<R> vectorizerFactory;
     private final ScorerFactory<R> scorerFactory;
 
-    public AlgorithmHolder(File algorithmJar) {
+    public AlgorithmHolder(File algorithmJar, ClassLoader parent){
         try {
             this.algorithmJar = algorithmJar;
             URL algorithmJarUrl = algorithmJar.toURI().toURL();
-            this.classLoader = new URLClassLoader(new URL[]{algorithmJarUrl});
+            if (parent == null){
+                this.classLoader = new URLClassLoader(new URL[]{algorithmJarUrl});
+            } else {
+                this.classLoader = new URLClassLoader(new URL[]{algorithmJarUrl}, parent);
+            }
             this.algorithmDefinition = readAlgorithmDefinition(algorithmJarUrl);
             this.vectorizerFactory = (VectorizerFactory<R>) Class.forName(algorithmDefinition.getVectorizerFactoryName(), true, this.classLoader).getDeclaredConstructor().newInstance();
             this.scorerFactory = (ScorerFactory<R>) Class.forName(algorithmDefinition.getScorerFactoryName(), true, this.classLoader).getDeclaredConstructor().newInstance();
@@ -41,6 +45,10 @@ public class AlgorithmHolder<R> implements AutoCloseable {
             throw new RuntimeException(e);
         }
 
+    }
+
+    public AlgorithmHolder(File algorithmJar) {
+        this(algorithmJar, null);
     }
 
     private AlgorithmDefinition readAlgorithmDefinition(URL urls) throws MalformedAlgorithmException {
