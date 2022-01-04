@@ -4,6 +4,7 @@ import com.eshioji.hotvect.api.codec.regression.ExampleEncoder;
 import com.eshioji.hotvect.api.data.DataRecord;
 import com.eshioji.hotvect.api.data.FeatureNamespace;
 import com.eshioji.hotvect.api.data.hashed.HashedValue;
+import com.eshioji.hotvect.api.data.hashed.HashedValueType;
 import com.eshioji.hotvect.api.data.raw.regression.Example;
 import com.eshioji.hotvect.core.hash.AuditableHasher;
 import com.eshioji.hotvect.core.transform.Transformer;
@@ -93,17 +94,33 @@ public class VwNamespacedExampleEncoder<R, H extends Enum<H> & FeatureNamespace>
             sb.append(namespace);
             sb.append(" ");
 
-            int[] indices = entry.getValue().getCategoricalIndices();
-            double[] values = entry.getValue().getNumericals();
+            var hashedValue = entry.getValue();
+            if(hashedValue.getValueType() == HashedValueType.NUMERICAL){
+                // Numericals
+                int[] numericalIndices = hashedValue.getNumericalIndices();
+                double[] numericalValues = hashedValue.getNumericalValues();
 
-            for (int j = 0; j < indices.length; j++) {
-                int feature = indices[j];
-                double value = values[j];
-                sb.append(feature);
-                sb.append(':');
-                DoubleFormatUtils.formatDoubleFast(value, 6, 6, sb);
-                sb.append(" ");
+                for (int j = 0; j < numericalIndices.length; j++) {
+                    int feature = numericalIndices[j];
+                    double value = numericalValues[j];
+                    sb.append(feature);
+                    sb.append(':');
+                    DoubleFormatUtils.formatDoubleFast(value, 6, 6, sb);
+                    sb.append(" ");
+                }
+            } else {
+                // Categoricals
+                int[] categoricalIndices = hashedValue.getCategoricalIndices();
+
+                for (int j = 0; j < categoricalIndices.length; j++) {
+                    int feature = categoricalIndices[j];
+                    sb.append(feature);
+                    sb.append(':');
+                    sb.append('1');
+                    sb.append(" ");
+                }
             }
+
 
 
         }

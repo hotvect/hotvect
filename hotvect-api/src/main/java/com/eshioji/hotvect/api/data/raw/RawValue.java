@@ -98,7 +98,7 @@ public class RawValue {
         checkState(ALLOWS_NUMERICALS.contains(this.valueType),
                 "No numericals available for type:%s", this.valueType);
         if(hashedValue != null) {
-            return hashedValue.getNumericals();
+            return hashedValue.getNumericalValues();
         } else {
             return this.rawNumericals;
         }

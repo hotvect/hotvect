@@ -1,7 +1,7 @@
 package com.eshioji.hotvect.export;
 
-import com.eshioji.hotvect.api.data.raw.regression.Example;
 import com.eshioji.hotvect.api.data.raw.RawValue;
+import com.eshioji.hotvect.api.data.raw.regression.Example;
 import com.eshioji.hotvect.core.audit.AuditableVectorizer;
 import com.eshioji.hotvect.core.combine.FeatureDefinition;
 import com.eshioji.hotvect.core.combine.InteractionCombiner;
@@ -25,7 +25,6 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 import static com.eshioji.hotvect.testutil.TestFeatureSpace.*;
-import static org.junit.jupiter.api.Assertions.assertEquals;
 
 class AuditJsonEncoderTest {
     private static final ObjectMapper OM = new ObjectMapper();
@@ -69,8 +68,10 @@ class AuditJsonEncoderTest {
         JsonNode expected = OM.readTree(AuditJsonEncoderTest.class.getResourceAsStream("audit_expected.json"));
         Map<String, String> input = inputFromExpected(expected);
 
-        JSONAssert.assertEquals(OM.writeValueAsString(expected),
-                subject.apply(new Example<>(input, 1.0)),
+        var expectedStr = OM.writeValueAsString(expected);
+        var actualStr = subject.apply(new Example<>(input, 1.0));
+        JSONAssert.assertEquals(expectedStr,
+                actualStr,
                 JSONCompareMode.LENIENT);
     }
 

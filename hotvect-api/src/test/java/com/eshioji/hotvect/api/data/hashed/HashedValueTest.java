@@ -23,7 +23,7 @@ class HashedValueTest {
             HashedValue subject = HashedValue.singleCategorical(x);
             assertEquals(x, subject.getSingleCategorical());
             assertThrows(IllegalStateException.class, subject::getSingleNumerical);
-            assertThrows(IllegalStateException.class, subject::getNumericals);
+            assertThrows(IllegalStateException.class, subject::getNumericalValues);
 
             SparseVector actualVector = subject.asSparseVector();
             assertEquals(new SparseVector(new int[]{x}), actualVector);
@@ -53,7 +53,7 @@ class HashedValueTest {
                 assertThrows(IllegalStateException.class, subject::getSingleCategorical);
             }
 
-            assertThrows(IllegalStateException.class, subject::getNumericals);
+            assertThrows(IllegalStateException.class, subject::getNumericalValues);
 
             SparseVector actualVector = subject.asSparseVector();
             assertEquals(new SparseVector(x), actualVector);
@@ -77,7 +77,7 @@ class HashedValueTest {
                 assertThrows(IllegalStateException.class, subject::getSingleNumerical);
             }
 
-            assertArrayEquals(values, subject.getNumericals());
+            assertArrayEquals(values, subject.getNumericalValues());
 
             SparseVector actualVector = subject.asSparseVector();
             var expected = new SparseVector(names, values);

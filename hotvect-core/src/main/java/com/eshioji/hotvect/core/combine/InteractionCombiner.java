@@ -113,8 +113,8 @@ public class InteractionCombiner<H extends Enum<H> & FeatureNamespace> implement
                 if (data == null) {
                     continue; // Missing
                 }
-                int[] featureNames = data.getCategoricalIndices();
-                double[] featureValues = data.getNumericals();
+                int[] featureNames = data.getNumericalIndices();
+                double[] featureValues = data.getNumericalValues();
 
                 for (int i = 0; i < featureNames.length; i++) {
                     int featureName = featureNames[i];
@@ -132,29 +132,18 @@ public class InteractionCombiner<H extends Enum<H> & FeatureNamespace> implement
             }
         }
 
-        // Create the arrays for the final feature vector
-        int size = categorical.size() + numerical.size();
-        int[] idx = new int[size];
-        double[] vals = new double[size];
-
-        // Add categorical indexes
-        categorical.toArray(idx);
-        // Fill 1.0 for categorical values
-        Arrays.fill(vals, 0, categorical.size(), 1.0);
-
-        if (!numerical.isEmpty()) {
-            int[] numericalIdx = numerical.keySet().toIntArray();
-            double[] numericalVals = new double[numericalIdx.length];
-            for (int i = 0; i < numericalIdx.length; i++) {
-                int ni = numericalIdx[i];
-                numericalVals[i] = numerical.get(ni);
+        int[] categoricalIndices = categorical.toIntArray();
+        if(!numerical.isEmpty()){
+            int[] numericalIndices = numerical.keySet().toIntArray();
+            double[] numericalValues = new double[numericalIndices.length];
+            for (int i = 0; i < numericalIndices.length; i++) {
+                int ni = numericalIndices[i];
+                numericalValues[i] = numerical.get(ni);
             }
-
-            // Copy the numerical indexes/values to the final array after the categorical values
-            System.arraycopy(numericalIdx, 0, idx, categorical.size(), numericalIdx.length);
-            System.arraycopy(numericalVals, 0, vals, categorical.size(), numericalVals.length);
+            return new SparseVector(categoricalIndices, numericalIndices, numericalValues);
+        } else {
+            return new SparseVector(categoricalIndices);
         }
-        return new SparseVector(idx, vals);
     }
 
 

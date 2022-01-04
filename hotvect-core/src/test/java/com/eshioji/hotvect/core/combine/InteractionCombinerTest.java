@@ -36,7 +36,7 @@ class InteractionCombinerTest {
         testData.put(categoricals_1, HashedValue.categoricals(new int[]{1, 2, 3}));
 
         SparseVector actual = subject.apply(testData);
-        assertEquals(4, actual.getCategoricalIndices().length);
+        assertEquals(8, actual.getCategoricalIndices().length);
         assertEquals(4, actual.getNumericalIndices().length);
 
         Map<Integer, Double> expected = new HashMap<>();

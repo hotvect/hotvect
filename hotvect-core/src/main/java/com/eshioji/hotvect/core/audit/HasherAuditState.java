@@ -2,16 +2,28 @@ package com.eshioji.hotvect.core.audit;
 
 import com.eshioji.hotvect.api.data.FeatureNamespace;
 import com.eshioji.hotvect.api.data.hashed.HashedValue;
+import com.eshioji.hotvect.api.data.hashed.HashedValueType;
 import com.eshioji.hotvect.api.data.raw.RawValue;
 
 import java.util.HashMap;
 import java.util.Map;
 
+import static com.google.common.base.Preconditions.checkState;
+
 public class HasherAuditState {
     private final ThreadLocal<Map<HashedFeatureName, RawFeatureName>> featureName2SourceRawValue = ThreadLocal.withInitial(HashMap::new);
 
     public void registerSourceRawValue(FeatureNamespace namespace, RawValue toHash, HashedValue hashed) {
-        int[] featureNames = hashed.getCategoricalIndices();
+        int[] featureNames;
+        if (hashed.getValueType() == HashedValueType.CATEGORICAL){
+            featureNames = hashed.getCategoricalIndices();
+        } else {
+            featureNames = hashed.getNumericalIndices();
+        }
+        doRegisterSourceRawValue(namespace, toHash, featureNames);
+    }
+
+    private void doRegisterSourceRawValue(FeatureNamespace namespace, RawValue toHash, int[] featureNames) {
         for (int i = 0; i < featureNames.length; i++) {
             String sourceValue = extractSourceValue(toHash, i);
             int featureName = featureNames[i];

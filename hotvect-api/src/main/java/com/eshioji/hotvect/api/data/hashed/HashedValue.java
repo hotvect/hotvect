@@ -64,7 +64,7 @@ public class HashedValue {
         checkState(this.valueType == HashedValueType.NUMERICAL);
         return this.values.getNumericalIndices();
     }
-    public double[] getNumericals() {
+    public double[] getNumericalValues() {
         checkState(this.valueType == HashedValueType.NUMERICAL);
         return this.values.getNumericalValues();
     }
