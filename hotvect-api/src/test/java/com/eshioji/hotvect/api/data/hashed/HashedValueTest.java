@@ -23,10 +23,10 @@ class HashedValueTest {
             HashedValue subject = HashedValue.singleCategorical(x);
             assertEquals(x, subject.getSingleCategorical());
             assertThrows(IllegalStateException.class, subject::getSingleNumerical);
-            assertArrayEquals(new double[]{1.0}, subject.getNumericals());
+            assertThrows(IllegalStateException.class, subject::getNumericals);
 
-            SparseVector actualVector = subject.getCategoricalsToNumericals();
-            assertEquals(new SparseVector(new int[]{x}, new double[]{1.0}), actualVector);
+            SparseVector actualVector = subject.asSparseVector();
+            assertEquals(new SparseVector(new int[]{x}), actualVector);
         });
     }
 
@@ -36,9 +36,9 @@ class HashedValueTest {
             HashedValue subject = HashedValue.singleNumerical(x);
             assertEquals(x, subject.getSingleNumerical());
             assertThrows(IllegalStateException.class, subject::getSingleCategorical);
-            assertArrayEquals(new int[]{0}, subject.getCategoricals());
+            assertArrayEquals(new int[]{0}, subject.getNumericalIndices());
 
-            SparseVector actualVector = subject.getCategoricalsToNumericals();
+            SparseVector actualVector = subject.asSparseVector();
             assertEquals(new SparseVector(new int[]{0}, new double[]{x}), actualVector);
         });
     }
@@ -47,18 +47,16 @@ class HashedValueTest {
     void categoricals() {
         qt().forAll(categoricalVectors()).checkAssert(x -> {
             HashedValue subject = HashedValue.categoricals(x);
-            assertArrayEquals(x, subject.getCategoricals());
+            assertArrayEquals(x, subject.getCategoricalIndices());
             assertThrows(IllegalStateException.class, subject::getSingleNumerical);
             if (x.length != 1) {
                 assertThrows(IllegalStateException.class, subject::getSingleCategorical);
             }
 
-            double[] expectedNumericals = new double[x.length];
-            Arrays.fill(expectedNumericals, 1.0);
-            assertArrayEquals(expectedNumericals, subject.getNumericals());
+            assertThrows(IllegalStateException.class, subject::getNumericals);
 
-            SparseVector actualVector = subject.getCategoricalsToNumericals();
-            assertEquals(new SparseVector(x, expectedNumericals), actualVector);
+            SparseVector actualVector = subject.asSparseVector();
+            assertEquals(new SparseVector(x), actualVector);
         });
     }
 
@@ -73,7 +71,7 @@ class HashedValueTest {
             assert names.length == values.length;
 
             HashedValue subject = HashedValue.numericals(names, values);
-            assertArrayEquals(names, subject.getCategoricals());
+            assertArrayEquals(names, subject.getNumericalIndices());
             assertThrows(IllegalStateException.class, subject::getSingleCategorical);
             if (names.length != 1) {
                 assertThrows(IllegalStateException.class, subject::getSingleNumerical);
@@ -81,8 +79,9 @@ class HashedValueTest {
 
             assertArrayEquals(values, subject.getNumericals());
 
-            SparseVector actualVector = subject.getCategoricalsToNumericals();
-            assertEquals(new SparseVector(names, values), actualVector);
+            SparseVector actualVector = subject.asSparseVector();
+            var expected = new SparseVector(names, values);
+            assertEquals(expected, actualVector);
 
         });
     }

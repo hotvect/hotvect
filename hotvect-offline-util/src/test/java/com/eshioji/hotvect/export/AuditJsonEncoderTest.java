@@ -1,6 +1,6 @@
 package com.eshioji.hotvect.export;
 
-import com.eshioji.hotvect.api.data.raw.Example;
+import com.eshioji.hotvect.api.data.raw.regression.Example;
 import com.eshioji.hotvect.api.data.raw.RawValue;
 import com.eshioji.hotvect.core.audit.AuditableVectorizer;
 import com.eshioji.hotvect.core.combine.FeatureDefinition;

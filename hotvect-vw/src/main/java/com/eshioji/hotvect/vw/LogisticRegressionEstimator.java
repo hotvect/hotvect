@@ -21,13 +21,19 @@ public class LogisticRegressionEstimator implements Estimator {
 
     private double calculateCoeff(SparseVector vector) {
         double ret = 0;
-        int[] indices = vector.indices();
-        double[] values = vector.values();
-        for (int j = 0; j < vector.indices().length; j++) {
-            int idx = indices[j];
+        int[] numericalIndices = vector.getNumericalIndices();
+        double[] numericalValues = vector.getNumericalValues();
+        for (int j = 0; j < numericalIndices.length; j++) {
+            int idx = numericalIndices[j];
             double w = weights.get(idx);
-            double v = values[j];
+            double v = numericalValues[j];
             ret += (w * v);
+        }
+
+        int[] categoricalIndices = vector.getCategoricalIndices();
+        for (int idx : categoricalIndices) {
+            double w = weights.get(idx);
+            ret += w;
         }
         return ret;
     }

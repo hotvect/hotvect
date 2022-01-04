@@ -1,4 +1,4 @@
-package com.eshioji.hotvect.api;
+package com.eshioji.hotvect.api.algodefinition.regression;
 
 import com.eshioji.hotvect.api.vectorization.Vectorizer;
 import com.fasterxml.jackson.databind.JsonNode;

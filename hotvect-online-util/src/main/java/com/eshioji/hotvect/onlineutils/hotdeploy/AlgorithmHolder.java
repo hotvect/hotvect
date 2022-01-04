@@ -1,10 +1,10 @@
 package com.eshioji.hotvect.onlineutils.hotdeploy;
 
-import com.eshioji.hotvect.api.AlgorithmDefinition;
-import com.eshioji.hotvect.api.AlgorithmParameterMetadata;
-import com.eshioji.hotvect.api.ScorerFactory;
-import com.eshioji.hotvect.api.VectorizerFactory;
-import com.eshioji.hotvect.api.scoring.Scorer;
+import com.eshioji.hotvect.api.algodefinition.AlgorithmDefinition;
+import com.eshioji.hotvect.api.algodefinition.AlgorithmParameterMetadata;
+import com.eshioji.hotvect.api.algodefinition.regression.ScorerFactory;
+import com.eshioji.hotvect.api.algodefinition.regression.VectorizerFactory;
+import com.eshioji.hotvect.api.policies.Scorer;
 import com.eshioji.hotvect.api.vectorization.Vectorizer;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -14,7 +14,6 @@ import com.google.common.io.CharStreams;
 import java.io.*;
 import java.net.URL;
 import java.net.URLClassLoader;
-import java.time.Instant;
 import java.time.ZonedDateTime;
 import java.util.Map;
 import java.util.zip.ZipFile;

@@ -1,8 +1,8 @@
 package com.eshioji.hotvect.onlineutils.hotdeploy;
 
-import com.eshioji.hotvect.api.AlgorithmDefinition;
-import com.eshioji.hotvect.api.AlgorithmParameterMetadata;
-import com.eshioji.hotvect.api.scoring.Scorer;
+import com.eshioji.hotvect.api.algodefinition.AlgorithmDefinition;
+import com.eshioji.hotvect.api.algodefinition.AlgorithmParameterMetadata;
+import com.eshioji.hotvect.api.policies.Scorer;
 
 public class AlgorithmInstance<R> {
     private final AlgorithmDefinition algorithmDefinition;

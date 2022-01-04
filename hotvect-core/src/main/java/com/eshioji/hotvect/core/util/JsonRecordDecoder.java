@@ -130,7 +130,7 @@ public class JsonRecordDecoder<R extends Enum<R> & RawNamespace> implements Data
                     values[i] = entry.getValue().asDouble();
                     i++;
                 }
-                return RawValue.categoricalsToNumericals(names, values);
+                return RawValue.namedNumericals(names, values);
             }
             case STRINGS_TO_NUMERICALS: {
                 checkState(value.isObject(),

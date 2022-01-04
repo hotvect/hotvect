@@ -17,34 +17,26 @@ public class HashedValue {
      */
     private static final int[] DEFAULT_NAME = {0};
 
-    /**
-     * If a feature is categorical, it gets the default value 1.0
-     */
-    private static final double[] DEFAULT_VALUE = {1.0};
-
     private final SparseVector values;
     private final HashedValueType valueType;
 
-    private HashedValue(int[] names, double[] values, HashedValueType valueType) {
-        checkArgument(names.length == values.length,
-                "Feature index and values must have the same length");
-        this.values = new SparseVector(names, values);
-        this.valueType = valueType;
+    private HashedValue(int[] numericalIndices, double[] numericalValues) {
+        this.values = new SparseVector(numericalIndices, numericalValues);
+        this.valueType = HashedValueType.NUMERICAL;
     }
 
-    private HashedValue(int[] names) {
-        checkNotNull(names);
-        this.values = new SparseVector(names);
+    private HashedValue(int[] categoricalIndices) {
+        this.values = new SparseVector(categoricalIndices);
         this.valueType = HashedValueType.CATEGORICAL;
     }
 
     // Wrapping methods
     public static HashedValue singleCategorical(int i) {
-        return new HashedValue(new int[]{i}, DEFAULT_VALUE, HashedValueType.CATEGORICAL);
+        return new HashedValue(new int[]{i});
     }
 
     public static HashedValue singleNumerical(double numerical) {
-        return new HashedValue(DEFAULT_NAME, new double[]{numerical}, HashedValueType.NUMERICAL);
+        return new HashedValue(DEFAULT_NAME, new double[]{numerical});
     }
 
     public static HashedValue categoricals(int[] names) {
@@ -52,35 +44,41 @@ public class HashedValue {
     }
 
     public static HashedValue numericals(int[] names, double[] vals) {
-        return new HashedValue(names, vals, HashedValueType.NUMERICAL);
+        return new HashedValue(names, vals);
     }
 
     // Getters
-    public int[] getCategoricals() {
-        return this.values.indices();
+    public int[] getCategoricalIndices() {
+        checkState(this.valueType == HashedValueType.CATEGORICAL);
+        return this.values.getCategoricalIndices();
     }
 
     public int getSingleCategorical() {
-        checkState(valueType == HashedValueType.CATEGORICAL && values.indices().length == 1,
+        checkState(valueType == HashedValueType.CATEGORICAL && values.getCategoricalIndices().length == 1,
                 String.format("Tried to retrieve a single categorical value from type:%s length:%s",
-                        valueType, values.indices().length));
-        return values.indices()[0];
+                        valueType, values.getCategoricalIndices().length));
+        return values.getCategoricalIndices()[0];
     }
 
+    public int[] getNumericalIndices(){
+        checkState(this.valueType == HashedValueType.NUMERICAL);
+        return this.values.getNumericalIndices();
+    }
     public double[] getNumericals() {
-        return this.values.values();
+        checkState(this.valueType == HashedValueType.NUMERICAL);
+        return this.values.getNumericalValues();
     }
 
     public double getSingleNumerical() {
         checkState(valueType == HashedValueType.NUMERICAL &&
-                        values.indices().length == 1 &&
-                        values.indices() == DEFAULT_NAME,
+                        values.getNumericalIndices().length == 1 &&
+                        values.getNumericalIndices() == DEFAULT_NAME,
                 String.format("Tried to retrieve a single numerical value from value of type:%s indices:%s",
-                        valueType, Arrays.toString(values.indices())));
-        return values.values()[0];
+                        valueType, Arrays.toString(values.getNumericalIndices())));
+        return values.getNumericalValues()[0];
     }
 
-    public SparseVector getCategoricalsToNumericals() {
+    public SparseVector asSparseVector() {
         return values;
     }
 

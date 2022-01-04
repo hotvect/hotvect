@@ -24,8 +24,8 @@ class RawValueTest {
             assertThrows(IllegalStateException.class, subject::getSingleNumerical);
             assertThrows(IllegalStateException.class, subject::getNumericals);
 
-            SparseVector actualVector = subject.getCategoricalsToNumericals();
-            assertEquals(new SparseVector(new int[]{x}, new double[]{1.0}), actualVector);
+            SparseVector actualVector = subject.getSparseVector();
+            assertEquals(new SparseVector(new int[]{x}), actualVector);
         });
     }
 
@@ -47,7 +47,7 @@ class RawValueTest {
             assertThrows(IllegalStateException.class, subject::getSingleCategorical);
             assertThrows(IllegalStateException.class, subject::getCategoricals);
 
-            SparseVector actualVector = subject.getCategoricalsToNumericals();
+            SparseVector actualVector = subject.getSparseVector();
             assertEquals(new SparseVector(new int[]{0}, new double[]{x}), actualVector);
         });
     }
@@ -62,10 +62,8 @@ class RawValueTest {
                 assertThrows(IllegalStateException.class, subject::getSingleCategorical);
             }
 
-            double[] expectedNumericals = new double[x.length];
-            Arrays.fill(expectedNumericals, 1.0);
-            SparseVector actualVector = subject.getCategoricalsToNumericals();
-            assertEquals(new SparseVector(x, expectedNumericals), actualVector);
+            SparseVector actualVector = subject.getSparseVector();
+            assertEquals(new SparseVector(x), actualVector);
         });
     }
 
@@ -79,8 +77,8 @@ class RawValueTest {
             double[] values = x._2;
             assert names.length == values.length;
 
-            RawValue subject = RawValue.categoricalsToNumericals(names, values);
-            assertArrayEquals(names, subject.getCategoricals());
+            RawValue subject = RawValue.namedNumericals(names, values);
+            assertArrayEquals(names, subject.getNumericalIndices());
             assertThrows(IllegalStateException.class, subject::getSingleCategorical);
             if (names.length != 1) {
                 assertThrows(IllegalStateException.class, subject::getSingleNumerical);
@@ -88,7 +86,7 @@ class RawValueTest {
 
             assertArrayEquals(values, subject.getNumericals());
 
-            SparseVector actualVector = subject.getCategoricalsToNumericals();
+            SparseVector actualVector = subject.getSparseVector();
             assertEquals(new SparseVector(names, values), actualVector);
 
         });
@@ -111,15 +109,15 @@ class RawValueTest {
 
             assertArrayEquals(values, subject.getNumericals());
 
-            assertThrows(NullPointerException.class, subject::getCategoricalsToNumericals);
+            assertThrows(NullPointerException.class, subject::getSparseVector);
         });
     }
 
     @Test
     void invalidInputs() {
         assertThrows(NullPointerException.class, () -> RawValue.categoricals(null));
-        assertThrows(NullPointerException.class, () -> RawValue.categoricalsToNumericals(null, null));
-        assertThrows(IllegalArgumentException.class, () -> RawValue.categoricalsToNumericals(new int[1], new double[2]));
+        assertThrows(NullPointerException.class, () -> RawValue.namedNumericals(null, null));
+        assertThrows(IllegalArgumentException.class, () -> RawValue.namedNumericals(new int[1], new double[2]));
         assertThrows(NullPointerException.class, () -> RawValue.singleString(null));
         assertThrows(NullPointerException.class, () -> RawValue.strings(null));
         assertThrows(NullPointerException.class, () -> RawValue.stringsToNumericals(null, null));
@@ -132,7 +130,7 @@ class RawValueTest {
         assertEquals(RawValueType.SINGLE_CATEGORICAL, RawValue.singleCategorical(1).getValueType());
         assertEquals(RawValueType.CATEGORICALS, RawValue.categoricals(new int[0]).getValueType());
         assertEquals(RawValueType.SINGLE_NUMERICAL, RawValue.singleNumerical(0.0).getValueType());
-        assertEquals(RawValueType.CATEGORICALS_TO_NUMERICALS, RawValue.categoricalsToNumericals(new int[0], new double[0]).getValueType());
+        assertEquals(RawValueType.CATEGORICALS_TO_NUMERICALS, RawValue.namedNumericals(new int[0], new double[0]).getValueType());
         assertEquals(RawValueType.SINGLE_STRING, RawValue.singleString("a").getValueType());
         assertEquals(RawValueType.STRINGS_TO_NUMERICALS, RawValue.stringsToNumericals(new String[0], new double[0]).getValueType());
     }
@@ -197,8 +195,8 @@ class RawValueTest {
         // Numericals
         Gen<Pair<int[], double[]>> data = testVectors();
         BiConsumer<Pair<int[], double[]>, Pair<int[], double[]>> assertNumericals = (x, y) -> {
-            RawValue xp = RawValue.categoricalsToNumericals(x._1, x._2);
-            RawValue yp = RawValue.categoricalsToNumericals(y._1, y._2);
+            RawValue xp = RawValue.namedNumericals(x._1, x._2);
+            RawValue yp = RawValue.namedNumericals(y._1, y._2);
 
             boolean equal = Arrays.equals(x._1, y._1) && Arrays.equals(x._2, y._2);
             assertEquals(equal, xp.equals(yp));

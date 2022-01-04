@@ -1,4 +1,4 @@
-package com.eshioji.hotvect.api.scoring;
+package com.eshioji.hotvect.api.policies;
 
 import java.util.function.ToDoubleFunction;
 

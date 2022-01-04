@@ -1,10 +1,13 @@
 package com.eshioji.hotvect.commandline;
 
 import com.codahale.metrics.Histogram;
-import com.eshioji.hotvect.api.*;
-import com.eshioji.hotvect.api.codec.ExampleDecoder;
-import com.eshioji.hotvect.api.codec.ExampleEncoder;
-import com.eshioji.hotvect.api.scoring.Scorer;
+import com.eshioji.hotvect.api.algodefinition.regression.ExampleDecoderFactory;
+import com.eshioji.hotvect.api.algodefinition.regression.ExampleEncoderFactory;
+import com.eshioji.hotvect.api.algodefinition.regression.ScorerFactory;
+import com.eshioji.hotvect.api.algodefinition.regression.VectorizerFactory;
+import com.eshioji.hotvect.api.codec.regression.ExampleDecoder;
+import com.eshioji.hotvect.api.codec.regression.ExampleEncoder;
+import com.eshioji.hotvect.api.policies.Scorer;
 import com.eshioji.hotvect.api.vectorization.Vectorizer;
 import com.eshioji.hotvect.core.concurrent.VerboseCallable;
 import com.eshioji.hotvect.core.concurrent.VerboseRunnable;

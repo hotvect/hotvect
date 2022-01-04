@@ -1,4 +1,4 @@
-package com.eshioji.hotvect.api.data.raw;
+package com.eshioji.hotvect.api.data.raw.regression;
 
 public class Example<R> {
     private final R record;

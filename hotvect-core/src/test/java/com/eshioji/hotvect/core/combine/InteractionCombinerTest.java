@@ -36,7 +36,8 @@ class InteractionCombinerTest {
         testData.put(categoricals_1, HashedValue.categoricals(new int[]{1, 2, 3}));
 
         SparseVector actual = subject.apply(testData);
-        assertEquals(12, actual.size());
+        assertEquals(4, actual.getCategoricalIndices().length);
+        assertEquals(4, actual.getNumericalIndices().length);
 
         Map<Integer, Double> expected = new HashMap<>();
         expected.put(0, 1.0);
@@ -53,8 +54,11 @@ class InteractionCombinerTest {
         expected.put(822261868, 6.0);
 
         Map<Integer, Double> actualout = new HashMap<>();
-        for (int i = 0; i < actual.indices().length; i++) {
-            actualout.put(actual.indices()[i], actual.values()[i]);
+        for (int i = 0; i < actual.getNumericalIndices().length; i++) {
+            actualout.put(actual.getNumericalIndices()[i], actual.getNumericalValues()[i]);
+        }
+        for (int i = 0; i < actual.getCategoricalIndices().length; i++) {
+            actualout.put(actual.getCategoricalIndices()[i], 1.0);
         }
         assertEquals(expected, actualout);
     }

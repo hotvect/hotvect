@@ -1,6 +1,6 @@
 package com.eshioji.hotvect.core.util;
 
-import com.eshioji.hotvect.api.codec.ExampleEncoder;
+import com.eshioji.hotvect.api.codec.regression.ExampleEncoder;
 import com.eshioji.hotvect.api.data.DataRecord;
 import com.eshioji.hotvect.api.data.Namespace;
 import com.eshioji.hotvect.api.data.SparseVector;
@@ -45,11 +45,11 @@ public class JsonRecordEncoder<K extends Enum<K> & Namespace> implements Functio
             case SINGLE_NUMERICAL:
                 return value.getSingleNumerical();
             case CATEGORICALS_TO_NUMERICALS: {
-                SparseVector vector = value.getCategoricalsToNumericals();
-                int[] names = vector.indices();
-                double[] values = vector.values();
+                SparseVector vector = value.getSparseVector();
+                int[] names = vector.getNumericalIndices();
+                double[] values = vector.getNumericalValues();
                 ImmutableMap.Builder<String, Double> ret = ImmutableMap.builder();
-                for (int i = 0; i < vector.size(); i++) {
+                for (int i = 0; i < names.length; i++) {
                     ret.put(String.valueOf(names[i]), values[i]);
                 }
                 return ret.build();

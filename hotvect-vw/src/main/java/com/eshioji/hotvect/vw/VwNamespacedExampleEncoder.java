@@ -1,12 +1,10 @@
 package com.eshioji.hotvect.vw;
 
-import com.eshioji.hotvect.api.codec.ExampleEncoder;
+import com.eshioji.hotvect.api.codec.regression.ExampleEncoder;
 import com.eshioji.hotvect.api.data.DataRecord;
 import com.eshioji.hotvect.api.data.FeatureNamespace;
 import com.eshioji.hotvect.api.data.hashed.HashedValue;
-import com.eshioji.hotvect.api.data.raw.Example;
-import com.eshioji.hotvect.api.data.raw.RawNamespace;
-import com.eshioji.hotvect.api.data.raw.RawValue;
+import com.eshioji.hotvect.api.data.raw.regression.Example;
 import com.eshioji.hotvect.core.hash.AuditableHasher;
 import com.eshioji.hotvect.core.transform.Transformer;
 
@@ -95,7 +93,7 @@ public class VwNamespacedExampleEncoder<R, H extends Enum<H> & FeatureNamespace>
             sb.append(namespace);
             sb.append(" ");
 
-            int[] indices = entry.getValue().getCategoricals();
+            int[] indices = entry.getValue().getCategoricalIndices();
             double[] values = entry.getValue().getNumericals();
 
             for (int j = 0; j < indices.length; j++) {

@@ -1,4 +1,4 @@
-package com.eshioji.hotvect.api;
+package com.eshioji.hotvect.api.algodefinition;
 
 import java.time.Instant;
 

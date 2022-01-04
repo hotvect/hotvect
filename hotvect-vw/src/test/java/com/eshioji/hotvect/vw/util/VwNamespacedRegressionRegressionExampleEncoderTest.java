@@ -1,7 +1,7 @@
 package com.eshioji.hotvect.vw.util;
 
 import com.eshioji.hotvect.api.data.DataRecord;
-import com.eshioji.hotvect.api.data.raw.Example;
+import com.eshioji.hotvect.api.data.raw.regression.Example;
 import com.eshioji.hotvect.api.data.raw.RawValue;
 import com.eshioji.hotvect.core.transform.PassThroughTransformer;
 import com.eshioji.hotvect.core.transform.Transformer;
@@ -12,7 +12,7 @@ import java.util.function.DoubleUnaryOperator;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
-class VwNamespacedExampleEncoderTest {
+class VwNamespacedRegressionRegressionExampleEncoderTest {
     private static final Transformer<DataRecord<TestRawNamespace, RawValue>, TestFeatureNamespace> TRANSFORMER =
             new PassThroughTransformer<>(TestRawNamespace.class, TestFeatureNamespace.class);
 

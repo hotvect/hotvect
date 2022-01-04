@@ -17,8 +17,6 @@ import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import java.lang.reflect.Array;
 import java.math.BigInteger;
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
 
 import static com.eshioji.hotvect.core.hash.HashUtils.FNV1_PRIME_32;
 import static com.google.common.base.Preconditions.checkArgument;
@@ -115,7 +113,7 @@ public class InteractionCombiner<H extends Enum<H> & FeatureNamespace> implement
                 if (data == null) {
                     continue; // Missing
                 }
-                int[] featureNames = data.getCategoricals();
+                int[] featureNames = data.getCategoricalIndices();
                 double[] featureValues = data.getNumericals();
 
                 for (int i = 0; i < featureNames.length; i++) {
@@ -178,7 +176,7 @@ public class InteractionCombiner<H extends Enum<H> & FeatureNamespace> implement
             H featureNamespace = toInteract[0];
             HashedValue value = record.get(featureNamespace);
             if (value != null) {
-                for (int el : value.getCategoricals()) {
+                for (int el : value.getCategoricalIndices()) {
                     int hash = (featureDefinition.getFeatureNamespace() * FNV1_PRIME_32) ^ HashUtils.hashInt(el);
                     int finalHash = hash & mask;
                     acc.add(finalHash);
@@ -212,7 +210,7 @@ public class InteractionCombiner<H extends Enum<H> & FeatureNamespace> implement
                 // If any of the elements for interaction is not available, abort
                 return;
             }
-            solutions *= data.getCategoricals().length;
+            solutions *= data.getCategoricalIndices().length;
         }
 
         for (int i = 0; i < solutions; i++) {
@@ -222,7 +220,7 @@ public class InteractionCombiner<H extends Enum<H> & FeatureNamespace> implement
 
 
             for (H namespace : toInteract) {
-                int[] featureNames = values.get(namespace).getCategoricals();
+                int[] featureNames = values.get(namespace).getCategoricalIndices();
                 int featureName = featureNames[(i / j) % featureNames.length];
                 hash ^= HashUtils.hashInt(featureName);
                 hash *= FNV1_PRIME_32;
@@ -235,7 +233,7 @@ public class InteractionCombiner<H extends Enum<H> & FeatureNamespace> implement
                 // Audit enabled
                 List<RawFeatureName> rawFeatureNames = new ArrayList<>();
                 for (H namespace : toInteract) {
-                    int[] featureNames = values.get(namespace).getCategoricals();
+                    int[] featureNames = values.get(namespace).getCategoricalIndices();
                     int featureName = featureNames[(i / j) % featureNames.length];
 
                     HashedFeatureName hashedFeatureName = new HashedFeatureName(namespace, featureName);

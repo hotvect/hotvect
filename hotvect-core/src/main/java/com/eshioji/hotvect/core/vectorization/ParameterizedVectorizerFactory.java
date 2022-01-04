@@ -1,6 +1,6 @@
 package com.eshioji.hotvect.core.vectorization;
 
-import com.eshioji.hotvect.api.VectorizerFactory;
+import com.eshioji.hotvect.api.algodefinition.regression.VectorizerFactory;
 import com.eshioji.hotvect.api.data.FeatureNamespace;
 import com.eshioji.hotvect.api.data.raw.RawValue;
 import com.eshioji.hotvect.api.featurestate.FeatureState;
@@ -10,7 +10,6 @@ import com.eshioji.hotvect.core.combine.InteractionCombiner;
 import com.eshioji.hotvect.core.featurestate.FeatureStateLoader;
 import com.eshioji.hotvect.core.hash.AuditableHasher;
 import com.eshioji.hotvect.core.transform.*;
-import com.eshioji.hotvect.core.vectorization.DefaultVectorizer;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.google.common.collect.Sets;
 

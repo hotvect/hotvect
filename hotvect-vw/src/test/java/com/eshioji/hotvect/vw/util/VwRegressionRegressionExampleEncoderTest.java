@@ -2,7 +2,7 @@ package com.eshioji.hotvect.vw.util;
 
 import com.eshioji.hotvect.api.data.DataRecord;
 import com.eshioji.hotvect.api.data.SparseVector;
-import com.eshioji.hotvect.api.data.raw.Example;
+import com.eshioji.hotvect.api.data.raw.regression.Example;
 import com.eshioji.hotvect.api.data.raw.RawValue;
 import com.eshioji.hotvect.core.audit.AuditableVectorizer;
 import com.eshioji.hotvect.core.audit.RawFeatureName;
@@ -11,12 +11,11 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ConcurrentMap;
 import java.util.function.DoubleUnaryOperator;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
-class VwExampleEncoderTest {
+class VwRegressionRegressionExampleEncoderTest {
 
     @Test
     void nonBinaryWithoutWeights() {

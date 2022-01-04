@@ -6,14 +6,12 @@ import com.eshioji.hotvect.api.data.raw.RawValue;
 
 import java.util.HashMap;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
 
 public class HasherAuditState {
     private final ThreadLocal<Map<HashedFeatureName, RawFeatureName>> featureName2SourceRawValue = ThreadLocal.withInitial(HashMap::new);
 
     public void registerSourceRawValue(FeatureNamespace namespace, RawValue toHash, HashedValue hashed) {
-        int[] featureNames = hashed.getCategoricals();
+        int[] featureNames = hashed.getCategoricalIndices();
         for (int i = 0; i < featureNames.length; i++) {
             String sourceValue = extractSourceValue(toHash, i);
             int featureName = featureNames[i];

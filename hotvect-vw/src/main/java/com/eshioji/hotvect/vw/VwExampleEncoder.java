@@ -1,8 +1,8 @@
 package com.eshioji.hotvect.vw;
 
-import com.eshioji.hotvect.api.codec.ExampleEncoder;
+import com.eshioji.hotvect.api.codec.regression.ExampleEncoder;
 import com.eshioji.hotvect.api.data.SparseVector;
-import com.eshioji.hotvect.api.data.raw.Example;
+import com.eshioji.hotvect.api.data.raw.regression.Example;
 import com.eshioji.hotvect.api.vectorization.Vectorizer;
 
 import java.util.function.DoubleUnaryOperator;
@@ -36,8 +36,6 @@ public class VwExampleEncoder<R> implements ExampleEncoder<R> {
             SparseVector vector,
             boolean binary,
             DoubleUnaryOperator targetToImportanceWeight) {
-        int[] indices = vector.indices();
-        double[] values = vector.values();
 
         StringBuilder sb = new StringBuilder();
 
@@ -55,12 +53,25 @@ public class VwExampleEncoder<R> implements ExampleEncoder<R> {
         }
         sb.append(" | ");
 
-        for (int j = 0; j < indices.length; j++) {
-            int feature = indices[j];
-            double value = values[j];
+        // Numericals
+        int[] numericalIndices = vector.getNumericalIndices();
+        double[] numericalValues = vector.getNumericalValues();
+
+        for (int j = 0; j < numericalIndices.length; j++) {
+            int feature = numericalIndices[j];
+            double value = numericalValues[j];
             sb.append(feature);
             sb.append(':');
             DoubleFormatUtils.formatDoubleFast(value, 6, 6, sb);
+            sb.append(" ");
+        }
+
+        // Categoricals
+        int[] categoricalIndices = vector.getCategoricalIndices();
+        for (int categoricalIndex : categoricalIndices) {
+            sb.append(categoricalIndex);
+            sb.append(':');
+            sb.append('1');
             sb.append(" ");
         }
 

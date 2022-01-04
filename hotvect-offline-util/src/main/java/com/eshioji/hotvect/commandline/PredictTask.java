@@ -3,9 +3,9 @@ package com.eshioji.hotvect.commandline;
 
 import com.codahale.metrics.Meter;
 import com.codahale.metrics.MetricRegistry;
-import com.eshioji.hotvect.api.codec.ExampleDecoder;
-import com.eshioji.hotvect.api.data.raw.Example;
-import com.eshioji.hotvect.api.scoring.Scorer;
+import com.eshioji.hotvect.api.codec.regression.ExampleDecoder;
+import com.eshioji.hotvect.api.data.raw.regression.Example;
+import com.eshioji.hotvect.api.policies.Scorer;
 import com.eshioji.hotvect.core.util.ListTransform;
 import com.eshioji.hotvect.util.CpuIntensiveFileMapper;
 import com.eshioji.hotvect.onlineutils.hotdeploy.ZipFiles;
@@ -29,7 +29,7 @@ public class PredictTask<R> extends Task<R> {
 
     @Override
     protected Map<String, String> perform() throws Exception {
-        ExampleDecoder<R> exampleDecoder = getPredictDecoder();
+        ExampleDecoder<R> regressionExampleDecoder = getPredictDecoder();
 
         Scorer<R> scorer;
         try(ZipFile parameterFile = new ZipFile(super.offlineTaskContext.getOptions().parameters)){
@@ -42,7 +42,7 @@ public class PredictTask<R> extends Task<R> {
                 scorer.applyAsDouble(x.getRecord()) + "," + x.getTarget();
 
         Function<String, List<String>> transformation =
-                exampleDecoder.andThen(i -> ListTransform.map(i, scoreOutputFormatter));
+                regressionExampleDecoder.andThen(i -> ListTransform.map(i, scoreOutputFormatter));
 
         CpuIntensiveFileMapper processor = CpuIntensiveFileMapper.mapper(
                 super.offlineTaskContext.getMetricRegistry(),

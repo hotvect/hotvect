@@ -1,8 +1,8 @@
 package com.eshioji.hotvect.export;
 
-import com.eshioji.hotvect.api.codec.ExampleEncoder;
+import com.eshioji.hotvect.api.codec.regression.ExampleEncoder;
 import com.eshioji.hotvect.api.data.SparseVector;
-import com.eshioji.hotvect.api.data.raw.Example;
+import com.eshioji.hotvect.api.data.raw.regression.Example;
 import com.eshioji.hotvect.core.audit.AuditableVectorizer;
 import com.eshioji.hotvect.core.audit.RawFeatureName;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -36,8 +36,6 @@ public class AuditJsonEncoder<R> implements ExampleEncoder<R> {
 
     private String jsonEncode(Example<R> toEncode, SparseVector vector, Map<Integer, List<RawFeatureName>> names) {
         double target = toEncode.getTarget();
-        int[] indices = vector.indices();
-        double[] values = vector.values();
 
         ObjectNode root = OM.createObjectNode();
         root.put("target", target);
@@ -45,10 +43,28 @@ public class AuditJsonEncoder<R> implements ExampleEncoder<R> {
         ArrayNode features = OM.createArrayNode();
         root.set("features", features);
 
+        int[] numericalIndices = vector.getNumericalIndices();
+        double[] numericalValues = vector.getNumericalValues();
+        addFeatures(names, numericalIndices, numericalValues, features);
+
+        int[] categoricalIndices = vector.getCategoricalIndices();
+        addFeatures(names, categoricalIndices, null, features);
+
+        try {
+            return OM.writeValueAsString(root);
+        } catch (JsonProcessingException e) {
+            throw new RuntimeException("unexpected error on serializing:" + root);
+        }
+
+    }
+
+    private void addFeatures(Map<Integer, List<RawFeatureName>> names, int[] indices, double[] values, ArrayNode features) {
         for (int i = 0; i < indices.length; i++) {
             ObjectNode feature = OM.createObjectNode();
             feature.put("index", indices[i]);
-            feature.put("value", values[i]);
+            if(values != null){
+                feature.put("value", values[i]);
+            }
 
             List<RawFeatureName> raws = names.get(indices[i]);
 
@@ -70,13 +86,6 @@ public class AuditJsonEncoder<R> implements ExampleEncoder<R> {
 
             features.add(feature);
         }
-
-        try {
-            return OM.writeValueAsString(root);
-        } catch (JsonProcessingException e) {
-            throw new RuntimeException("unexpected error on serializing:" + root);
-        }
-
     }
 
 }

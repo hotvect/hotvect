@@ -11,7 +11,7 @@ with open('LICENSE') as f:
 
 setup(
     name='hotvect',
-    version='0.0.12',
+    version='2.0.0-SNAPSHOT',
     description='Hotvect python interface',
     long_description=readme,
     author='Enno Shioji',

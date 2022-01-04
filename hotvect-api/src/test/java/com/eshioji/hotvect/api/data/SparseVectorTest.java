@@ -28,9 +28,8 @@ class SparseVectorTest {
 
             SparseVector subject = new SparseVector(names, values);
 
-            assertArrayEquals(names, subject.indices());
-            assertArrayEquals(values, subject.values());
-            assertEquals(names.length, subject.size());
+            assertArrayEquals(names, subject.getNumericalIndices());
+            assertArrayEquals(values, subject.getNumericalValues());
         });
     }
 
@@ -39,11 +38,7 @@ class SparseVectorTest {
         qt().forAll(intArrays(integers().between(0, 3), integers().all())).checkAssert(x -> {
             SparseVector subject = new SparseVector(x);
 
-            assertArrayEquals(x, subject.indices());
-            double[] expectedValues = new double[x.length];
-            Arrays.fill(expectedValues, 1.0);
-            assertArrayEquals(expectedValues, subject.values());
-            assertEquals(x.length, subject.size());
+            assertArrayEquals(x, subject.getCategoricalIndices());
         });
     }
 

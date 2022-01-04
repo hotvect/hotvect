@@ -6,54 +6,54 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 /**
- * A sparse vector representation
+ * A sparse vector representation that keeps categorical and numerical features separately (cat boost friendly)
  */
 public class SparseVector {
-    private final int[] indices;
+    private static final int[] EMPTY_IDX = new int[0];
+    private static final double[] EMPTY_VAL = new double[0];
 
-    // Lazy loaded because categorical features are more frequent,
-    // and many operations don't require their values
-    private volatile double[] values;
+    private final int[] categoricalIndices;
+    private final int[] numericalIndices;
+    private final double[] numericalValues;
 
-    public SparseVector(int[] indices, double[] values) {
-        checkNotNull(indices);
-        checkNotNull(values);
-        checkArgument(indices.length == values.length);
-        this.indices = indices;
-        this.values = values;
+    public SparseVector(int[] categoricalIndices, int[] numericalIndices, double[] numericalValues) {
+        checkNotNull(categoricalIndices);
+        checkNotNull(numericalIndices);
+        checkArgument(numericalIndices.length == numericalValues.length);
+        this.categoricalIndices = categoricalIndices;
+        this.numericalIndices = numericalIndices;
+        this.numericalValues = numericalValues;
     }
 
-    public SparseVector(int[] indices) {
-        checkNotNull(indices);
-        //Special case of Sparse Vector where values are 1.0
-        this.indices = indices;
-        this.values = null;
+    public SparseVector(int[] categoricalIndices) {
+        checkNotNull(categoricalIndices);
+        //Special case of Sparse Vector where there are only categorical features
+        this.categoricalIndices = categoricalIndices;
+        this.numericalIndices = EMPTY_IDX;
+        this.numericalValues = EMPTY_VAL;
+    }
+
+    public SparseVector(int[] numericalIndices, double[] numericalValues) {
+        checkNotNull(numericalIndices);
+        checkNotNull(numericalValues);
+        checkArgument(numericalIndices.length == numericalValues.length);
+        //Special case of Sparse Vector where there are only categorical features
+        this.categoricalIndices = EMPTY_IDX;
+        this.numericalIndices = numericalIndices;
+        this.numericalValues = numericalValues;
     }
 
 
-    public int[] indices() {
-        return indices;
+    public int[] getCategoricalIndices() {
+        return categoricalIndices;
     }
 
-    public double[] values() {
-        if (values == null) {
-            double[] vals = new double[this.indices().length];
-            Arrays.fill(vals, 1.0);
-            this.values = vals;
-        }
-        return values;
+    public int[] getNumericalIndices() {
+        return numericalIndices;
     }
 
-    public int size() {
-        return this.indices.length;
-    }
-
-    @Override
-    public String toString() {
-        return "SparseVector{" +
-                "indices=" + Arrays.toString(indices) +
-                ", values=" + Arrays.toString(values()) +
-                '}';
+    public double[] getNumericalValues() {
+        return numericalValues;
     }
 
     @Override
@@ -61,14 +61,14 @@ public class SparseVector {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
         SparseVector that = (SparseVector) o;
-        return Arrays.equals(indices, that.indices) &&
-                Arrays.equals(values(), that.values());
+        return Arrays.equals(categoricalIndices, that.categoricalIndices) && Arrays.equals(numericalIndices, that.numericalIndices) && Arrays.equals(numericalValues, that.numericalValues);
     }
 
     @Override
     public int hashCode() {
-        int result = Arrays.hashCode(indices);
-        result = 31 * result + Arrays.hashCode(values());
+        int result = Arrays.hashCode(categoricalIndices);
+        result = 31 * result + Arrays.hashCode(numericalIndices);
+        result = 31 * result + Arrays.hashCode(numericalValues);
         return result;
     }
 }

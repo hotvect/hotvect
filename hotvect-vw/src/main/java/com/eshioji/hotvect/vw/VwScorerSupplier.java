@@ -1,6 +1,6 @@
 package com.eshioji.hotvect.vw;
 
-import com.eshioji.hotvect.api.scoring.Scorer;
+import com.eshioji.hotvect.api.policies.Scorer;
 import com.eshioji.hotvect.core.score.ScorerImpl;
 import com.eshioji.hotvect.api.vectorization.Vectorizer;
 import it.unimi.dsi.fastutil.ints.Int2DoubleMap;

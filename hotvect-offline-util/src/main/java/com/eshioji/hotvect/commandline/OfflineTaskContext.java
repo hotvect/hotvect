@@ -1,7 +1,7 @@
 package com.eshioji.hotvect.commandline;
 
 import com.codahale.metrics.MetricRegistry;
-import com.eshioji.hotvect.api.AlgorithmDefinition;
+import com.eshioji.hotvect.api.algodefinition.AlgorithmDefinition;
 
 public class OfflineTaskContext {
     private final ClassLoader classLoader;

@@ -15,8 +15,7 @@ import static com.google.common.base.Preconditions.*;
 public class RawValue {
     private static final EnumSet<RawValueType> ALLOWS_CATEGORICALS = EnumSet.of(
             RawValueType.SINGLE_CATEGORICAL,
-            RawValueType.CATEGORICALS,
-            RawValueType.CATEGORICALS_TO_NUMERICALS
+            RawValueType.CATEGORICALS
     );
     private static final EnumSet<RawValueType> ALLOWS_NUMERICALS = EnumSet.of(
             RawValueType.SINGLE_NUMERICAL,
@@ -65,7 +64,7 @@ public class RawValue {
         return new RawValue(HashedValue.categoricals(categoricals), null, null, null, RawValueType.CATEGORICALS);
     }
 
-    public static RawValue categoricalsToNumericals(int[] names, double[] values) {
+    public static RawValue namedNumericals(int[] names, double[] values) {
         checkArgument(names.length == values.length,
                 "Length of keys and values do not match:%s -> %s", Arrays.toString(names), Arrays.toString(values));
         return new RawValue(HashedValue.numericals(names, values), null, null, null, RawValueType.CATEGORICALS_TO_NUMERICALS);
@@ -80,13 +79,19 @@ public class RawValue {
     public int[] getCategoricals() {
         checkState(ALLOWS_CATEGORICALS.contains(this.valueType),
                 "No categoricals available for type:%s", this.valueType);
-        return hashedValue.getCategoricals();
+        return hashedValue.getCategoricalIndices();
     }
 
     public double getSingleNumerical() {
         checkState(this.valueType == RawValueType.SINGLE_NUMERICAL,
                 "This value is type %s and not %s", this.getValueType(), RawValueType.SINGLE_NUMERICAL);
         return hashedValue.getSingleNumerical();
+    }
+
+    public int[] getNumericalIndices(){
+        checkState(ALLOWS_NUMERICALS.contains(this.valueType),
+                "No numericals available for type:%s", this.valueType);
+        return checkNotNull(hashedValue).getNumericalIndices();
     }
 
     public double[] getNumericals() {
@@ -111,8 +116,8 @@ public class RawValue {
         return strings;
     }
 
-    public SparseVector getCategoricalsToNumericals() {
-        return this.hashedValue.getCategoricalsToNumericals();
+    public SparseVector getSparseVector() {
+        return this.hashedValue.asSparseVector();
     }
 
     public RawValueType getValueType() {

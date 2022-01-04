@@ -2,7 +2,7 @@ package com.eshioji.hotvect.commandline;
 
 import com.codahale.metrics.Meter;
 import com.codahale.metrics.MetricRegistry;
-import com.eshioji.hotvect.api.codec.ExampleDecoder;
+import com.eshioji.hotvect.api.codec.regression.ExampleDecoder;
 import com.eshioji.hotvect.core.audit.AuditableVectorizer;
 import com.eshioji.hotvect.core.util.ListTransform;
 import com.eshioji.hotvect.export.AuditJsonEncoder;
@@ -25,9 +25,9 @@ public class AuditTask<R> extends Task<R> {
 
     @Override
     protected Map<String, String> perform() throws Exception {
-        ExampleDecoder<R> exampleDecoder = getTrainDecoder();
+        ExampleDecoder<R> regressionExampleDecoder = getTrainDecoder();
         AuditJsonEncoder<R> exampleEncoder = getAuditJsonEncoder();
-        Function<String, List<String>> transformation = exampleDecoder.andThen(s -> ListTransform.map(s, exampleEncoder));
+        Function<String, List<String>> transformation = regressionExampleDecoder.andThen(s -> ListTransform.map(s, exampleEncoder));
 
         CpuIntensiveFileMapper processor = CpuIntensiveFileMapper.mapper(
                 this.offlineTaskContext.getMetricRegistry(),
@@ -38,7 +38,7 @@ public class AuditTask<R> extends Task<R> {
 
         processor.run();
         Map<String, String> metadata = new HashMap<>();
-        metadata.put("example_decoder", exampleDecoder.getClass().getCanonicalName());
+        metadata.put("example_decoder", regressionExampleDecoder.getClass().getCanonicalName());
         metadata.put("example_encoder", exampleEncoder.getClass().getCanonicalName());
 
         Meter mainMeter = this.offlineTaskContext.getMetricRegistry().meter(MetricRegistry.name(CpuIntensiveFileMapper.class, "record"));
