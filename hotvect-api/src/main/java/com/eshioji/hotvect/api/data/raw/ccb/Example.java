@@ -1,19 +1,27 @@
 package com.eshioji.hotvect.api.data.raw.ccb;
 
-public class Example<SHARED, ACTION> {
-    private final Options<SHARED, ACTION> options;
-    private final Outcomes outcomes;
+import java.util.List;
 
-    public Example(Options<SHARED, ACTION> options, Outcomes outcomes) {
-        this.options = options;
+public class Example<SHARED, ACTION, OUTCOME> {
+    private final Request<SHARED, ACTION> request;
+    private final List<Decision> decisions;
+    private final List<OUTCOME> outcomes;
+
+    public Example(Request<SHARED, ACTION> request, List<Decision> decisions, List<OUTCOME> outcomes) {
+        this.request = request;
+        this.decisions = decisions;
         this.outcomes = outcomes;
     }
 
-    public Options<SHARED, ACTION> getOptions() {
-        return options;
+    public Request<SHARED, ACTION> getRequest() {
+        return request;
     }
 
-    public Outcomes getOutcomes() {
+    public List<Decision> getDecisions() {
+        return decisions;
+    }
+
+    public List<OUTCOME> getOutcomes() {
         return outcomes;
     }
 }

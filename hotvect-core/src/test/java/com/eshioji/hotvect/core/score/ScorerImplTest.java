@@ -2,7 +2,7 @@ package com.eshioji.hotvect.core.score;
 
 import com.eshioji.hotvect.api.data.SparseVector;
 import com.eshioji.hotvect.core.TestRawNamespace;
-import com.eshioji.hotvect.api.vectorization.Vectorizer;
+import com.eshioji.hotvect.api.vectorization.regression.Vectorizer;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;

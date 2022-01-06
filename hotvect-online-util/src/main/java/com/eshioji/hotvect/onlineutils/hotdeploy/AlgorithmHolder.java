@@ -5,7 +5,7 @@ import com.eshioji.hotvect.api.algodefinition.AlgorithmParameterMetadata;
 import com.eshioji.hotvect.api.algodefinition.regression.ScorerFactory;
 import com.eshioji.hotvect.api.algodefinition.regression.VectorizerFactory;
 import com.eshioji.hotvect.api.policies.Scorer;
-import com.eshioji.hotvect.api.vectorization.Vectorizer;
+import com.eshioji.hotvect.api.vectorization.regression.Vectorizer;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Charsets;

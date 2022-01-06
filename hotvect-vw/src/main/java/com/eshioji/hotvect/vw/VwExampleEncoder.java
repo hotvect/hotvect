@@ -3,7 +3,7 @@ package com.eshioji.hotvect.vw;
 import com.eshioji.hotvect.api.codec.regression.ExampleEncoder;
 import com.eshioji.hotvect.api.data.SparseVector;
 import com.eshioji.hotvect.api.data.raw.regression.Example;
-import com.eshioji.hotvect.api.vectorization.Vectorizer;
+import com.eshioji.hotvect.api.vectorization.regression.Vectorizer;
 
 import java.util.function.DoubleUnaryOperator;
 

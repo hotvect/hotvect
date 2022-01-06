@@ -1,7 +1,7 @@
 package com.eshioji.hotvect.api.algodefinition.regression;
 
 import com.eshioji.hotvect.api.policies.Scorer;
-import com.eshioji.hotvect.api.vectorization.Vectorizer;
+import com.eshioji.hotvect.api.vectorization.regression.Vectorizer;
 
 import java.io.InputStream;
 import java.util.Map;

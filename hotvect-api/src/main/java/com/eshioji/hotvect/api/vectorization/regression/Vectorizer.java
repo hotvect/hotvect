@@ -1,4 +1,4 @@
-package com.eshioji.hotvect.api.vectorization;
+package com.eshioji.hotvect.api.vectorization.regression;
 
 import com.eshioji.hotvect.api.data.SparseVector;
 

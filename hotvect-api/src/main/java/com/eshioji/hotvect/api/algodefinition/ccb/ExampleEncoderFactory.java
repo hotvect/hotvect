@@ -1,11 +1,11 @@
 package com.eshioji.hotvect.api.algodefinition.ccb;
 
-import com.eshioji.hotvect.api.codec.regression.ExampleEncoder;
-import com.eshioji.hotvect.api.vectorization.Vectorizer;
+import com.eshioji.hotvect.api.codec.ccb.ExampleEncoder;
+import com.eshioji.hotvect.api.vectorization.ccb.ActionVectorizer;
 
-import java.util.function.Function;
+import java.util.function.BiFunction;
 
-public interface ExampleEncoderFactory<R> extends Function<Vectorizer<R>, ExampleEncoder<R>> {
+public interface ExampleEncoderFactory<SHARED, ACTION, OUTCOME> extends BiFunction<ActionVectorizer<SHARED, ACTION>, RewardFunction<OUTCOME>, ExampleEncoder<SHARED, ACTION, OUTCOME>> {
     @Override
-    ExampleEncoder<R> apply(Vectorizer<R> vectorizer);
+    ExampleEncoder<SHARED, ACTION, OUTCOME> apply(ActionVectorizer<SHARED, ACTION> vectorizer, RewardFunction<OUTCOME> rewardFunction);
 }

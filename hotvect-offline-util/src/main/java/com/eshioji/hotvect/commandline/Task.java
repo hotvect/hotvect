@@ -8,7 +8,7 @@ import com.eshioji.hotvect.api.algodefinition.regression.VectorizerFactory;
 import com.eshioji.hotvect.api.codec.regression.ExampleDecoder;
 import com.eshioji.hotvect.api.codec.regression.ExampleEncoder;
 import com.eshioji.hotvect.api.policies.Scorer;
-import com.eshioji.hotvect.api.vectorization.Vectorizer;
+import com.eshioji.hotvect.api.vectorization.regression.Vectorizer;
 import com.eshioji.hotvect.core.concurrent.VerboseCallable;
 import com.eshioji.hotvect.core.concurrent.VerboseRunnable;
 import com.fasterxml.jackson.databind.JsonNode;

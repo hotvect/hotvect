@@ -4,7 +4,7 @@ import com.eshioji.hotvect.api.algodefinition.regression.VectorizerFactory;
 import com.eshioji.hotvect.api.data.FeatureNamespace;
 import com.eshioji.hotvect.api.data.raw.RawValue;
 import com.eshioji.hotvect.api.featurestate.FeatureState;
-import com.eshioji.hotvect.api.vectorization.Vectorizer;
+import com.eshioji.hotvect.api.vectorization.regression.Vectorizer;
 import com.eshioji.hotvect.core.combine.FeatureDefinition;
 import com.eshioji.hotvect.core.combine.InteractionCombiner;
 import com.eshioji.hotvect.core.featurestate.FeatureStateLoader;
