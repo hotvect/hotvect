@@ -20,13 +20,13 @@ import java.util.zip.ZipFile;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
-public class AlgorithmHolder<R> implements AutoCloseable {
+public class AlgorithmHolder<RECORD> implements AutoCloseable {
     private static final ObjectMapper OM = new ObjectMapper();
     private final File algorithmJar;
     private final URLClassLoader classLoader;
     private final AlgorithmDefinition algorithmDefinition;
-    private final VectorizerFactory<R> vectorizerFactory;
-    private final ScorerFactory<R> scorerFactory;
+    private final VectorizerFactory<RECORD> vectorizerFactory;
+    private final ScorerFactory<RECORD> scorerFactory;
 
     public AlgorithmHolder(File algorithmJar, ClassLoader parent){
         try {
@@ -38,8 +38,8 @@ public class AlgorithmHolder<R> implements AutoCloseable {
                 this.classLoader = new URLClassLoader(new URL[]{algorithmJarUrl}, parent);
             }
             this.algorithmDefinition = readAlgorithmDefinition(algorithmJarUrl);
-            this.vectorizerFactory = (VectorizerFactory<R>) Class.forName(algorithmDefinition.getVectorizerFactoryName(), true, this.classLoader).getDeclaredConstructor().newInstance();
-            this.scorerFactory = (ScorerFactory<R>) Class.forName(algorithmDefinition.getScorerFactoryName(), true, this.classLoader).getDeclaredConstructor().newInstance();
+            this.vectorizerFactory = (VectorizerFactory<RECORD>) Class.forName(algorithmDefinition.getVectorizerFactoryName(), true, this.classLoader).getDeclaredConstructor().newInstance();
+            this.scorerFactory = (ScorerFactory<RECORD>) Class.forName(algorithmDefinition.getScorerFactoryName(), true, this.classLoader).getDeclaredConstructor().newInstance();
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
@@ -80,10 +80,10 @@ public class AlgorithmHolder<R> implements AutoCloseable {
         this.classLoader.close();
     }
 
-    public AlgorithmInstance<R> load(File parameterFile) throws MalformedAlgorithmException {
+    public AlgorithmInstance<RECORD> load(File parameterFile) throws MalformedAlgorithmException {
         AlgorithmParameterMetadata algorithmParameterMetadata = readAlgorithmParameterMetadata(parameterFile);
-        Vectorizer<R> vectorizer = getVectorizer(parameterFile);
-        Scorer<R> scorer = getScorer(vectorizer, parameterFile);
+        Vectorizer<RECORD> vectorizer = getVectorizer(parameterFile);
+        Scorer<RECORD> scorer = getScorer(vectorizer, parameterFile);
         if (!algorithmDefinition.getAlgorithmName().equals(algorithmParameterMetadata.getAlgorithmName())) {
             throw new MalformedAlgorithmException(
                     String.format(
@@ -96,7 +96,7 @@ public class AlgorithmHolder<R> implements AutoCloseable {
         return new AlgorithmInstance<>(algorithmDefinition, algorithmParameterMetadata, scorer);
     }
 
-    private Scorer<R> getScorer(Vectorizer<R> vectorizer, File file) throws MalformedAlgorithmException {
+    private Scorer<RECORD> getScorer(Vectorizer<RECORD> vectorizer, File file) throws MalformedAlgorithmException {
         try (ZipFile parameterFile = new ZipFile(file)) {
 
             Map<String, InputStream> parameters = ZipFiles.parameters(parameterFile);
@@ -106,7 +106,7 @@ public class AlgorithmHolder<R> implements AutoCloseable {
         }
     }
 
-    private Vectorizer<R> getVectorizer(File file) throws MalformedAlgorithmException {
+    private Vectorizer<RECORD> getVectorizer(File file) throws MalformedAlgorithmException {
         try (ZipFile parameterFile = new ZipFile(file)) {
             Map<String, InputStream> parameters = ZipFiles.parameters(parameterFile);
             return this.vectorizerFactory.apply(algorithmDefinition.getVectorizerParameter(), parameters);

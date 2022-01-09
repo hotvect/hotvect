@@ -1,7 +1,7 @@
 package com.eshioji.hotvect.vw.util;
 
 import com.eshioji.hotvect.api.data.FeatureNamespace;
-import com.eshioji.hotvect.api.data.hashed.HashedValueType;
+import com.eshioji.hotvect.api.data.HashedValueType;
 
 public enum TestFeatureNamespace implements FeatureNamespace {
     single_categorical_1(HashedValueType.CATEGORICAL),

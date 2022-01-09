@@ -3,11 +3,11 @@ package com.eshioji.hotvect.vw;
 import com.eshioji.hotvect.api.codec.regression.ExampleEncoder;
 import com.eshioji.hotvect.api.data.DataRecord;
 import com.eshioji.hotvect.api.data.FeatureNamespace;
-import com.eshioji.hotvect.api.data.hashed.HashedValue;
-import com.eshioji.hotvect.api.data.hashed.HashedValueType;
-import com.eshioji.hotvect.api.data.raw.regression.Example;
+import com.eshioji.hotvect.api.data.HashedValue;
+import com.eshioji.hotvect.api.data.HashedValueType;
+import com.eshioji.hotvect.api.data.regression.Example;
 import com.eshioji.hotvect.core.hash.AuditableHasher;
-import com.eshioji.hotvect.core.transform.Transformer;
+import com.eshioji.hotvect.core.transform.regression.Transformer;
 
 import java.util.EnumMap;
 import java.util.Map;
@@ -15,24 +15,24 @@ import java.util.function.DoubleUnaryOperator;
 
 import static com.google.common.base.Preconditions.checkState;
 
-public class VwNamespacedExampleEncoder<R, H extends Enum<H> & FeatureNamespace> implements ExampleEncoder<R> {
+public class VwNamespacedExampleEncoder<RECORD, FEATURE extends Enum<FEATURE> & FeatureNamespace> implements ExampleEncoder<RECORD> {
     private final static char[] VALID_VW_NAMESPACE_CHARS = "abcdefghijklmnopqrstuvwxyz".toCharArray();
     private final boolean binary;
     private final DoubleUnaryOperator targetToImportanceWeight;
 
-    private final Class<H> hashedKey;
-    private final Transformer<R, H> transformer;
-    private final AuditableHasher<H> hasher;
+    private final Class<FEATURE> hashedKey;
+    private final Transformer<RECORD, FEATURE> transformer;
+    private final AuditableHasher<FEATURE> hasher;
 
-    public VwNamespacedExampleEncoder(Transformer<R, H> transformer, Class<H> hashedKey) {
+    public VwNamespacedExampleEncoder(Transformer<RECORD, FEATURE> transformer, Class<FEATURE> hashedKey) {
         this(transformer, hashedKey, false, null);
     }
 
-    public VwNamespacedExampleEncoder(Transformer<R, H> transformer, Class<H> hashedKey, boolean binary) {
+    public VwNamespacedExampleEncoder(Transformer<RECORD, FEATURE> transformer, Class<FEATURE> hashedKey, boolean binary) {
         this(transformer, hashedKey, binary, null);
     }
 
-    public VwNamespacedExampleEncoder(Transformer<R, H> transformer, Class<H> hashedKey, boolean binary, DoubleUnaryOperator targetToImportanceWeight) {
+    public VwNamespacedExampleEncoder(Transformer<RECORD, FEATURE> transformer, Class<FEATURE> hashedKey, boolean binary, DoubleUnaryOperator targetToImportanceWeight) {
         this.hashedKey = hashedKey;
         this.transformer = transformer;
         this.hasher = new AuditableHasher<>(hashedKey);
@@ -40,30 +40,30 @@ public class VwNamespacedExampleEncoder<R, H extends Enum<H> & FeatureNamespace>
         this.targetToImportanceWeight = targetToImportanceWeight;
     }
 
-    public EnumMap<H, String> getNamespaceMapping(){
-        EnumMap<H, String> ret = new EnumMap<>(hashedKey);
-        for (H h : this.hashedKey.getEnumConstants()) {
-            int ns = h.ordinal();
+    public EnumMap<FEATURE, String> getNamespaceMapping(){
+        EnumMap<FEATURE, String> ret = new EnumMap<>(hashedKey);
+        for (FEATURE FEATURE : this.hashedKey.getEnumConstants()) {
+            int ns = FEATURE.ordinal();
             checkState(ns < VALID_VW_NAMESPACE_CHARS.length,
                     "Sorry you cannot have more than " + VALID_VW_NAMESPACE_CHARS.length +
                             "namespaces for VW");
 
             char namespace = VALID_VW_NAMESPACE_CHARS[ns];
-            ret.put(h, String.valueOf(namespace));
+            ret.put(FEATURE, String.valueOf(namespace));
         }
         return ret;
     }
 
     @Override
-    public String apply(Example<R> toEncode) {
-        DataRecord<H, HashedValue> transformedAndHashed = hasher.apply(transformer.apply(toEncode.getRecord()));
+    public String apply(Example<RECORD> toEncode) {
+        DataRecord<FEATURE, HashedValue> transformedAndHashed = hasher.apply(transformer.apply(toEncode.getRecord()));
         return vwEncode(toEncode, transformedAndHashed, binary, targetToImportanceWeight);
     }
 
 
     private String vwEncode(
-            Example<R> request,
-            DataRecord<H, HashedValue> transformedAndHashed,
+            Example<RECORD> request,
+            DataRecord<FEATURE, HashedValue> transformedAndHashed,
             boolean binary,
             DoubleUnaryOperator targetToImportanceWeight) {
         StringBuilder sb = new StringBuilder();
@@ -81,9 +81,9 @@ public class VwNamespacedExampleEncoder<R, H extends Enum<H> & FeatureNamespace>
             DoubleFormatUtils.formatDoubleFast(weight, 6, 6, sb);
         }
 
-        EnumMap<H, HashedValue> features = transformedAndHashed.asEnumMap();
+        EnumMap<FEATURE, HashedValue> features = transformedAndHashed.asEnumMap();
 
-        for (Map.Entry<H, HashedValue> entry : features.entrySet()) {
+        for (Map.Entry<FEATURE, HashedValue> entry : features.entrySet()) {
             int ns = entry.getKey().ordinal();
             checkState(ns < VALID_VW_NAMESPACE_CHARS.length,
                     "Sorry you cannot have more than " + VALID_VW_NAMESPACE_CHARS.length +

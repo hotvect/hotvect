@@ -1,9 +1,9 @@
 package com.eshioji.hotvect.core.audit;
 
 import com.eshioji.hotvect.api.data.FeatureNamespace;
-import com.eshioji.hotvect.api.data.hashed.HashedValue;
-import com.eshioji.hotvect.api.data.hashed.HashedValueType;
-import com.eshioji.hotvect.api.data.raw.RawValue;
+import com.eshioji.hotvect.api.data.HashedValue;
+import com.eshioji.hotvect.api.data.HashedValueType;
+import com.eshioji.hotvect.api.data.RawValue;
 
 import java.util.HashMap;
 import java.util.Map;

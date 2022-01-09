@@ -17,7 +17,7 @@ import java.util.Map;
 import java.util.function.Function;
 import java.util.zip.ZipFile;
 
-public class AuditTask<R> extends Task<R> {
+public class AuditTask<RECORD> extends Task<RECORD> {
 
     protected AuditTask(OfflineTaskContext offlineTaskContext) {
         super(offlineTaskContext);
@@ -25,9 +25,9 @@ public class AuditTask<R> extends Task<R> {
 
     @Override
     protected Map<String, String> perform() throws Exception {
-        ExampleDecoder<R> regressionExampleDecoder = getTrainDecoder();
-        AuditJsonEncoder<R> exampleEncoder = getAuditJsonEncoder();
-        Function<String, List<String>> transformation = regressionExampleDecoder.andThen(s -> ListTransform.map(s, exampleEncoder));
+        ExampleDecoder<RECORD> exampleDecoder = getTrainDecoder();
+        AuditJsonEncoder<RECORD> exampleEncoder = getAuditJsonEncoder();
+        Function<String, List<String>> transformation = exampleDecoder.andThen(s -> ListTransform.map(s, exampleEncoder));
 
         CpuIntensiveFileMapper processor = CpuIntensiveFileMapper.mapper(
                 this.offlineTaskContext.getMetricRegistry(),
@@ -38,7 +38,7 @@ public class AuditTask<R> extends Task<R> {
 
         processor.run();
         Map<String, String> metadata = new HashMap<>();
-        metadata.put("example_decoder", regressionExampleDecoder.getClass().getCanonicalName());
+        metadata.put("example_decoder", exampleDecoder.getClass().getCanonicalName());
         metadata.put("example_encoder", exampleEncoder.getClass().getCanonicalName());
 
         Meter mainMeter = this.offlineTaskContext.getMetricRegistry().meter(MetricRegistry.name(CpuIntensiveFileMapper.class, "record"));
@@ -49,15 +49,15 @@ public class AuditTask<R> extends Task<R> {
         return metadata;
     }
 
-    private AuditJsonEncoder<R> getAuditJsonEncoder() throws Exception {
+    private AuditJsonEncoder<RECORD> getAuditJsonEncoder() throws Exception {
         if (this.offlineTaskContext.getOptions().parameters != null) {
             try (ZipFile parameterFile = new ZipFile(this.offlineTaskContext.getOptions().parameters)) {
                 Map<String, InputStream> parameters = ZipFiles.parameters(parameterFile);
-                AuditableVectorizer<R> vectorizer = (AuditableVectorizer<R>) getVectorizer(parameters);
+                AuditableVectorizer<RECORD> vectorizer = (AuditableVectorizer<RECORD>) getVectorizer(parameters);
                 return new AuditJsonEncoder<>(vectorizer);
             }
         } else {
-            AuditableVectorizer<R> vectorizer = (AuditableVectorizer<R>) getVectorizer(ImmutableMap.of());
+            AuditableVectorizer<RECORD> vectorizer = (AuditableVectorizer<RECORD>) getVectorizer(ImmutableMap.of());
             return new AuditJsonEncoder<>(vectorizer);
         }
     }

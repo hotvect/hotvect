@@ -1,6 +1,6 @@
 package com.eshioji.hotvect.api.codec.ccb;
 
-import com.eshioji.hotvect.api.data.raw.ccb.Example;
+import com.eshioji.hotvect.api.data.ccb.Example;
 
 import java.util.function.Function;
 

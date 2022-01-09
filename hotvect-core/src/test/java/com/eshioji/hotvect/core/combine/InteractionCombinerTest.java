@@ -2,7 +2,7 @@ package com.eshioji.hotvect.core.combine;
 
 import com.eshioji.hotvect.api.data.DataRecord;
 import com.eshioji.hotvect.api.data.SparseVector;
-import com.eshioji.hotvect.api.data.hashed.HashedValue;
+import com.eshioji.hotvect.api.data.HashedValue;
 import com.eshioji.hotvect.core.TestFeatureNamespace;
 import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;

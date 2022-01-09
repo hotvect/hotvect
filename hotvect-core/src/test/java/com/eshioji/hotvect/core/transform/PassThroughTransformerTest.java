@@ -2,10 +2,12 @@ package com.eshioji.hotvect.core.transform;
 
 import com.eshioji.hotvect.api.data.DataRecord;
 import com.eshioji.hotvect.api.data.FeatureNamespace;
-import com.eshioji.hotvect.api.data.hashed.HashedValueType;
-import com.eshioji.hotvect.api.data.raw.RawValue;
+import com.eshioji.hotvect.api.data.HashedValueType;
+import com.eshioji.hotvect.api.data.RawValue;
 import com.eshioji.hotvect.core.TestFeatureNamespace;
 import com.eshioji.hotvect.core.TestRawNamespace;
+import com.eshioji.hotvect.core.transform.regression.PassThroughTransformer;
+import com.eshioji.hotvect.core.transform.regression.Transformation;
 import com.eshioji.hotvect.core.util.AutoMapper;
 import org.junit.jupiter.api.Test;
 

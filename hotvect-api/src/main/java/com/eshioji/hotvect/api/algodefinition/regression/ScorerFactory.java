@@ -7,7 +7,7 @@ import java.io.InputStream;
 import java.util.Map;
 import java.util.function.BiFunction;
 
-public interface ScorerFactory<R> extends BiFunction<Vectorizer<R>, Map<String, InputStream>, Scorer<R>> {
+public interface ScorerFactory<RECORD> extends BiFunction<Vectorizer<RECORD>, Map<String, InputStream>, Scorer<RECORD>> {
     @Override
-    Scorer<R> apply(Vectorizer<R> vectorizer, Map<String, InputStream> predictParameters);
+    Scorer<RECORD> apply(Vectorizer<RECORD> vectorizer, Map<String, InputStream> predictParameters);
 }

@@ -1,8 +1,8 @@
 package com.eshioji.hotvect.vw.util;
 
 import com.eshioji.hotvect.api.data.DataRecord;
-import com.eshioji.hotvect.api.data.raw.regression.Example;
-import com.eshioji.hotvect.api.data.raw.RawValue;
+import com.eshioji.hotvect.api.data.regression.Example;
+import com.eshioji.hotvect.api.data.RawValue;
 import com.eshioji.hotvect.core.util.AutoMapper;
 import com.eshioji.hotvect.core.util.JsonRecordDecoder;
 import com.google.common.base.Charsets;

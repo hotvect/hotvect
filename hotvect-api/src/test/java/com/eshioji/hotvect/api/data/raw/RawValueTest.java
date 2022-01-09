@@ -1,5 +1,7 @@
 package com.eshioji.hotvect.api.data.raw;
 
+import com.eshioji.hotvect.api.data.RawValue;
+import com.eshioji.hotvect.api.data.RawValueType;
 import com.eshioji.hotvect.api.data.SparseVector;
 import org.junit.jupiter.api.Test;
 import org.quicktheories.api.Pair;

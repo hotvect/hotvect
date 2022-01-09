@@ -3,7 +3,7 @@ package com.eshioji.hotvect.core.combine;
 
 import com.eshioji.hotvect.api.data.FeatureNamespace;
 import com.eshioji.hotvect.api.data.ValueType;
-import com.eshioji.hotvect.api.data.hashed.HashedValueType;
+import com.eshioji.hotvect.api.data.HashedValueType;
 import com.eshioji.hotvect.core.hash.HashUtils;
 import com.google.common.base.Joiner;
 
@@ -11,26 +11,25 @@ import java.io.Serializable;
 import java.lang.reflect.Array;
 import java.util.Arrays;
 import java.util.EnumSet;
-import java.util.stream.Collectors;
 
 import static com.google.common.base.Preconditions.checkArgument;
 
 
-public class FeatureDefinition<H extends Enum<H> & FeatureNamespace> implements Serializable {
+public class FeatureDefinition<FEATURE extends Enum<FEATURE> & FeatureNamespace> implements Serializable {
     private final ValueType valueType;
-    private final EnumSet<H> components;
-    private final H[] cachedComponents;
+    private final EnumSet<FEATURE> components;
+    private final FEATURE[] cachedComponents;
     private final String name;
     private final int namespace;
 
-    public FeatureDefinition(H first) {
+    public FeatureDefinition(FEATURE first) {
         this(EnumSet.of(first));
     }
 
-    public FeatureDefinition(H first, H... rest) {
+    public FeatureDefinition(FEATURE first, FEATURE... rest) {
         this(EnumSet.of(first, rest));
     }
-    public FeatureDefinition(EnumSet<H> components) {
+    public FeatureDefinition(EnumSet<FEATURE> components) {
         checkArgument(components.size() > 0, "You can't have a feature with no components");
 
         checkArgument(components.stream().noneMatch(x -> "target".equals(x.name())),
@@ -41,7 +40,7 @@ public class FeatureDefinition<H extends Enum<H> & FeatureNamespace> implements 
         this.components = components;
 
         @SuppressWarnings("unchecked")
-        H[] cached = components.toArray((H[]) Array.newInstance(components.iterator().next().getClass(), components.size()));
+        FEATURE[] cached = components.toArray((FEATURE[]) Array.newInstance(components.iterator().next().getClass(), components.size()));
         this.cachedComponents = cached;
 
         this.name = Joiner.on("^").join(components);
@@ -55,7 +54,7 @@ public class FeatureDefinition<H extends Enum<H> & FeatureNamespace> implements 
         }
     }
 
-    public H[] getComponents() {
+    public FEATURE[] getComponents() {
         return this.cachedComponents;
     }
 

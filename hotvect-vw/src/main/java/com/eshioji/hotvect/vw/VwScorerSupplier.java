@@ -7,8 +7,8 @@ import it.unimi.dsi.fastutil.ints.Int2DoubleMap;
 
 import java.io.BufferedReader;
 
-public class VwScorerSupplier<R> {
-    public Scorer<R> apply(Vectorizer<R> vectorizer, BufferedReader modelParameters) {
+public class VwScorerSupplier<RECORD> {
+    public Scorer<RECORD> apply(Vectorizer<RECORD> vectorizer, BufferedReader modelParameters) {
         Int2DoubleMap parameters = new VwModelImporter().apply(modelParameters);
         LogisticRegressionEstimator estimator = new LogisticRegressionEstimator(0, parameters);
         return new ScorerImpl<>(vectorizer, estimator);

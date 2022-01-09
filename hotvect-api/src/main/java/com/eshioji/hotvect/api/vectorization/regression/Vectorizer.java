@@ -4,9 +4,8 @@ import com.eshioji.hotvect.api.data.SparseVector;
 
 import java.util.function.Function;
 
-public interface Vectorizer<R>
-        extends Function<R, SparseVector> {
+public interface Vectorizer<RECORD> extends Function<RECORD, SparseVector> {
     @Override
-    SparseVector apply(R toVectorize);
+    SparseVector apply(RECORD toVectorize);
 }
 

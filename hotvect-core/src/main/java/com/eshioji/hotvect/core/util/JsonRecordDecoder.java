@@ -1,8 +1,8 @@
 package com.eshioji.hotvect.core.util;
 
 import com.eshioji.hotvect.api.data.DataRecord;
-import com.eshioji.hotvect.api.data.raw.RawNamespace;
-import com.eshioji.hotvect.api.data.raw.RawValue;
+import com.eshioji.hotvect.api.data.RawNamespace;
+import com.eshioji.hotvect.api.data.RawValue;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -17,6 +17,7 @@ import static com.google.common.base.Preconditions.checkState;
  * A {@link DataRecordDecoder} that decodes a JSON string
  * @param <R>
  */
+@Deprecated
 public class JsonRecordDecoder<R extends Enum<R> & RawNamespace> implements DataRecordDecoder<R> {
     private static final ObjectMapper OM = new ObjectMapper();
     private final Class<R> keyClass;

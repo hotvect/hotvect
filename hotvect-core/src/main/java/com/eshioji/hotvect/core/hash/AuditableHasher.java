@@ -2,8 +2,8 @@ package com.eshioji.hotvect.core.hash;
 
 import com.eshioji.hotvect.api.data.DataRecord;
 import com.eshioji.hotvect.api.data.FeatureNamespace;
-import com.eshioji.hotvect.api.data.hashed.HashedValue;
-import com.eshioji.hotvect.api.data.raw.RawValue;
+import com.eshioji.hotvect.api.data.HashedValue;
+import com.eshioji.hotvect.api.data.RawValue;
 import com.eshioji.hotvect.core.audit.HashedFeatureName;
 import com.eshioji.hotvect.core.audit.HasherAuditState;
 import com.eshioji.hotvect.core.audit.RawFeatureName;
@@ -15,12 +15,12 @@ import java.util.function.Function;
 /**
  * A function that converts all {@link RawValue} into {@link HashedValue} by hashing any strings
  */
-public class AuditableHasher<H extends Enum<H> & FeatureNamespace> implements Function<DataRecord<H, RawValue>, DataRecord<H, HashedValue>> {
+public class AuditableHasher<FEATURE extends Enum<FEATURE> & FeatureNamespace> implements Function<DataRecord<FEATURE, RawValue>, DataRecord<FEATURE, HashedValue>> {
     private HasherAuditState auditState;
-    private final Class<H> namespace;
-    private final H[] namespaces;
+    private final Class<FEATURE> namespace;
+    private final FEATURE[] namespaces;
 
-    public AuditableHasher(Class<H> hashedNamespace) {
+    public AuditableHasher(Class<FEATURE> hashedNamespace) {
         this.namespace = hashedNamespace;
         this.namespaces = hashedNamespace.getEnumConstants();
         this.auditState = null;
@@ -40,7 +40,7 @@ public class AuditableHasher<H extends Enum<H> & FeatureNamespace> implements Fu
      * @return hashed {@link DataRecord}
      */
     @Override
-    public DataRecord<H, HashedValue> apply(DataRecord<H, RawValue> input) {
+    public DataRecord<FEATURE, HashedValue> apply(DataRecord<FEATURE, RawValue> input) {
         if (auditState != null) {
             // Audit is enabled. Hasher is the first entry point, so we clear our thread local cache to prepare for
             // the audit of this invocation
@@ -48,8 +48,8 @@ public class AuditableHasher<H extends Enum<H> & FeatureNamespace> implements Fu
         }
 
 
-        DataRecord<H, HashedValue> ret = new DataRecord<>(namespace);
-        for (H namespace : namespaces) {
+        DataRecord<FEATURE, HashedValue> ret = new DataRecord<>(namespace);
+        for (FEATURE namespace : namespaces) {
             final RawValue toHash = input.get(namespace);
             if (toHash == null) {
                 continue;

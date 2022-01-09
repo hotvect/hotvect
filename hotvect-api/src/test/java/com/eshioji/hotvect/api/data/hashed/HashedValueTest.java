@@ -1,5 +1,7 @@
 package com.eshioji.hotvect.api.data.hashed;
 
+import com.eshioji.hotvect.api.data.HashedValue;
+import com.eshioji.hotvect.api.data.HashedValueType;
 import com.eshioji.hotvect.api.data.SparseVector;
 import org.junit.jupiter.api.Test;
 import org.quicktheories.api.Pair;

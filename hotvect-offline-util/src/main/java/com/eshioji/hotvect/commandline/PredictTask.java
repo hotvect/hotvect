@@ -4,7 +4,7 @@ package com.eshioji.hotvect.commandline;
 import com.codahale.metrics.Meter;
 import com.codahale.metrics.MetricRegistry;
 import com.eshioji.hotvect.api.codec.regression.ExampleDecoder;
-import com.eshioji.hotvect.api.data.raw.regression.Example;
+import com.eshioji.hotvect.api.data.regression.Example;
 import com.eshioji.hotvect.api.policies.Scorer;
 import com.eshioji.hotvect.core.util.ListTransform;
 import com.eshioji.hotvect.util.CpuIntensiveFileMapper;
@@ -19,7 +19,7 @@ import java.util.Map;
 import java.util.function.Function;
 import java.util.zip.ZipFile;
 
-public class PredictTask<R> extends Task<R> {
+public class PredictTask<RECORD> extends Task<RECORD> {
     private static final Logger logger = LoggerFactory.getLogger(PredictTask.class);
 
     protected PredictTask(OfflineTaskContext offlineTaskContext) {
@@ -29,20 +29,20 @@ public class PredictTask<R> extends Task<R> {
 
     @Override
     protected Map<String, String> perform() throws Exception {
-        ExampleDecoder<R> regressionExampleDecoder = getPredictDecoder();
+        ExampleDecoder<RECORD> exampleDecoder = getPredictDecoder();
 
-        Scorer<R> scorer;
+        Scorer<RECORD> scorer;
         try(ZipFile parameterFile = new ZipFile(super.offlineTaskContext.getOptions().parameters)){
             Map<String, InputStream> parameters = ZipFiles.parameters(parameterFile);
             logger.info("Parameters loaded {}",parameters.keySet());
             scorer = getScorer(parameters);
         }
 
-        Function<Example<R>, String> scoreOutputFormatter = x ->
+        Function<Example<RECORD>, String> scoreOutputFormatter = x ->
                 scorer.applyAsDouble(x.getRecord()) + "," + x.getTarget();
 
         Function<String, List<String>> transformation =
-                regressionExampleDecoder.andThen(i -> ListTransform.map(i, scoreOutputFormatter));
+                exampleDecoder.andThen(i -> ListTransform.map(i, scoreOutputFormatter));
 
         CpuIntensiveFileMapper processor = CpuIntensiveFileMapper.mapper(
                 super.offlineTaskContext.getMetricRegistry(),

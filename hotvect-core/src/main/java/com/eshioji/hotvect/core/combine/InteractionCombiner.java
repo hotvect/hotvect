@@ -3,8 +3,8 @@ package com.eshioji.hotvect.core.combine;
 import com.eshioji.hotvect.api.data.DataRecord;
 import com.eshioji.hotvect.api.data.FeatureNamespace;
 import com.eshioji.hotvect.api.data.SparseVector;
-import com.eshioji.hotvect.api.data.hashed.HashedValue;
-import com.eshioji.hotvect.api.data.hashed.HashedValueType;
+import com.eshioji.hotvect.api.data.HashedValue;
+import com.eshioji.hotvect.api.data.HashedValueType;
 import com.eshioji.hotvect.core.audit.AuditableCombiner;
 import com.eshioji.hotvect.core.audit.HashedFeatureName;
 import com.eshioji.hotvect.core.audit.RawFeatureName;
@@ -25,9 +25,9 @@ import static com.google.common.base.Preconditions.checkNotNull;
 /**
  * A {@link Combiner} that creates specified feature interactions
  *
- * @param <H> the {@link FeatureNamespace} to be used
+ * @param <FEATURE> the {@link FeatureNamespace} to be used
  */
-public class InteractionCombiner<H extends Enum<H> & FeatureNamespace> implements AuditableCombiner<H> {
+public class InteractionCombiner<FEATURE extends Enum<FEATURE> & FeatureNamespace> implements AuditableCombiner<FEATURE> {
     private final ThreadLocal<CacheEntry> CACHE = new ThreadLocal<>() {
         @Override
         protected CacheEntry initialValue() {
@@ -55,7 +55,7 @@ public class InteractionCombiner<H extends Enum<H> & FeatureNamespace> implement
 
     // Parameters for combinations
     private final int bitMask;
-    private final FeatureDefinition<H>[] featureDefinitions;
+    private final FeatureDefinition<FEATURE>[] featureDefinitions;
 
     @Override
     public ThreadLocal<Map<Integer, List<RawFeatureName>>> enableAudit(ThreadLocal<Map<HashedFeatureName, RawFeatureName>> featureName2SourceRawValue) {
@@ -72,7 +72,7 @@ public class InteractionCombiner<H extends Enum<H> & FeatureNamespace> implement
      * @param bits               number of bits to use for the feature hashes. Must be equal or smaller than 32
      * @param featureDefinitions definition of features, which may include feature interactions
      */
-    public InteractionCombiner(int bits, Set<FeatureDefinition<H>> featureDefinitions) {
+    public InteractionCombiner(int bits, Set<FeatureDefinition<FEATURE>> featureDefinitions) {
         checkArgument(bits <= 32);
         if (bits == 32) {
             this.bitMask = -1;
@@ -82,7 +82,7 @@ public class InteractionCombiner<H extends Enum<H> & FeatureNamespace> implement
         }
 
         @SuppressWarnings("unchecked")
-        FeatureDefinition<H>[] definitions = (FeatureDefinition<H>[]) Array.newInstance(FeatureDefinition.class, featureDefinitions.size());
+        FeatureDefinition<FEATURE>[] definitions = (FeatureDefinition<FEATURE>[]) Array.newInstance(FeatureDefinition.class, featureDefinitions.size());
         this.featureDefinitions = featureDefinitions.toArray(definitions);
     }
 
@@ -93,7 +93,7 @@ public class InteractionCombiner<H extends Enum<H> & FeatureNamespace> implement
      * @return the constructed feature vector
      */
     @Override
-    public SparseVector apply(DataRecord<H, HashedValue> input) {
+    public SparseVector apply(DataRecord<FEATURE, HashedValue> input) {
         CacheEntry cached = CACHE.get();
         IntOpenHashSet categorical = cached.categorical;
         Int2DoubleOpenHashMap numerical = cached.numerical;
@@ -101,14 +101,14 @@ public class InteractionCombiner<H extends Enum<H> & FeatureNamespace> implement
         // Add constant feature
         categorical.add(0);
 
-        for (FeatureDefinition<H> fd : featureDefinitions) {
+        for (FeatureDefinition<FEATURE> fd : featureDefinitions) {
 
             if (fd.getValueType() == HashedValueType.CATEGORICAL) {
                 // Categorical
                 construct(this.bitMask, fd, categorical, input);
             } else {
                 // Numerical
-                H element = fd.getComponents()[0];
+                FEATURE element = fd.getComponents()[0];
                 HashedValue data = input.get(element);
                 if (data == null) {
                     continue; // Missing
@@ -156,13 +156,13 @@ public class InteractionCombiner<H extends Enum<H> & FeatureNamespace> implement
      * @param record            Input hashed {@link DataRecord}
      */
     private void construct(int mask,
-                           FeatureDefinition<H> featureDefinition,
+                           FeatureDefinition<FEATURE> featureDefinition,
                            IntCollection acc,
-                           DataRecord<H, HashedValue> record) {
-        H[] toInteract = featureDefinition.getComponents();
+                           DataRecord<FEATURE, HashedValue> record) {
+        FEATURE[] toInteract = featureDefinition.getComponents();
         if (toInteract.length == 1) {
             // There is only one component
-            H featureNamespace = toInteract[0];
+            FEATURE featureNamespace = toInteract[0];
             HashedValue value = record.get(featureNamespace);
             if (value != null) {
                 for (int el : value.getCategoricalIndices()) {
@@ -186,15 +186,15 @@ public class InteractionCombiner<H extends Enum<H> & FeatureNamespace> implement
     }
 
     private void interact(int mask,
-                          FeatureDefinition<H> fd,
+                          FeatureDefinition<FEATURE> fd,
                           IntCollection acc,
-                          DataRecord<H, HashedValue> values) {
-        H[] toInteract = fd.getComponents();
+                          DataRecord<FEATURE, HashedValue> values) {
+        FEATURE[] toInteract = fd.getComponents();
 
         // First, we calculate how many results we would be getting
         int solutions = 1;
-        for (H h : toInteract) {
-            HashedValue data = values.get(h);
+        for (FEATURE feature : toInteract) {
+            HashedValue data = values.get(feature);
             if (data == null) {
                 // If any of the elements for interaction is not available, abort
                 return;
@@ -208,7 +208,7 @@ public class InteractionCombiner<H extends Enum<H> & FeatureNamespace> implement
 
 
 
-            for (H namespace : toInteract) {
+            for (FEATURE namespace : toInteract) {
                 int[] featureNames = values.get(namespace).getCategoricalIndices();
                 int featureName = featureNames[(i / j) % featureNames.length];
                 hash ^= HashUtils.hashInt(featureName);
@@ -221,7 +221,7 @@ public class InteractionCombiner<H extends Enum<H> & FeatureNamespace> implement
             if(this.featureHash2SourceRawValue != null){
                 // Audit enabled
                 List<RawFeatureName> rawFeatureNames = new ArrayList<>();
-                for (H namespace : toInteract) {
+                for (FEATURE namespace : toInteract) {
                     int[] featureNames = values.get(namespace).getCategoricalIndices();
                     int featureName = featureNames[(i / j) % featureNames.length];
 

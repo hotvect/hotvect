@@ -6,7 +6,7 @@ import java.io.OutputStream;
 import java.util.function.BiConsumer;
 import java.util.function.Function;
 
-public interface FeatureStateCodec<S extends FeatureState> {
-    Function<InputStream, S> getDeserializer();
-    BiConsumer<OutputStream, S> getSerializer();
+public interface FeatureStateCodec<STATE extends FeatureState> {
+    Function<InputStream, STATE> getDeserializer();
+    BiConsumer<OutputStream, STATE> getSerializer();
 }

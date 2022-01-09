@@ -13,52 +13,42 @@ import java.util.function.Function;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 
-public class FeatureDefinitionExtractor<K extends Enum<K> & FeatureNamespace> implements Function<JsonNode, Set<FeatureDefinition<K>>> {
-    private final Class<K> featureKeyClass;
-    private final Function<String, K> parseFun;
+public class FeatureDefinitionExtractor<FEATURE extends Enum<FEATURE> & FeatureNamespace> implements Function<JsonNode, Set<FeatureDefinition<FEATURE>>> {
+    private final Class<FEATURE> featureKeyClass;
 
-    public FeatureDefinitionExtractor(Class<K> featureKeyClass) {
+    public FeatureDefinitionExtractor(Class<FEATURE> featureKeyClass) {
         this.featureKeyClass = featureKeyClass;
-
-        // Don't know of a cleaner way
-        this.parseFun = s -> {
-            try {
-                return (K) featureKeyClass.getDeclaredMethod("valueOf", String.class).invoke(featureKeyClass, s);
-            } catch (Exception e) {
-                throw new RuntimeException(e);
-            }
-        };
     }
 
     @Override
-    public Set<FeatureDefinition<K>> apply(JsonNode jsonNode) {
+    public Set<FeatureDefinition<FEATURE>> apply(JsonNode jsonNode) {
         return extractFeatureDefinitions(featureKeyClass, jsonNode);
 
     }
 
-    public Set<FeatureDefinition<K>> extractFeatureDefinitions(Class<K> featureKeyClass, JsonNode hyperparameters) {
+    public Set<FeatureDefinition<FEATURE>> extractFeatureDefinitions(Class<FEATURE> featureKeyClass, JsonNode hyperparameters) {
         JsonNode features = hyperparameters.get("features");
         checkNotNull(features);
-        Set<FeatureDefinition<K>> featureDefinitions = new HashSet<>();
+        Set<FeatureDefinition<FEATURE>> featureDefinitions = new HashSet<>();
 
         for (JsonNode feature : features) {
-            EnumSet<K> fds = parse(featureKeyClass, (ArrayNode) feature);
+            EnumSet<FEATURE> fds = parse(featureKeyClass, (ArrayNode) feature);
             featureDefinitions.add(new FeatureDefinition<>(fds));
         }
         return featureDefinitions;
     }
 
-    private EnumSet<K> parse(Class<K> featureKeyClass, ArrayNode node) {
+    private EnumSet<FEATURE> parse(Class<FEATURE> featureKeyClass, ArrayNode node) {
 
-        Function<String, K> parseFun = s -> {
+        Function<String, FEATURE> parseFun = s -> {
             try {
-                return (K) featureKeyClass.getDeclaredMethod("valueOf", String.class).invoke(featureKeyClass, s);
+                return (FEATURE) featureKeyClass.getDeclaredMethod("valueOf", String.class).invoke(featureKeyClass, s);
             } catch (Exception e) {
                 throw new RuntimeException(e);
             }
         };
 
-        EnumSet<K> ret = EnumSet.noneOf(featureKeyClass);
+        EnumSet<FEATURE> ret = EnumSet.noneOf(featureKeyClass);
         for (JsonNode jsonNode : node) {
             ret.add(parseFun.apply(jsonNode.asText()));
         }

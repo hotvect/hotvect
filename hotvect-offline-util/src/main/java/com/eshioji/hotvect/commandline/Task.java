@@ -24,7 +24,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
-public abstract class Task<R> extends VerboseCallable<Map<String, String>> {
+public abstract class Task<RECORD> extends VerboseCallable<Map<String, String>> {
     protected final Logger LOGGER = LoggerFactory.getLogger(this.getClass());
     protected final OfflineTaskContext offlineTaskContext;
 
@@ -76,36 +76,36 @@ public abstract class Task<R> extends VerboseCallable<Map<String, String>> {
         );
     }
 
-    protected Vectorizer<R> getVectorizer(Map<String, InputStream> parameter) throws Exception {
+    protected Vectorizer<RECORD> getVectorizer(Map<String, InputStream> parameter) throws Exception {
         String factoryName = this.offlineTaskContext.getAlgorithmDefinition().getVectorizerFactoryName();
         Optional<JsonNode> hyperparameter = this.offlineTaskContext.getAlgorithmDefinition().getVectorizerParameter();
-        return ((VectorizerFactory<R>) loadClass(factoryName).getDeclaredConstructor().newInstance())
+        return ((VectorizerFactory<RECORD>) loadClass(factoryName).getDeclaredConstructor().newInstance())
                 .apply(hyperparameter, parameter);
     }
 
-    protected ExampleDecoder<R> getTrainDecoder() throws Exception {
+    protected ExampleDecoder<RECORD> getTrainDecoder() throws Exception {
         String factoryName = this.offlineTaskContext.getAlgorithmDefinition().getDecoderFactoryName();
         Optional<JsonNode> parameter = this.offlineTaskContext.getAlgorithmDefinition().getTrainDecoderParameter();
-        return ((ExampleDecoderFactory<R>) loadClass(factoryName).getDeclaredConstructor().newInstance())
+        return ((ExampleDecoderFactory<RECORD>) loadClass(factoryName).getDeclaredConstructor().newInstance())
                 .apply(parameter);
     }
 
-    protected ExampleEncoder<R> getTrainEncoder(Vectorizer<R> vectorizer) throws Exception {
+    protected ExampleEncoder<RECORD> getTrainEncoder(Vectorizer<RECORD> vectorizer) throws Exception {
         String factoryName = this.offlineTaskContext.getAlgorithmDefinition().getEncoderFactoryName();
-        return ((ExampleEncoderFactory<R>) loadClass(factoryName).getDeclaredConstructor().newInstance())
+        return ((ExampleEncoderFactory<RECORD>) loadClass(factoryName).getDeclaredConstructor().newInstance())
                 .apply(vectorizer);
     }
 
-    protected ExampleDecoder<R> getPredictDecoder() throws Exception {
+    protected ExampleDecoder<RECORD> getPredictDecoder() throws Exception {
         String factoryName = this.offlineTaskContext.getAlgorithmDefinition().getDecoderFactoryName();
         Optional<JsonNode> hyperparameter = this.offlineTaskContext.getAlgorithmDefinition().getPredictDecoderParameter();
-        return ((ExampleDecoderFactory<R>) loadClass(factoryName).getDeclaredConstructor().newInstance())
+        return ((ExampleDecoderFactory<RECORD>) loadClass(factoryName).getDeclaredConstructor().newInstance())
                 .apply(hyperparameter);
     }
 
-    protected Scorer<R> getScorer(Map<String, InputStream> parameter) throws Exception {
+    protected Scorer<RECORD> getScorer(Map<String, InputStream> parameter) throws Exception {
         String factoryName = this.offlineTaskContext.getAlgorithmDefinition().getScorerFactoryName();
-        return ((ScorerFactory<R>) loadClass(factoryName).getDeclaredConstructor().newInstance())
+        return ((ScorerFactory<RECORD>) loadClass(factoryName).getDeclaredConstructor().newInstance())
                 .apply(getVectorizer(parameter), parameter);
     }
 

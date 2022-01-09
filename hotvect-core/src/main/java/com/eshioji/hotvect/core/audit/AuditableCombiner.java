@@ -5,8 +5,7 @@ import com.eshioji.hotvect.core.combine.Combiner;
 
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ConcurrentMap;
 
-public interface AuditableCombiner<H extends Enum<H> &FeatureNamespace> extends Combiner<H> {
+public interface AuditableCombiner<FEATURE extends Enum<FEATURE> &FeatureNamespace> extends Combiner<FEATURE> {
     ThreadLocal<Map<Integer, List<RawFeatureName>>> enableAudit(ThreadLocal<Map<HashedFeatureName, RawFeatureName>> featureName2SourceRawValue);
 }

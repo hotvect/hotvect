@@ -1,7 +1,7 @@
 package com.eshioji.hotvect.core.util;
 
 import com.eshioji.hotvect.api.data.DataRecord;
-import com.eshioji.hotvect.api.data.raw.RawValue;
+import com.eshioji.hotvect.api.data.RawValue;
 import com.eshioji.hotvect.core.TestRawNamespace;
 import org.junit.jupiter.api.Test;
 

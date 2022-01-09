@@ -1,7 +1,7 @@
 package com.eshioji.hotvect.core;
 
 import com.eshioji.hotvect.api.data.DataRecord;
-import com.eshioji.hotvect.api.data.raw.RawValue;
+import com.eshioji.hotvect.api.data.RawValue;
 import com.eshioji.hotvect.core.util.AutoMapper;
 import com.eshioji.hotvect.core.util.JsonCodecTest;
 import com.eshioji.hotvect.core.util.JsonRecordDecoder;

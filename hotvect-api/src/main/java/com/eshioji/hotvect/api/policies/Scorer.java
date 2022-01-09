@@ -5,7 +5,7 @@ import java.util.function.ToDoubleFunction;
 /**
  * Interface for classes that scores an input
  */
-public interface Scorer<R> extends ToDoubleFunction<R> {
+public interface Scorer<RECORD> extends ToDoubleFunction<RECORD> {
 
     /**
      * Score the given record
@@ -13,5 +13,5 @@ public interface Scorer<R> extends ToDoubleFunction<R> {
      * @return the score
      */
     @Override
-    double applyAsDouble(R record);
+    double applyAsDouble(RECORD record);
 }

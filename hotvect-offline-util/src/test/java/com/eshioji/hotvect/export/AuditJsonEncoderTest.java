@@ -1,14 +1,14 @@
 package com.eshioji.hotvect.export;
 
-import com.eshioji.hotvect.api.data.raw.RawValue;
-import com.eshioji.hotvect.api.data.raw.regression.Example;
+import com.eshioji.hotvect.api.data.RawValue;
+import com.eshioji.hotvect.api.data.regression.Example;
 import com.eshioji.hotvect.core.audit.AuditableVectorizer;
 import com.eshioji.hotvect.core.combine.FeatureDefinition;
 import com.eshioji.hotvect.core.combine.InteractionCombiner;
 import com.eshioji.hotvect.core.hash.AuditableHasher;
-import com.eshioji.hotvect.core.transform.FeatureTransformer;
-import com.eshioji.hotvect.core.transform.Transformer;
-import com.eshioji.hotvect.core.vectorization.DefaultVectorizer;
+import com.eshioji.hotvect.core.transform.regression.FeatureTransformer;
+import com.eshioji.hotvect.core.transform.regression.Transformer;
+import com.eshioji.hotvect.core.vectorization.regression.DefaultVectorizer;
 import com.eshioji.hotvect.testutil.TestFeatureSpace;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;

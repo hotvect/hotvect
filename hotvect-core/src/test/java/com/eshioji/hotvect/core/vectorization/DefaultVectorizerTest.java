@@ -2,13 +2,14 @@ package com.eshioji.hotvect.core.vectorization;
 
 import com.eshioji.hotvect.api.data.DataRecord;
 import com.eshioji.hotvect.api.data.SparseVector;
-import com.eshioji.hotvect.api.data.raw.RawValue;
+import com.eshioji.hotvect.api.data.RawValue;
 import com.eshioji.hotvect.core.TestFeatureNamespace;
 import com.eshioji.hotvect.core.TestRawNamespace;
 import com.eshioji.hotvect.core.combine.Combiner;
 import com.eshioji.hotvect.core.hash.AuditableHasher;
-import com.eshioji.hotvect.core.transform.Transformer;
+import com.eshioji.hotvect.core.transform.regression.Transformer;
 import com.eshioji.hotvect.core.util.AutoMapper;
+import com.eshioji.hotvect.core.vectorization.regression.VectorizerImpl;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;

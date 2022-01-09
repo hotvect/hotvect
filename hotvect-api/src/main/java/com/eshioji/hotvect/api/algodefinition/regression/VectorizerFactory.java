@@ -8,7 +8,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.function.BiFunction;
 
-public interface VectorizerFactory<R> extends BiFunction<Optional<JsonNode>, Map<String, InputStream>, Vectorizer<R>> {
+public interface VectorizerFactory<RECORD> extends BiFunction<Optional<JsonNode>, Map<String, InputStream>, Vectorizer<RECORD>> {
     @Override
-    Vectorizer<R> apply(Optional<JsonNode> hyperparameters, Map<String, InputStream> parameters);
+    Vectorizer<RECORD> apply(Optional<JsonNode> hyperparameters, Map<String, InputStream> parameters);
 }

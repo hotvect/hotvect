@@ -4,12 +4,12 @@ import com.eshioji.hotvect.api.algodefinition.AlgorithmDefinition;
 import com.eshioji.hotvect.api.algodefinition.AlgorithmParameterMetadata;
 import com.eshioji.hotvect.api.policies.Scorer;
 
-public class AlgorithmInstance<R> {
+public class AlgorithmInstance<RECORD> {
     private final AlgorithmDefinition algorithmDefinition;
     private final AlgorithmParameterMetadata algorithmParameterMetadata;
-    private final Scorer<R> algorithm;
+    private final Scorer<RECORD> algorithm;
 
-    public AlgorithmInstance(AlgorithmDefinition algorithmDefinition, AlgorithmParameterMetadata algorithmParameterMetadata, Scorer<R> algorithm) {
+    public AlgorithmInstance(AlgorithmDefinition algorithmDefinition, AlgorithmParameterMetadata algorithmParameterMetadata, Scorer<RECORD> algorithm) {
         this.algorithmDefinition = algorithmDefinition;
         this.algorithmParameterMetadata = algorithmParameterMetadata;
         this.algorithm = algorithm;
@@ -23,7 +23,7 @@ public class AlgorithmInstance<R> {
         return algorithmParameterMetadata;
     }
 
-    public Scorer<R> getAlgorithm() {
+    public Scorer<RECORD> getAlgorithm() {
         return algorithm;
     }
 }

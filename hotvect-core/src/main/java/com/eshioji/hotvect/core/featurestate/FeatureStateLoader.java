@@ -31,7 +31,7 @@ public class FeatureStateLoader<R> implements BiFunction<Optional<JsonNode>, Map
 
     private Map<String, ObjectNode> extract(Optional<JsonNode> hyperparameters) {
         Optional<ObjectNode> featureStateDefinitions = hyperparameters.map(x -> (ObjectNode) x.get("feature_states"));
-        if (!featureStateDefinitions.isPresent()) {
+        if (featureStateDefinitions.isEmpty()) {
             return ImmutableMap.of();
         } else {
             return extract(featureStateDefinitions.get());

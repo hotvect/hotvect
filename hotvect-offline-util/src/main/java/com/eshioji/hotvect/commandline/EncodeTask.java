@@ -17,7 +17,7 @@ import java.util.Map;
 import java.util.function.Function;
 import java.util.zip.ZipFile;
 
-public class EncodeTask<R> extends Task<R> {
+public class EncodeTask<RECORD> extends Task<RECORD> {
 
     protected EncodeTask(OfflineTaskContext offlineTaskContext) {
         super(offlineTaskContext);
@@ -25,28 +25,28 @@ public class EncodeTask<R> extends Task<R> {
 
     @Override
     protected Map<String, String> perform() throws Exception {
-        ExampleDecoder<R> regressionExampleDecoder = getTrainDecoder();
+        ExampleDecoder<RECORD> exampleDecoder = getTrainDecoder();
 
-        ExampleEncoder<R> regressionExampleEncoder;
+        ExampleEncoder<RECORD> exampleEncoder;
         if (this.offlineTaskContext.getOptions().parameters != null){
             try(ZipFile parameterFile = new ZipFile(this.offlineTaskContext.getOptions().parameters)){
                 Map<String, InputStream> parameters = ZipFiles.parameters(parameterFile);
                 var vectorizer = getVectorizer(parameters);
-                regressionExampleEncoder = getTrainEncoder(vectorizer);
+                exampleEncoder = getTrainEncoder(vectorizer);
             }
         } else {
             var vectorizer = getVectorizer(ImmutableMap.of());
-            regressionExampleEncoder = getTrainEncoder(vectorizer);
+            exampleEncoder = getTrainEncoder(vectorizer);
         }
 
-        Function<String, List<String>> transformation = regressionExampleDecoder.andThen(s -> ListTransform.map(s, regressionExampleEncoder));
+        Function<String, List<String>> transformation = exampleDecoder.andThen(s -> ListTransform.map(s, exampleEncoder));
 
         CpuIntensiveFileMapper processor = CpuIntensiveFileMapper.mapper(this.offlineTaskContext.getMetricRegistry(), this.offlineTaskContext.getOptions().sourceFile, this.offlineTaskContext.getOptions().destinationFile, transformation);
 
         processor.run();
         Map<String, String> metadata = new HashMap<>();
-        metadata.put("example_decoder", regressionExampleDecoder.getClass().getCanonicalName());
-        metadata.put("example_encoder", regressionExampleEncoder.getClass().getCanonicalName());
+        metadata.put("example_decoder", exampleDecoder.getClass().getCanonicalName());
+        metadata.put("example_encoder", exampleEncoder.getClass().getCanonicalName());
 
         Meter mainMeter = this.offlineTaskContext.getMetricRegistry().meter(MetricRegistry.name(CpuIntensiveFileMapper.class, "record"));
         metadata.put("mean_throughput", String.valueOf(mainMeter.getMeanRate()));

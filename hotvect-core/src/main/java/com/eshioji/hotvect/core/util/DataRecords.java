@@ -2,7 +2,7 @@ package com.eshioji.hotvect.core.util;
 
 import com.eshioji.hotvect.api.data.DataRecord;
 import com.eshioji.hotvect.api.data.SparseVector;
-import com.eshioji.hotvect.api.data.raw.RawValue;
+import com.eshioji.hotvect.api.data.RawValue;
 import com.google.common.collect.ImmutableMap;
 
 import java.util.AbstractMap;

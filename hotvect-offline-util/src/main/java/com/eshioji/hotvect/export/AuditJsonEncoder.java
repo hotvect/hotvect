@@ -2,7 +2,7 @@ package com.eshioji.hotvect.export;
 
 import com.eshioji.hotvect.api.codec.regression.ExampleEncoder;
 import com.eshioji.hotvect.api.data.SparseVector;
-import com.eshioji.hotvect.api.data.raw.regression.Example;
+import com.eshioji.hotvect.api.data.regression.Example;
 import com.eshioji.hotvect.core.audit.AuditableVectorizer;
 import com.eshioji.hotvect.core.audit.RawFeatureName;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -16,25 +16,25 @@ import java.util.Map;
 
 import static com.google.common.base.Preconditions.checkState;
 
-public class AuditJsonEncoder<R> implements ExampleEncoder<R> {
+public class AuditJsonEncoder<RECORD> implements ExampleEncoder<RECORD> {
     private static final ObjectMapper OM = new ObjectMapper();
     private final ThreadLocal<Map<Integer, List<RawFeatureName>>> names;
-    private final AuditableVectorizer<R> vectorizer;
+    private final AuditableVectorizer<RECORD> vectorizer;
 
-    public AuditJsonEncoder(AuditableVectorizer<R> vectorizer) {
+    public AuditJsonEncoder(AuditableVectorizer<RECORD> vectorizer) {
         this.vectorizer = vectorizer;
         this.names = vectorizer.enableAudit();
     }
 
     @Override
-    public String apply(Example<R> toEncode) {
+    public String apply(Example<RECORD> toEncode) {
         SparseVector vector = vectorizer.apply(toEncode.getRecord());
         return jsonEncode(toEncode, vector, names.get());
     }
 
     private static final Joiner JOIN_ON_HAT = Joiner.on("^");
 
-    private String jsonEncode(Example<R> toEncode, SparseVector vector, Map<Integer, List<RawFeatureName>> names) {
+    private String jsonEncode(Example<RECORD> toEncode, SparseVector vector, Map<Integer, List<RawFeatureName>> names) {
         double target = toEncode.getTarget();
 
         ObjectNode root = OM.createObjectNode();

@@ -11,7 +11,7 @@ import java.util.function.BiConsumer;
 import java.util.function.BiFunction;
 import java.util.function.Supplier;
 
-public abstract class GenerateStateTask<R> extends Task<R> {
+public abstract class GenerateStateTask<RECORD> extends Task<RECORD> {
 
     protected GenerateStateTask(OfflineTaskContext offlineTaskContext) {
         super(offlineTaskContext);

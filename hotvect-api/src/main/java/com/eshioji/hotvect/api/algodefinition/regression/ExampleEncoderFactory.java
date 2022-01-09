@@ -5,7 +5,7 @@ import com.eshioji.hotvect.api.vectorization.regression.Vectorizer;
 
 import java.util.function.Function;
 
-public interface ExampleEncoderFactory<R> extends Function<Vectorizer<R>, ExampleEncoder<R>> {
+public interface ExampleEncoderFactory<RECORD> extends Function<Vectorizer<RECORD>, ExampleEncoder<RECORD>> {
     @Override
-    ExampleEncoder<R> apply(Vectorizer<R> vectorizer);
+    ExampleEncoder<RECORD> apply(Vectorizer<RECORD> vectorizer);
 }

@@ -2,37 +2,37 @@ package com.eshioji.hotvect.vw;
 
 import com.eshioji.hotvect.api.codec.regression.ExampleEncoder;
 import com.eshioji.hotvect.api.data.SparseVector;
-import com.eshioji.hotvect.api.data.raw.regression.Example;
+import com.eshioji.hotvect.api.data.regression.Example;
 import com.eshioji.hotvect.api.vectorization.regression.Vectorizer;
 
 import java.util.function.DoubleUnaryOperator;
 
-public class VwExampleEncoder<R> implements ExampleEncoder<R> {
+public class VwExampleEncoder<RECORD> implements ExampleEncoder<RECORD> {
     private final boolean binary;
-    private final Vectorizer<R> vectorizer;
+    private final Vectorizer<RECORD> vectorizer;
     private final DoubleUnaryOperator targetToImportanceWeight;
 
-    public VwExampleEncoder(Vectorizer<R> vectorizer) {
+    public VwExampleEncoder(Vectorizer<RECORD> vectorizer) {
         this.vectorizer = vectorizer;
         this.binary = false;
         this.targetToImportanceWeight = null;
     }
 
-    public VwExampleEncoder(Vectorizer<R> vectorizer, boolean binary, DoubleUnaryOperator targetToImportanceWeight) {
+    public VwExampleEncoder(Vectorizer<RECORD> vectorizer, boolean binary, DoubleUnaryOperator targetToImportanceWeight) {
         this.vectorizer = vectorizer;
         this.binary = binary;
         this.targetToImportanceWeight = targetToImportanceWeight;
     }
 
 
-    public VwExampleEncoder(Vectorizer<R> vectorizer, boolean binary) {
+    public VwExampleEncoder(Vectorizer<RECORD> vectorizer, boolean binary) {
         this.vectorizer = vectorizer;
         this.binary = binary;
         this.targetToImportanceWeight = null;
     }
 
     private String vwEncode(
-            Example<R> request,
+            Example<RECORD> request,
             SparseVector vector,
             boolean binary,
             DoubleUnaryOperator targetToImportanceWeight) {
@@ -79,7 +79,7 @@ public class VwExampleEncoder<R> implements ExampleEncoder<R> {
     }
 
     @Override
-    public String apply(Example<R> toEncode) {
+    public String apply(Example<RECORD> toEncode) {
         SparseVector vector = vectorizer.apply(toEncode.getRecord());
         return vwEncode(toEncode, vector, binary, targetToImportanceWeight);
     }
