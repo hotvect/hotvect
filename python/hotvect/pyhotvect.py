@@ -202,7 +202,7 @@ class Hotvect:
             '-cp', f"{self.hotvect_util_jar_path}",
         ]
         ret.extend(self.jvm_options)
-        ret.extend(['com.eshioji.hotvect.commandline.Main',
+        ret.extend(['com.eshioji.hotvect.offlineutils.commandline.Main',
                     '--algorithm-jar', f'{self.algorithm_jar_path}',
                     '--algorithm-definition', self._write_algorithm_definition(),
                     '--meta-data', metadata_location])
