@@ -1,54 +1,59 @@
 package com.eshioji.hotvect.vw;
 
+import com.eshioji.hotvect.api.algodefinition.common.RewardFunction;
 import com.eshioji.hotvect.api.codec.scoring.ScoringExampleEncoder;
 import com.eshioji.hotvect.api.data.SparseVector;
 import com.eshioji.hotvect.api.data.scoring.ScoringExample;
 import com.eshioji.hotvect.api.vectorization.ScoringVectorizer;
 
 import java.util.function.DoubleUnaryOperator;
+import java.util.function.ToDoubleFunction;
 
-public class VwScoringExampleEncoder<RECORD> implements ScoringExampleEncoder<RECORD> {
+public class VwScoringExampleEncoder<RECORD, OUTCOME> implements ScoringExampleEncoder<RECORD, OUTCOME> {
     private final boolean binary;
     private final ScoringVectorizer<RECORD> scoringVectorizer;
-    private final DoubleUnaryOperator targetToImportanceWeight;
+    private final RewardFunction<OUTCOME> rewardFunction;
+    private final ToDoubleFunction<OUTCOME> outcomeToimportanceWeight;
 
-    public VwScoringExampleEncoder(ScoringVectorizer<RECORD> scoringVectorizer) {
+    public VwScoringExampleEncoder(ScoringVectorizer<RECORD> scoringVectorizer, RewardFunction<OUTCOME> rewardFunction) {
         this.scoringVectorizer = scoringVectorizer;
         this.binary = false;
-        this.targetToImportanceWeight = null;
+        this.rewardFunction = rewardFunction;
+        this.outcomeToimportanceWeight = null;
     }
 
-    public VwScoringExampleEncoder(ScoringVectorizer<RECORD> scoringVectorizer, boolean binary, DoubleUnaryOperator targetToImportanceWeight) {
+    public VwScoringExampleEncoder(ScoringVectorizer<RECORD> scoringVectorizer, RewardFunction<OUTCOME> rewardFunction, boolean binary, ToDoubleFunction<OUTCOME> outcomeToimportanceWeight) {
         this.scoringVectorizer = scoringVectorizer;
         this.binary = binary;
-        this.targetToImportanceWeight = targetToImportanceWeight;
+        this.rewardFunction = rewardFunction;
+        this.outcomeToimportanceWeight = outcomeToimportanceWeight;
     }
 
 
-    public VwScoringExampleEncoder(ScoringVectorizer<RECORD> scoringVectorizer, boolean binary) {
+    public VwScoringExampleEncoder(ScoringVectorizer<RECORD> scoringVectorizer, RewardFunction<OUTCOME> rewardFunction, boolean binary) {
         this.scoringVectorizer = scoringVectorizer;
         this.binary = binary;
-        this.targetToImportanceWeight = null;
+        this.rewardFunction = rewardFunction;
+        this.outcomeToimportanceWeight = null;
     }
 
     private String vwEncode(
-            ScoringExample<RECORD> request,
+            ScoringExample<RECORD, OUTCOME> example,
             SparseVector vector,
-            boolean binary,
-            DoubleUnaryOperator targetToImportanceWeight) {
+            boolean binary) {
 
         StringBuilder sb = new StringBuilder();
 
-        double targetVariable = request.getTarget();
+        double targetVariable = rewardFunction.applyAsDouble(example.getOutcome());
         if (binary) {
             sb.append(targetVariable > 0 ? "1" : "-1");
         } else {
             DoubleFormatUtils.formatDoubleFast(targetVariable, 6, 6, sb);
         }
 
-        if (targetToImportanceWeight != null) {
+        if (this.outcomeToimportanceWeight != null) {
             sb.append(" ");
-            double weight = targetToImportanceWeight.applyAsDouble(targetVariable);
+            double weight = this.outcomeToimportanceWeight.applyAsDouble(example.getOutcome());
             DoubleFormatUtils.formatDoubleFast(weight, 6, 6, sb);
         }
         sb.append(" | ");
@@ -79,9 +84,8 @@ public class VwScoringExampleEncoder<RECORD> implements ScoringExampleEncoder<RE
     }
 
     @Override
-    public String apply(ScoringExample<RECORD> toEncode) {
+    public String apply(ScoringExample<RECORD, OUTCOME> toEncode) {
         SparseVector vector = scoringVectorizer.apply(toEncode.getRecord());
-        return vwEncode(toEncode, vector, binary, targetToImportanceWeight);
+        return vwEncode(toEncode, vector, binary);
     }
-
 }

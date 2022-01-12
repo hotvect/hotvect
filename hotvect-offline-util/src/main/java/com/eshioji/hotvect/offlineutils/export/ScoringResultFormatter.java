@@ -13,7 +13,16 @@ public class ScoringResultFormatter<RECORD, OUTCOME> implements BiFunction<Rewar
         return ex -> {
             var reward = rewardFunction.applyAsDouble(ex.getOutcome());
             var score = scorer.applyAsDouble(ex.getRecord());
-            return score + "," + reward;
+            var exampleId = ex.getExampleId();
+            var ret = new StringBuilder();
+            if(exampleId != null){
+                ret.append(exampleId);
+                ret.append(',');
+            }
+            ret.append(score);
+            ret.append(',');
+            ret.append(reward);
+            return ret.toString();
         };
     }
 }

@@ -64,7 +64,7 @@ class AuditJsonEncoderTest {
 
     @Test
     void apply() throws Exception {
-        AuditJsonEncoderScoring<Map<String, String>> subject = getSubject();
+        AuditJsonEncoderScoring<Map<String, String>, Double> subject = getSubject();
 
         JsonNode expected = OM.readTree(AuditJsonEncoderTest.class.getResourceAsStream("audit_expected.json"));
         Map<String, String> input = inputFromExpected(expected);
@@ -76,7 +76,7 @@ class AuditJsonEncoderTest {
                 JSONCompareMode.LENIENT);
     }
 
-    private AuditJsonEncoderScoring<Map<String, String>> getSubject() {
+    private AuditJsonEncoderScoring<Map<String, String>, Double> getSubject() {
         ScoringTransformer<Map<String, String>, TestFeatureSpace> testScoringTransformer = new ScoringFeatureTransformer<>(TestFeatureSpace.class, ImmutableMap.of(
                 feature1, s -> RawValue.singleString(s.get("feature1")),
                 feature2, s -> RawValue.singleString(s.get("feature2")),
@@ -90,6 +90,6 @@ class AuditJsonEncoderTest {
                 new FeatureDefinition<>(feature3)
         )));
 
-        return new AuditJsonEncoderScoring<>(vectorizer);
+        return new AuditJsonEncoderScoring<>(vectorizer, d -> d);
     }
 }

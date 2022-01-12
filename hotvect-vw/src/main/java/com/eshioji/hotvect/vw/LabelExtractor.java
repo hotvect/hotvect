@@ -9,6 +9,7 @@ import java.util.function.ToDoubleFunction;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
+@Deprecated
 public class LabelExtractor<RECORD extends Enum<RECORD> & RawNamespace> implements ToDoubleFunction<DataRecord<RECORD, RawValue>> {
     private final String fieldName;
 

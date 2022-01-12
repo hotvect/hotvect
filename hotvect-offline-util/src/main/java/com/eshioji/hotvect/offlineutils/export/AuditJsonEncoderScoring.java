@@ -1,5 +1,6 @@
 package com.eshioji.hotvect.offlineutils.export;
 
+import com.eshioji.hotvect.api.algodefinition.common.RewardFunction;
 import com.eshioji.hotvect.api.codec.scoring.ScoringExampleEncoder;
 import com.eshioji.hotvect.api.data.SparseVector;
 import com.eshioji.hotvect.api.data.scoring.ScoringExample;
@@ -16,26 +17,28 @@ import java.util.Map;
 
 import static com.google.common.base.Preconditions.checkState;
 
-public class AuditJsonEncoderScoring<RECORD> implements ScoringExampleEncoder<RECORD> {
+public class AuditJsonEncoderScoring<RECORD, OUTCOME> implements ScoringExampleEncoder<RECORD, OUTCOME> {
     private static final ObjectMapper OM = new ObjectMapper();
     private final ThreadLocal<Map<Integer, List<RawFeatureName>>> names;
     private final AuditableScoringVectorizer<RECORD> vectorizer;
+    private final RewardFunction<OUTCOME> rewardFunction;
 
-    public AuditJsonEncoderScoring(AuditableScoringVectorizer<RECORD> vectorizer) {
+    public AuditJsonEncoderScoring(AuditableScoringVectorizer<RECORD> vectorizer, RewardFunction<OUTCOME> rewardFunction) {
         this.vectorizer = vectorizer;
+        this.rewardFunction = rewardFunction;
         this.names = vectorizer.enableAudit();
     }
 
     @Override
-    public String apply(ScoringExample<RECORD> toEncode) {
+    public String apply(ScoringExample<RECORD, OUTCOME> toEncode) {
         SparseVector vector = vectorizer.apply(toEncode.getRecord());
         return jsonEncode(toEncode, vector, names.get());
     }
 
     private static final Joiner JOIN_ON_HAT = Joiner.on("^");
 
-    private String jsonEncode(ScoringExample<RECORD> toEncode, SparseVector vector, Map<Integer, List<RawFeatureName>> names) {
-        double target = toEncode.getTarget();
+    private String jsonEncode(ScoringExample<RECORD, OUTCOME> toEncode, SparseVector vector, Map<Integer, List<RawFeatureName>> names) {
+        double target = this.rewardFunction.applyAsDouble(toEncode.getOutcome());
 
         ObjectNode root = OM.createObjectNode();
         root.put("target", target);

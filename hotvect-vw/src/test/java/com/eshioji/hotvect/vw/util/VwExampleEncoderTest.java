@@ -12,10 +12,11 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 import java.util.Map;
 import java.util.function.DoubleUnaryOperator;
+import java.util.function.ToDoubleFunction;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
-class VwRegressionRegressionRegressionCcbRankingRegressionCcbRankingRankingScoringExampleEncoderTest {
+class VwExampleEncoderTest {
 
     @Test
     void nonBinaryWithoutWeights() {
@@ -51,22 +52,24 @@ class VwRegressionRegressionRegressionCcbRankingRegressionCcbRankingRankingScori
     }
 
 
-    private void testEncoding(double targetVariable, SparseVector featureVector, String expected, boolean binary, DoubleUnaryOperator weightFun) {
+    private void testEncoding(double targetVariable, SparseVector featureVector, String expected, boolean binary, ToDoubleFunction<Double> weightFun) {
         DataRecord<TestRawNamespace, RawValue> testRecord = new DataRecord<TestRawNamespace, RawValue>(TestRawNamespace.class);
-        VwScoringExampleEncoder<DataRecord<TestRawNamespace, RawValue>> subject;
+        VwScoringExampleEncoder<DataRecord<TestRawNamespace, RawValue>, Double> subject;
         if (weightFun == null) {
             subject = new VwScoringExampleEncoder<>(
                     new AuditableScoringVectorizer<>() {
+                        @Override
+                        public SparseVector apply(DataRecord<TestRawNamespace, RawValue> toVectorize) {
+                            return featureVector;
+                        }
+
                         @Override
                         public ThreadLocal<Map<Integer, List<RawFeatureName>>> enableAudit() {
                             throw new AssertionError("not implemented");
                         }
 
-                        @Override
-                        public SparseVector apply(DataRecord<TestRawNamespace, RawValue> testRawNamespaceRawValueDataRecord) {
-                            return featureVector;
-                        }
                     },
+                    d -> d,
                     binary);
         } else {
             subject = new VwScoringExampleEncoder<>(
@@ -77,10 +80,11 @@ class VwRegressionRegressionRegressionCcbRankingRegressionCcbRankingRankingScori
                         }
 
                         @Override
-                        public SparseVector apply(DataRecord<TestRawNamespace, RawValue> testRawNamespaceRawValueDataRecord) {
+                        public SparseVector apply(DataRecord<TestRawNamespace, RawValue> toVectorize) {
                             return featureVector;
                         }
                     },
+                    d -> d,
                     binary,
                     weightFun
             );

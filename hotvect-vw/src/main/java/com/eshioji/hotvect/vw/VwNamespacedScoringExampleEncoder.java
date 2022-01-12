@@ -1,5 +1,6 @@
 package com.eshioji.hotvect.vw;
 
+import com.eshioji.hotvect.api.algodefinition.common.RewardFunction;
 import com.eshioji.hotvect.api.codec.scoring.ScoringExampleEncoder;
 import com.eshioji.hotvect.api.data.DataRecord;
 import com.eshioji.hotvect.api.data.FeatureNamespace;
@@ -12,37 +13,40 @@ import com.eshioji.hotvect.core.transform.regression.ScoringTransformer;
 import java.util.EnumMap;
 import java.util.Map;
 import java.util.function.DoubleUnaryOperator;
+import java.util.function.ToDoubleFunction;
 
 import static com.google.common.base.Preconditions.checkState;
 
-public class VwNamespacedScoringExampleEncoder<RECORD, FEATURE extends Enum<FEATURE> & FeatureNamespace> implements ScoringExampleEncoder<RECORD> {
+public class VwNamespacedScoringExampleEncoder<RECORD, FEATURE extends Enum<FEATURE> & FeatureNamespace, OUTCOME> implements ScoringExampleEncoder<RECORD, OUTCOME> {
     private final static char[] VALID_VW_NAMESPACE_CHARS = "abcdefghijklmnopqrstuvwxyz".toCharArray();
     private final boolean binary;
-    private final DoubleUnaryOperator targetToImportanceWeight;
+    private final ToDoubleFunction<OUTCOME> outcomeToImportanceWeight;
+    private final RewardFunction<OUTCOME> rewardFunction;
 
-    private final Class<FEATURE> hashedKey;
+    private final Class<FEATURE> featureKey;
     private final ScoringTransformer<RECORD, FEATURE> scoringTransformer;
     private final AuditableHasher<FEATURE> hasher;
 
-    public VwNamespacedScoringExampleEncoder(ScoringTransformer<RECORD, FEATURE> scoringTransformer, Class<FEATURE> hashedKey) {
-        this(scoringTransformer, hashedKey, false, null);
+    public VwNamespacedScoringExampleEncoder(ScoringTransformer<RECORD, FEATURE> scoringTransformer, RewardFunction<OUTCOME> rewardFunction, Class<FEATURE> featureKey) {
+        this(scoringTransformer, rewardFunction, featureKey, false, null);
     }
 
-    public VwNamespacedScoringExampleEncoder(ScoringTransformer<RECORD, FEATURE> scoringTransformer, Class<FEATURE> hashedKey, boolean binary) {
-        this(scoringTransformer, hashedKey, binary, null);
+    public VwNamespacedScoringExampleEncoder(ScoringTransformer<RECORD, FEATURE> scoringTransformer, RewardFunction<OUTCOME> rewardFunction, Class<FEATURE> featureKey, boolean binary) {
+        this(scoringTransformer, rewardFunction, featureKey, binary, null);
     }
 
-    public VwNamespacedScoringExampleEncoder(ScoringTransformer<RECORD, FEATURE> scoringTransformer, Class<FEATURE> hashedKey, boolean binary, DoubleUnaryOperator targetToImportanceWeight) {
-        this.hashedKey = hashedKey;
+    public VwNamespacedScoringExampleEncoder(ScoringTransformer<RECORD, FEATURE> scoringTransformer, RewardFunction<OUTCOME> rewardFunction, Class<FEATURE> featureKey, boolean binary, ToDoubleFunction<OUTCOME> outcomeToImportanceWeight) {
+        this.featureKey = featureKey;
         this.scoringTransformer = scoringTransformer;
-        this.hasher = new AuditableHasher<>(hashedKey);
+        this.rewardFunction = rewardFunction;
+        this.hasher = new AuditableHasher<>(featureKey);
         this.binary = binary;
-        this.targetToImportanceWeight = targetToImportanceWeight;
+        this.outcomeToImportanceWeight = outcomeToImportanceWeight;
     }
 
     public EnumMap<FEATURE, String> getNamespaceMapping(){
-        EnumMap<FEATURE, String> ret = new EnumMap<>(hashedKey);
-        for (FEATURE FEATURE : this.hashedKey.getEnumConstants()) {
+        EnumMap<FEATURE, String> ret = new EnumMap<>(featureKey);
+        for (FEATURE FEATURE : this.featureKey.getEnumConstants()) {
             int ns = FEATURE.ordinal();
             checkState(ns < VALID_VW_NAMESPACE_CHARS.length,
                     "Sorry you cannot have more than " + VALID_VW_NAMESPACE_CHARS.length +
@@ -55,29 +59,27 @@ public class VwNamespacedScoringExampleEncoder<RECORD, FEATURE extends Enum<FEAT
     }
 
     @Override
-    public String apply(ScoringExample<RECORD> toEncode) {
+    public String apply(ScoringExample<RECORD, OUTCOME> toEncode) {
         DataRecord<FEATURE, HashedValue> transformedAndHashed = hasher.apply(scoringTransformer.apply(toEncode.getRecord()));
-        return vwEncode(toEncode, transformedAndHashed, binary, targetToImportanceWeight);
+        return vwEncode(toEncode, transformedAndHashed);
     }
 
 
     private String vwEncode(
-            ScoringExample<RECORD> request,
-            DataRecord<FEATURE, HashedValue> transformedAndHashed,
-            boolean binary,
-            DoubleUnaryOperator targetToImportanceWeight) {
+            ScoringExample<RECORD, OUTCOME> example,
+            DataRecord<FEATURE, HashedValue> transformedAndHashed) {
         StringBuilder sb = new StringBuilder();
 
-        double targetVariable = request.getTarget();
+        double targetVariable = this.rewardFunction.applyAsDouble(example.getOutcome());
         if (binary) {
             sb.append(targetVariable > 0 ? "1" : "-1");
         } else {
             DoubleFormatUtils.formatDoubleFast(targetVariable, 6, 6, sb);
         }
 
-        if (targetToImportanceWeight != null) {
+        if (outcomeToImportanceWeight != null) {
             sb.append(" ");
-            double weight = targetToImportanceWeight.applyAsDouble(targetVariable);
+            double weight = outcomeToImportanceWeight.applyAsDouble(example.getOutcome());
             DoubleFormatUtils.formatDoubleFast(weight, 6, 6, sb);
         }
 
@@ -112,20 +114,14 @@ public class VwNamespacedScoringExampleEncoder<RECORD, FEATURE extends Enum<FEAT
                 // Categoricals
                 int[] categoricalIndices = hashedValue.getCategoricalIndices();
 
-                for (int j = 0; j < categoricalIndices.length; j++) {
-                    int feature = categoricalIndices[j];
+                for (int feature : categoricalIndices) {
                     sb.append(feature);
                     sb.append(':');
                     sb.append('1');
                     sb.append(" ");
                 }
             }
-
-
-
         }
-
         return sb.toString();
     }
-
 }

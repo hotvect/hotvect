@@ -7,6 +7,8 @@ import com.eshioji.hotvect.api.data.ranking.RankingOutcome;
 import com.eshioji.hotvect.core.util.ListTransform;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.math.DoubleMath;
 import it.unimi.dsi.fastutil.ints.Int2DoubleMap;
 import it.unimi.dsi.fastutil.ints.Int2DoubleOpenHashMap;
@@ -23,14 +25,22 @@ public class RankingResultFormatter<SHARED, ACTION, OUTCOME> implements BiFuncti
     public Function<RankingExample<SHARED, ACTION, OUTCOME>, String> apply(RewardFunction<OUTCOME> rewardFunction, Ranker<SHARED, ACTION> ranker) {
         return ex -> {
             Int2DoubleMap sparseActionIdxToReward = toSparseActionIdxToReward(rewardFunction, ex.getOutcomes());
-            Map<Integer, Double> sparseRankToReward = new HashMap<>();
+            ObjectNode root = OM.createObjectNode();
+            if(ex.getExampleId() != null) {
+                root.put("example_id", ex.getExampleId());
+            }
+
+            ArrayNode sparseRankToReward = OM.createArrayNode();
             var decisions = ranker.apply(ex.getRankingRequest());
             for (int i = 0; i < decisions.size(); i++) {
                 var decision = decisions.get(i);
                 var actionIdx = decision.getActionIndex();
                 var reward = sparseActionIdxToReward.get(actionIdx);
                 if (reward != 0.0){
-                    sparseRankToReward.put(i, reward);
+                    var result = OM.createObjectNode();
+                    result.put("rank", i);
+                    result.put("reward", reward);
+                    sparseRankToReward.add(result);
                 }
             }
             try {

@@ -9,10 +9,11 @@ import com.eshioji.hotvect.api.algorithms.Ranker;
 import com.eshioji.hotvect.api.codec.common.ExampleDecoder;
 import com.eshioji.hotvect.api.data.common.Example;
 import com.eshioji.hotvect.api.data.ranking.RankingExample;
-import com.eshioji.hotvect.api.data.scoring.ScoringExample;
 import com.eshioji.hotvect.api.algorithms.Scorer;
 import com.eshioji.hotvect.api.vectorization.Vectorizer;
 import com.eshioji.hotvect.core.util.ListTransform;
+import com.eshioji.hotvect.offlineutils.export.RankingResultFormatter;
+import com.eshioji.hotvect.offlineutils.export.ScoringResultFormatter;
 import com.eshioji.hotvect.offlineutils.util.CpuIntensiveFileMapper;
 import com.eshioji.hotvect.onlineutils.hotdeploy.util.ZipFiles;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -47,7 +48,7 @@ public class PredictTask<EXAMPLE extends Example, ALGO extends Algorithm, OUTCOM
             algo = getScorer(parameters);
         }
 
-        Function<EXAMPLE, String> scoreOutputFormatter = getOutputFormatter(algo);
+        Function<EXAMPLE, String> scoreOutputFormatter = getOutputFormatter(algo, rewardFunction);
 
         Function<String, List<String>> transformation =
                 scoringExampleDecoder.andThen(i -> ListTransform.map(i, scoreOutputFormatter));
@@ -67,33 +68,16 @@ public class PredictTask<EXAMPLE extends Example, ALGO extends Algorithm, OUTCOM
 
     }
 
-    private Function<EXAMPLE, String> getOutputFormatter(ALGO algo) {
+    private Function<EXAMPLE, String> getOutputFormatter(ALGO algo, RewardFunction<OUTCOME> rewardFunction) {
         if (algo instanceof Scorer<?>){
-            return x -> {
-                var scorer = (Scorer)algo;
-                var example = (ScoringExample)x;
-                var score = scorer.applyAsDouble(example.getRecord());
-                return score + "," + this.rewardFunction.applyAsDouble((OUTCOME) example.getOutcome());
-            };
+            Scorer<?> scorer = (Scorer<?>) algo;
+            return new ScoringResultFormatter().apply(rewardFunction, scorer);
         } else if(algo instanceof Ranker<?, ?>){
-            var om = new ObjectMapper();
-            Function<Object, String> asJson = x -> {
-                try {
-                    return om.writeValueAsString(x);
-                } catch (JsonProcessingException e) {
-                    throw new RuntimeException(e);
-                }
-            };
-            return x -> {
-                var ranker = (Ranker) algo;
-                var example = (RankingExample) x;
-                var decisions = ranker.apply(example.getRequest());
-                return asJson.apply(decisions);
-            };
+            Ranker<?,?> ranker = (Ranker<?, ?>)algo;
+            return new RankingResultFormatter().apply(rewardFunction, ranker);
+        } else {
+            throw new AssertionError();
         }
-
-        x ->
-                algo.applyAsDouble(x.getRecord()) + "," + x.getTarget();
     }
 
 }

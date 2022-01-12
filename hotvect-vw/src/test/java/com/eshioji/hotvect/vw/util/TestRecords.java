@@ -18,7 +18,7 @@ public enum TestRecords {
     }
 
 
-    public static ScoringExample<DataRecord<TestRawNamespace, RawValue>> getTestRecord() {
+    public static ScoringExample<DataRecord<TestRawNamespace, RawValue>, Double> getTestRecord() {
         return new ScoringExample<>(new JsonRecordDecoder<>(TestRawNamespace.class).apply(testInputWithAllValueTypes()), 1.0);
     }
 

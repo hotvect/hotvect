@@ -69,13 +69,15 @@ public class Main {
         } else if (opts.predict) {
             return new PredictTask<>(offlineTaskContext);
         } else if (opts.generateStateTask != null) {
-            return (GenerateStateTask<?>) Class.forName(
+            return (GenerateStateTask<?, ?, ?>) Class.forName(
                             opts.generateStateTask, true, offlineTaskContext.getClassLoader()
                     ).getDeclaredConstructor(OfflineTaskContext.class)
                     .newInstance(offlineTaskContext);
-        } else if (opts.audit) {
-            return new AuditTask<>(offlineTaskContext);
-        } else {
+        }
+//        else if (opts.audit) {
+//            return new AuditTask<>(offlineTaskContext);
+//        }
+        else {
             throw new UnsupportedOperationException("No command given. Available: encode, predict or generate-state");
 
         }
