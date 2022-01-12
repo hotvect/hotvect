@@ -18,6 +18,14 @@ public class DataRecord<K extends Enum<K>, V> {
         this.keyClass = keyClazz;
     }
 
+    public DataRecord(DataRecord<K, V> values) {
+        this(values.keyClass);
+        for (K k : keyClass.getEnumConstants()) {
+            this.values[k.ordinal()] = values.get(k);
+        }
+    }
+
+
     public DataRecord(Class<K> keyClazz, EnumMap<K, V> values) {
         this(keyClazz);
         for (K k : keyClazz.getEnumConstants()) {

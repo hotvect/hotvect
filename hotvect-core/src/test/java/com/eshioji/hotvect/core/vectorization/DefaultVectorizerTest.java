@@ -7,22 +7,22 @@ import com.eshioji.hotvect.core.TestFeatureNamespace;
 import com.eshioji.hotvect.core.TestRawNamespace;
 import com.eshioji.hotvect.core.combine.Combiner;
 import com.eshioji.hotvect.core.hash.AuditableHasher;
-import com.eshioji.hotvect.core.transform.regression.Transformer;
+import com.eshioji.hotvect.core.transform.regression.ScoringTransformer;
 import com.eshioji.hotvect.core.util.AutoMapper;
-import com.eshioji.hotvect.core.vectorization.regression.VectorizerImpl;
+import com.eshioji.hotvect.core.vectorization.scoring.ScoringVectorizerImpl;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 
-class VectorizerImplTest {
+class RankingScoringVectorizerImplTest {
 
     @Test
     void apply() {
         AutoMapper<TestRawNamespace, TestFeatureNamespace, RawValue> mapper = new AutoMapper<TestRawNamespace, TestFeatureNamespace, RawValue>(TestRawNamespace.class, TestFeatureNamespace.class);
         DataRecord<TestRawNamespace, RawValue> initialInput = new DataRecord<>(TestRawNamespace.class);
 
-        Transformer<DataRecord<TestRawNamespace, RawValue>, TestFeatureNamespace> transformer = record -> {
+        ScoringTransformer<DataRecord<TestRawNamespace, RawValue>, TestFeatureNamespace> scoringTransformer = record -> {
             assertSame(initialInput, record);
             return mapper.apply(initialInput);
         };
@@ -32,7 +32,7 @@ class VectorizerImplTest {
             assertEquals(hasher.apply(mapper.apply(initialInput)), toCombine);
             return new SparseVector(new int[]{1});
         };
-        VectorizerImpl<DataRecord<TestRawNamespace, RawValue>, TestFeatureNamespace> subject = new VectorizerImpl<>(transformer, hasher, combiner);
+        ScoringVectorizerImpl<DataRecord<TestRawNamespace, RawValue>, TestFeatureNamespace> subject = new ScoringVectorizerImpl<>(scoringTransformer, hasher, combiner);
 
         assertEquals(new SparseVector(new int[]{1}), subject.apply(initialInput));
     }

@@ -1,6 +1,6 @@
 package com.eshioji.hotvect.core.util;
 
-import com.eshioji.hotvect.api.codec.regression.ExampleEncoder;
+import com.eshioji.hotvect.api.codec.scoring.ScoringExampleEncoder;
 import com.eshioji.hotvect.api.data.DataRecord;
 import com.eshioji.hotvect.api.data.Namespace;
 import com.eshioji.hotvect.api.data.SparseVector;
@@ -18,7 +18,7 @@ import static java.util.stream.Collectors.toList;
 import static java.util.stream.Collectors.toMap;
 
 /**
- * A {@link ExampleEncoder} that encodes a {@link DataRecord} into a JSON String
+ * A {@link ScoringExampleEncoder} that encodes a {@link DataRecord} into a JSON String
  * @param <K>
  */
 public class JsonRecordEncoder<K extends Enum<K> & Namespace> implements Function<DataRecord<K, RawValue>, String> {

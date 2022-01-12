@@ -1,7 +1,7 @@
 package com.eshioji.hotvect.vw.util;
 
 import com.eshioji.hotvect.api.data.DataRecord;
-import com.eshioji.hotvect.api.data.regression.Example;
+import com.eshioji.hotvect.api.data.scoring.ScoringExample;
 import com.eshioji.hotvect.api.data.RawValue;
 import com.eshioji.hotvect.core.util.AutoMapper;
 import com.eshioji.hotvect.core.util.JsonRecordDecoder;
@@ -18,8 +18,8 @@ public enum TestRecords {
     }
 
 
-    public static Example<DataRecord<TestRawNamespace, RawValue>> getTestRecord() {
-        return new Example<>(new JsonRecordDecoder<>(TestRawNamespace.class).apply(testInputWithAllValueTypes()), 1.0);
+    public static ScoringExample<DataRecord<TestRawNamespace, RawValue>> getTestRecord() {
+        return new ScoringExample<>(new JsonRecordDecoder<>(TestRawNamespace.class).apply(testInputWithAllValueTypes()), 1.0);
     }
 
     public static DataRecord<TestFeatureNamespace, RawValue> mapped(DataRecord<TestRawNamespace, RawValue> toMap) {

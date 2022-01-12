@@ -2,6 +2,7 @@ package com.eshioji.hotvect.util;
 
 import com.codahale.metrics.MetricRegistry;
 import com.eshioji.hotvect.core.util.Pair;
+import com.eshioji.hotvect.offlineutils.util.CpuIntensiveFileMapper;
 import com.google.common.collect.ImmutableList;
 import com.google.common.hash.Hashing;
 import org.junit.jupiter.api.Test;
@@ -13,7 +14,6 @@ import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.List;
 import java.util.function.Function;
-import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 

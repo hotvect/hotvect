@@ -1,14 +1,15 @@
 package com.eshioji.hotvect.export;
 
 import com.eshioji.hotvect.api.data.RawValue;
-import com.eshioji.hotvect.api.data.regression.Example;
-import com.eshioji.hotvect.core.audit.AuditableVectorizer;
+import com.eshioji.hotvect.api.data.scoring.ScoringExample;
+import com.eshioji.hotvect.core.audit.AuditableScoringVectorizer;
 import com.eshioji.hotvect.core.combine.FeatureDefinition;
 import com.eshioji.hotvect.core.combine.InteractionCombiner;
 import com.eshioji.hotvect.core.hash.AuditableHasher;
-import com.eshioji.hotvect.core.transform.regression.FeatureTransformer;
-import com.eshioji.hotvect.core.transform.regression.Transformer;
-import com.eshioji.hotvect.core.vectorization.regression.DefaultVectorizer;
+import com.eshioji.hotvect.core.transform.regression.ScoringFeatureTransformer;
+import com.eshioji.hotvect.core.transform.regression.ScoringTransformer;
+import com.eshioji.hotvect.core.vectorization.scoring.DefaultScoringVectorizer;
+import com.eshioji.hotvect.offlineutils.export.AuditJsonEncoderScoring;
 import com.eshioji.hotvect.testutil.TestFeatureSpace;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -63,32 +64,32 @@ class AuditJsonEncoderTest {
 
     @Test
     void apply() throws Exception {
-        AuditJsonEncoder<Map<String, String>> subject = getSubject();
+        AuditJsonEncoderScoring<Map<String, String>> subject = getSubject();
 
         JsonNode expected = OM.readTree(AuditJsonEncoderTest.class.getResourceAsStream("audit_expected.json"));
         Map<String, String> input = inputFromExpected(expected);
 
         var expectedStr = OM.writeValueAsString(expected);
-        var actualStr = subject.apply(new Example<>(input, 1.0));
+        var actualStr = subject.apply(new ScoringExample<>(input, 1.0));
         JSONAssert.assertEquals(expectedStr,
                 actualStr,
                 JSONCompareMode.LENIENT);
     }
 
-    private AuditJsonEncoder<Map<String, String>> getSubject() {
-        Transformer<Map<String, String>, TestFeatureSpace> testTransformer = new FeatureTransformer<>(TestFeatureSpace.class, ImmutableMap.of(
+    private AuditJsonEncoderScoring<Map<String, String>> getSubject() {
+        ScoringTransformer<Map<String, String>, TestFeatureSpace> testScoringTransformer = new ScoringFeatureTransformer<>(TestFeatureSpace.class, ImmutableMap.of(
                 feature1, s -> RawValue.singleString(s.get("feature1")),
                 feature2, s -> RawValue.singleString(s.get("feature2")),
                 feature3, s -> RawValue.singleNumerical(Double.parseDouble(s.get("feature3")))
         ));
 
-        AuditableVectorizer<Map<String, String>> vectorizer = new DefaultVectorizer<>(testTransformer, new AuditableHasher<>(TestFeatureSpace.class), new InteractionCombiner<>(26, ImmutableSet.of(
+        AuditableScoringVectorizer<Map<String, String>> vectorizer = new DefaultScoringVectorizer<>(testScoringTransformer, new AuditableHasher<>(TestFeatureSpace.class), new InteractionCombiner<>(26, ImmutableSet.of(
                 new FeatureDefinition<>(feature1),
                 new FeatureDefinition<>(feature2),
                 new FeatureDefinition<>(feature1, feature2),
                 new FeatureDefinition<>(feature3)
         )));
 
-        return new AuditJsonEncoder<>(vectorizer);
+        return new AuditJsonEncoderScoring<>(vectorizer);
     }
 }

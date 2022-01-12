@@ -2,7 +2,7 @@ package com.eshioji.hotvect.vw.util;
 
 
 import com.eshioji.hotvect.api.data.DataRecord;
-import com.eshioji.hotvect.api.data.regression.Example;
+import com.eshioji.hotvect.api.data.scoring.ScoringExample;
 import com.eshioji.hotvect.api.data.RawValue;
 import com.eshioji.hotvect.vw.LabelExtractor;
 import org.junit.jupiter.api.Test;
@@ -16,7 +16,7 @@ class LabelExtractorTest {
 
     @Test
     void withValue() {
-        Example<DataRecord<TestRawNamespace, RawValue>> dataRecord = TestRecords.getTestRecord();
+        ScoringExample<DataRecord<TestRawNamespace, RawValue>> dataRecord = TestRecords.getTestRecord();
         DataRecord<TestRawNamespace, RawValue> testInput = dataRecord.getRecord();
         testInput.put(TestRawNamespace.target, RawValue.singleNumerical(1.0));
         LabelExtractor<TestRawNamespace> subject = new LabelExtractor<TestRawNamespace>();

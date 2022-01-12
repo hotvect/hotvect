@@ -10,7 +10,7 @@ import java.io.InputStream;
 import java.util.*;
 import java.util.function.BiFunction;
 
-public class FeatureStateLoader<R> implements BiFunction<Optional<JsonNode>, Map<String, InputStream>, Map<String, FeatureState>> {
+public class FeatureStateLoader implements BiFunction<Optional<JsonNode>, Map<String, InputStream>, Map<String, FeatureState>> {
     private final ClassLoader classLoader;
 
     public FeatureStateLoader(ClassLoader classLoader) {

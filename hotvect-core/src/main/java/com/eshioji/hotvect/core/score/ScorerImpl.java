@@ -2,25 +2,25 @@ package com.eshioji.hotvect.core.score;
 
 import com.eshioji.hotvect.api.data.DataRecord;
 import com.eshioji.hotvect.api.data.SparseVector;
-import com.eshioji.hotvect.api.policies.Scorer;
-import com.eshioji.hotvect.api.vectorization.regression.Vectorizer;
+import com.eshioji.hotvect.api.algorithms.Scorer;
+import com.eshioji.hotvect.api.vectorization.ScoringVectorizer;
 
 
 /**
- * A {@link Scorer} which uses the specified {@link Vectorizer} and {@link Estimator}
- * @param <R>
+ * A {@link Scorer} which uses the specified {@link ScoringVectorizer} and {@link Estimator}
+ * @param <RECORD>
  */
-public class ScorerImpl<R> implements Scorer<R> {
-    private final Vectorizer<R> vectorizer;
+public class ScorerImpl<RECORD> implements Scorer<RECORD> {
+    private final ScoringVectorizer<RECORD> scoringVectorizer;
     private final Estimator estimator;
 
     /**
      * Constructs a {@link ScorerImpl}
-     * @param vectorizer the {@link Vectorizer} to use
+     * @param scoringVectorizer the {@link ScoringVectorizer} to use
      * @param estimator the {@link Estimator} to use
      */
-    public ScorerImpl(Vectorizer<R> vectorizer, Estimator estimator) {
-        this.vectorizer = vectorizer;
+    public ScorerImpl(ScoringVectorizer<RECORD> scoringVectorizer, Estimator estimator) {
+        this.scoringVectorizer = scoringVectorizer;
         this.estimator = estimator;
     }
 
@@ -30,8 +30,8 @@ public class ScorerImpl<R> implements Scorer<R> {
      * @return the score
      */
     @Override
-    public double applyAsDouble(R input) {
-        SparseVector vectorized = vectorizer.apply(input);
+    public double applyAsDouble(RECORD input) {
+        SparseVector vectorized = scoringVectorizer.apply(input);
         return estimator.applyAsDouble(vectorized);
     }
 }

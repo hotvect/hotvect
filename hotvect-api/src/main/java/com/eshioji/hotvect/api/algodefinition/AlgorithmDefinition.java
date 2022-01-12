@@ -13,18 +13,18 @@ public class AlgorithmDefinition {
     private final String decoderFactoryName;
     private final String vectorizerFactoryName;
     private final String encoderFactoryName;
-    private final String scorerFactoryName;
+    private final String algorithmFactoryName;
 
     private final Optional<JsonNode> vectorizerParameter;
     private final Optional<JsonNode> trainDecoderParameter;
     private final Optional<JsonNode> predictDecoderParameter;
 
-    public AlgorithmDefinition(String algorithmName, String decoderFactoryName, String vectorizerFactoryName, String encoderFactoryName, String scorerFactoryName, Optional<JsonNode> vectorizerParameter, Optional<JsonNode> trainDecoderParameter, Optional<JsonNode> predictDecoderParameter) {
+    public AlgorithmDefinition(String algorithmName, String decoderFactoryName, String vectorizerFactoryName, String encoderFactoryName, String algorithmFactoryName, Optional<JsonNode> vectorizerParameter, Optional<JsonNode> trainDecoderParameter, Optional<JsonNode> predictDecoderParameter) {
         this.algorithmName = algorithmName;
         this.decoderFactoryName = decoderFactoryName;
         this.vectorizerFactoryName = vectorizerFactoryName;
         this.encoderFactoryName = encoderFactoryName;
-        this.scorerFactoryName = scorerFactoryName;
+        this.algorithmFactoryName = algorithmFactoryName;
         this.vectorizerParameter = vectorizerParameter;
         this.trainDecoderParameter = trainDecoderParameter;
         this.predictDecoderParameter = predictDecoderParameter;
@@ -46,8 +46,8 @@ public class AlgorithmDefinition {
         return encoderFactoryName;
     }
 
-    public String getScorerFactoryName() {
-        return scorerFactoryName;
+    public String getAlgorithmFactoryName() {
+        return algorithmFactoryName;
     }
 
     public Optional<JsonNode> getVectorizerParameter() {
@@ -69,7 +69,7 @@ public class AlgorithmDefinition {
                 ", decoderFactoryName='" + decoderFactoryName + '\'' +
                 ", vectorizerFactoryName='" + vectorizerFactoryName + '\'' +
                 ", encoderFactoryName='" + encoderFactoryName + '\'' +
-                ", scorerFactoryName='" + scorerFactoryName + '\'' +
+                ", algorithmFactoryName='" + algorithmFactoryName + '\'' +
                 ", vectorizerParameter=" + vectorizerParameter +
                 ", trainDecoderParameter=" + trainDecoderParameter +
                 ", predictDecoderParameter=" + predictDecoderParameter +
@@ -90,7 +90,7 @@ public class AlgorithmDefinition {
                 ensureExtract(parsed, "decoder_factory_classname").asText(),
                 ensureExtract(parsed, "vectorizer_factory_classname").asText(),
                 ensureExtract(parsed, "encoder_factory_classname").asText(),
-                ensureExtract(parsed, "scorer_factory_classname").asText(),
+                ensureExtract(parsed, "algorithm_factory_classname").asText(),
                 Optional.ofNullable(parsed.get("vectorizer_parameters")),
                 Optional.ofNullable(parsed.get("train_decoder_parameters")),
                 Optional.ofNullable(parsed.get("predict_decoder_parameters"))

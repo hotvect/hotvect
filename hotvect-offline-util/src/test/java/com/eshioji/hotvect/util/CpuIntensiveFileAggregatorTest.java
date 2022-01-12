@@ -1,6 +1,7 @@
 package com.eshioji.hotvect.util;
 
 import com.codahale.metrics.MetricRegistry;
+import com.eshioji.hotvect.offlineutils.util.CpuIntensiveFileAggregator;
 import com.google.common.hash.BloomFilter;
 import com.google.common.hash.Funnels;
 import org.junit.jupiter.api.Test;

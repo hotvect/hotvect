@@ -1,6 +1,6 @@
 package com.eshioji.hotvect.util;
 
-import com.eshioji.hotvect.onlineutils.hotdeploy.ZipFiles;
+import com.eshioji.hotvect.onlineutils.hotdeploy.util.ZipFiles;
 import com.google.common.base.Charsets;
 import com.google.common.io.CharStreams;
 import org.junit.jupiter.api.Test;
