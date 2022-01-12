@@ -41,7 +41,7 @@ public class RankingFeatureTransformer<SHARED, ACTION, FEATURE extends Enum<FEAT
                 .filter(x -> !x.isEmpty())
                 .collect(Collectors.toSet());
 
-        checkState(!overlappings.isEmpty(), "Each feature can only have one transformation defined. Offending features:" + overlappings);
+        checkState(overlappings.isEmpty(), "Each feature can only have one transformation defined. Offending features:" + overlappings);
 
 
     }
