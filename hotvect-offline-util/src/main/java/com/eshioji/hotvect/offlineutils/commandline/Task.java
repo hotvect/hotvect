@@ -74,6 +74,13 @@ public abstract class Task<EXAMPLE extends Example, ALGO extends Algorithm, OUTC
         );
     }
 
+    protected RewardFunction<OUTCOME> getRewardFunction() throws Exception {
+        String factoryName = this.offlineTaskContext.getAlgorithmDefinition().getRewardFunctionFactoryName();
+        return ((RewardFunctionFactory<OUTCOME>) loadClass(factoryName).getDeclaredConstructor().newInstance()).get();
+
+
+    }
+
     protected <V extends Vectorizer> V getVectorizer(Map<String, InputStream> parameter) throws Exception {
         String factoryName = this.offlineTaskContext.getAlgorithmDefinition().getVectorizerFactoryName();
         Optional<JsonNode> hyperparameter = this.offlineTaskContext.getAlgorithmDefinition().getVectorizerParameter();

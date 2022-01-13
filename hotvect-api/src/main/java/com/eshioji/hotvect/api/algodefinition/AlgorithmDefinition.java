@@ -12,6 +12,7 @@ public class AlgorithmDefinition {
     private final String algorithmName;
     private final String decoderFactoryName;
     private final String vectorizerFactoryName;
+    private final String rewardFunctionFactoryName;
     private final String encoderFactoryName;
     private final String algorithmFactoryName;
 
@@ -19,7 +20,7 @@ public class AlgorithmDefinition {
     private final Optional<JsonNode> trainDecoderParameter;
     private final Optional<JsonNode> predictDecoderParameter;
 
-    public AlgorithmDefinition(String algorithmName, String decoderFactoryName, String vectorizerFactoryName, String encoderFactoryName, String algorithmFactoryName, Optional<JsonNode> vectorizerParameter, Optional<JsonNode> trainDecoderParameter, Optional<JsonNode> predictDecoderParameter) {
+    public AlgorithmDefinition(String algorithmName, String decoderFactoryName, String vectorizerFactoryName, String rewardFunctionFactoryName, String encoderFactoryName, String algorithmFactoryName, Optional<JsonNode> vectorizerParameter, Optional<JsonNode> trainDecoderParameter, Optional<JsonNode> predictDecoderParameter) {
         this.algorithmName = algorithmName;
         this.decoderFactoryName = decoderFactoryName;
         this.vectorizerFactoryName = vectorizerFactoryName;
@@ -28,6 +29,7 @@ public class AlgorithmDefinition {
         this.vectorizerParameter = vectorizerParameter;
         this.trainDecoderParameter = trainDecoderParameter;
         this.predictDecoderParameter = predictDecoderParameter;
+        this.rewardFunctionFactoryName = rewardFunctionFactoryName;
     }
 
     public String getAlgorithmName() {
@@ -62,6 +64,10 @@ public class AlgorithmDefinition {
         return predictDecoderParameter;
     }
 
+    public String getRewardFunctionFactoryName() {
+        return rewardFunctionFactoryName;
+    }
+
     @Override
     public String toString() {
         return "AlgorithmDefinition{" +
@@ -89,6 +95,7 @@ public class AlgorithmDefinition {
                 ensureExtract(parsed, "algorithm_name").asText(),
                 ensureExtract(parsed, "decoder_factory_classname").asText(),
                 ensureExtract(parsed, "vectorizer_factory_classname").asText(),
+                ensureExtract(parsed, "reward_function_factory_classname").asText(),
                 ensureExtract(parsed, "encoder_factory_classname").asText(),
                 ensureExtract(parsed, "algorithm_factory_classname").asText(),
                 Optional.ofNullable(parsed.get("vectorizer_parameters")),

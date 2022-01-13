@@ -28,10 +28,9 @@ import java.util.Map;
 import java.util.function.Function;
 import java.util.zip.ZipFile;
 
+// TODO fix name
 public class PredictTask<EXAMPLE extends Example, ALGO extends Algorithm, OUTCOME, VEC extends Vectorizer> extends Task<EXAMPLE, ALGO, OUTCOME>  {
     private static final Logger logger = LoggerFactory.getLogger(PredictTask.class);
-    private final RewardFunction<OUTCOME> rewardFunction = null;
-
     protected PredictTask(OfflineTaskContext offlineTaskContext) {
         super(offlineTaskContext);
     }
@@ -48,10 +47,12 @@ public class PredictTask<EXAMPLE extends Example, ALGO extends Algorithm, OUTCOM
             algo = getScorer(parameters);
         }
 
-        Function<EXAMPLE, String> scoreOutputFormatter = getOutputFormatter(algo, rewardFunction);
+        RewardFunction<OUTCOME> rewardFunction = getRewardFunction();
+
+        Function<EXAMPLE, String> algorithmOutputformatter = getOutputFormatter(algo, rewardFunction);
 
         Function<String, List<String>> transformation =
-                scoringExampleDecoder.andThen(i -> ListTransform.map(i, scoreOutputFormatter));
+                scoringExampleDecoder.andThen(i -> ListTransform.map(i, algorithmOutputformatter));
 
         CpuIntensiveFileMapper processor = CpuIntensiveFileMapper.mapper(
                 super.offlineTaskContext.getMetricRegistry(),

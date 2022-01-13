@@ -22,7 +22,6 @@ import java.util.function.Function;
 import java.util.zip.ZipFile;
 
 public class EncodeTask<EXAMPLE extends Example, ALGO extends Algorithm, OUTCOME, VEC extends Vectorizer> extends Task<EXAMPLE, ALGO, OUTCOME> {
-    private final RewardFunction<OUTCOME> rewardFunction = null;
 
     protected EncodeTask(OfflineTaskContext offlineTaskContext) {
         super(offlineTaskContext);
@@ -31,6 +30,7 @@ public class EncodeTask<EXAMPLE extends Example, ALGO extends Algorithm, OUTCOME
     @Override
     protected Map<String, String> perform() throws Exception {
         ExampleDecoder<EXAMPLE> scoringExampleDecoder = getTrainDecoder();
+        RewardFunction<OUTCOME> rewardFunction = getRewardFunction();
 
         ExampleEncoder<EXAMPLE> exampleEncoder;
         if (this.offlineTaskContext.getOptions().parameters != null){
