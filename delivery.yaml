@@ -1,0 +1,38 @@
+version: "2017-09-20"
+
+allow_concurrent_steps: true
+
+pipeline:
+  - id: build-snapshot
+    depends_on: [ ]
+    type: script
+    overlay: ci/java11
+    commands:
+      - desc: "Add -SNAPSHOT suffix"
+        cmd: mvn build-helper:parse-version versions:set -DnewVersion=\${parsedVersion.majorVersion}.\${parsedVersion.minorVersion}.\${parsedVersion.incrementalVersion}-SNAPSHOT -B
+      - desc: "Run tests and check buildability"
+        cmd: mvn clean install -B
+      - desc: "Run SonarQube analysis"
+        cmd: |
+          SONAR_OPTS+=" -Dsonar.sources=src/main/java"
+          SONAR_OPTS+=" -Dsonar.java.binaries=target/classes"
+          SONAR_OPTS+=" -Dsonar.log.level=DEBUG"
+          # master-dashboard: Analyse pushes to the master branch, publish the result to https://sonar.tip.zalan.do
+          # pr-issues-as-comments: Analyse pull requests, report issues in GitHub PR comments
+          sonar-client ${SONAR_OPTS} --recipes=master-dashboard,pr-issues-as-comments
+      - desc: "Deploy snapshot version"
+        cmd: mvn clean deploy -B
+  - id: build-release
+    type: script
+    overlay: ci/java11
+    requires_human_approval: true
+    commands:
+      - desc: "Deploy release version"
+        cmd: mvn clean deploy -B -X
+      - desc: "Push tag"
+        cmd: |
+          export TAG=`mvn -U -B -q -Dexec.executable="echo" -Dexec.args='${project.version}' --non-recursive org.codehaus.mojo:exec-maven-plugin::exec`
+          git gh-tag $TAG
+    when:
+      event: push
+      branch: main
