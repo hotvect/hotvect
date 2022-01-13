@@ -3,9 +3,9 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
-    <groupId>com.eshioji.hotvect</groupId>
+    <groupId>com.hotvect</groupId>
     <artifactId>hotvect-parent</artifactId>
-    <version>0.0.12</version>
+    <version>0.6.0</version>
     <packaging>pom</packaging>
 
     <name>Hotvect Project</name>
@@ -89,27 +89,27 @@
         <dependencies>
             <!-- Hotvect dependencies -->
             <dependency>
-                <groupId>com.eshioji.hotvect</groupId>
+                <groupId>com.hotvect</groupId>
                 <artifactId>hotvect-api</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
-                <groupId>com.eshioji.hotvect</groupId>
+                <groupId>com.hotvect</groupId>
                 <artifactId>hotvect-core</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
-                <groupId>com.eshioji.hotvect</groupId>
+                <groupId>com.hotvect</groupId>
                 <artifactId>hotvect-vw</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
-                <groupId>com.eshioji.hotvect</groupId>
+                <groupId>com.hotvect</groupId>
                 <artifactId>hotvect-offline-util</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
-                <groupId>com.eshioji.hotvect</groupId>
+                <groupId>com.hotvect</groupId>
                 <artifactId>hotvect-online-util</artifactId>
                 <version>${project.version}</version>
             </dependency>

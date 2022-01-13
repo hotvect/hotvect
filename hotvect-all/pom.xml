@@ -4,9 +4,9 @@
     <modelVersion>4.0.0</modelVersion>
 
     <parent>
-        <groupId>com.eshioji.hotvect</groupId>
+        <groupId>com.hotvect</groupId>
         <artifactId>hotvect-parent</artifactId>
-        <version>0.0.12</version>
+        <version>0.6.0</version>
     </parent>
 
     <artifactId>hotvect-all</artifactId>
@@ -15,23 +15,23 @@
 
     <dependencies>
         <dependency>
-            <groupId>com.eshioji.hotvect</groupId>
+            <groupId>com.hotvect</groupId>
             <artifactId>hotvect-api</artifactId>
         </dependency>
         <dependency>
-            <groupId>com.eshioji.hotvect</groupId>
+            <groupId>com.hotvect</groupId>
             <artifactId>hotvect-core</artifactId>
         </dependency>
         <dependency>
-            <groupId>com.eshioji.hotvect</groupId>
+            <groupId>com.hotvect</groupId>
             <artifactId>hotvect-online-util</artifactId>
         </dependency>
         <dependency>
-            <groupId>com.eshioji.hotvect</groupId>
+            <groupId>com.hotvect</groupId>
             <artifactId>hotvect-offline-util</artifactId>
         </dependency>
         <dependency>
-            <groupId>com.eshioji.hotvect</groupId>
+            <groupId>com.hotvect</groupId>
             <artifactId>hotvect-vw</artifactId>
         </dependency>
     </dependencies>

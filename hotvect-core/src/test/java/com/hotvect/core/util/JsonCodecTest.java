@@ -1,0 +1,49 @@
+package com.hotvect.core.util;
+
+import com.hotvect.api.data.DataRecord;
+import com.hotvect.api.data.raw.RawValue;
+import com.hotvect.core.TestRawNamespace;
+import com.hotvect.testutils.TestUtils;
+import org.junit.jupiter.api.Test;
+
+import java.util.AbstractMap;
+import java.util.EnumMap;
+import java.util.EnumSet;
+
+import static com.hotvect.core.TestRecords.testInputWithAllValueTypes;
+import static com.hotvect.core.TestRecords.testInputWithAllValuesEmpty;
+import static org.junit.jupiter.api.Assertions.assertNull;
+
+public class JsonCodecTest {
+    private final JsonRecordDecoder<TestRawNamespace> decoder = new JsonRecordDecoder<>(TestRawNamespace.class);
+    private final JsonRecordEncoder<TestRawNamespace> encoder = new JsonRecordEncoder<>();
+
+    @Test
+    void allValueTypesCanBeRead() {
+        DataRecord<TestRawNamespace, RawValue> decoded = decoder.apply(testInputWithAllValueTypes());
+        String reEncoded = encoder.apply(decoded);
+        TestUtils.assertJsonEquals(testInputWithAllValueTypes(), reEncoded);
+    }
+
+    @Test
+    void valuesCanBeMissing() {
+        EnumSet<TestRawNamespace> allKeys = EnumSet.allOf(TestRawNamespace.class);
+
+        allKeys.stream().map(k -> {
+            EnumMap<TestRawNamespace, RawValue> record = decoder.apply(testInputWithAllValueTypes()).asEnumMap();
+            record.remove(k);
+            return new AbstractMap.SimpleImmutableEntry<>(k, record);
+        }).forEach(e -> {
+            assertNull(e.getValue().get(e.getKey()));
+            String encodedInput = encoder.apply(new DataRecord<>(TestRawNamespace.class, e.getValue()));
+            TestUtils.assertJsonEquals(encodedInput, decoder.andThen(encoder).apply(encodedInput));
+        });
+    }
+
+    @Test
+    void valuesCanBeEmpty() {
+        DataRecord<TestRawNamespace, RawValue> decoded = decoder.apply(testInputWithAllValuesEmpty());
+        String reEncoded = encoder.apply(decoded);
+        TestUtils.assertJsonEquals("{}", reEncoded);
+    }
+}
