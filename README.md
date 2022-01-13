@@ -1,5 +1,8 @@
 Hotvect
 ==========
+This is an internal fork of https://github.com/eshioji/hotvect
+
+
 A feature engineering and serving library for Vowpal Wabbit.
 
 Hotvect allows you to:
