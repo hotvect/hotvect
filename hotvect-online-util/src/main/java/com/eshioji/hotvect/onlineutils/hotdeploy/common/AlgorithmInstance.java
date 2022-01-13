@@ -1,8 +1,8 @@
 package com.eshioji.hotvect.onlineutils.hotdeploy.common;
 
-import com.eshioji.hotvect.api.algodefinition.AlgorithmDefinition;
-import com.eshioji.hotvect.api.algodefinition.AlgorithmParameterMetadata;
-import com.eshioji.hotvect.api.algorithms.Algorithm;
+import com.hotvect.api.algodefinition.AlgorithmDefinition;
+import com.hotvect.api.algodefinition.AlgorithmParameterMetadata;
+import com.hotvect.api.algorithms.Algorithm;
 
 public class AlgorithmInstance<ALGO extends Algorithm> {
     private final AlgorithmDefinition algorithmDefinition;

@@ -1,11 +1,11 @@
 package com.eshioji.hotvect.onlineutils.hotdeploy.common;
 
-import com.eshioji.hotvect.api.algodefinition.AlgorithmDefinition;
-import com.eshioji.hotvect.api.algodefinition.AlgorithmParameterMetadata;
-import com.eshioji.hotvect.api.algodefinition.common.AlgorithmFactory;
-import com.eshioji.hotvect.api.algodefinition.common.VectorizerFactory;
-import com.eshioji.hotvect.api.algorithms.Algorithm;
-import com.eshioji.hotvect.api.vectorization.Vectorizer;
+import com.hotvect.api.algodefinition.AlgorithmDefinition;
+import com.hotvect.api.algodefinition.AlgorithmParameterMetadata;
+import com.hotvect.api.algodefinition.common.AlgorithmFactory;
+import com.hotvect.api.algodefinition.common.VectorizerFactory;
+import com.hotvect.api.algorithms.Algorithm;
+import com.hotvect.api.vectorization.Vectorizer;
 import com.eshioji.hotvect.onlineutils.hotdeploy.util.ChildOnlyClassLoader;
 import com.eshioji.hotvect.onlineutils.hotdeploy.util.MalformedAlgorithmException;
 import com.eshioji.hotvect.onlineutils.hotdeploy.util.ZipFiles;

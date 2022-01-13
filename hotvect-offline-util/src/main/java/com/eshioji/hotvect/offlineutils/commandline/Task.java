@@ -1,14 +1,14 @@
 package com.eshioji.hotvect.offlineutils.commandline;
 
 import com.codahale.metrics.Histogram;
-import com.eshioji.hotvect.api.algodefinition.common.*;
-import com.eshioji.hotvect.api.algorithms.Algorithm;
-import com.eshioji.hotvect.api.codec.common.ExampleDecoder;
-import com.eshioji.hotvect.api.codec.common.ExampleEncoder;
-import com.eshioji.hotvect.api.data.common.Example;
-import com.eshioji.hotvect.api.vectorization.Vectorizer;
-import com.eshioji.hotvect.core.concurrent.VerboseCallable;
-import com.eshioji.hotvect.core.concurrent.VerboseRunnable;
+import com.hotvect.api.algodefinition.common.*;
+import com.hotvect.api.algorithms.Algorithm;
+import com.hotvect.api.codec.common.ExampleDecoder;
+import com.hotvect.api.codec.common.ExampleEncoder;
+import com.hotvect.api.data.common.Example;
+import com.hotvect.api.vectorization.Vectorizer;
+import com.hotvect.core.concurrent.VerboseCallable;
+import com.hotvect.core.concurrent.VerboseRunnable;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.google.common.util.concurrent.MoreExecutors;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;

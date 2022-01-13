@@ -1,11 +1,11 @@
 package com.eshioji.hotvect.offlineutils.export;
 
-import com.eshioji.hotvect.api.algodefinition.common.RewardFunction;
-import com.eshioji.hotvect.api.codec.scoring.ScoringExampleEncoder;
-import com.eshioji.hotvect.api.data.SparseVector;
-import com.eshioji.hotvect.api.data.scoring.ScoringExample;
-import com.eshioji.hotvect.core.audit.AuditableScoringVectorizer;
-import com.eshioji.hotvect.core.audit.RawFeatureName;
+import com.hotvect.api.algodefinition.common.RewardFunction;
+import com.hotvect.api.codec.scoring.ScoringExampleEncoder;
+import com.hotvect.api.data.SparseVector;
+import com.hotvect.api.data.scoring.ScoringExample;
+import com.hotvect.core.audit.AuditableScoringVectorizer;
+import com.hotvect.core.audit.RawFeatureName;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;

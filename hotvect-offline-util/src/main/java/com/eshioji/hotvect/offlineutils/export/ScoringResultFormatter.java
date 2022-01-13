@@ -1,8 +1,8 @@
 package com.eshioji.hotvect.offlineutils.export;
 
-import com.eshioji.hotvect.api.algodefinition.common.RewardFunction;
-import com.eshioji.hotvect.api.algorithms.Scorer;
-import com.eshioji.hotvect.api.data.scoring.ScoringExample;
+import com.hotvect.api.algodefinition.common.RewardFunction;
+import com.hotvect.api.algorithms.Scorer;
+import com.hotvect.api.data.scoring.ScoringExample;
 
 import java.util.function.BiFunction;
 import java.util.function.Function;

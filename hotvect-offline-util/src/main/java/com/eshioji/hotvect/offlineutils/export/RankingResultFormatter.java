@@ -1,21 +1,17 @@
 package com.eshioji.hotvect.offlineutils.export;
 
-import com.eshioji.hotvect.api.algodefinition.common.RewardFunction;
-import com.eshioji.hotvect.api.algorithms.Ranker;
-import com.eshioji.hotvect.api.data.ranking.RankingExample;
-import com.eshioji.hotvect.api.data.ranking.RankingOutcome;
-import com.eshioji.hotvect.core.util.ListTransform;
+import com.hotvect.api.algodefinition.common.RewardFunction;
+import com.hotvect.api.algorithms.Ranker;
+import com.hotvect.api.data.ranking.RankingExample;
+import com.hotvect.api.data.ranking.RankingOutcome;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import com.google.common.math.DoubleMath;
 import it.unimi.dsi.fastutil.ints.Int2DoubleMap;
 import it.unimi.dsi.fastutil.ints.Int2DoubleOpenHashMap;
 
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.function.BiFunction;
 import java.util.function.Function;
 
