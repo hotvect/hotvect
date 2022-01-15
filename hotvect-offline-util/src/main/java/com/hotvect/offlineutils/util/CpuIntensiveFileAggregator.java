@@ -1,4 +1,4 @@
-package com.eshioji.hotvect.offlineutils.util;
+package com.hotvect.offlineutils.util;
 
 import com.codahale.metrics.MetricRegistry;
 import com.hotvect.core.concurrent.CpuIntensiveAggregator;

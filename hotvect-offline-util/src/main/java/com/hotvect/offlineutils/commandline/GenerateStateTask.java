@@ -1,11 +1,11 @@
-package com.eshioji.hotvect.offlineutils.commandline;
+package com.hotvect.offlineutils.commandline;
 
 import com.codahale.metrics.MetricRegistry;
 import com.codahale.metrics.Slf4jReporter;
 import com.hotvect.api.algorithms.Algorithm;
 import com.hotvect.api.data.common.Example;
 import com.hotvect.api.featurestate.FeatureState;
-import com.eshioji.hotvect.offlineutils.util.CpuIntensiveFileAggregator;
+import com.hotvect.offlineutils.util.CpuIntensiveFileAggregator;
 
 import java.io.*;
 import java.util.Map;

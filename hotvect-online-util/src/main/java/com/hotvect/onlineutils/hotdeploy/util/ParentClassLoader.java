@@ -20,7 +20,7 @@
  * Under the Apache v2.0 license. Package names were changed, as well as register as parallel capable was removed
  */
 
-package com.eshioji.hotvect.onlineutils.hotdeploy.util;
+package com.hotvect.onlineutils.hotdeploy.util;
 
 
 /**

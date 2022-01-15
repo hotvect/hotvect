@@ -1,4 +1,4 @@
-package com.eshioji.hotvect.onlineutils.hotdeploy.common;
+package com.hotvect.onlineutils.hotdeploy.common;
 
 import com.hotvect.api.algodefinition.AlgorithmDefinition;
 import com.hotvect.api.algodefinition.AlgorithmParameterMetadata;

@@ -1,4 +1,4 @@
-package com.eshioji.hotvect.onlineutils.hotdeploy.util;
+package com.hotvect.onlineutils.hotdeploy.util;
 
 import com.google.common.collect.ImmutableMap;
 

@@ -9,7 +9,7 @@ import com.hotvect.core.hash.AuditableHasher;
 import com.hotvect.core.transform.regression.ScoringFeatureTransformer;
 import com.hotvect.core.transform.regression.ScoringTransformer;
 import com.hotvect.core.vectorization.scoring.DefaultScoringVectorizer;
-import com.eshioji.hotvect.offlineutils.export.JsonScoringExampleEncoder;
+import com.hotvect.offlineutils.export.JsonScoringExampleEncoder;
 import com.hotvect.testutil.TestFeatureSpace;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;

@@ -18,5 +18,5 @@ setup(
     url='https://github.com/eshioji/hotvect',
     license='Apache License 2.0',
     packages=find_packages(exclude=('tests', 'docs')),
-    install_requires=['scikit-learn', 'pandas']
+    install_requires=['scikit-learn', 'pandas', 'numpy<1.21']
 )

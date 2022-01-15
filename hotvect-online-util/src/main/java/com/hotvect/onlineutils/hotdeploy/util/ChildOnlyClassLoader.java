@@ -1,4 +1,4 @@
-package com.eshioji.hotvect.onlineutils.hotdeploy.util;
+package com.hotvect.onlineutils.hotdeploy.util;
 
 /*
  * Licensed to the Apache Software Foundation (ASF) under one or more

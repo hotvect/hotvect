@@ -1,4 +1,4 @@
-package com.eshioji.hotvect.offlineutils.commandline;
+package com.hotvect.offlineutils.commandline;
 
 import picocli.CommandLine;
 

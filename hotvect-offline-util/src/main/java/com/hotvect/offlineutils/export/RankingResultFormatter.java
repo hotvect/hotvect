@@ -1,4 +1,4 @@
-package com.eshioji.hotvect.offlineutils.export;
+package com.hotvect.offlineutils.export;
 
 import com.hotvect.api.algodefinition.common.RewardFunction;
 import com.hotvect.api.algorithms.Ranker;

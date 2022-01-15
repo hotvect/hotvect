@@ -2,7 +2,7 @@ package com.hotvect.util;
 
 import com.codahale.metrics.MetricRegistry;
 import com.hotvect.core.util.Pair;
-import com.eshioji.hotvect.offlineutils.util.CpuIntensiveFileMapper;
+import com.hotvect.offlineutils.util.CpuIntensiveFileMapper;
 import com.google.common.collect.ImmutableList;
 import com.google.common.hash.Hashing;
 import org.junit.jupiter.api.Test;

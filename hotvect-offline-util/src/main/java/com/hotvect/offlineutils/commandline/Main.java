@@ -1,4 +1,4 @@
-package com.eshioji.hotvect.offlineutils.commandline;
+package com.hotvect.offlineutils.commandline;
 
 import com.codahale.metrics.MetricRegistry;
 import com.codahale.metrics.Slf4jReporter;

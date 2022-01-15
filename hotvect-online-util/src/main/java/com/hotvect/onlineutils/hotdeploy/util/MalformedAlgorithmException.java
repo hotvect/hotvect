@@ -1,4 +1,4 @@
-package com.eshioji.hotvect.onlineutils.hotdeploy.util;
+package com.hotvect.onlineutils.hotdeploy.util;
 
 public class MalformedAlgorithmException extends Exception {
     public MalformedAlgorithmException(String message) {

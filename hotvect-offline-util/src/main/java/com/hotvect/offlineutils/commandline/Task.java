@@ -1,4 +1,4 @@
-package com.eshioji.hotvect.offlineutils.commandline;
+package com.hotvect.offlineutils.commandline;
 
 import com.codahale.metrics.Histogram;
 import com.hotvect.api.algodefinition.common.*;

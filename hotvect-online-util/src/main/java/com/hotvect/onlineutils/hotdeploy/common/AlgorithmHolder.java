@@ -1,4 +1,4 @@
-package com.eshioji.hotvect.onlineutils.hotdeploy.common;
+package com.hotvect.onlineutils.hotdeploy.common;
 
 import com.hotvect.api.algodefinition.AlgorithmDefinition;
 import com.hotvect.api.algodefinition.AlgorithmParameterMetadata;
@@ -6,9 +6,9 @@ import com.hotvect.api.algodefinition.common.AlgorithmFactory;
 import com.hotvect.api.algodefinition.common.VectorizerFactory;
 import com.hotvect.api.algorithms.Algorithm;
 import com.hotvect.api.vectorization.Vectorizer;
-import com.eshioji.hotvect.onlineutils.hotdeploy.util.ChildOnlyClassLoader;
-import com.eshioji.hotvect.onlineutils.hotdeploy.util.MalformedAlgorithmException;
-import com.eshioji.hotvect.onlineutils.hotdeploy.util.ZipFiles;
+import com.hotvect.onlineutils.hotdeploy.util.ChildOnlyClassLoader;
+import com.hotvect.onlineutils.hotdeploy.util.MalformedAlgorithmException;
+import com.hotvect.onlineutils.hotdeploy.util.ZipFiles;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Charsets;

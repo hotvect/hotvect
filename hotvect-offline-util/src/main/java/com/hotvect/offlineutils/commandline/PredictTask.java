@@ -1,4 +1,4 @@
-package com.eshioji.hotvect.offlineutils.commandline;
+package com.hotvect.offlineutils.commandline;
 
 
 import com.codahale.metrics.Meter;
@@ -11,10 +11,10 @@ import com.hotvect.api.data.common.Example;
 import com.hotvect.api.algorithms.Scorer;
 import com.hotvect.api.vectorization.Vectorizer;
 import com.hotvect.core.util.ListTransform;
-import com.eshioji.hotvect.offlineutils.export.RankingResultFormatter;
-import com.eshioji.hotvect.offlineutils.export.ScoringResultFormatter;
-import com.eshioji.hotvect.offlineutils.util.CpuIntensiveFileMapper;
-import com.eshioji.hotvect.onlineutils.hotdeploy.util.ZipFiles;
+import com.hotvect.offlineutils.export.RankingResultFormatter;
+import com.hotvect.offlineutils.export.ScoringResultFormatter;
+import com.hotvect.offlineutils.util.CpuIntensiveFileMapper;
+import com.hotvect.onlineutils.hotdeploy.util.ZipFiles;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
