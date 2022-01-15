@@ -2,21 +2,21 @@
 
 from setuptools import setup, find_packages
 
+# read the contents of your README file
+from pathlib import Path
+this_directory = Path(__file__).parent
+long_description = (this_directory / "README.rst").read_text()
 
-with open('README.rst') as f:
-    readme = f.read()
-
-with open('LICENSE') as f:
-    license = f.read()
 
 setup(
     name='hotvect',
-    version='2.0.0-SNAPSHOT',
+    version='2.0.0-dev',
     description='Hotvect python interface',
-    long_description=readme,
+    long_description=long_description,
     author='Enno Shioji',
     author_email='eshioji@gmail.com',
     url='https://github.com/eshioji/hotvect',
-    license=license,
-    packages=find_packages(exclude=('tests', 'docs'))
+    license='Apache License 2.0',
+    packages=find_packages(exclude=('tests', 'docs')),
+    install_requires=['scikit-learn', 'pandas']
 )
