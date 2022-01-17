@@ -9,11 +9,11 @@ from typing import List
 import time
 
 
-def runshell(command, verbose=True):
+def runshell(command, shell=False, verbose=True):
     if verbose:
         print(f"Running {' '.join(command)}")
 
-    p = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    p = subprocess.run(command, shell=shell, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     stdout = p.stdout.decode('utf-8')
     stderr = p.stderr.decode('utf-8')
     ret_code = p.returncode

@@ -5,6 +5,8 @@ from datetime import datetime, tzinfo, timedelta
 from shutil import copyfile
 from typing import Dict, List, Any
 
+from jinja2 import Template
+
 import hotvect.mlutils as mlutils
 import pandas as pd
 from hotvect.utils import trydelete, runshell, read_json, to_zip_archive, ensure_file_exists, clean_dir, \
@@ -111,9 +113,10 @@ class Hotvect:
         )
 
     def score_file_path(self) -> str:
+        predict_suffix = 'prediction.jsonl.gz' if self.enable_gzip else 'prediction.jsonl'
         return os.path.join(
             self.output_path(),
-            'validation_scores.csv'
+            predict_suffix
         )
 
     def audit_data_file_path(self) -> str:
@@ -202,7 +205,7 @@ class Hotvect:
             '-cp', f"{self.hotvect_util_jar_path}",
         ]
         ret.extend(self.jvm_options)
-        ret.extend(['com.eshioji.hotvect.offlineutils.commandline.Main',
+        ret.extend(['com.hotvect.offlineutils.commandline.Main',
                     '--algorithm-jar', f'{self.algorithm_jar_path}',
                     '--algorithm-definition', self._write_algorithm_definition(),
                     '--meta-data', metadata_location])
@@ -279,17 +282,14 @@ class Hotvect:
         model_location = self.model_file_path()
         trydelete(model_location)
 
-        cmd = [
-            'vw', self.encoded_data_file_path(),
-            '--readable_model', model_location,
-            '--noconstant',
-            '--loss_function', 'logistic',
-        ]
-        train_params = self.algorithm_definition['training_parameters']
-        cmd.extend(train_params)
-        train_log = runshell(cmd)
+        train_command_template = Template(self.algorithm_definition['training_command'])
+        train_command = train_command_template.render(
+            encoded_file=self.encoded_data_file_path(),
+            parameter_output_path=model_location
+        )
+        train_log = runshell([train_command], shell=True)
         metadata = {
-            'training_parameters': train_params,
+            'training_command': train_command,
             'train_log': train_log
         }
         with open(metadata_location, 'w') as f:
