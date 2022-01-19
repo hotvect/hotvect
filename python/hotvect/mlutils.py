@@ -1,9 +1,14 @@
-# Code adopted from https://stackoverflow.com/a/19132400
+import gzip
+import json
+from typing import Any, Dict
+
 import numpy as np
+import pandas as pd
 from sklearn.metrics import roc_auc_score
 
 
 def bootstrap_roc_auc(y_true, y_pred, n_bootstraps=20, rng_seed=42):
+    # Code adopted from https://stackoverflow.com/a/19132400
     bootstrapped_scores = []
 
     rng = np.random.RandomState(rng_seed)
@@ -27,3 +32,21 @@ def bootstrap_roc_auc(y_true, y_pred, n_bootstraps=20, rng_seed=42):
     confidence_lower = sorted_scores[int(0.05 * len(sorted_scores))]
     confidence_upper = sorted_scores[int(0.95 * len(sorted_scores))]
     return confidence_lower, roc_auc_score(y_true, y_pred), confidence_upper
+
+
+def standard_evaluation(simulation_output_path: str) -> Dict[str, Any]:
+    open_file = lambda: gzip.open(simulation_output_path) if simulation_output_path.lower().endswith('.gz') else open(
+        simulation_output_path)
+
+    def data_gen():
+        with open_file() as f:
+            for l in f:
+                yield json.loads(l)
+
+    df = pd.json_normalize(data=data_gen(), record_path=['result'])
+    lower_auc, mean_auc, upper_auc = bootstrap_roc_auc(y_true=df['reward'], y_pred=df['score'])
+    return {
+        'lower_auc': lower_auc,
+        'mean_auc': mean_auc,
+        'upper_auc': upper_auc
+    }

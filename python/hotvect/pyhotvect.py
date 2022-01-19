@@ -3,16 +3,15 @@ import logging
 import os
 from datetime import datetime, tzinfo, timedelta
 from shutil import copyfile
-from typing import Dict, List, Any
-
-from jinja2 import Template
+from typing import Dict, List, Any, Callable
 
 import hotvect.mlutils as mlutils
 import pandas as pd
 from hotvect.utils import trydelete, runshell, read_json, to_zip_archive, ensure_file_exists, clean_dir, \
     ensure_dir_exists
+from jinja2 import Template
 
-logging.basicConfig(level=logging.WARNING)
+logging.basicConfig(level=logging.DEBUG)
 
 
 # Courtesy of https://stackoverflow.com/a/23705687/234901
@@ -35,9 +34,10 @@ class Hotvect:
                  validation_data_path: str,
                  algorithm_definition: Dict[str, Any],
                  state_source_base_path: str = None,
+                 evaluation_func: Callable[[str], Dict[str, Any]] = mlutils.standard_evaluation,
                  run_id: str = "default",
                  enable_gzip: bool = True,
-                 jvm_options: List[str] = None
+                 jvm_options: List[str] = None,
                  ):
         self.algorithm_definition = algorithm_definition
         self.run_id: str = run_id
@@ -68,6 +68,8 @@ class Hotvect:
         if self.state_source_base_path:
             ensure_dir_exists(self.state_source_base_path)
         self.feature_states: Dict[str, str] = {}
+
+        self.evaluation_function = evaluation_func
 
         # Gzip
         self.enable_gzip = enable_gzip
@@ -340,14 +342,9 @@ class Hotvect:
         metadata_location = os.path.join(self.metadata_path(), 'evaluate_metadata.json')
         trydelete(metadata_location)
 
-        df = pd.read_csv(self.score_file_path(), header=None)
-        lower_auc, mean_auc, upper_auc = mlutils.bootstrap_roc_auc(df[1], df[0])
+        logging.debug(f'Calling evaluation function on {self.score_file_path()}')
 
-        meta_data = {
-            'upper_auc': upper_auc,
-            'mean_auc': mean_auc,
-            'lower_auc': lower_auc
-        }
+        meta_data = self.evaluation_function(self.score_file_path())
         with open(metadata_location, 'w') as f:
             json.dump(meta_data, f)
         return meta_data
