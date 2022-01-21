@@ -25,3 +25,4 @@ target
 python/hotvect.egg-info
 .jqwik-database
 python/hotvect/__pycache__
+python/build

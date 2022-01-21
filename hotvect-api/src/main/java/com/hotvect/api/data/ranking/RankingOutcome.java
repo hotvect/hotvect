@@ -16,4 +16,12 @@ public class RankingOutcome<OUTCOME> {
     public OUTCOME getOutcome() {
         return outcome;
     }
+
+    @Override
+    public String toString() {
+        return "RankingOutcome{" +
+                "rankingDecision=" + rankingDecision +
+                ", outcome=" + outcome +
+                '}';
+    }
 }

@@ -34,4 +34,13 @@ public class ScoringExample<RECORD, OUTCOME> implements Example {
     public String getExampleId() {
         return this.exampleId;
     }
+
+    @Override
+    public String toString() {
+        return "ScoringExample{" +
+                "exampleId='" + exampleId + '\'' +
+                ", record=" + record +
+                ", outcome=" + outcome +
+                '}';
+    }
 }

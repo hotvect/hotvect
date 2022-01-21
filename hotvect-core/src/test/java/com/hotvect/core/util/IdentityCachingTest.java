@@ -7,6 +7,7 @@ import com.google.common.hash.Hashing;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 import java.util.concurrent.TimeUnit;
@@ -32,6 +33,7 @@ class IdentityCachingTest {
         Assertions.assertEquals(expected, actual.getSingleString());
     }
 
+    @Disabled
     @Test
     void performaceIsBetter(){
         long start = System.nanoTime();

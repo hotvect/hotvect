@@ -18,4 +18,13 @@ public class RankingRequest<SHARED, ACTION> {
     public List<ACTION> getAvailableActions() {
         return availableActions;
     }
+
+    @Override
+    public String
+    toString() {
+        return "RankingRequest{" +
+                "shared=" + shared +
+                ", availableActions=" + availableActions +
+                '}';
+    }
 }

@@ -9,7 +9,7 @@ import com.hotvect.core.hash.AuditableHasher;
 import com.hotvect.core.transform.regression.ScoringFeatureTransformer;
 import com.hotvect.core.transform.regression.ScoringTransformer;
 import com.hotvect.core.vectorization.scoring.DefaultScoringVectorizer;
-import com.hotvect.offlineutils.export.JsonScoringExampleEncoder;
+import com.hotvect.offlineutils.export.ScoringExampleJsonEncoder;
 import com.hotvect.testutil.TestFeatureSpace;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -62,7 +62,7 @@ class AuditJsonEncoderTest {
 
     @Test
     void apply() throws Exception {
-        JsonScoringExampleEncoder<Map<String, String>, Double> subject = getSubject();
+        ScoringExampleJsonEncoder<Map<String, String>, Double> subject = getSubject();
 
         JsonNode expected = OM.readTree(AuditJsonEncoderTest.class.getResourceAsStream("audit_expected.json"));
         Map<String, String> input = inputFromExpected(expected);
@@ -74,7 +74,7 @@ class AuditJsonEncoderTest {
                 JSONCompareMode.LENIENT);
     }
 
-    private JsonScoringExampleEncoder<Map<String, String>, Double> getSubject() {
+    private ScoringExampleJsonEncoder<Map<String, String>, Double> getSubject() {
         ScoringTransformer<Map<String, String>, TestFeatureSpace> testScoringTransformer = new ScoringFeatureTransformer<>(TestFeatureSpace.class, ImmutableMap.of(
                 TestFeatureSpace.feature1, s -> RawValue.singleString(s.get("feature1")),
                 TestFeatureSpace.feature2, s -> RawValue.singleString(s.get("feature2")),
@@ -88,6 +88,6 @@ class AuditJsonEncoderTest {
                 new FeatureDefinition<>(TestFeatureSpace.feature3)
         )));
 
-        return new JsonScoringExampleEncoder<>(vectorizer, d -> d);
+        return new ScoringExampleJsonEncoder<>(vectorizer, d -> d);
     }
 }

@@ -16,4 +16,12 @@ public class RankingDecision {
     public Double getScore() {
         return score;
     }
+
+    @Override
+    public String toString() {
+        return "RankingDecision{" +
+                "actionIndex=" + actionIndex +
+                ", score=" + score +
+                '}';
+    }
 }

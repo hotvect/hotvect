@@ -31,4 +31,13 @@ public class RankingExample<SHARED, ACTION, OUTCOME> implements Example {
     public String getExampleId() {
         return this.exampleId;
     }
+
+    @Override
+    public String toString() {
+        return "RankingExample{" +
+                "exampleId='" + exampleId + '\'' +
+                ", rankingRequest=" + rankingRequest +
+                ", outcomes=" + outcomes +
+                '}';
+    }
 }
