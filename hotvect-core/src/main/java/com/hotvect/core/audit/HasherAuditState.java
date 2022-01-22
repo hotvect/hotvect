@@ -51,4 +51,8 @@ public class HasherAuditState {
     public ThreadLocal<Map<HashedFeatureName, RawFeatureName>> getFeatureName2SourceRawValue(){
         return this.featureName2SourceRawValue;
     }
+
+    public void clear() {
+        this.featureName2SourceRawValue.get().clear();
+    }
 }

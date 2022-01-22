@@ -65,6 +65,13 @@ public class InteractionCombiner<FEATURE extends Enum<FEATURE> & FeatureNamespac
         return this.featureHash2SourceRawValue;
     }
 
+    @Override
+    public void clearAuditState() {
+        if(this.featureHash2SourceRawValue != null){
+            this.featureHash2SourceRawValue.get().clear();
+        }
+    }
+
 
     /**
      * Construct a {@link InteractionCombiner}

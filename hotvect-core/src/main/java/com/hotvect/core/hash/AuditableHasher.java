@@ -31,6 +31,12 @@ public class AuditableHasher<FEATURE extends Enum<FEATURE> & FeatureNamespace> i
         return this.auditState.getFeatureName2SourceRawValue();
     }
 
+    public void clearAuditState() {
+        if (this.auditState != null) {
+            this.auditState.clear();
+        }
+    }
+
 
     /**
      * Hash the given raw {@link DataRecord} to yield a hashed {@link DataRecord}.
@@ -41,12 +47,6 @@ public class AuditableHasher<FEATURE extends Enum<FEATURE> & FeatureNamespace> i
      */
     @Override
     public DataRecord<FEATURE, HashedValue> apply(DataRecord<FEATURE, RawValue> input) {
-        if (auditState != null) {
-            // Audit is enabled. Hasher is the first entry point, so we clear our thread local cache to prepare for
-            // the audit of this invocation
-            auditState.getFeatureName2SourceRawValue().get().clear();
-        }
-
 
         DataRecord<FEATURE, HashedValue> ret = new DataRecord<>(namespace);
         for (FEATURE namespace : namespaces) {

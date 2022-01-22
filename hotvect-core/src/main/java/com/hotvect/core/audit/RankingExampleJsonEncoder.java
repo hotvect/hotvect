@@ -50,7 +50,10 @@ public class RankingExampleJsonEncoder<SHARED, ACTION, OUTCOME> implements Ranki
             JsonNode features = objectMapper.valueToTree(pojonized);
 
             result.set("features", features);
+            actionToEncoded.add(result);
         }
+
+        root.set("actions", actionToEncoded);
 
         try {
             return objectMapper.writeValueAsString(root);

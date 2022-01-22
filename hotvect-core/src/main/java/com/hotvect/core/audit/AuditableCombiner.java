@@ -8,4 +8,5 @@ import java.util.Map;
 
 public interface AuditableCombiner<FEATURE extends Enum<FEATURE> &FeatureNamespace> extends Combiner<FEATURE> {
     ThreadLocal<Map<Integer, List<RawFeatureName>>> enableAudit(ThreadLocal<Map<HashedFeatureName, RawFeatureName>> featureName2SourceRawValue);
+    void clearAuditState();
 }

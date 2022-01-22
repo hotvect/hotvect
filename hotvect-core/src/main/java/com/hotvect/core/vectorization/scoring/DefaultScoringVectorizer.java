@@ -28,6 +28,8 @@ public class DefaultScoringVectorizer<RECORD, OUT extends Enum<OUT> & FeatureNam
 
     @Override
     public SparseVector apply(RECORD request) {
+        combiner.clearAuditState();
+        hasher.clearAuditState();
         DataRecord<OUT, RawValue> parsed = scoringTransformer.apply(request);
         DataRecord<OUT, HashedValue> hashed = hasher.apply(parsed);
         return combiner.apply(hashed);
