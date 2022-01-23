@@ -10,7 +10,7 @@ long_description = (this_directory / "README.rst").read_text()
 
 setup(
     name='hotvect',
-    version='2.0.0-dev',
+    version='2.0.2-dev',
     description='Hotvect python interface',
     long_description=long_description,
     author='Enno Shioji',

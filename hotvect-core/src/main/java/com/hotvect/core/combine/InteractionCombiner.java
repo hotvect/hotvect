@@ -214,30 +214,27 @@ public class InteractionCombiner<FEATURE extends Enum<FEATURE> & FeatureNamespac
             int hash = fd.getFeatureNamespace();
 
 
-
+            List<RawFeatureName> rawFeatureNames = new ArrayList<>();
             for (FEATURE namespace : toInteract) {
                 int[] featureNames = values.get(namespace).getCategoricalIndices();
                 int featureName = featureNames[(i / j) % featureNames.length];
                 hash ^= HashUtils.hashInt(featureName);
                 hash *= FNV1_PRIME_32;
+
+
+                if(this.featureHash2SourceRawValue != null){
+                    HashedFeatureName hashedFeatureName = new HashedFeatureName(namespace, featureName);
+                    RawFeatureName sourceRawData = this.featureName2SourceRawValue.get().get(hashedFeatureName);
+                    rawFeatureNames.add(sourceRawData);
+                }
+
+
                 j *= featureNames.length;
             }
             int finalHash = hash & mask;
             acc.add(finalHash);
 
             if(this.featureHash2SourceRawValue != null){
-                // Audit enabled
-                List<RawFeatureName> rawFeatureNames = new ArrayList<>();
-                for (FEATURE namespace : toInteract) {
-                    int[] featureNames = values.get(namespace).getCategoricalIndices();
-                    int featureName = featureNames[(i / j) % featureNames.length];
-
-                    HashedFeatureName hashedFeatureName = new HashedFeatureName(namespace, featureName);
-                    RawFeatureName sourceRawData = this.featureName2SourceRawValue.get().get(hashedFeatureName);
-                    rawFeatureNames.add(sourceRawData);
-                    j *= featureNames.length;
-                }
-
                 this.featureHash2SourceRawValue.get().put(finalHash, ImmutableList.copyOf(rawFeatureNames));
             }
 
