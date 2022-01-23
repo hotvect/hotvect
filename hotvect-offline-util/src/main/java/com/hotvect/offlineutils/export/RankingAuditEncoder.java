@@ -18,13 +18,13 @@ import java.util.stream.Collectors;
 
 import static com.google.common.base.Preconditions.checkState;
 
-public class RankingExampleJsonEncoder<SHARED, ACTION, OUTCOME> implements RankingExampleEncoder<SHARED, ACTION, OUTCOME> {
+public class RankingAuditEncoder<SHARED, ACTION, OUTCOME> implements RankingExampleEncoder<SHARED, ACTION, OUTCOME> {
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final ThreadLocal<Map<Integer, List<RawFeatureName>>> names;
     private final AuditableRankingVectorizer<SHARED, ACTION> vectorizer;
     private final RewardFunction<OUTCOME> rewardFunction;
 
-    public RankingExampleJsonEncoder(AuditableRankingVectorizer<SHARED, ACTION> vectorizer, RewardFunction<OUTCOME> rewardFunction) {
+    public RankingAuditEncoder(AuditableRankingVectorizer<SHARED, ACTION> vectorizer, RewardFunction<OUTCOME> rewardFunction) {
         this.vectorizer = vectorizer;
         this.rewardFunction = rewardFunction;
         this.names = vectorizer.enableAudit();

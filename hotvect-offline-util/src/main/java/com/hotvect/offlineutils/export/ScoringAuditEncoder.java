@@ -17,13 +17,13 @@ import java.util.Map;
 
 import static com.google.common.base.Preconditions.checkState;
 
-public class ScoringExampleJsonEncoder<RECORD, OUTCOME> implements ScoringExampleEncoder<RECORD, OUTCOME> {
+public class ScoringAuditEncoder<RECORD, OUTCOME> implements ScoringExampleEncoder<RECORD, OUTCOME> {
     private static final ObjectMapper OM = new ObjectMapper();
     private final ThreadLocal<Map<Integer, List<RawFeatureName>>> names;
     private final AuditableScoringVectorizer<RECORD> vectorizer;
     private final RewardFunction<OUTCOME> rewardFunction;
 
-    public ScoringExampleJsonEncoder(AuditableScoringVectorizer<RECORD> vectorizer, RewardFunction<OUTCOME> rewardFunction) {
+    public ScoringAuditEncoder(AuditableScoringVectorizer<RECORD> vectorizer, RewardFunction<OUTCOME> rewardFunction) {
         this.vectorizer = vectorizer;
         this.rewardFunction = rewardFunction;
         this.names = vectorizer.enableAudit();
