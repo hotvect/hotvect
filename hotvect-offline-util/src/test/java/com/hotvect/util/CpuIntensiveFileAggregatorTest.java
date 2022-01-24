@@ -1,6 +1,7 @@
 package com.hotvect.util;
 
 import com.codahale.metrics.MetricRegistry;
+import com.google.common.collect.ImmutableList;
 import com.hotvect.offlineutils.util.CpuIntensiveFileAggregator;
 import com.google.common.hash.BloomFilter;
 import com.google.common.hash.Funnels;
@@ -44,7 +45,7 @@ class CpuIntensiveFileAggregatorTest {
         );
 
           CpuIntensiveFileAggregator<BloomFilter<String>> subject = CpuIntensiveFileAggregator.aggregator(mr,
-                source,
+                ImmutableList.of(source),
                 () -> firstBloomFilter,
                 (acc, x) -> {
                     acc.put(x);

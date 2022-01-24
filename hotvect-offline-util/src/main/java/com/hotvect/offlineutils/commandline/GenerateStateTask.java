@@ -8,6 +8,7 @@ import com.hotvect.api.featurestate.FeatureState;
 import com.hotvect.offlineutils.util.CpuIntensiveFileAggregator;
 
 import java.io.*;
+import java.util.List;
 import java.util.Map;
 import java.util.function.BiConsumer;
 import java.util.function.BiFunction;
@@ -34,7 +35,7 @@ public abstract class GenerateStateTask<EXAMPLE extends Example, ALGO extends Al
 
     protected abstract Map<String, String> perform() throws Exception;
 
-    protected <Z> Z runAggregation(File source, Supplier<Z> init, BiFunction<Z, String, Z> merge) throws Exception {
+    protected <Z> Z runAggregation(List<File> source, Supplier<Z> init, BiFunction<Z, String, Z> merge) throws Exception {
         MetricRegistry metricRegistry = new MetricRegistry();
         Z ret = CpuIntensiveFileAggregator.aggregator(
                 metricRegistry,

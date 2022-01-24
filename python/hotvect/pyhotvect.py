@@ -3,12 +3,12 @@ import logging
 import os
 from datetime import datetime, tzinfo, timedelta
 from shutil import copyfile
-from typing import Dict, List, Any, Callable
+from typing import Dict, List, Any, Callable, Union
 
 import hotvect.mlutils as mlutils
 import pandas as pd
 from hotvect.utils import trydelete, runshell, read_json, to_zip_archive, ensure_file_exists, clean_dir, \
-    ensure_dir_exists
+    ensure_dir_exists, is_iterable
 from jinja2 import Template
 
 logging.basicConfig(level=logging.DEBUG)
@@ -30,8 +30,8 @@ class Hotvect:
                  algorithm_jar_path: str,
                  metadata_base_path: str,
                  output_base_path: str,
-                 train_data_path: str,
-                 validation_data_path: str,
+                 train_data_path: Union[str, List[str]],
+                 validation_data_path: Union[str, List[str]],
                  algorithm_definition: Dict[str, Any],
                  state_source_base_path: str = None,
                  evaluation_func: Callable[[str], Dict[str, Any]] = mlutils.standard_evaluation,
@@ -56,12 +56,18 @@ class Hotvect:
         self.output_base_path = output_base_path
 
         # Train data
-        self.train_data_path = train_data_path
-        ensure_file_exists(train_data_path)
+        self.train_data_path = train_data_path if is_iterable(train_data_path) else [train_data_path]
+        for f in self.train_data_path:
+            if ',' in f:
+                raise ValueError(f'Cannot have commas in file name:{f}')
+            ensure_file_exists(f)
 
         # Validation data
-        self.validation_data_location = validation_data_path
-        ensure_file_exists(validation_data_path)
+        self.validation_data_location = validation_data_path if is_iterable(validation_data_path) else [validation_data_path]
+        for f in self.validation_data_location:
+            if ',' in f:
+                raise ValueError(f'Cannot have commas in file name:{f}')
+            ensure_file_exists(f)
 
         # State source data
         self.state_source_base_path = state_source_base_path
@@ -239,7 +245,7 @@ class Hotvect:
                 logging.info(f'No cache found for state:{state_name}, generating')
                 cmd = self._base_command(metadata_path)
                 cmd.extend(['--generate-state', generation_task,
-                            '--training-data', self.train_data_path,
+                            '--training-data', ','.join(self.train_data_path),
                             '--source', source_path,
                             '--dest', output_path])
                 runshell(cmd)
@@ -272,7 +278,7 @@ class Hotvect:
         if self.feature_states:
             # We have feature states
             cmd.extend(['--parameters', self.encode_parameter_file_path()])
-        cmd.extend(['--source', self.train_data_path])
+        cmd.extend(['--source', ','.join(self.train_data_path)])
         cmd.extend(['--dest', encoded_data_location])
         runshell(cmd)
         return read_json(metadata_location)
@@ -332,7 +338,7 @@ class Hotvect:
 
         cmd = self._base_command(metadata_location)
         cmd.append('--predict')
-        cmd.extend(['--source', self.validation_data_location])
+        cmd.extend(['--source', ','.join(self.validation_data_location)])
         cmd.extend(['--dest', score_location])
         cmd.extend(['--parameters', self.predict_parameter_file_path()])
         runshell(cmd)
@@ -367,7 +373,7 @@ class Hotvect:
         if self.feature_states:
             # We have feature states
             cmd.extend(['--parameters', self.encode_parameter_file_path()])
-        cmd.extend(['--source', self.train_data_path])
+        cmd.extend(['--source', ','.join(self.train_data_path)])
         cmd.extend(['--dest', audit_data_location])
         runshell(cmd)
         return read_json(metadata_location)

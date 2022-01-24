@@ -18,6 +18,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.concurrent.*;
 import java.util.function.Function;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import java.util.zip.GZIPInputStream;
 
@@ -34,13 +35,13 @@ public class CpuIntensiveFileMapper extends VerboseRunnable {
     private final int nThreads;
     private final int queueSize;
     private final int batchSize;
-    private final File source;
+    private final List<File> source;
     private final File dest;
     private final Function<String, List<String>> flatmapTransformation;
 
 
     public static CpuIntensiveFileMapper mapper(MetricRegistry metricRegistry,
-                                                File source,
+                                                List<File> source,
                                                 File dest,
                                                 Function<String, List<String>> flatmapFunction,
                                                 int nThreads,
@@ -55,11 +56,11 @@ public class CpuIntensiveFileMapper extends VerboseRunnable {
                 batchSize);
     }
 
-    public static CpuIntensiveFileMapper mapper(MetricRegistry metricRegistry, File source, File dest, Function<String, List<String>> flatmapFunction) {
+    public static CpuIntensiveFileMapper mapper(MetricRegistry metricRegistry, List<File> source, File dest, Function<String, List<String>> flatmapFunction) {
         return mapper(metricRegistry, source, dest, flatmapFunction, DEFAULT_THREAD_NUM, DEFAULT_QUEUE_LENGTH, DEFAULT_BATCH_SIZE);
     }
 
-    private CpuIntensiveFileMapper(MetricRegistry metricRegistry, File source, File dest, Function<String, List<String>> flatMapFunction, int numThreads, int queueSize, int batchSize) {
+    private CpuIntensiveFileMapper(MetricRegistry metricRegistry, List<File> source, File dest, Function<String, List<String>> flatMapFunction, int numThreads, int queueSize, int batchSize) {
         this.metricRegistry = metricRegistry;
         this.recordMeter = metricRegistry.meter(MetricRegistry.name(CpuIntensiveFileMapper.class, "record"));
         this.queueSize = queueSize;
@@ -79,7 +80,7 @@ public class CpuIntensiveFileMapper extends VerboseRunnable {
         ThreadPoolExecutor gzipWriters = getGzipWriters(gzipThreads);
 
 
-        try (Stream<String> source = readData(this.source.toPath())) {
+        try (Stream<String> source = readData(this.source)) {
             String ext = Files.getFileExtension(dest.toPath().getFileName().toString());
             boolean isDestGzip = "gz".equalsIgnoreCase(ext);
 
@@ -145,12 +146,20 @@ public class CpuIntensiveFileMapper extends VerboseRunnable {
         }
     }
 
-    private static Stream<String> readData(Path source) throws IOException {
-        String ext = Files.getFileExtension(source.getFileName().toString());
-        FileInputStream file = new FileInputStream(source.toFile());
-        InputStream spout = "gz".equalsIgnoreCase(ext) ? new GZIPInputStream(file) : file;
-        BufferedReader br = new BufferedReader(new InputStreamReader(spout, Charsets.UTF_8));
-        return br.lines();
+    private static Stream<String> readData(List<File> sources) {
+        return sources.stream().flatMap(CpuIntensiveFileMapper::readData);
+    }
+
+    private static Stream<String> readData(File source) {
+        try {
+            String ext = Files.getFileExtension(source.toPath().getFileName().toString());
+            FileInputStream file = new FileInputStream(source);
+            InputStream spout = "gz".equalsIgnoreCase(ext) ? new GZIPInputStream(file) : file;
+            BufferedReader br = new BufferedReader(new InputStreamReader(spout, Charsets.UTF_8));
+            return br.lines();
+        }catch (IOException e){
+            throw new RuntimeException(e);
+        }
     }
 
 }

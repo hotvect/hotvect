@@ -1,11 +1,13 @@
+import collections
 import json
 import os
 import shutil
 import subprocess
 import zipfile
 from pathlib import Path
-from typing import List
+from typing import List, Any
 
+import six
 import time
 
 
@@ -84,3 +86,10 @@ def ensure_file_exists(file: str):
 def ensure_dir_exists(directory: str):
     if not os.path.isdir(directory):
         raise ValueError(f'{directory} not found')
+
+
+def is_iterable(x: Any) -> bool:
+    return (
+            isinstance(x, collections.Iterable)
+            and not isinstance(x, six.string_types)
+    )

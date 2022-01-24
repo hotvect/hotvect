@@ -10,6 +10,7 @@ import org.slf4j.LoggerFactory;
 
 import java.io.*;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.function.BiFunction;
 import java.util.function.Supplier;
 import java.util.stream.Stream;
@@ -21,12 +22,12 @@ public class CpuIntensiveFileAggregator<Z> extends VerboseCallable<Z> {
     private final int numThread;
     private final int queueSize;
     private final int batchSize;
-    private final File source;
+    private final List<File> source;
     private final Supplier<Z> init;
     private final BiFunction<Z, String, Z> merge;
 
     public static <Z> CpuIntensiveFileAggregator<Z> aggregator(MetricRegistry metricRegistry,
-                                                               File source,
+                                                               List<File> source,
                                                                Supplier<Z> init,
                                                                BiFunction<Z, String, Z> merge,
                                                                int numThreads, int queueSize, int batchSize) {
@@ -34,7 +35,7 @@ public class CpuIntensiveFileAggregator<Z> extends VerboseCallable<Z> {
     }
 
     public static <Z> CpuIntensiveFileAggregator<Z> aggregator(MetricRegistry metricRegistry,
-                                                               File source,
+                                                               List<File> source,
                                                                Supplier<Z> init,
                                                                BiFunction<Z, String, Z> merge) {
         return new CpuIntensiveFileAggregator<>(metricRegistry,
@@ -49,7 +50,7 @@ public class CpuIntensiveFileAggregator<Z> extends VerboseCallable<Z> {
 
 
     private CpuIntensiveFileAggregator(MetricRegistry metricRegistry,
-                                       File source,
+                                       List<File> source,
                                        Supplier<Z> init,
                                        BiFunction<Z, String, Z> merge,
                                        int numThreads, int queueSize, int batchSize) {
@@ -65,17 +66,25 @@ public class CpuIntensiveFileAggregator<Z> extends VerboseCallable<Z> {
     @Override
     protected Z doCall() throws Exception {
         CpuIntensiveAggregator<Z, String> processor = new CpuIntensiveAggregator<>(metricRegistry, init, merge, numThread, queueSize, batchSize);
-        try (Stream<String> source = readData(this.source.toPath())) {
+        try (Stream<String> source = readData(this.source)) {
             return processor.aggregate(source);
         }
     }
 
-    private static Stream<String> readData(Path source) throws IOException {
-        String ext = Files.getFileExtension(source.getFileName().toString());
-        FileInputStream file = new FileInputStream(source.toFile());
-        InputStream spout = "gz".equals(ext.toLowerCase()) ? new GZIPInputStream(file) : file;
-        BufferedReader br = new BufferedReader(new InputStreamReader(spout, Charsets.UTF_8));
-        return br.lines();
+    private static Stream<String> readData(List<File> sources) {
+        return sources.stream().flatMap(CpuIntensiveFileAggregator::readData);
+    }
+
+    private static Stream<String> readData(File source) {
+        try {
+            String ext = Files.getFileExtension(source.toPath().getFileName().toString());
+            FileInputStream file = new FileInputStream(source);
+            InputStream spout = "gz".equalsIgnoreCase(ext) ? new GZIPInputStream(file) : file;
+            BufferedReader br = new BufferedReader(new InputStreamReader(spout, Charsets.UTF_8));
+            return br.lines();
+        }catch (IOException e){
+            throw new RuntimeException(e);
+        }
     }
 
 }
