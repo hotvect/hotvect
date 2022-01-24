@@ -22,12 +22,12 @@ public class CpuIntensiveFileAggregator<Z> extends VerboseCallable<Z> {
     private final int numThread;
     private final int queueSize;
     private final int batchSize;
-    private final List<File> source;
+    private final File source;
     private final Supplier<Z> init;
     private final BiFunction<Z, String, Z> merge;
 
     public static <Z> CpuIntensiveFileAggregator<Z> aggregator(MetricRegistry metricRegistry,
-                                                               List<File> source,
+                                                               File source,
                                                                Supplier<Z> init,
                                                                BiFunction<Z, String, Z> merge,
                                                                int numThreads, int queueSize, int batchSize) {
@@ -35,7 +35,7 @@ public class CpuIntensiveFileAggregator<Z> extends VerboseCallable<Z> {
     }
 
     public static <Z> CpuIntensiveFileAggregator<Z> aggregator(MetricRegistry metricRegistry,
-                                                               List<File> source,
+                                                               File source,
                                                                Supplier<Z> init,
                                                                BiFunction<Z, String, Z> merge) {
         return new CpuIntensiveFileAggregator<>(metricRegistry,
@@ -50,7 +50,7 @@ public class CpuIntensiveFileAggregator<Z> extends VerboseCallable<Z> {
 
 
     private CpuIntensiveFileAggregator(MetricRegistry metricRegistry,
-                                       List<File> source,
+                                       File source,
                                        Supplier<Z> init,
                                        BiFunction<Z, String, Z> merge,
                                        int numThreads, int queueSize, int batchSize) {
@@ -69,10 +69,6 @@ public class CpuIntensiveFileAggregator<Z> extends VerboseCallable<Z> {
         try (Stream<String> source = readData(this.source)) {
             return processor.aggregate(source);
         }
-    }
-
-    private static Stream<String> readData(List<File> sources) {
-        return sources.stream().flatMap(CpuIntensiveFileAggregator::readData);
     }
 
     private static Stream<String> readData(File source) {

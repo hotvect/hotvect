@@ -45,7 +45,7 @@ class CpuIntensiveFileAggregatorTest {
         );
 
           CpuIntensiveFileAggregator<BloomFilter<String>> subject = CpuIntensiveFileAggregator.aggregator(mr,
-                ImmutableList.of(source),
+                source,
                 () -> firstBloomFilter,
                 (acc, x) -> {
                     acc.put(x);

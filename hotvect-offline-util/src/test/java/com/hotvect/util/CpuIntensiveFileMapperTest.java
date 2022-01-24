@@ -38,7 +38,7 @@ class CpuIntensiveFileMapperTest {
                 ImmutableList.of(String.valueOf(Hashing.sha512().hashString(s, StandardCharsets.UTF_8).asInt()));
         File dest = getTempFile();
         try {
-            CpuIntensiveFileMapper subject = CpuIntensiveFileMapper.mapper(mr, ImmutableList.of(source), dest, fun);
+            CpuIntensiveFileMapper subject = CpuIntensiveFileMapper.mapper(mr, source, dest, fun);
             subject.run();
             try (BufferedReader original = getAsReader("example.jsons");
                  BufferedReader processed = getAsReader(dest)) {

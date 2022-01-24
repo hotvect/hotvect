@@ -35,13 +35,13 @@ public class CpuIntensiveFileMapper extends VerboseRunnable {
     private final int nThreads;
     private final int queueSize;
     private final int batchSize;
-    private final List<File> source;
+    private final File source;
     private final File dest;
     private final Function<String, List<String>> flatmapTransformation;
 
 
     public static CpuIntensiveFileMapper mapper(MetricRegistry metricRegistry,
-                                                List<File> source,
+                                                File source,
                                                 File dest,
                                                 Function<String, List<String>> flatmapFunction,
                                                 int nThreads,
@@ -56,11 +56,11 @@ public class CpuIntensiveFileMapper extends VerboseRunnable {
                 batchSize);
     }
 
-    public static CpuIntensiveFileMapper mapper(MetricRegistry metricRegistry, List<File> source, File dest, Function<String, List<String>> flatmapFunction) {
+    public static CpuIntensiveFileMapper mapper(MetricRegistry metricRegistry, File source, File dest, Function<String, List<String>> flatmapFunction) {
         return mapper(metricRegistry, source, dest, flatmapFunction, DEFAULT_THREAD_NUM, DEFAULT_QUEUE_LENGTH, DEFAULT_BATCH_SIZE);
     }
 
-    private CpuIntensiveFileMapper(MetricRegistry metricRegistry, List<File> source, File dest, Function<String, List<String>> flatMapFunction, int numThreads, int queueSize, int batchSize) {
+    private CpuIntensiveFileMapper(MetricRegistry metricRegistry, File source, File dest, Function<String, List<String>> flatMapFunction, int numThreads, int queueSize, int batchSize) {
         this.metricRegistry = metricRegistry;
         this.recordMeter = metricRegistry.meter(MetricRegistry.name(CpuIntensiveFileMapper.class, "record"));
         this.queueSize = queueSize;
@@ -144,10 +144,6 @@ public class CpuIntensiveFileMapper extends VerboseRunnable {
                 break;
             }
         }
-    }
-
-    private static Stream<String> readData(List<File> sources) {
-        return sources.stream().flatMap(CpuIntensiveFileMapper::readData);
     }
 
     private static Stream<String> readData(File source) {

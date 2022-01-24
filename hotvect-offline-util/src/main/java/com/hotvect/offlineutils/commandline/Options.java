@@ -27,11 +27,11 @@ public class Options {
     @CommandLine.Option(names = {"--generate-state"}, description = "Generator class name")
     public String generateStateTask;
 
-    @CommandLine.Option(names = {"--source"}, paramLabel = "SOURCE_FILE", description = "Source files", split = ",")
-    public List<File> sourceFile;
+    @CommandLine.Option(names = {"--source"}, paramLabel = "SOURCE_FILE", description = "Source files")
+    public File sourceFile;
 
-    @CommandLine.Option(names = {"--training-data"}, paramLabel = "TRAINING_FILE", description = "Training file", split=",")
-    public List<File> trainingFile;
+    @CommandLine.Option(names = {"--training-data"}, paramLabel = "TRAINING_FILE", description = "Training file")
+    public File trainingFile;
 
     @CommandLine.Option(names = {"--dest"}, paramLabel = "DESTINATION_FILE", description = "Destination file")
     public File destinationFile;
