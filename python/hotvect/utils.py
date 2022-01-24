@@ -15,24 +15,22 @@ def runshell(command, shell=False, verbose=True):
     if verbose:
         print(f"Running {' '.join(command)}")
 
-    p = subprocess.run(command, shell=shell, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    stdout = p.stdout.decode('utf-8')
-    stderr = p.stderr.decode('utf-8')
+    p = subprocess.run(
+        command, shell=shell, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+    )
+    stdout = p.stdout.decode("utf-8")
+    stderr = p.stderr.decode("utf-8")
     ret_code = p.returncode
 
     if verbose:
-        print(f'return_code:{ret_code}\n')
+        print(f"return_code:{ret_code}\n")
         print(f"stdout:{p.stdout.decode('utf-8')}\n")
         print(f"stderr:{p.stderr.decode('utf-8')}\n")
 
     if p.returncode != 0:
-        raise ValueError(f'ret:{ret_code}, stdout:{stdout}, stderr:{stderr}')
+        raise ValueError(f"ret:{ret_code}, stdout:{stdout}, stderr:{stderr}")
 
-    return {
-        'return_code': ret_code,
-        'stdout': stdout,
-        'stderr': stderr
-    }
+    return {"return_code": ret_code, "stdout": stdout, "stderr": stderr}
 
 
 def trydelete(file):
@@ -59,9 +57,11 @@ def beep():
 
 
 def to_zip_archive(sources: List[str], dest: str, compress_type=zipfile.ZIP_DEFLATED):
-    with zipfile.ZipFile(dest, 'w') as zipF:
+    with zipfile.ZipFile(dest, "w") as zipF:
         for file in sources:
-            zipF.write(file, arcname=os.path.basename(file), compress_type=compress_type)
+            zipF.write(
+                file, arcname=os.path.basename(file), compress_type=compress_type
+            )
 
 
 def clean_dir(d: str):
@@ -80,16 +80,13 @@ def prepare_dir(f: str):
 
 def ensure_file_exists(file: str):
     if not os.path.isfile(file):
-        raise ValueError(f'{file} not found')
+        raise ValueError(f"{file} not found")
 
 
 def ensure_dir_exists(directory: str):
     if not os.path.isdir(directory):
-        raise ValueError(f'{directory} not found')
+        raise ValueError(f"{directory} not found")
 
 
 def is_iterable(x: Any) -> bool:
-    return (
-            isinstance(x, collections.Iterable)
-            and not isinstance(x, six.string_types)
-    )
+    return isinstance(x, collections.Iterable) and not isinstance(x, six.string_types)

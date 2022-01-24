@@ -35,18 +35,19 @@ def bootstrap_roc_auc(y_true, y_pred, n_bootstraps=20, rng_seed=42):
 
 
 def standard_evaluation(simulation_output_path: str) -> Dict[str, Any]:
-    open_file = lambda: gzip.open(simulation_output_path) if simulation_output_path.lower().endswith('.gz') else open(
-        simulation_output_path)
+    open_file = (
+        lambda: gzip.open(simulation_output_path)
+        if simulation_output_path.lower().endswith(".gz")
+        else open(simulation_output_path)
+    )
 
     def data_gen():
         with open_file() as f:
             for l in f:
                 yield json.loads(l)
 
-    df = pd.json_normalize(data=data_gen(), record_path=['result'])
-    lower_auc, mean_auc, upper_auc = bootstrap_roc_auc(y_true=df['reward'], y_pred=df['score'])
-    return {
-        'lower_auc': lower_auc,
-        'mean_auc': mean_auc,
-        'upper_auc': upper_auc
-    }
+    df = pd.json_normalize(data=data_gen(), record_path=["result"])
+    lower_auc, mean_auc, upper_auc = bootstrap_roc_auc(
+        y_true=df["reward"], y_pred=df["score"]
+    )
+    return {"lower_auc": lower_auc, "mean_auc": mean_auc, "upper_auc": upper_auc}
