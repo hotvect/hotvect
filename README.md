@@ -2,7 +2,6 @@ Hotvect
 ==========
 A feature engineering and serving library for Vowpal Wabbit.
 
-
 Hotvect allows you to:
 1. Define data transformations (for feature engineering)
 2. Generate training data for Vowpal Wabbit
