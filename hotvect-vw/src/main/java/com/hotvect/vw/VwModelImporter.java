@@ -1,8 +1,8 @@
 package com.hotvect.vw;
 
 import com.codahale.metrics.MetricRegistry;
-import com.hotvect.core.concurrent.CpuIntensiveAggregator;
-import com.hotvect.core.util.Pair;
+import com.hotvect.utils.Pair;
+import com.hotvect.util.CpuIntensiveAggregator;
 import it.unimi.dsi.fastutil.ints.Int2DoubleMap;
 import it.unimi.dsi.fastutil.ints.Int2DoubleOpenHashMap;
 
@@ -15,10 +15,10 @@ import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
 import static com.google.common.base.Preconditions.checkState;
-import static java.lang.Math.max;
 
 public class VwModelImporter implements Function<BufferedReader, Int2DoubleMap> {
-    private static final Pattern WEIGHT_PATTERN = Pattern.compile("^(\\d+):[-+]?[0-9]*\\.?[0-9]*([eE][-+]?[0-9]+)?$");
+    private static final String NUMBER_PATTERN = "[-+]?[0-9]*\\.?[0-9]*([eE][-+]?[0-9]+)?";
+    private static final Pattern WEIGHT_PATTERN = Pattern.compile("^(\\d+):(" + NUMBER_PATTERN + ")( "+NUMBER_PATTERN +" " + NUMBER_PATTERN + ")?$");
 
     private static class VwModelState {
         private final Int2DoubleOpenHashMap state = new Int2DoubleOpenHashMap(4096);
@@ -82,9 +82,8 @@ public class VwModelImporter implements Function<BufferedReader, Int2DoubleMap> 
     private boolean tryExtractAndAppendWeight(String line, VwModelState acc) {
         Matcher m = WEIGHT_PATTERN.matcher(line);
         if (m.matches()) {
-            Pair<String, String > split = fastSplit(line);
-            int featureHash = Integer.parseInt(split._1);
-            double weight = Double.parseDouble(split._2);
+            int featureHash = Integer.parseInt(m.group(1));
+            double weight = Double.parseDouble(m.group(2));
             acc.put(featureHash, weight);
             return true;
         } else {

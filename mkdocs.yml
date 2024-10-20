@@ -1,0 +1,49 @@
+site_name: hotvect
+site_url: https://hotvect.docs.zalando.net
+docs_dir: docs/
+
+repo_url: https://github.bus.zalan.do/Lounge-Data/hotvect
+repo_name: GHE
+edit_uri: edit/main/docs/
+
+nav:
+  - Getting Started: index.md
+  - Key differences with other similar frameworks: ./highlevel/motivation.md
+  - Concepts and terminology: ./highlevel/concepts.md
+  - Migration Guide:
+    - Migration from v7 to v8: ./migration-guides/migration-from-v7-to-v8.md
+    - Migration from v6 to v7: ./migration-guides/migration-from-v6-to-v7.md
+    - Migration from v4 to v6: ./migration-guides/migration-from-v4-to-v6.md
+  - How to:
+      - Use previously generated parameters and other outputs in the pipeline: ./howto/use-previous-outputs.md
+      - Develop algorithms with hotvect: ./howto/develop-a-re-ranker-with-hotvect.md
+      - Debug feature engineering code: ./howto/debug-feature-engineering.md
+      - Run and compare feature audits: ./howto/run-and-compare-feature-audits.md
+      - Run User Defined Functions on sagemaker: ./howto/run-udf-on-sagemaker.md
+      - Dump available transformation metadata: ./howto/dump-available-feature-transformations.md
+  - FAQ: faq.md
+
+theme:
+  name: material
+  favicon: hot_pepper.png
+  logo: hot_pepper.png
+
+markdown_extensions:
+  - toc:
+      permalink: true
+  - admonition
+  - footnotes
+  - smarty
+  - extra
+  - codehilite
+  - pymdownx.magiclink
+  - pymdownx.snippets
+  - pymdownx.details
+  - pymdownx.mark
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+
+strict: true

@@ -1,13 +1,13 @@
 package com.hotvect.core.util;
 
-import com.hotvect.api.data.DataRecord;
-import com.hotvect.api.data.raw.RawNamespace;
-import com.hotvect.api.data.raw.RawValue;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.primitives.Ints;
+import com.hotvect.api.data.DataRecord;
+import com.hotvect.api.data.RawNamespace;
+import com.hotvect.api.data.RawValue;
 
 import java.util.Map;
 
@@ -17,6 +17,7 @@ import static com.google.common.base.Preconditions.checkState;
  * A {@link DataRecordDecoder} that decodes a JSON string
  * @param <R>
  */
+@Deprecated
 public class JsonRecordDecoder<R extends Enum<R> & RawNamespace> implements DataRecordDecoder<R> {
     private static final ObjectMapper OM = new ObjectMapper();
     private final Class<R> keyClass;
@@ -36,7 +37,7 @@ public class JsonRecordDecoder<R extends Enum<R> & RawNamespace> implements Data
     }
 
     private DataRecord<R, RawValue> parse(ObjectNode tree) {
-        DataRecord<R, RawValue> ret = new DataRecord<R, RawValue>(keyClass);
+        DataRecord<R, RawValue> ret = new DataRecord<>(keyClass);
 
         for (R key : keyClass.getEnumConstants()) {
             JsonNode value = tree.get(key.toString());
@@ -108,6 +109,19 @@ public class JsonRecordDecoder<R extends Enum<R> & RawNamespace> implements Data
                 }
                 return RawValue.singleNumerical(value.asDouble());
             }
+            case DENSE_VECTOR: {
+                checkState(value.isArray(),
+                        "Expected an array of numbers but got %s:%s", value.getNodeType(), value);
+                if(value.isNull()){
+                    return null;
+                }
+                double[] doubleArray = new double[value.size()];
+                for (int i = 0; i < value.size(); i++) {
+                    doubleArray[i] = value.get(i).asDouble();
+                }
+                return RawValue.denseVector(doubleArray);
+            }
+            case SPARSE_VECTOR:
             case CATEGORICALS_TO_NUMERICALS: {
                 checkState(value.isObject(),
                         "Expected a map from integer to number, but got %s:%s", value.getNodeType(), value);
@@ -130,7 +144,7 @@ public class JsonRecordDecoder<R extends Enum<R> & RawNamespace> implements Data
                     values[i] = entry.getValue().asDouble();
                     i++;
                 }
-                return RawValue.categoricalsToNumericals(names, values);
+                return RawValue.namedNumericals(names, values);
             }
             case STRINGS_TO_NUMERICALS: {
                 checkState(value.isObject(),

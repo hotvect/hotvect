@@ -1,9 +1,9 @@
 package com.hotvect.core.util;
 
-import com.hotvect.api.data.DataRecord;
-import com.hotvect.api.data.SparseVector;
-import com.hotvect.api.data.raw.RawValue;
 import com.google.common.collect.ImmutableMap;
+import com.hotvect.api.data.DataRecord;
+import com.hotvect.api.data.RawValue;
+import com.hotvect.api.data.SparseVector;
 
 import java.util.AbstractMap;
 import java.util.Arrays;
@@ -12,6 +12,7 @@ import java.util.Map;
 import static java.util.stream.Collectors.toList;
 import static java.util.stream.Collectors.toMap;
 
+@Deprecated(forRemoval = true)
 public class DataRecords {
     private DataRecords(){}
 
@@ -35,12 +36,14 @@ public class DataRecords {
                 return Arrays.stream(value.getCategoricals()).boxed().collect(toList());
             case SINGLE_NUMERICAL:
                 return value.getSingleNumerical();
+            case SPARSE_VECTOR:
+            case DENSE_VECTOR:
             case CATEGORICALS_TO_NUMERICALS: {
-                SparseVector vector = value.getCategoricalsToNumericals();
-                int[] names = vector.indices();
-                double[] values = vector.values();
+                SparseVector vector = value.getSparseVector();
+                int[] names = vector.getNumericalIndices();
+                double[] values = vector.getNumericalValues();
                 ImmutableMap.Builder<String, Double> ret = ImmutableMap.builder();
-                for (int i = 0; i < vector.size(); i++) {
+                for (int i = 0; i < names.length; i++) {
                     ret.put(String.valueOf(names[i]), values[i]);
                 }
                 return ret.build();

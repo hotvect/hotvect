@@ -1,0 +1,61 @@
+#!/usr/bin/env python3
+import argparse
+import json
+import os
+from collections import Counter
+from pathlib import Path
+from typing import Any, Tuple, List
+
+import json
+
+def parse_schema(schema_file):
+    schema = []
+    allowed_types = {'Num', 'Categ', 'Text', 'NumVector'}
+    with open(schema_file, 'r') as f:
+        for line in f:
+            parts = line.strip().split('\t')
+            if len(parts) >= 2 and parts[1] in allowed_types:
+                column_index, dtype = parts[:2]
+                name = parts[2] if len(parts) > 2 else f"feature_{column_index}"
+                schema.append({'column_index': column_index, 'dtype': dtype, 'name': name})
+            else:
+                # Skip unsupported or auxiliary data types
+                continue
+    return schema
+
+def encode_to_json(schema_file, encoded_file, output_json_file):
+    schema = parse_schema(schema_file)
+    data = []
+    with open(encoded_file, 'r') as ef:
+        for line in ef:
+            values = line.strip().split('\t')
+            row = {}
+            for feature in schema:
+                idx = int(feature['column_index'])
+                value = values[idx]
+                if feature['dtype'] == 'Num':
+                    row[feature['name']] = float(value)  # Handle floats
+                elif feature['dtype'] == 'Categ':
+                    row[feature['name']] = value
+                elif feature['dtype'] == 'Text':
+                    row[feature['name']] = value.split()
+                elif feature['dtype'] == 'NumVector':
+                    # Handle NaN and split by ';' into an array of floats
+                    if value == 'NaN':
+                        row[feature['name']] = None
+                    else:
+                        row[feature['name']] = [float(x) for x in value.split(';') if x]
+                else:
+                    raise ValueError("Unrecognized feature: {}".format(feature['dtype']))
+            data.append(row)
+
+    with open(output_json_file, 'w') as ojf:
+        print(json.dumps(data, indent=4))
+        json.dump(data, ojf, indent=4)
+
+if __name__ == "__main__":
+    base_dir = "/Users/eshioji/workspace/offprice/catalog-relevance-algorithm"
+    schema_file = os.path.join(base_dir, "catalog-relevance-algorithm-impression2add2cart-model.encode.output.schema")
+    encoded_file = os.path.join(base_dir, "catalog-relevance-algorithm-impression2add2cart-model.encode.output")
+    output_json_file = os.path.join(base_dir, "catalog-relevance-algorithm-impression2add2cart-model.encode.output.jsonl")
+    encode_to_json(schema_file, encoded_file, output_json_file)

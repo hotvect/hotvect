@@ -1,8 +1,5 @@
 package com.hotvect.api.data;
 
-import com.hotvect.api.data.raw.RawNamespace;
-import com.hotvect.api.data.raw.RawValueType;
-
 public enum ExampleRawNamespace implements RawNamespace {
     single_categorical_1(RawValueType.SINGLE_CATEGORICAL),
     categoricals_1(RawValueType.CATEGORICALS),

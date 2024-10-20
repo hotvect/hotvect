@@ -1,0 +1,267 @@
+{
+  "algorithm_id": "example-algorithm@1.1.1",
+  "parameter_version": "last_train_date_2022-09-01-last_test_date_2022-09-02",
+  "ran_at": "2022-09-01T01:02:03.123456+00:00",
+  "test_data_time": "2022-09-03T01:02:03.123456+00:00",
+  "algorithm_definition": {
+    "git_describe": "1.1.1-1-abc",
+    "algorithm_name": "example-algorithm",
+    "algorithm_version": "1.1.1",
+    "dependencies": [
+      "example-algorithm-model@example-algorithm-1.1.1"
+    ],
+    "decoder_factory_classname": "com.hotvect.example.DecoderFactory",
+    "reward_function_factory_classname": "com.hotvect.example.RewardFunctionFactory",
+    "algorithm_factory_classname": "com.hotvect.example.RankerFactory",
+    "test_data_prefix": "something/test"
+  },
+  "dependencies": {
+    "example-algorithm-model:example-algorithm-1.1.1": {
+      "algorithm_id": "example-algorithm-model:example-algorithm-1.1.1",
+      "parameter_version": "last_train_date_2022-09-01-last_test_date_2022-09-02",
+      "ran_at": "2022-09-01T01:02:03.123456+00:00",
+      "algorithm_definition": {
+        "git_describe": "1.1.1-1-abc",
+        "algorithm_name": "example-algorithm-model",
+        "algorithm_version": "example-algorithm-1.1.1",
+        "decoder_factory_classname": "com.hotvect.example.model.DecoderFactory",
+        "vectorizer_factory_classname": "com.hotvect.example.model.VectorizerFactory",
+        "reward_function_factory_classname": "com.hotvect.example.model.RewardFunctionFactory",
+        "encoder_factory_classname": "com.hotvect.example.model.EncoderFactory",
+        "algorithm_factory_classname": "com.hotvect.example.model.RankerFactory",
+        "test_data_prefix": "something2/test",
+        "train_data_prefix": "something2/train",
+        "train_decoder_parameters": {
+          "include_negative_per_million": 10000
+        },
+        "number_of_training_days": 7,
+        "training_container": "hotvect-vw-training-container:latest",
+        "training_command": "vw {{ encoded_file }} --readable_model {{ parameter_output_path }} --noconstant --loss_function logistic --ftrl -b 26",
+        "vectorizer_parameters": {
+          "hash_bits": 26,
+          "features": [
+            [
+              "feature1",
+              "feature2"
+            ],
+            [
+              "feature3"
+            ]
+          ]
+        }
+      },
+      "states": {},
+      "package_encode_params": {
+        "sources": [],
+        "package": "encode_package_parameter.zip"
+      },
+      "predict": {
+        "max_memory_usage": 12321232,
+        "mean_throughput": 1234,
+        "total_record_count": 20000,
+        "algorithm_jar": "algorithm.jar"
+      },
+      "evaluate": {
+        "roc_auc": {
+          "lower_bound": 0.8159905500571191,
+          "mean": 0.8196221521258884,
+          "upper_bound": 0.8219820169826263
+        },
+        "pr_auc": {
+          "lower_bound": 0.005865690406792519,
+          "mean": 0.0060868409998212965,
+          "upper_bound": 0.006414071194163521
+        },
+        "map_at_10": 0.005358904300327959,
+        "ndcg_at_10": 0.006818835796431752,
+        "map_at_50": 0.00556907716885868,
+        "ndcg_at_50": 0.008758071563963004,
+        "map_at_all": 0.00556959610794158,
+        "ndcg_at_all": 0.008805847221075294,
+        "diversity@5": 0.7129776800271087,
+        "diversity@10": 0.5389605324569872,
+        "diversity@30": 0.31078265891765283,
+        "online": {
+          "algorithm": {
+            "roc_auc": {
+              "lower_bound": 0.7924082107414825,
+              "mean": 0.7954481367249178,
+              "upper_bound": 0.7977865292570848
+            },
+            "pr_auc": {
+              "lower_bound": 0.0053649898987606325,
+              "mean": 0.005562758750636963,
+              "upper_bound": 0.006263398258247414
+            }
+          },
+          "impression": {
+            "map_at_10": 0.005073945326479579,
+            "ndcg_at_10": 0.006412982533851097,
+            "map_at_50": 0.005326563142979179,
+            "ndcg_at_50": 0.0085194559010677,
+            "map_at_all": 0.0053234890023868536,
+            "ndcg_at_all": 0.008574699913360101
+          }
+        }
+      },
+      "performance_test": {
+        "max_memory_usage": 12341234,
+        "mean_throughput": 1234,
+        "total_record_count": 100000,
+        "algorithm_jar": "algorithm.jar",
+        "response_time_metrics": {
+          "p99": {
+            "upper": 9179122.513969962,
+            "mean": 7369685.0,
+            "lower": 5560247.486030038
+          },
+          "mean_throughput": {
+            "upper": 1725.0048280098938,
+            "mean": 1569.737331550679,
+            "lower": 1414.4698350914643
+          },
+          "mean": {
+            "upper": 1192133.786926757,
+            "mean": 1080729.5099844057,
+            "lower": 969325.2330420542
+          },
+          "count": {
+            "upper": 20000.0,
+            "mean": 20000.0,
+            "lower": 20000.0
+          },
+          "p999": {
+            "upper": 47595100.10580313,
+            "mean": 29163224.8,
+            "lower": 10731349.494196873
+          },
+          "p50": {
+            "upper": 645801.407198778,
+            "mean": 577101.6,
+            "lower": 508401.79280122195
+          },
+          "p95": {
+            "upper": 4110173.221537344,
+            "mean": 3473317.6,
+            "lower": 2836461.978462656
+          },
+          "p75": {
+            "upper": 1408365.1109730804,
+            "mean": 1248810.2,
+            "lower": 1089255.2890269195
+          }
+        }
+      }
+    }
+  },
+  "states": {},
+  "package_encode_params": {
+    "skipped": true
+  },
+  "encode": {
+    "skipped": true
+  },
+  "train": {
+    "skipped": true
+  },
+  "predict": {
+    "max_memory_usage": 12341234,
+    "mean_throughput": 1234,
+    "total_record_count": 20000,
+    "algorithm_version": "1.1.1",
+    "algorithm_name": "example-algorithm",
+    "destination_file": "prediction.jsonl.gz"
+  },
+  "evaluate": {
+    "roc_auc": {
+      "lower_bound": 0.8159905500571191,
+      "mean": 0.8196221521258884,
+      "upper_bound": 0.8219820169826263
+    },
+    "pr_auc": {
+      "lower_bound": 0.005865690406792519,
+      "mean": 0.0060868409998212965,
+      "upper_bound": 0.006414071194163521
+    },
+    "map_at_10": 0.005358904300327959,
+    "ndcg_at_10": 0.006818835796431752,
+    "map_at_50": 0.00556907716885868,
+    "ndcg_at_50": 0.008758071563963004,
+    "map_at_all": 0.00556959610794158,
+    "ndcg_at_all": 0.008805847221075294,
+    "diversity@5": 0.7129776800271087,
+    "diversity@10": 0.5389605324569872,
+    "diversity@30": 0.31078265891765283,
+    "online": {
+      "algorithm": {
+        "roc_auc": {
+          "lower_bound": 0.7924082107414825,
+          "mean": 0.7954481367249178,
+          "upper_bound": 0.7977865292570848
+        },
+        "pr_auc": {
+          "lower_bound": 0.0053649898987606325,
+          "mean": 0.005562758750636963,
+          "upper_bound": 0.006263398258247414
+        }
+      },
+      "impression": {
+        "map_at_10": 0.005073945326479579,
+        "ndcg_at_10": 0.006412982533851097,
+        "map_at_50": 0.005326563142979179,
+        "ndcg_at_50": 0.0085194559010677,
+        "map_at_all": 0.0053234890023868536,
+        "ndcg_at_all": 0.008574699913360101
+      }
+    }
+  },
+  "performance_test": {
+    "max_memory_usage": 12341234,
+    "mean_throughput": 1234,
+    "total_record_count": 100000,
+    "algorithm_version": "1.1.1",
+    "algorithm_name": "example-algorithm",
+    "response_time_metrics": {
+      "p99": {
+        "upper": 23002882.338734314,
+        "mean": 11725205.4,
+        "lower": 447528.4612656869
+      },
+      "mean_throughput": {
+        "upper": 2142.1230392435823,
+        "mean": 1484.2020229358682,
+        "lower": 826.2810066281539
+      },
+      "mean": {
+        "upper": 2050284.8432357637,
+        "mean": 1325849.073398272,
+        "lower": 601413.3035607802
+      },
+      "count": {
+        "upper": 20000.0,
+        "mean": 20000.0,
+        "lower": 20000.0
+      },
+      "p999": {
+        "upper": 65862427.40503648,
+        "mean": 35302789.4,
+        "lower": 4743151.394963518
+      },
+      "p50": {
+        "upper": 867669.0533481995,
+        "mean": 626158.0,
+        "lower": 384646.9466518006
+      },
+      "p95": {
+        "upper": 6943881.960389324,
+        "mean": 4464158.4,
+        "lower": 1984434.8396106763
+      },
+      "p75": {
+        "upper": 2003470.0395271187,
+        "mean": 1401592.6,
+        "lower": 799715.1604728814
+      }
+    }
+  }
+}

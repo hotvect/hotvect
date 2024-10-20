@@ -1,46 +1,51 @@
 package com.hotvect.core.combine;
 
 
-import com.hotvect.api.data.FeatureNamespace;
-import com.hotvect.api.data.ValueType;
-import com.hotvect.api.data.hashed.HashedValueType;
-import com.hotvect.core.hash.HashUtils;
 import com.google.common.base.Joiner;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
+import com.hotvect.api.data.FeatureNamespace;
+import com.hotvect.api.data.HashedValueType;
+import com.hotvect.api.data.ValueType;
+import com.hotvect.core.hash.HashUtils;
 
 import java.io.Serializable;
-import java.lang.reflect.Array;
-import java.util.Arrays;
-import java.util.EnumSet;
+import java.util.*;
 
 import static com.google.common.base.Preconditions.checkArgument;
 
 
-public class FeatureDefinition<H extends Enum<H> & FeatureNamespace> implements Serializable {
+public class FeatureDefinition implements Serializable {
     private final ValueType valueType;
-    private final EnumSet<H> components;
-    private final H[] cachedComponents;
+    private final Set<FeatureNamespace> components;
+    private final FeatureNamespace[] cachedComponents;
     private final String name;
     private final int namespace;
 
-    public FeatureDefinition(H first) {
-        this(EnumSet.of(first));
+    public FeatureDefinition(FeatureNamespace first) {
+        this(asIdentitySet(List.of(first)));
     }
 
-    public FeatureDefinition(H first, H... rest) {
-        this(EnumSet.of(first, rest));
+    private static Set<FeatureNamespace> asIdentitySet(Collection<FeatureNamespace> components) {
+        Set<FeatureNamespace> set = Sets.newIdentityHashSet();
+        set.addAll(components);
+        return set;
     }
-    public FeatureDefinition(EnumSet<H> components) {
-        checkArgument(components.size() > 0, "You can't have a feature with no components");
 
-        checkArgument(components.stream().noneMatch(x -> "target".equals(x.name())),
-                "You cannot use \"target\" as a feature");
+    public FeatureDefinition(FeatureNamespace first, FeatureNamespace... rest) {
+        this(asIdentitySet(Lists.asList(first, rest)));
+    }
+    public FeatureDefinition(Set<FeatureNamespace> components) {
+        checkArgument(!components.isEmpty(), "You can't have a feature with no components");
 
-        boolean allCategorical = components.stream().allMatch(x -> x.getValueType() == HashedValueType.CATEGORICAL);
+        boolean allCategorical = components.stream().noneMatch(x -> x.getFeatureValueType().hasNumericValues());
 
         this.components = components;
 
-        @SuppressWarnings("unchecked")
-        H[] cached = components.toArray((H[]) Array.newInstance(components.iterator().next().getClass(), components.size()));
+        List<FeatureNamespace> alphabetical = new ArrayList<>(components);
+        alphabetical.sort(FeatureNamespace.alphabetical());
+
+        FeatureNamespace[] cached = alphabetical.toArray(new FeatureNamespace[0]);
         this.cachedComponents = cached;
 
         this.name = Joiner.on("^").join(components);
@@ -54,7 +59,7 @@ public class FeatureDefinition<H extends Enum<H> & FeatureNamespace> implements 
         }
     }
 
-    public H[] getComponents() {
+    public FeatureNamespace[] getComponents() {
         return this.cachedComponents;
     }
 
@@ -62,7 +67,7 @@ public class FeatureDefinition<H extends Enum<H> & FeatureNamespace> implements 
     public boolean equals(Object o) {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
-        FeatureDefinition<?> that = (FeatureDefinition<?>) o;
+        FeatureDefinition that = (FeatureDefinition) o;
         return Arrays.equals(this.cachedComponents, that.cachedComponents);
     }
 

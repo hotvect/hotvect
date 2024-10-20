@@ -1,0 +1,71 @@
+#!/usr/bin/env python3
+import argparse
+import json
+import logging
+from datetime import date, timedelta
+from typing import List
+
+import psutil
+
+from hotvect import mlutils
+from hotvect.backtest import BacktestResult, run_backtest_on_git_references
+
+logging.basicConfig(
+    level=logging.DEBUG, format="%(asctime)s [%(levelname)s] %(message)s", handlers=[logging.StreamHandler()]
+)
+logger = logging.getLogger(__name__)
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--algo_repo_url", type=str, required=True)
+    parser.add_argument("--data_base_dir", type=str, required=True)
+    parser.add_argument("--output_base_dir", type=str, required=True)
+    parser.add_argument("--work_dir", type=str, required=True)
+
+    parser.add_argument("--last_training_date", type=lambda x: date.fromisoformat(x), required=True)
+    parser.add_argument("--number_of_runs", type=int, required=True)
+    parser.add_argument("--test_data_lag_days", type=lambda x: timedelta(days=int(x)), required=True)
+
+    parser.add_argument("--git_algo_reference", type=str, required=True, nargs="+")
+
+    parser.add_argument("--run_on_local", type=bool, default=True)
+    parser.add_argument("--clean", type=bool, default=False)
+    parser.add_argument("--system_performance_test", type=bool, default=True)
+    parser.add_argument("--available_physical_cores", type=bool, default=psutil.cpu_count(logical=False))
+
+    args = parser.parse_args()
+
+    results: List[BacktestResult] = run_backtest_on_git_references(
+        algo_repo_url=args.algo_repo_url,
+        algo_git_references=args.git_algo_reference,
+        data_base_dir=args.data_base_dir,
+        output_base_dir=args.output_base_dir,
+        hyperparameter_base_dir=args.work_dir,
+        evaluation_function=mlutils.standard_evaluation,
+        last_training_time=args.last_training_date,
+        number_of_runs=args.number_of_runs,
+        test_data_lag=args.test_data_lag_days,
+        available_physical_cores=args.available_physical_cores,
+        clean=args.clean,
+        system_performance_test=args.system_performance_test,
+    )
+
+    # Make results JSON serializable
+    out = {}
+    for backtest_result in results:
+        if backtest_result.error:
+            out[backtest_result.algo_git_reference] = backtest_result.error
+        else:
+            out[backtest_result.algo_git_reference] = [
+                {
+                    "training_data_time": backtest_iteration_result.training_data_time,
+                    "test_data_time": backtest_iteration_result.test_data_time,
+                    "parameter_version": backtest_iteration_result.parameter_version,
+                    "result": backtest_iteration_result.result,
+                    "error": backtest_iteration_result.error,
+                }
+                for backtest_iteration_result in backtest_result.backtest_iteration_results
+            ]
+
+    # Output to stdout
+    print(json.dumps(out))

@@ -1,9 +1,8 @@
 package com.hotvect.core.util;
 
 import com.hotvect.api.data.DataRecord;
-import com.hotvect.api.data.raw.RawValue;
+import com.hotvect.api.data.RawValue;
 import com.hotvect.core.TestRawNamespace;
-import com.hotvect.testutils.TestUtils;
 import org.junit.jupiter.api.Test;
 
 import java.util.AbstractMap;
@@ -12,6 +11,7 @@ import java.util.EnumSet;
 
 import static com.hotvect.core.TestRecords.testInputWithAllValueTypes;
 import static com.hotvect.core.TestRecords.testInputWithAllValuesEmpty;
+import static com.hotvect.testutils.TestUtils.assertJsonEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
 public class JsonCodecTest {
@@ -22,7 +22,7 @@ public class JsonCodecTest {
     void allValueTypesCanBeRead() {
         DataRecord<TestRawNamespace, RawValue> decoded = decoder.apply(testInputWithAllValueTypes());
         String reEncoded = encoder.apply(decoded);
-        TestUtils.assertJsonEquals(testInputWithAllValueTypes(), reEncoded);
+        assertJsonEquals(testInputWithAllValueTypes(), reEncoded);
     }
 
     @Test
@@ -36,7 +36,7 @@ public class JsonCodecTest {
         }).forEach(e -> {
             assertNull(e.getValue().get(e.getKey()));
             String encodedInput = encoder.apply(new DataRecord<>(TestRawNamespace.class, e.getValue()));
-            TestUtils.assertJsonEquals(encodedInput, decoder.andThen(encoder).apply(encodedInput));
+            assertJsonEquals(encodedInput, decoder.andThen(encoder).apply(encodedInput));
         });
     }
 
@@ -44,6 +44,6 @@ public class JsonCodecTest {
     void valuesCanBeEmpty() {
         DataRecord<TestRawNamespace, RawValue> decoded = decoder.apply(testInputWithAllValuesEmpty());
         String reEncoded = encoder.apply(decoded);
-        TestUtils.assertJsonEquals("{}", reEncoded);
+        assertJsonEquals("{}", reEncoded);
     }
 }

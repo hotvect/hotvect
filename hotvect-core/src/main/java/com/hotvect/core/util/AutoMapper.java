@@ -1,9 +1,9 @@
 package com.hotvect.core.util;
 
-import com.hotvect.api.data.DataRecord;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Sets;
 import com.hotvect.api.data.Namespace;
+import com.hotvect.api.data.DataRecord;
 
 import java.lang.reflect.Array;
 import java.util.*;
@@ -19,6 +19,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
  * @param <TO> key class to map to
  * @param <V> the value being mapped
  */
+@Deprecated
 public class AutoMapper<FROM extends Enum<FROM>, TO extends Enum<TO>, V> implements Function<DataRecord<FROM, V>, DataRecord<TO, V>> {
 
     private final DataRecord<FROM, TO> from2To;

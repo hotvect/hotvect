@@ -1,0 +1,18 @@
+{
+  "algorithm_name": "com-hotvect-test",
+  "algorithm_version": "1.0.0",
+  "parameter_id": "last_train_date_2022-01-25-last_test_date_2022-01-27",
+  "ran_at": "2022-05-29T14:55:14.477217+00:00",
+  "algorithm_definition": {
+    "git_describe": "dummy",
+    "algorithm_name": "com-hotvect-test",
+    "algorithm_version": "1.0.0",
+    "dependencies": [
+      "com-hotvect-test-iris-model@com-hotvect-test-1.0.0"
+    ],
+    "decoder_factory_classname": "com.hotvect.integrationtest.algoshared.IrisDecoderFactory",
+    "reward_function_factory_classname": "com.hotvect.integrationtest.iris.IrisRewardFunctionFactory",
+    "algorithm_factory_classname": "com.hotvect.integrationtest.iris.IrisRankerFactory",
+    "test_data_prefix": "iris/test"
+  }
+}

@@ -1,19 +1,17 @@
 package com.hotvect.util;
 
 import com.codahale.metrics.MetricRegistry;
+import com.google.common.collect.ImmutableList;
 import com.google.common.hash.BloomFilter;
 import com.google.common.hash.Funnels;
-import com.hotvect.util.CpuIntensiveFileAggregator;
+import com.hotvect.offlineutils.util.CpuIntensiveFileAggregator;
 import org.junit.jupiter.api.Test;
 
-import java.io.BufferedReader;
 import java.io.File;
-import java.io.IOException;
-import java.io.InputStreamReader;
 import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.util.Objects;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -44,7 +42,7 @@ class CpuIntensiveFileAggregatorTest {
         );
 
           CpuIntensiveFileAggregator<BloomFilter<String>> subject = CpuIntensiveFileAggregator.aggregator(mr,
-                source,
+                ImmutableList.of(source),
                 () -> firstBloomFilter,
                 (acc, x) -> {
                     acc.put(x);
@@ -61,30 +59,10 @@ class CpuIntensiveFileAggregatorTest {
         assertEquals(firstBloomFilter, aggregated);
     }
 
-    private File getTempFile() {
-        try {
-            return Files.createTempFile(this.getClass().getCanonicalName() + "-test", "tmp").toFile();
-        } catch (Exception e) {
-            throw new RuntimeException(e);
-        }
-    }
-
-    private byte[] getAsByteArray(File file) {
-        try {
-            return Files.readAllBytes(file.toPath());
-        } catch (IOException e) {
-            throw new RuntimeException(e);
-        }
-    }
-
-
-    private BufferedReader getAsReader(String name) {
-        return new BufferedReader(new InputStreamReader(this.getClass().getResourceAsStream(name), StandardCharsets.UTF_8));
-    }
 
     private File getAsFile(String name) {
         try {
-            return Paths.get(this.getClass().getResource(name).toURI()).toFile();
+            return Paths.get(Objects.requireNonNull(this.getClass().getResource(name)).toURI()).toFile();
         } catch (URISyntaxException e) {
             throw new RuntimeException(e);
         }

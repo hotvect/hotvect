@@ -1,14 +1,24 @@
 package com.hotvect.api.data.raw;
 
+import com.google.common.collect.ImmutableList;
+import com.hotvect.api.data.HashedValue;
+import com.hotvect.api.data.RawValue;
+import com.hotvect.api.data.RawValueType;
 import com.hotvect.api.data.SparseVector;
-import com.hotvect.testutils.TestUtils;
+import net.jqwik.api.ForAll;
+import net.jqwik.api.Property;
+import net.jqwik.api.constraints.Size;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.function.Executable;
 import org.quicktheories.api.Pair;
 import org.quicktheories.core.Gen;
 
 import java.util.Arrays;
+import java.util.List;
 import java.util.function.BiConsumer;
+import java.util.stream.IntStream;
 
+import static com.hotvect.testutils.TestUtils.*;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.quicktheories.QuickTheory.qt;
 import static org.quicktheories.generators.Generate.constant;
@@ -16,6 +26,30 @@ import static org.quicktheories.generators.Generate.intArrays;
 import static org.quicktheories.generators.SourceDSL.*;
 
 class RawValueTest {
+
+    @Property
+    void denseVector(@ForAll @Size(max = 5) double[] values){
+        double[] copied = Arrays.copyOf(values, values.length);
+        var rawValue = RawValue.denseVector(values);
+        assertArrayEquals(copied, rawValue.getNumericals());
+
+        List<Executable> notAllowed = ImmutableList.of(
+                rawValue::getStrings,
+                rawValue::getCategoricals,
+                rawValue::getSingleCategorical,
+                rawValue::getSingleNumerical,
+                rawValue::getSparseVector
+        );
+        notAllowed.forEach(
+                x -> assertThrows(IllegalStateException.class,x)
+        );
+
+        var indices = IntStream.range(0, copied.length).toArray();
+
+        assertEquals(HashedValue.denseVector(values), rawValue.getHashedValue());
+        assertEquals(RawValueType.DENSE_VECTOR, rawValue.getValueType());
+
+    }
     @Test
     void singleCategorical() {
         qt().forAll(integers().all()).checkAssert(x -> {
@@ -23,9 +57,7 @@ class RawValueTest {
             assertEquals(x, subject.getSingleCategorical());
             assertThrows(IllegalStateException.class, subject::getSingleNumerical);
             assertThrows(IllegalStateException.class, subject::getNumericals);
-
-            SparseVector actualVector = subject.getCategoricalsToNumericals();
-            assertEquals(new SparseVector(new int[]{x}, new double[]{1.0}), actualVector);
+            assertThrows(IllegalStateException.class, subject::getSparseVector);
         });
     }
 
@@ -46,9 +78,7 @@ class RawValueTest {
             assertEquals(x, subject.getSingleNumerical());
             assertThrows(IllegalStateException.class, subject::getSingleCategorical);
             assertThrows(IllegalStateException.class, subject::getCategoricals);
-
-            SparseVector actualVector = subject.getCategoricalsToNumericals();
-            assertEquals(new SparseVector(new int[]{0}, new double[]{x}), actualVector);
+            assertThrows(IllegalStateException.class, subject::getSparseVector);
         });
     }
 
@@ -58,29 +88,25 @@ class RawValueTest {
             RawValue subject = RawValue.categoricals(x);
             assertArrayEquals(x, subject.getCategoricals());
             assertThrows(IllegalStateException.class, subject::getSingleNumerical);
+            assertThrows(IllegalStateException.class, subject::getSparseVector);
             if (x.length != 1) {
                 assertThrows(IllegalStateException.class, subject::getSingleCategorical);
             }
-
-            double[] expectedNumericals = new double[x.length];
-            Arrays.fill(expectedNumericals, 1.0);
-            SparseVector actualVector = subject.getCategoricalsToNumericals();
-            assertEquals(new SparseVector(x, expectedNumericals), actualVector);
         });
     }
 
     @Test
     void numericals() {
         Gen<Pair<int[], double[]>> data = intArrays(integers().between(0, 3), integers().all())
-                .mutate((is, rand) -> Pair.of(is, TestUtils.doubleArrays(constant(is.length), doubles().any()).generate(rand)));
+                .mutate((is, rand) -> Pair.of(is, doubleArrays(constant(is.length), doubles().any()).generate(rand)));
         qt().forAll(data).checkAssert(x -> {
 
             int[] names = x._1;
             double[] values = x._2;
             assert names.length == values.length;
 
-            RawValue subject = RawValue.categoricalsToNumericals(names, values);
-            assertArrayEquals(names, subject.getCategoricals());
+            RawValue subject = RawValue.namedNumericals(names, values);
+            assertArrayEquals(names, subject.getNumericalIndices());
             assertThrows(IllegalStateException.class, subject::getSingleCategorical);
             if (names.length != 1) {
                 assertThrows(IllegalStateException.class, subject::getSingleNumerical);
@@ -88,7 +114,7 @@ class RawValueTest {
 
             assertArrayEquals(values, subject.getNumericals());
 
-            SparseVector actualVector = subject.getCategoricalsToNumericals();
+            SparseVector actualVector = subject.getSparseVector();
             assertEquals(new SparseVector(names, values), actualVector);
 
         });
@@ -96,8 +122,8 @@ class RawValueTest {
 
     @Test
     void stringsToNumericals() {
-        Gen<Pair<String[], double[]>> data = TestUtils.stringArrays(integers().between(0, 3), strings().allPossible().ofLengthBetween(0, 3))
-                .mutate((is, rand) -> Pair.of(is, TestUtils.doubleArrays(constant(is.length), doubles().any()).generate(rand)));
+        Gen<Pair<String[], double[]>> data = stringArrays(integers().between(0, 3), strings().allPossible().ofLengthBetween(0, 3))
+                .mutate((is, rand) -> Pair.of(is, doubleArrays(constant(is.length), doubles().any()).generate(rand)));
         qt().forAll(data).checkAssert(x -> {
 
             String[] names = x._1;
@@ -111,15 +137,15 @@ class RawValueTest {
 
             assertArrayEquals(values, subject.getNumericals());
 
-            assertThrows(NullPointerException.class, subject::getCategoricalsToNumericals);
+            assertThrows(IllegalStateException.class, subject::getSparseVector);
         });
     }
 
     @Test
     void invalidInputs() {
         assertThrows(NullPointerException.class, () -> RawValue.categoricals(null));
-        assertThrows(NullPointerException.class, () -> RawValue.categoricalsToNumericals(null, null));
-        assertThrows(IllegalArgumentException.class, () -> RawValue.categoricalsToNumericals(new int[1], new double[2]));
+        assertThrows(NullPointerException.class, () -> RawValue.namedNumericals(null, null));
+        assertThrows(IllegalArgumentException.class, () -> RawValue.namedNumericals(new int[1], new double[2]));
         assertThrows(NullPointerException.class, () -> RawValue.singleString(null));
         assertThrows(NullPointerException.class, () -> RawValue.strings(null));
         assertThrows(NullPointerException.class, () -> RawValue.stringsToNumericals(null, null));
@@ -132,7 +158,7 @@ class RawValueTest {
         assertEquals(RawValueType.SINGLE_CATEGORICAL, RawValue.singleCategorical(1).getValueType());
         assertEquals(RawValueType.CATEGORICALS, RawValue.categoricals(new int[0]).getValueType());
         assertEquals(RawValueType.SINGLE_NUMERICAL, RawValue.singleNumerical(0.0).getValueType());
-        assertEquals(RawValueType.CATEGORICALS_TO_NUMERICALS, RawValue.categoricalsToNumericals(new int[0], new double[0]).getValueType());
+        assertEquals(RawValueType.SPARSE_VECTOR, RawValue.sparseVector(new int[0], new double[0]).getValueType());
         assertEquals(RawValueType.SINGLE_STRING, RawValue.singleString("a").getValueType());
         assertEquals(RawValueType.STRINGS_TO_NUMERICALS, RawValue.stringsToNumericals(new String[0], new double[0]).getValueType());
     }
@@ -149,11 +175,11 @@ class RawValueTest {
             }
         };
 
-        qt().forAll(integers().all(), integers().all())
+        qt().withFixedSeed(10).forAll(integers().all(), integers().all())
                 .assuming((x, y) -> !x.equals(y))
                 .checkAssert(assertSingleCategorical);
 
-        Gen<Pair<Integer, Integer>> equalInts = TestUtils.generateEquals(integers().all());
+        Gen<Pair<Integer, Integer>> equalInts = generateEquals(integers().all());
         qt().forAll(equalInts)
                 .checkAssert(x -> assertSingleCategorical.accept(x._1, x._2));
 
@@ -167,11 +193,11 @@ class RawValueTest {
             }
         };
 
-        qt().forAll(TestUtils.discreteDoubles(), TestUtils.discreteDoubles())
+        qt().withFixedSeed(10).forAll(discreteDoubles(), discreteDoubles())
                 .assuming((x, y) -> !x.equals(y))
                 .checkAssert(assertSingleNumerical);
 
-        Gen<Pair<Double, Double>> equalDoubles = TestUtils.generateEquals(TestUtils.discreteDoubles());
+        Gen<Pair<Double, Double>> equalDoubles = generateEquals(discreteDoubles());
         qt().forAll(equalDoubles)
                 .checkAssert(x -> assertSingleNumerical.accept(x._1, x._2));
 
@@ -186,19 +212,19 @@ class RawValueTest {
             }
         };
 
-        qt().forAll(TestUtils.categoricalVectors(), TestUtils.categoricalVectors())
+        qt().withFixedSeed(10).forAll(categoricalVectors(), categoricalVectors())
                 .assuming((x, y) -> !Arrays.equals(x, y))
                 .checkAssert(assertCategoricals);
 
-        Gen<Pair<int[], int[]>> generateEquals = TestUtils.generateEquals(TestUtils.categoricalVectors());
+        Gen<Pair<int[], int[]>> generateEquals = generateEquals(categoricalVectors());
         qt().forAll(generateEquals)
                 .checkAssert(x -> assertCategoricals.accept(x._1, x._2));
 
         // Numericals
-        Gen<Pair<int[], double[]>> data = TestUtils.testVectors();
+        Gen<Pair<int[], double[]>> data = testVectors();
         BiConsumer<Pair<int[], double[]>, Pair<int[], double[]>> assertNumericals = (x, y) -> {
-            RawValue xp = RawValue.categoricalsToNumericals(x._1, x._2);
-            RawValue yp = RawValue.categoricalsToNumericals(y._1, y._2);
+            RawValue xp = RawValue.namedNumericals(x._1, x._2);
+            RawValue yp = RawValue.namedNumericals(y._1, y._2);
 
             boolean equal = Arrays.equals(x._1, y._1) && Arrays.equals(x._2, y._2);
             assertEquals(equal, xp.equals(yp));
@@ -207,11 +233,11 @@ class RawValueTest {
             }
         };
 
-        qt().forAll(data, data)
+        qt().withFixedSeed(10).forAll(data, data)
                 .assuming((x, y) -> !Arrays.equals(x._1, y._1) || !Arrays.equals(x._2, y._2))
                 .checkAssert(assertNumericals);
 
-        qt().forAll(TestUtils.generateEquals(data)).checkAssert(x -> assertNumericals.accept(x._1, x._2));
+        qt().forAll(generateEquals(data)).checkAssert(x -> assertNumericals.accept(x._1, x._2));
 
         // Strings
         BiConsumer<String[], String[]> assertStrings = (x, y) -> {
@@ -225,11 +251,11 @@ class RawValueTest {
             }
         };
 
-        qt().forAll(TestUtils.stringArraysWithDefaultContent(), TestUtils.stringArraysWithDefaultContent())
+        qt().withFixedSeed(10).forAll(stringArraysWithDefaultContent(), stringArraysWithDefaultContent())
                 .assuming((x, y) -> !Arrays.equals(x, y))
                 .checkAssert(assertStrings);
 
-        qt().forAll(TestUtils.generateEquals(TestUtils.stringArraysWithDefaultContent())).checkAssert(x -> assertStrings.accept(x._1, x._2));
+        qt().forAll(generateEquals(stringArraysWithDefaultContent())).checkAssert(x -> assertStrings.accept(x._1, x._2));
 
         // Single String
         BiConsumer<String, String> assertSingleString = (x, y) -> {
@@ -243,11 +269,11 @@ class RawValueTest {
             }
         };
 
-        qt().forAll(TestUtils.defaultStrings(), TestUtils.defaultStrings())
+        qt().withFixedSeed(10).forAll(defaultStrings(), defaultStrings())
                 .assuming((x, y) -> !x.equals(y))
                 .checkAssert(assertSingleString);
 
-        qt().forAll(TestUtils.generateEquals(TestUtils.defaultStrings())).checkAssert(x -> assertSingleString.accept(x._1, x._2));
+        qt().forAll(generateEquals(defaultStrings())).checkAssert(x -> assertSingleString.accept(x._1, x._2));
 
         // String To Numericals
         BiConsumer<Pair<String[], double[]>, Pair<String[], double[]>> assertStringsToNumericals = (x, y) -> {
@@ -261,10 +287,10 @@ class RawValueTest {
             }
         };
 
-        qt().forAll(TestUtils.stringToNumericals(), TestUtils.stringToNumericals())
+        qt().withFixedSeed(10).forAll(stringToNumericals(), stringToNumericals())
                 .assuming((x, y) -> (!Arrays.equals(x._1, y._1)) || (!Arrays.equals(x._2, y._2)))
                 .checkAssert(assertStringsToNumericals);
 
-        qt().forAll(TestUtils.generateEquals(TestUtils.stringToNumericals())).checkAssert(x -> assertStringsToNumericals.accept(x._1, x._2));
+        qt().forAll(generateEquals(stringToNumericals())).checkAssert(x -> assertStringsToNumericals.accept(x._1, x._2));
     }
 }

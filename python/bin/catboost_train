@@ -1,0 +1,126 @@
+#!/usr/bin/env python3
+import argparse
+import copy
+import glob
+import json
+import logging
+import os
+import sys
+import traceback
+from glob import glob
+from json import JSONDecodeError
+from pathlib import Path
+from typing import Dict, Any
+
+from catboost import CatBoostRanker, CatBoostClassifier, CatBoostRegressor, Pool
+
+import hotvect.hotvectjar
+from hotvect.utils import runshell
+
+RANDOM_SEED = 4966060
+
+logging.basicConfig(
+    level=logging.DEBUG,
+    format="Catboost Executable: %(asctime)s [%(levelname)s] %(message)s",
+    handlers=[
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
+
+def run_catboost_train(
+        algorithm_definition_path: str,
+        algorithm_definition: Dict[str, Any],
+        algorithm_jar_path: str,
+        encoded_data_file_path: str,
+        encoded_schema_description_file_path: str,
+        scratch_dir: str,
+        parameter_output_path: str) -> Dict[str, Any]:
+    logger.info(
+        f"Running catboost training encoded_data_file={encoded_data_file_path}, scratch_dir={scratch_dir}, parameter_location={parameter_output_path}")
+    logger.info(f"Using column description: {encoded_schema_description_file_path}")
+
+    if encoded_data_file_path.endswith(".gz"):
+        logger.warning("Your encoded file is gzipped, but catboost cannot accept gzipped files. Turn off gzip feature to speed up training")
+        # Catboost does not accept gzipped training file
+        expanded_encoded_data_file = os.path.join(scratch_dir, f"{Path(encoded_data_file_path).stem}-expanded.tsv")
+        runshell(f"gunzip -c {encoded_data_file_path} > {expanded_encoded_data_file}", shell=True)
+        encoded_data_file_path = expanded_encoded_data_file
+
+    training_data = Pool(encoded_data_file_path, column_description=encoded_schema_description_file_path)
+    catboost_options = {
+        "train_dir": scratch_dir
+    }
+    overrides = copy.deepcopy(algorithm_definition.get("catboost_options", {}))
+    catboost_options.update(overrides)
+
+    task_type = algorithm_definition.get("algorithm_parameters", {}).get("task_type", "classification")
+    if task_type == "learn_to_rank":
+        logger.info("CatBoostRanker model")
+        model = CatBoostRanker(**catboost_options)
+    elif task_type == "regression":
+        logger.info("CatBoostRegressor model")
+        model = CatBoostRegressor(**catboost_options)
+    elif task_type == "classification":
+        logger.info("CatBoostClassifier model")
+        model = CatBoostClassifier(**catboost_options)
+    else:
+        raise ValueError(f"Task type {task_type} not available. Available options: learn_to_rank, regression, classification")
+    logger.info("Starting the training")
+    model.fit(training_data)
+    logger.info("Saving the model")
+    model.save_model(parameter_output_path)
+
+    catboost_training_json = get_catboost_train_info(scratch_dir)
+    result_json = {
+        'parameter_output_path': parameter_output_path,
+        'catboost_training': catboost_training_json
+    }
+    return result_json
+
+
+def load_json(json_path: str) -> Dict[str, Any]:
+    with open(json_path) as f:
+        return json.load(f)
+
+
+def get_catboost_train_info(scratch_dir: str):
+    try:
+        txt = Path(f'{scratch_dir}/catboost_training.json').read_text()
+        # Apparently sometimes excessive new lines are added
+        txt = txt.strip()
+        try:
+            return json.loads(txt)
+        except JSONDecodeError:
+            return {"error": f"catboost_training.json not parsable. Content:{txt}"}
+    except FileNotFoundError:
+        return {"error": f"catboost_training.json not found. Found only:{glob.iglob('sagemaker_catboost_container', recursive=True)}"}
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--algorithm_definition_path", type=str, required=True)
+    parser.add_argument("--algorithm_jar_path", type=str, required=True)
+    parser.add_argument("--encoded_data_file_path", type=str, required=True)
+    parser.add_argument("--encoded_schema_description_file_path", type=str, required=True)
+    parser.add_argument("--scratch_dir", type=str, required=True)
+    parser.add_argument("--parameter_output_path", type=str, required=True)
+
+    args = parser.parse_args()
+
+    try:
+        algorithm_definition = load_json(args.algorithm_definition_path)
+        result = run_catboost_train(
+            algorithm_definition_path=args.algorithm_definition_path,
+            algorithm_definition=algorithm_definition,
+            algorithm_jar_path=args.algorithm_jar_path,
+            encoded_data_file_path=args.encoded_data_file_path,
+            encoded_schema_description_file_path=args.encoded_schema_description_file_path,
+            scratch_dir=args.scratch_dir,
+            parameter_output_path=args.parameter_output_path,
+        )
+        print(json.dumps(result))
+    except:
+        exc_info = sys.exc_info()
+        error = json.dumps({"error": ''.join(traceback.format_exception(*exc_info))})
+        sys.exit(error)

@@ -1,0 +1,19 @@
+{
+  "git_describe": "dummy",
+  "algorithm_name": "com-hotvect-test",
+  "algorithm_version": "1.0.0",
+  "test_data_prefix": "iris/test",
+  "dependencies": [
+    "com-hotvect-test-iris-model"
+  ],
+  "decoder_factory_classname": "com.hotvect.integrationtest.algoshared.IrisDecoderFactory",
+  "reward_function_factory_classname": "com.hotvect.integrationtest.iris.IrisRewardFunctionFactory",
+  "algorithm_factory_classname": "com.hotvect.integrationtest.iris.IrisRankerFactory",
+  "test_decoder_parameters": {
+    "test_test_param": "param4"
+  },
+  "vectorizer_parameters": {
+    "test_vectorizer_param": "param5"
+  }
+
+}

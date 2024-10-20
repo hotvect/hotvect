@@ -1,7 +1,8 @@
 package com.hotvect.core;
 
 import com.hotvect.api.data.FeatureNamespace;
-import com.hotvect.api.data.hashed.HashedValueType;
+import com.hotvect.api.data.HashedValueType;
+import com.hotvect.api.data.ValueType;
 
 public enum TestFeatureNamespace implements FeatureNamespace {
     single_categorical_1(HashedValueType.CATEGORICAL),
@@ -19,8 +20,12 @@ public enum TestFeatureNamespace implements FeatureNamespace {
         this.hashedValueType = hashedValueType;
     }
 
-    @Override
     public HashedValueType getValueType() {
+        return this.hashedValueType;
+    }
+
+    @Override
+    public ValueType getFeatureValueType() {
         return this.hashedValueType;
     }
 }

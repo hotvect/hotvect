@@ -16,3 +16,4 @@ It has characteristics that work well with typical Vowpal Wabbit use cases.
 3. Efficient: Library is coded with efficiency in mind. Use of JVM makes it easy to write efficient feature transformations
 
 Feature interaction is natively supported, although exploration of interaction feature requires a separate step.
+

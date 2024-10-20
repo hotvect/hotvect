@@ -1,12 +1,12 @@
 package com.hotvect.core;
 
+import com.google.common.base.Charsets;
+import com.google.common.io.Resources;
 import com.hotvect.api.data.DataRecord;
-import com.hotvect.api.data.raw.RawValue;
+import com.hotvect.api.data.RawValue;
 import com.hotvect.core.util.AutoMapper;
 import com.hotvect.core.util.JsonCodecTest;
 import com.hotvect.core.util.JsonRecordDecoder;
-import com.google.common.base.Charsets;
-import com.google.common.io.Resources;
 
 import java.io.IOException;
 

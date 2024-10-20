@@ -1,0 +1,159 @@
+#!/usr/bin/env python3
+import argparse
+import json
+import os
+from collections import Counter
+from pathlib import Path
+from typing import Any, Tuple, List, Dict
+
+
+def is_complex_json_array(json_array):
+    """
+    Check if a JSON array contains complex types (dicts or lists).
+    Returns True if the array contains complex types, False otherwise.
+    """
+    return any(isinstance(item, (dict, list)) for item in json_array)
+
+
+def compare_complex_lists(input1: Tuple[str, List], input2: Tuple[str, List]):
+    """
+    Compare two lists of complex types (dicts or lists) element by element.
+    """
+    name1, list1 = input1
+    name2, list2 = input2
+    differences = []
+    for item1, item2 in zip(list1, list2):
+        element_diff = compare_json((name1, item1), (name2, item2))
+        if element_diff:
+            differences.append(element_diff)
+    return differences
+
+def rename_keys(data, rename_map):
+    """
+    Rename keys in a dictionary or a list of dictionaries according to the rename_map.
+    """
+    if isinstance(data, dict):
+        new_data = {}
+        for key, value in data.items():
+            new_key = rename_map.get(key, key)  # Get new key from map, default to original key
+            if isinstance(value, dict):
+                new_data[new_key] = rename_keys(value, rename_map)  # Recursively handle dict
+            elif isinstance(value, list):
+                new_data[new_key] = [rename_keys(item, rename_map) if isinstance(item, dict) else item for item in value]  # Recursively handle list elements that are dicts
+            else:
+                new_data[new_key] = value
+        return new_data
+    elif isinstance(data, list):
+        # Handle case where the outermost data is a list
+        return [rename_keys(item, rename_map) if isinstance(item, dict) else item for item in data]
+    return data
+
+def compare_json(input1: Tuple[str, Any], input2: Tuple[str, Any], config: Dict[str, Any]=None):
+    """
+    Compare two JSON objects and return a dictionary of differences.
+    """
+    if config is None:
+        config = {}
+
+    name1, json1 = input1
+    name2, json2 = input2
+
+    if "rename" in config and isinstance(config['rename'], dict):
+        # Rename keys in both json1 and json2 according to the 'rename' mapping in config
+        json1 = rename_keys(json1, config['rename'])
+        json2 = rename_keys(json2, config['rename'])
+
+    if isinstance(json1, dict) and isinstance(json2, dict):
+        differences = {}
+        keys = set(json1.keys()).union(json2.keys())
+        for key in keys:
+            if key in json1 and key in json2:
+                sub_diff = compare_json((name1, json1[key]), (name2, json2[key]))
+                if sub_diff:
+                    differences[key] = sub_diff
+            else:
+                differences[key] = {
+                    name1: json1.get(key),
+                    name2: json2.get(key)
+                }
+        return differences
+
+    elif isinstance(json1, list) and isinstance(json2, list):
+        if is_complex_json_array(json1) or is_complex_json_array(json2):
+            # Compare each element if the lists contain complex types
+            return compare_complex_lists((name1, json1), (name2, json2))
+        else:
+            # Compare lists considering the number of times each element occurs
+            counter1 = Counter(json1)
+            counter2 = Counter(json2)
+            diff_counter1 = counter1 - counter2
+            diff_counter2 = counter2 - counter1
+            if diff_counter1 or diff_counter2:
+                return {
+                    name1: [item for item, count in diff_counter1.items() for _ in range(count)],
+                    name2: [item for item, count in diff_counter2.items() for _ in range(count)]
+                }
+
+    else:
+        # Direct comparison for other types
+        if json1 != json2:
+            return {
+                name1: json1,
+                name2: json2
+            }
+
+    return {}
+
+
+def find_difference_in_files(file1, file2, output_dir, config_file):
+    """
+    Compare two JSONL files and find the first difference, outputting results to the specified directory.
+    """
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+
+    file1_name = Path(file1).stem
+    file2_name = Path(file2).stem
+
+    if config_file and os.path.isfile(config_file):
+        with open(config_file, 'r') as file:
+            config_json = json.load(file)
+    else:
+        config_json = None
+
+    with open(file1, 'r') as f1, open(file2, 'r') as f2:
+        for line_number, (line1, line2) in enumerate(zip(f1, f2), start=1):
+            json1 = json.loads(line1)
+            json2 = json.loads(line2)
+
+            differences = compare_json((file1_name, json1), (file2_name, json2), config_json)
+            if differences:
+                output_suffix = f'line={line_number}'
+
+                with open(os.path.join(output_dir, f'{file1_name}.{output_suffix}.json'), 'w') as out1:
+                    json.dump(json1, out1, indent=2, sort_keys=True)
+                with open(os.path.join(output_dir, f'{file2_name}.{output_suffix}.json'), 'w') as out2:
+                    json.dump(json2, out2, indent=2, sort_keys=True)
+                with open(os.path.join(output_dir, f'diff.{file1_name}-{file2_name}.{output_suffix}.json'), 'w') as diff_file:
+                    json.dump(differences, diff_file, indent=2, sort_keys=True)
+
+                return json.dumps(differences, sort_keys=True)
+
+    return 'Audit files are identical'
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Compare two JSONL files.")
+    parser.add_argument("file1", help="Path to the first JSONL file")
+    parser.add_argument("file2", help="Path to the second JSONL file")
+    parser.add_argument("-o", "--output", default=".", help="Output directory for the result files")
+    parser.add_argument("-c", "--config", required=False, help="Path to the comparison configuration file")
+
+    args = parser.parse_args()
+
+    difference = find_difference_in_files(args.file1, args.file2, args.output, args.config)
+    print(difference)
+
+
+if __name__ == '__main__':
+    main()

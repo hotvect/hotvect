@@ -1,17 +1,17 @@
 package com.hotvect.vw.util;
 
+import com.hotvect.api.audit.AuditableScoringVectorizer;
+import com.hotvect.api.audit.RawFeatureName;
 import com.hotvect.api.data.DataRecord;
+import com.hotvect.api.data.RawValue;
 import com.hotvect.api.data.SparseVector;
-import com.hotvect.api.data.raw.Example;
-import com.hotvect.api.data.raw.RawValue;
-import com.hotvect.core.audit.AuditableVectorizer;
-import com.hotvect.core.audit.RawFeatureName;
-import com.hotvect.vw.VwExampleEncoder;
+import com.hotvect.api.data.scoring.ScoringExample;
+import com.hotvect.vw.VwScoringExampleEncoder;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Map;
-import java.util.function.DoubleUnaryOperator;
+import java.util.function.ToDoubleFunction;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
@@ -51,41 +51,44 @@ class VwExampleEncoderTest {
     }
 
 
-    private void testEncoding(double targetVariable, SparseVector featureVector, String expected, boolean binary, DoubleUnaryOperator weightFun) {
+    private void testEncoding(double targetVariable, SparseVector featureVector, String expected, boolean binary, ToDoubleFunction<Double> weightFun) {
         DataRecord<TestRawNamespace, RawValue> testRecord = new DataRecord<TestRawNamespace, RawValue>(TestRawNamespace.class);
-        VwExampleEncoder<DataRecord<TestRawNamespace, RawValue>> subject;
+        VwScoringExampleEncoder<DataRecord<TestRawNamespace, RawValue>, Double> subject;
         if (weightFun == null) {
-            subject = new VwExampleEncoder<>(
-                    new AuditableVectorizer<>() {
+            subject = new VwScoringExampleEncoder<>(
+                    new AuditableScoringVectorizer<>() {
+                        @Override
+                        public SparseVector apply(DataRecord<TestRawNamespace, RawValue> toVectorize) {
+                            return featureVector;
+                        }
+
                         @Override
                         public ThreadLocal<Map<Integer, List<RawFeatureName>>> enableAudit() {
                             throw new AssertionError("not implemented");
                         }
 
-                        @Override
-                        public SparseVector apply(DataRecord<TestRawNamespace, RawValue> testRawNamespaceRawValueDataRecord) {
-                            return featureVector;
-                        }
                     },
+                    d -> d,
                     binary);
         } else {
-            subject = new VwExampleEncoder<>(
-                    new AuditableVectorizer<>() {
+            subject = new VwScoringExampleEncoder<>(
+                    new AuditableScoringVectorizer<>() {
                         @Override
                         public ThreadLocal<Map<Integer, List<RawFeatureName>>> enableAudit() {
                             throw new AssertionError("not implemented");
                         }
 
                         @Override
-                        public SparseVector apply(DataRecord<TestRawNamespace, RawValue> testRawNamespaceRawValueDataRecord) {
+                        public SparseVector apply(DataRecord<TestRawNamespace, RawValue> toVectorize) {
                             return featureVector;
                         }
                     },
+                    d -> d,
                     binary,
                     weightFun
             );
         }
-        String encoded = subject.apply(new Example<>(testRecord, targetVariable));
+        String encoded = subject.apply(new ScoringExample<>(testRecord, targetVariable));
         assertEquals(expected, encoded);
     }
 }

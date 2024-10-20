@@ -1,24 +1,22 @@
 package com.hotvect.core.util;
 
-import com.hotvect.api.codec.ExampleEncoder;
-import com.hotvect.api.data.DataRecord;
-import com.hotvect.api.data.Namespace;
-import com.hotvect.api.data.SparseVector;
-import com.hotvect.api.data.raw.RawValue;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableMap;
+import com.hotvect.api.codec.scoring.ScoringExampleEncoder;
+import com.hotvect.api.data.DataRecord;
+import com.hotvect.api.data.Namespace;
+import com.hotvect.api.data.RawValue;
+import com.hotvect.api.data.SparseVector;
 
-import java.util.AbstractMap;
-import java.util.Arrays;
-import java.util.Map;
+import java.util.*;
 import java.util.function.Function;
 
 import static java.util.stream.Collectors.toList;
 import static java.util.stream.Collectors.toMap;
 
 /**
- * A {@link ExampleEncoder} that encodes a {@link DataRecord} into a JSON String
+ * A {@link ScoringExampleEncoder} that encodes a {@link DataRecord} into a JSON String
  * @param <K>
  */
 public class JsonRecordEncoder<K extends Enum<K> & Namespace> implements Function<DataRecord<K, RawValue>, String> {
@@ -44,12 +42,20 @@ public class JsonRecordEncoder<K extends Enum<K> & Namespace> implements Functio
                 return Arrays.stream(value.getCategoricals()).boxed().collect(toList());
             case SINGLE_NUMERICAL:
                 return value.getSingleNumerical();
+            case DENSE_VECTOR:{
+                List<Double> ret = new ArrayList<>();
+                for (double v : value.getNumericals()) {
+                    ret.add(v);
+                }
+                return ret;
+            }
+            case SPARSE_VECTOR:
             case CATEGORICALS_TO_NUMERICALS: {
-                SparseVector vector = value.getCategoricalsToNumericals();
-                int[] names = vector.indices();
-                double[] values = vector.values();
+                SparseVector vector = value.getSparseVector();
+                int[] names = vector.getNumericalIndices();
+                double[] values = vector.getNumericalValues();
                 ImmutableMap.Builder<String, Double> ret = ImmutableMap.builder();
-                for (int i = 0; i < vector.size(); i++) {
+                for (int i = 0; i < names.length; i++) {
                     ret.put(String.valueOf(names[i]), values[i]);
                 }
                 return ret.build();

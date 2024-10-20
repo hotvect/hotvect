@@ -2,6 +2,7 @@ package com.hotvect.api.data;
 
 import java.util.Arrays;
 import java.util.EnumMap;
+import java.util.Map;
 import java.util.Objects;
 import java.util.stream.Collectors;
 
@@ -9,6 +10,7 @@ import java.util.stream.Collectors;
  * An {@link EnumMap} like class used to store examples.
  * It has less features than {@link EnumMap} and performs better under extreme use.
  */
+@Deprecated
 public class DataRecord<K extends Enum<K>, V> {
     private final Object[] values;
     private final Class<K> keyClass;
@@ -18,7 +20,15 @@ public class DataRecord<K extends Enum<K>, V> {
         this.keyClass = keyClazz;
     }
 
-    public DataRecord(Class<K> keyClazz, EnumMap<K, V> values) {
+    public DataRecord(DataRecord<K, V> values) {
+        this(values.keyClass);
+        for (K k : keyClass.getEnumConstants()) {
+            this.values[k.ordinal()] = values.get(k);
+        }
+    }
+
+
+    public DataRecord(Class<K> keyClazz, Map<K, V> values) {
         this(keyClazz);
         for (K k : keyClazz.getEnumConstants()) {
             this.values[k.ordinal()] = values.get(k);
@@ -75,6 +85,10 @@ public class DataRecord<K extends Enum<K>, V> {
         return "DataRecord{" +
                 "values=" + content +
                 '}';
+    }
+
+    public Class<K> getKeyClass(){
+        return this.keyClass;
     }
 
 }

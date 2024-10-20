@@ -1,8 +1,10 @@
 package com.hotvect.core.audit;
 
+import com.hotvect.api.audit.RawFeatureName;
 import com.hotvect.api.data.FeatureNamespace;
-import com.hotvect.api.data.hashed.HashedValue;
-import com.hotvect.api.data.raw.RawValue;
+import com.hotvect.api.data.HashedValue;
+import com.hotvect.api.data.HashedValueType;
+import com.hotvect.api.data.RawValue;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -11,7 +13,16 @@ public class HasherAuditState {
     private final ThreadLocal<Map<HashedFeatureName, RawFeatureName>> featureName2SourceRawValue = ThreadLocal.withInitial(HashMap::new);
 
     public void registerSourceRawValue(FeatureNamespace namespace, RawValue toHash, HashedValue hashed) {
-        int[] featureNames = hashed.getCategoricals();
+        int[] featureNames;
+        if (hashed.getValueType() == HashedValueType.CATEGORICAL){
+            featureNames = hashed.getCategoricalIndices();
+        } else {
+            featureNames = hashed.getNumericalIndices();
+        }
+        doRegisterSourceRawValue(namespace, toHash, featureNames);
+    }
+
+    private void doRegisterSourceRawValue(FeatureNamespace namespace, RawValue toHash, int[] featureNames) {
         for (int i = 0; i < featureNames.length; i++) {
             String sourceValue = extractSourceValue(toHash, i);
             int featureName = featureNames[i];
@@ -26,11 +37,16 @@ public class HasherAuditState {
             case STRINGS_TO_NUMERICALS:
                 return toHash.getStrings()[index];
             case SINGLE_NUMERICAL:
-            case SINGLE_CATEGORICAL:
                 return "0";
+            case SINGLE_CATEGORICAL:
             case CATEGORICALS:
-            case CATEGORICALS_TO_NUMERICALS:
                 return String.valueOf(toHash.getCategoricals()[index]);
+            case CATEGORICALS_TO_NUMERICALS:
+                return String.valueOf(toHash.getNumericalIndices()[index]);
+            case SPARSE_VECTOR:
+                return String.valueOf(toHash.getNumericalIndices()[index]);
+            case DENSE_VECTOR:
+                return String.valueOf(index);
             default: throw new AssertionError();
         }
 
@@ -38,5 +54,9 @@ public class HasherAuditState {
 
     public ThreadLocal<Map<HashedFeatureName, RawFeatureName>> getFeatureName2SourceRawValue(){
         return this.featureName2SourceRawValue;
+    }
+
+    public void clear() {
+        this.featureName2SourceRawValue.get().clear();
     }
 }

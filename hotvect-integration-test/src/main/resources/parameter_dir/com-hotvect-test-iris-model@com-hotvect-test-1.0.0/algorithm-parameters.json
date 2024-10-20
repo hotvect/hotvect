@@ -1,0 +1,27 @@
+{
+  "algorithm_name": "com-hotvect-test-iris-model",
+  "algorithm_version": "com-hotvect-test-1.0.0",
+  "parameter_id": "test_iris_model_parameter_id_123",
+  "ran_at": "2022-05-29T14:55:14.508143+00:00",
+  "algorithm_definition": {
+    "git_describe": "dummy",
+    "algorithm_name": "com-hotvect-test-iris-model",
+    "algorithm_version": "com-hotvect-test-1.0.0",
+    "decoder_factory_classname": "IrisDecoderFactory",
+    "vectorizer_factory_classname": "IrisVectorizerFactory",
+    "reward_function_factory_classname": "IrisRewardFunctionFactory",
+    "encoder_factory_classname": "IrisEncoderFactory",
+    "algorithm_factory_classname": "IrisRankerFactory",
+    "test_data_prefix": "iris/test",
+    "train_data_prefix": "iris/train",
+    "train_decoder_parameters": {
+      "include_negative_per_million": 10000
+    },
+    "number_of_training_days": 7,
+    "training_container": "hotvect-training-container:latest",
+    "training_command": "vw {{ encoded_file }} --readable_model {{ parameter_output_path }}",
+    "vectorizer_parameters": {
+      "hash_bits": 12
+    }
+  }
+}

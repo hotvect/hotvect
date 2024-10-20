@@ -1,11 +1,10 @@
 package com.hotvect.core.hash;
 
-import com.hotvect.api.data.FeatureNamespace;
-import com.hotvect.api.data.hashed.HashedValue;
-import com.hotvect.api.data.raw.RawValue;
-import com.hotvect.core.combine.FeatureDefinition;
 import com.google.common.primitives.Chars;
 import com.google.common.primitives.Ints;
+import com.hotvect.api.data.HashedValue;
+import com.hotvect.api.data.RawValue;
+import com.hotvect.core.combine.FeatureDefinition;
 
 /**
  * Hashing related utility codes
@@ -73,7 +72,7 @@ public class HashUtils {
 
 
 
-    public static <C extends Enum<C> & FeatureNamespace> int namespace(int mask, FeatureDefinition<C> fd, int featureName) {
+    public static int namespace(int mask, FeatureDefinition fd, int featureName) {
         return ((fd.getFeatureNamespace() * FNV1_PRIME_32) ^ HashUtils.hashInt(featureName)) & mask;
     }
 
@@ -95,6 +94,8 @@ public class HashUtils {
             case SINGLE_CATEGORICAL:
             case CATEGORICALS:
             case CATEGORICALS_TO_NUMERICALS: return rawDataElementValue.getHashedValue();
+            case SPARSE_VECTOR: return rawDataElementValue.getHashedValue();
+            case DENSE_VECTOR: return rawDataElementValue.getHashedValue();
             default: throw new AssertionError();
         }
     }

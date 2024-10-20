@@ -24,3 +24,20 @@ hs_err_pid*
 target
 python/hotvect.egg-info
 .jqwik-database
+python/hotvect/__pycache__
+python/hotvect/test/unit/__pycache__
+python/build
+
+# Configuration files
+.idea
+*.iml
+*.pyc
+hotvect.egg-info
+python/dist
+python/.hypothesis
+python/hotvect/test/unit/.hypothesis
+tmp.py
+site
+.vscode
+
+.DS_Store

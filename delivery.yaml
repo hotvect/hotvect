@@ -1,0 +1,129 @@
+version: "2017-09-20"
+
+allow_concurrent_steps: true
+
+pipeline:
+  - id: "check-linters"
+    depends_on: []
+    type: script
+    timeout: 15m
+    vm_config:
+      type: linux
+      image: cdp-runtime/python-3.9
+    when:
+      event: pull_request
+    cache:
+      paths:
+        - ~/.cache
+    commands:
+      - desc: "run-pre-commit"
+        cmd: |
+          pre-commit install
+          pre-commit run --from-ref origin/HEAD --to-ref HEAD
+
+  - id: build-snapshot
+    type: script
+    vm_config:
+      type: linux
+      image: cdp-runtime/jdk17-maven
+    commands:
+      - desc: "Add -SNAPSHOT suffix"
+        cmd: mvn build-helper:parse-version versions:set -DnewVersion=\${parsedVersion.majorVersion}.\${parsedVersion.minorVersion}.\${parsedVersion.incrementalVersion}-SNAPSHOT -B
+      - desc: "Run tests and check buildability"
+        cmd: mvn clean install -B
+      - desc: "Deploy snapshot version"
+        cmd: mvn clean deploy -B
+      - desc: "Stash hotvect offline util jar so that python step can use it"
+        cmd: |
+          cdp-tool stash push snapshot-hotvect-offline-util-target hotvect-offline-util/target/*-jar-with-dependencies.jar
+
+  - id: test-python
+    desc: Runs pytests
+    type: script
+    depends_on:
+      - build-snapshot
+    vm_config:
+      type: linux
+      image: cdp-runtime/python-3.9
+    commands:
+      - desc: "Checks install requirements"
+        cmd: |
+          pip install -r python/requirements.txt -r python/requirements-dev.txt
+      - desc: "Copy hotvect offline util jar"
+        cmd: |
+          cdp-tool stash pop stashed
+          mv stashed/snapshot-hotvect-offline-util-target hotvect-offline-util/target
+          ls hotvect-offline-util/target/*
+      - desc: "Runs unittests"
+        cmd: |
+          python python/setup.py copy_hotvect_jar
+          python -m pytest
+
+  - id: build-docs
+    depends_on: []
+    type: script
+    vm_config:
+      type: linux
+      image: cdp-runtime/mkdocs-v9
+      size: small
+    commands:
+      - desc: build docs
+        cmd: build-docs
+      - desc: notify PR
+        cmd: |
+          DOCS_CHANGED=$(git diff --quiet  origin/"${CDP_TARGET_BRANCH}"..."${CDP_HEAD_COMMIT_ID}" -- docs || echo changed)
+          if [ "$CDP_PULL_REQUEST_NUMBER" ] && [ "$DOCS_CHANGED" == "changed" ]; then
+            comment="Docs have changed. Preview is available under: https://hotvect.docs-test.zalando.net/pr/#{CDP_PULL_REQUEST_NUMBER}/"
+            git gh-comment "$comment"
+          fi
+    artifacts:
+      - type: docs
+        name: hotvect
+        path: site
+
+  - id: build-release
+    type: script
+    depends_on:
+      - build-snapshot
+      - test-python
+    vm_config:
+      type: linux
+      image: cdp-runtime/jdk17-maven
+    requires_human_approval: false
+    commands:
+      - desc: "Deploy release version"
+        cmd: mvn clean deploy -B -X
+      - desc: "Push tag"
+        cmd: |
+          export TAG=`mvn -U -B -q -Dexec.executable="echo" -Dexec.args='${project.version}' --non-recursive org.codehaus.mojo:exec-maven-plugin::exec`
+          git gh-tag $TAG
+      - desc: "Stash hotvect offline util jar so that python step can use it"
+        cmd: |
+          cdp-tool stash push hotvect-offline-util-target hotvect-offline-util/target/*-jar-with-dependencies.jar
+    when:
+      event: push
+
+  - id: publish-python
+    type: script
+    vm_config:
+      type: linux
+      image: cdp-runtime/python-3.9
+    when:
+      event: push
+    depends_on:
+      - build-release
+    env:
+      PIP_INDEX_URL: "https://pypi.zalando.net/repository/pypi/simple"
+      PIP_TRUSTED_HOST: "pypi.zalando.net"
+    commands:
+      - desc: "Copy hotvect offline util jar"
+        cmd: |
+          cdp-tool stash pop stashed
+          mv stashed/hotvect-offline-util-target hotvect-offline-util/target
+          ls hotvect-offline-util/target/*
+      - desc: Publishes the package to internal PyPI
+        cmd: |
+          cd python
+          python setup.py copy_hotvect_jar
+          python setup.py sdist bdist_wheel
+          twine upload dist/*

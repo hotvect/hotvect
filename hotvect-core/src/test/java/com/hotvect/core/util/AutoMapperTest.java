@@ -1,9 +1,9 @@
 package com.hotvect.core.util;
 
+import com.google.common.collect.Sets;
 import com.hotvect.api.data.DataRecord;
 import com.hotvect.core.TestFeatureNamespace;
 import com.hotvect.core.TestRawNamespace;
-import com.google.common.collect.Sets;
 import org.junit.jupiter.api.Test;
 
 import java.util.EnumMap;
@@ -29,7 +29,7 @@ class AutoMapperTest {
         assertEquals(expectedToBeMapped, subject.mapped().keySet().stream().map(Enum::name).collect(toSet()));
 
 
-        EnumMap<TestRawNamespace, String> input = new EnumMap<TestRawNamespace, String>(TestRawNamespace.class);
+        EnumMap<TestRawNamespace, String> input = new EnumMap<>(TestRawNamespace.class);
         for (TestRawNamespace rawNs : TestRawNamespace.values()) {
             input.put(rawNs, rawNs.name());
         }

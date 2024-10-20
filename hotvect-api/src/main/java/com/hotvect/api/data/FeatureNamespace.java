@@ -1,12 +1,13 @@
 package com.hotvect.api.data;
 
-import com.hotvect.api.data.hashed.HashedValue;
-import com.hotvect.api.data.hashed.HashedValueType;
+import java.util.Comparator;
 
 /**
  * Namespace interface for {@link HashedValue}.
  */
 public interface FeatureNamespace extends Namespace {
-    @Override
-    HashedValueType getValueType();
+    ValueType getFeatureValueType();
+    static <V extends FeatureNamespace> Comparator<V> alphabetical(){
+        return Comparator.comparing(Object::toString);
+    }
 }

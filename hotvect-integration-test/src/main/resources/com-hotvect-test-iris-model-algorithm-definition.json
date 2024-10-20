@@ -1,0 +1,31 @@
+{
+  "git_describe": "test",
+  "algorithm_name": "com-hotvect-test-iris-model",
+  "algorithm_version": "com-hotvect-test-1.0.0",
+  "decoder_factory_classname": "com.hotvect.integrationtest.algoshared.IrisDecoderFactory",
+  "vectorizer_factory_classname": "com.hotvect.integrationtest.model.iris.IrisVectorizerFactory",
+  "reward_function_factory_classname": "com.hotvect.integrationtest.model.iris.IrisRewardFunctionFactory",
+  "encoder_factory_classname": "com.hotvect.integrationtest.model.iris.IrisEncoderFactory",
+  "algorithm_factory_classname": "com.hotvect.integrationtest.model.iris.IrisScorerFactory",
+  "train_data_prefix": "iris/train",
+  "test_data_prefix": "iris/test",
+  "number_of_training_days": 2,
+  "training_container": "hotvect-training-container:latest",
+  "training_command": "echo \"encoded:{{ encoded_file }} parameter_output:{{ parameter_output_path }}\" > {{ parameter_output_path }}",
+  "train_decoder_parameters": {
+    "train_test_param": "param1"
+  },
+  "test_decoder_parameters": {
+    "test_test_param": "param2"
+  },
+  "vectorizer_parameters": {
+    "vectorizer_test_parameter": "param3",
+    "hash_bits": 26,
+    "features":
+    [
+      ["discretized_sepal_length", "discretized_sepal_width"],
+      ["discretized_sepal_length"],
+      ["discretized_sepal_width"]
+    ]
+  }
+}
