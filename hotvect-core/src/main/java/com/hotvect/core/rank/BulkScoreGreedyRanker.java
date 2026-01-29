@@ -5,8 +5,8 @@ import com.hotvect.api.algorithms.Ranker;
 import com.hotvect.api.data.ranking.RankingDecision;
 import com.hotvect.api.data.ranking.RankingRequest;
 import com.hotvect.api.data.ranking.RankingResponse;
+import com.hotvect.api.data.scoring.ScoringDecision;
 import com.hotvect.utils.ListTransform;
-import it.unimi.dsi.fastutil.doubles.DoubleList;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -27,14 +27,14 @@ public class BulkScoreGreedyRanker<SHARED, ACTION> implements Ranker<SHARED, ACT
 
     @Override
     public RankingResponse<ACTION> rank(RankingRequest<SHARED, ACTION> request) {
-        int numActions = request.getAvailableActions().size();
-        DoubleList scores = this.bulkScorer.apply(request);
+        int numActions = request.availableActions().size();
+        List<ScoringDecision<ACTION>> scores = this.bulkScorer.bulkScore(request);
 
 
         List<BulkScoreGreedyRanker<SHARED, ACTION>.IndexedScoredAction> processed = new ArrayList<>(numActions);
 
         for(int i = 0; i < numActions; ++i) {
-            processed.add(new IndexedScoredAction(i, request.getAvailableActions().get(i), scores.getDouble(i)));
+            processed.add(new IndexedScoredAction(i, request.availableActions().get(i), scores.get(i).score()));
         }
 
         processed.sort(this.COMPARATOR);

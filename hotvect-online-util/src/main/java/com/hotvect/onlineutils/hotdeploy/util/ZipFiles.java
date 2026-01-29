@@ -40,7 +40,7 @@ public class ZipFiles {
         return readFromZip(zipFile, _x -> true);
     }
 
-        public static Map<String, InputStream> readFromZip(ZipFile zipFile, Predicate<ZipArchiveEntry> filter) {
+    public static Map<String, InputStream> readFromZip(ZipFile zipFile, Predicate<ZipArchiveEntry> filter) {
         return Collections.list(zipFile.getEntries()).stream()
                 .filter(filter)
                 .collect(Collectors.toMap(

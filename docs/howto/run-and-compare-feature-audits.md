@@ -1,3 +1,26 @@
+---
+title: How to Run and Compare Feature Audits
+description: Generate human-readable feature outputs and compare algorithm versions
+tags: [audit, debugging, comparison, features, testing]
+difficulty: beginner
+estimated_time: 10 minutes
+prerequisites:
+  - Algorithm JAR built and available
+  - Test data available in expected directory structure
+  - hotvect CLI installed
+related_docs:
+  - ./debug-feature-engineering.md
+  - ./develop-a-re-ranker-with-hotvect.md
+  - ../cli/usage.md
+related_commands:
+  - hv audit
+  - hv-ext jsonl-compare
+next_steps:
+  - Debug specific feature differences
+  - Run full backtest comparison
+  - Update algorithm based on findings
+---
+
 # How to: Run and compare feature audits
 
 ## What are feature audits?
@@ -12,7 +35,7 @@ This file is not very readable. With the audit function, you can produce the sam
 
 ```json
 {
-  "example_id": "4ecceb1e-64e4-41f1-TEST-000000000000",
+  "example_id": "4ecceb1e-64e4-41f1-b72e-545793d02681",
   "actions": [
     {
       "reward": 0.0,

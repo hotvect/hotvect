@@ -1,0 +1,5 @@
+0	Num	feature_0
+1	Categ	category_feature
+2	Text	text_feature
+3	NumVector	vector_feature
+4	Auxiliary	auxiliary_data

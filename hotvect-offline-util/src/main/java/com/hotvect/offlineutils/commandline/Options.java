@@ -36,9 +36,11 @@ public class Options {
     @CommandLine.Option(names = {"--encode"}, description = "Extract features from source data files and encode it.")
     public boolean encode;
 
-    @CommandLine.Option(names = {"--list-available-transformations"}, description = "List available transformations in the given algorithm jar.")
+    @CommandLine.Option(names = {"--list-transformations"}, description = "List available transformations in the given algorithm jar.")
     public boolean listAvailableTransformations;
 
+    @CommandLine.Option(names = {"--verbose"}, description = "Increase verbosity of the output", defaultValue = "false")
+    public boolean verbose;
 
     @CommandLine.Option(names = {"--predict"}, description = "Perform prediction (test) on the source file.")
     public boolean predict;
@@ -66,7 +68,7 @@ public class Options {
                 throw new ParameterException(commandSpec.commandLine(), "No value provided for --source");
             }
 
-            Map<String, List<File>> sourceFiles = (Map<String, List<File>>) argSpec.getValue();
+            Map<String, List<File>> sourceFiles = argSpec.getValue();
             if (sourceFiles != null && !sourceFiles.isEmpty()) {
                 throw new ParameterException(commandSpec.commandLine(), "--source option can only be specified once");
             }
@@ -89,7 +91,8 @@ public class Options {
             try {
                 if (json.startsWith("[")) {
                     // JSON array input
-                    List<String> defaultFiles = mapper.readValue(json, new TypeReference<List<String>>() {});
+                    List<String> defaultFiles = mapper.readValue(json, new TypeReference<>() {
+                    });
                     Map<String, List<File>> result = new HashMap<>();
                     result.put("default", defaultFiles.stream().map(File::new).collect(Collectors.toList()));
                     return result;
@@ -133,8 +136,6 @@ public class Options {
     @CommandLine.Option(names = {"--samples"}, paramLabel = "Number of records to use", description = "Metadata location", defaultValue = "-1")
     public int samples;
 
-    @CommandLine.Option(names = {"--collect-memoization-statistics"}, description = "Collect memoization statistics")
-    public boolean collectMemoizationStatistics = false;
 
     @CommandLine.Option(names = {"-h", "--help"}, usageHelp = true, description = "Display a help message")
     private boolean helpRequested = false;
@@ -161,7 +162,6 @@ public class Options {
                 ", destinationFile=" + destinationFile +
                 ", metadataLocation=" + metadataLocation +
                 ", samples=" + samples +
-                ", collectMemoizationStatistics=" + collectMemoizationStatistics +
                 ", helpRequested=" + helpRequested +
                 '}';
     }

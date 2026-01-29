@@ -47,10 +47,11 @@ public class AlgorithmDefinitionReader {
                 // But we do not fully resolve the dependency algo def themselves yet
                 // Hence null is provided
                 null,
-                ensureExtract(json, "decoder_factory_classname").asText(),
+                optionalExtract(json, "generate_state_factory_classname").map(JsonNode::asText).orElse(null),
+                optionalExtract(json, "decoder_factory_classname").map(JsonNode::asText).orElse(null),
                 optionalExtract(json, "transformer_factory_classname").map(JsonNode::asText).orElse(null),
                 optionalExtract(json, "vectorizer_factory_classname").map(JsonNode::asText).orElse(null),
-                ensureExtract(json, "reward_function_factory_classname").asText(),
+                optionalExtract(json, "reward_function_factory_classname").map(JsonNode::asText).orElse(null),
                 optionalExtract(json, "encoder_factory_classname").map(JsonNode::asText).orElse(null),
                 ensureExtract(json, "algorithm_factory_classname").asText(),
                 Optional.ofNullable(json.get("transformer_parameters")),

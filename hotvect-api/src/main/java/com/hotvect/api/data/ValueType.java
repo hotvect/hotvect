@@ -6,4 +6,8 @@ package com.hotvect.api.data;
  */
 public interface ValueType {
     boolean hasNumericValues();
+    default Class<?> getJavaType(){
+        // TODO default method for legacy support
+        return null;
+    }
 }

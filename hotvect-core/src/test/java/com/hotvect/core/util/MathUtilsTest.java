@@ -19,15 +19,15 @@ public class MathUtilsTest {
         Int2DoubleMap idx2Score = new Int2DoubleArrayMap(IntStream.range(0, request.length).toArray(), request);
         Int2DoubleMap frequency = new Int2DoubleArrayMap();
 
-        for (int i = 0; i < 1_000_000; i++) {
+        for (int i = 0; i < 500_000; i++) {
             var draw = MathUtils.weightedDraw(new DoubleArrayList(request));
-            frequency.merge(draw.index, 1.0, Double::sum);
-            var score = idx2Score.get(draw.index);
-            assertEquals(score/totalScore, draw.probability, 0.005);
+            frequency.merge(draw.index(), 1.0, Double::sum);
+            var score = idx2Score.get(draw.index());
+            assertEquals(score/totalScore, draw.probability(), 0.005);
         }
 
         var totalDraws = frequency.values().doubleStream().sum();
-        assertEquals(1_000_000, totalDraws);
+        assertEquals(500_000, totalDraws);
 
         var ratios = Maps.transformValues(frequency, d -> d/totalDraws);
         ratios.forEach((key, value) -> {

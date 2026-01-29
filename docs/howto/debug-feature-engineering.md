@@ -1,3 +1,28 @@
+---
+title: How to Debug Feature Engineering Code
+description: Step-by-step guide to debugging algorithm JARs in your IDE using hotvect-offline-util
+tags: [debugging, feature-engineering, algorithms, ide, development]
+difficulty: intermediate
+estimated_time: 20 minutes
+prerequisites:
+  - Algorithm JAR built and available
+  - IDE installed (IntelliJ IDEA recommended)
+  - hotvect Python package installed
+  - Test data available
+related_docs:
+  - ./develop-a-re-ranker-with-hotvect.md
+  - ./run-and-compare-feature-audits.md
+  - ../cli/usage.md
+related_commands:
+  - hv audit
+  - hv encode
+  - hv predict
+next_steps:
+  - Run feature audits to verify fixes
+  - Compare algorithm versions
+  - Add unit tests for edge cases
+---
+
 # How to: Debug feature engineering code (algorithm jars)
 
 ## What do you mean with feature engineering code (algorithm jars)?

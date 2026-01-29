@@ -1,146 +1,558 @@
 #!/usr/bin/env python3
 import argparse
-from pathlib import Path
+import json
+import logging
 import sys
+from abc import ABC, abstractmethod
+from pathlib import Path
 from typing import List
-import difflib
-
-from typing import Optional
 
 import hotvect.hotvectjar
 from hotvect.utils import execute_command_with_live_output
+import hotvect.mlutils as mlutils
+from hotvect.pyhotvect import AlgorithmPipeline, AlgorithmPipelineContext
+from hotvect.backtest import run_backtest_on_git_references
 
-import logging
-
-logging.basicConfig(level=logging.INFO, stream=sys.stdout)
+logging.basicConfig(
+    level=logging.INFO,
+    stream=sys.stdout,
+    format='%(asctime)s:%(levelname)s:%(name)s:%(funcName)s:%(message)s'
+)
 logger = logging.getLogger(__name__)
 
 
-def run_command(
-        java_args: List[str],
-        algorithm_jar: Path,
-        algorithm_name: str,
-        metadata_path: Path,
-        source_path: Path,
-        dest_path: Path,
-        parameter_path: Path,
-        dest_schema_path: Path,
-        samples: Optional[int],
-        command_type: str
-):
-    cmd = ["java"]
-    cmd.extend(java_args)
-    if not any(arg.startswith("-Xmx") for arg in java_args):
-        cmd.append("-Xmx32g")
-    if "-XX:+ExitOnOutOfMemoryError" not in java_args:
-        cmd.append("-XX:+ExitOnOutOfMemoryError")
-    if "-cp" not in java_args:
-        cmd.extend(["-cp", str(hotvect.hotvectjar.HOTVECT_JAR_PATH)])
+class BaseCommand(ABC):
+    """Base class for all hv commands."""
 
-    cmd.extend([
-        "com.hotvect.offlineutils.commandline.Main",
-        "--algorithm-jar", str(algorithm_jar),
-        "--algorithm-definition", algorithm_name,
-        "--meta-data", str(metadata_path),
-        f"--{command_type}",
-        "--source", str(source_path),
-        "--dest", str(dest_path)
-    ])
-    # Always use ordered processing
-    cmd.append("--ordered")
+    @abstractmethod
+    def get_name(self) -> str:
+        """Return the command name."""
+        pass
 
-    if command_type == "encode":
-        cmd.extend(["--dest-schema-description", str(dest_schema_path)])
+    @abstractmethod
+    def get_help(self) -> str:
+        """Return the short help message."""
+        pass
 
-    if parameter_path is not None:
-        cmd.extend(["--parameters", str(parameter_path)])
-    if samples is not None:
-        cmd.extend(["--samples", str(samples)])
-    cmd_str = ' '.join(cmd)
-    logger.info(f"Running command: {cmd_str}")
-    execute_command_with_live_output(cmd_str, sys.stdout.write)
+    @abstractmethod
+    def get_description(self) -> str:
+        """Return the detailed description."""
+        pass
+
+    @abstractmethod
+    def add_arguments(self, parser: argparse.ArgumentParser) -> None:
+        """Add command-specific arguments to the parser."""
+        pass
+
+    @abstractmethod
+    def execute(self, args: argparse.Namespace) -> None:
+        """Execute the command with parsed arguments."""
+        pass
 
 
-def get_closest_match(user_input, options):
-    matches = difflib.get_close_matches(user_input, options, n=1, cutoff=0.0)
-    return matches[0] if matches else None
+class JavaCommand(BaseCommand):
+    """Base class for commands that execute Java with hotvect JAR."""
+
+    def add_arguments(self, parser: argparse.ArgumentParser) -> None:
+        """Add common Java command arguments."""
+        parser.add_argument("--algorithm-jar", required=True,
+                          help="Path to the JAR file containing the algorithm implementation (required)")
+        parser.add_argument("--algorithm-name", required=True,
+                          help="Name of the algorithm to execute (required)")
+        parser.add_argument("--metadata-path",
+                          help="Path where the operation's metadata will be saved (optional, auto-generated if not specified)")
+
+        # Add source-path with default settings, subclasses can override
+        source_required, source_help = self.get_source_path_config()
+        parser.add_argument("--source-path", required=source_required, help=source_help)
+
+        parser.add_argument("--dest-path",
+                          help="Path where the operation results will be saved (optional, auto-generated if not specified)")
+        parser.add_argument("--parameter-path",
+                          help="Path to the trained model parameter file (required for predict/audit, optional for others)")
+        parser.add_argument("--dest-schema-path",
+                          help="Path where the feature schema description will be saved (optional, used in encoding operations)")
+        parser.add_argument("--samples", type=int,
+                          help="Number of samples to process, useful for testing with smaller datasets (optional)")
+
+        # Add command-specific arguments
+        self.add_command_arguments(parser)
+
+    def get_source_path_config(self):
+        """Return (required, help_text) for --source-path argument. Override in subclasses."""
+        return False, "Path to the input data source for the operation (optional for some commands)"
+
+    def add_command_arguments(self, parser: argparse.ArgumentParser) -> None:
+        """Override to add command-specific arguments."""
+        pass
+
+    def execute(self, args: argparse.Namespace) -> None:
+        """Execute Java command with common logic."""
+        # Set default paths if not provided
+        command_name = self.get_name()
+
+        if not getattr(args, 'metadata_path', None):
+            metadata_path = f"{args.algorithm_name}.{command_name}.metadata.json"
+            logger.info(f"Metadata path not provided. Using default: {metadata_path}")
+            args.metadata_path = metadata_path
+
+        if not getattr(args, 'dest_path', None):
+            dest_path = f"{args.algorithm_name}.{command_name}.output"
+            logger.info(f"Destination path not provided. Using default: {dest_path}")
+            args.dest_path = dest_path
+
+        if not getattr(args, 'dest_schema_path', None):
+            dest_schema_path = f"{args.algorithm_name}.{command_name}.output.schema"
+            logger.info(f"Destination schema path not provided. Using default: {dest_schema_path}")
+            args.dest_schema_path = dest_schema_path
+
+        # Get JVM args that were passed after the command
+        jvm_args = getattr(args, '_jvm_args', [])
+
+        self.run_java_command(args, jvm_args)
+
+    def run_java_command(self, args: argparse.Namespace, jvm_args: List[str]) -> None:
+        """Run the Java command."""
+        cmd = ["java"]
+        cmd.extend(jvm_args)
+        if not any(arg.startswith("-Xmx") for arg in jvm_args):
+            cmd.append("-Xmx32g")
+        if "-XX:+ExitOnOutOfMemoryError" not in jvm_args:
+            cmd.append("-XX:+ExitOnOutOfMemoryError")
+        if "-cp" not in jvm_args:
+            cmd.extend(["-cp", str(hotvect.hotvectjar.HOTVECT_JAR_PATH)])
+
+        cmd.extend([
+            "com.hotvect.offlineutils.commandline.Main",
+            "--algorithm-jar", str(args.algorithm_jar),
+            "--algorithm-definition", args.algorithm_name,
+            "--meta-data", str(args.metadata_path),
+            f"--{self.get_name()}",
+            "--dest", str(args.dest_path)
+        ])
+
+        if args.source_path:
+            cmd.extend(["--source", str(args.source_path)])
+
+        # Always use ordered processing
+        cmd.append("--ordered")
+
+        if self.get_name() == "encode":
+            cmd.extend(["--dest-schema-description", str(args.dest_schema_path)])
+
+        if getattr(args, 'parameter_path', None):
+            cmd.extend(["--parameters", str(args.parameter_path)])
+
+        if getattr(args, 'samples', None):
+            cmd.extend(["--samples", str(args.samples)])
+
+        cmd_str = ' '.join(map(str, cmd))
+        logger.info(f"Running command: {cmd_str}")
+        execute_command_with_live_output(cmd_str, sys.stdout.write)
+
+
+class AuditCommand(JavaCommand):
+    def get_name(self) -> str:
+        return "audit"
+
+    def get_help(self) -> str:
+        return "Generate human-readable audit data showing feature transformations and calculations"
+
+    def get_description(self) -> str:
+        return "Perform feature transformation on input data and save results as human-readable JSONL format. This is useful for debugging algorithms, inspecting calculated features, and understanding how input data is transformed by the feature engineering pipeline."
+
+    def get_source_path_config(self):
+        return True, "Path to the input data source for auditing (required)"
+
+
+class PerformanceTestCommand(JavaCommand):
+    def get_name(self) -> str:
+        return "performance-test"
+
+    def get_help(self) -> str:
+        return "Benchmark algorithm performance and measure throughput/latency"
+
+    def get_description(self) -> str:
+        return "Execute performance benchmarks on the specified algorithm to measure prediction throughput, latency, and resource utilization. Results help optimize algorithm performance and identify bottlenecks."
+
+    def get_source_path_config(self):
+        return True, "Path to the input data source for the performance test (required)"
+
+
+class EncodeCommand(JavaCommand):
+    def get_name(self) -> str:
+        return "encode"
+
+    def get_help(self) -> str:
+        return "Transform input data into ML-ready format for training"
+
+    def get_description(self) -> str:
+        return "Perform feature transformation on input data and encode it in the binary format expected by the machine learning library (e.g., Vowpal Wabbit or CatBoost). This step is required before training and produces the encoded dataset used for model training."
+
+    def get_source_path_config(self):
+        return True, "Path to the input data source for encoding (required)"
+
+
+class PredictCommand(JavaCommand):
+    def get_name(self) -> str:
+        return "predict"
+
+    def get_help(self) -> str:
+        return "Generate model predictions on test/validation data"
+
+    def get_description(self) -> str:
+        return "Use a trained model to generate predictions on input data. Requires a parameter file from a previous training run. Output includes prediction scores and can be used for evaluation or serving."
+
+    def get_source_path_config(self):
+        return True, "Path to the input data source for prediction (required)"
+
+
+class ListTransformationsCommand(JavaCommand):
+    def get_name(self) -> str:
+        return "list-transformations"
+
+    def get_help(self) -> str:
+        return "Display all feature transformations defined in the algorithm"
+
+    def get_description(self) -> str:
+        return "List all feature transformations, encoders, and data processing steps available in the specified algorithm. Use --verbose for detailed information about each transformation including parameters and data types."
+
+    def get_source_path_config(self):
+        return False, "Path to the input data source (optional for list-transformations)"
+
+    def add_command_arguments(self, parser: argparse.ArgumentParser) -> None:
+        parser.add_argument("--verbose", action='store_true',
+                          help="Show detailed information about each transformation including parameters and data types (optional)")
+
+
+
+
+class EvaluateCommand(BaseCommand):
+    def get_name(self) -> str:
+        return "evaluate"
+
+    def get_help(self) -> str:
+        return "Calculate performance metrics from model predictions"
+
+    def get_description(self) -> str:
+        return "Compute evaluation metrics (accuracy, precision, recall, AUC, etc.) from prediction results. Can perform both online/offline analysis to compare model performance across different scenarios and data splits."
+
+    def add_arguments(self, parser: argparse.ArgumentParser) -> None:
+        parser.add_argument("--source-path", required=True,
+                          help="Path to the prediction results file (JSONL format) to evaluate (required)")
+        parser.add_argument("--dest-path", required=True,
+                          help="Path where the evaluation metrics will be saved as JSON (required)")
+        parser.add_argument("--enable-online-offline-analysis", action='store_true',
+                          help="Enable detailed online vs offline performance analysis (optional)")
+
+    def execute(self, args: argparse.Namespace) -> None:
+        perform_online_offline_evaluations = args.enable_online_offline_analysis
+        result = mlutils.standard_evaluation(
+            path=args.source_path
+        )
+        with open(args.dest_path, 'w') as f:
+            json.dump(result, f, indent=2)
+        print(f"Evaluation results saved to {args.dest_path}")
+
+
+class TrainCommand(BaseCommand):
+    def get_name(self) -> str:
+        return "train"
+
+    def get_help(self) -> str:
+        return "Train a machine learning model using the hotvect pipeline"
+
+    def get_description(self) -> str:
+        return "Train a machine learning model using the hotvect pipeline with specified algorithm and data paths"
+
+    def add_arguments(self, parser: argparse.ArgumentParser) -> None:
+        parser.add_argument("--algorithm-name", required=True,
+                          help="Name of the algorithm to train (required)")
+        parser.add_argument("--data-base-dir", required=True,
+                          help="Base directory containing training data (required)")
+        parser.add_argument("--output-base-dir", required=True,
+                          help="Base directory where training outputs will be saved (required)")
+        parser.add_argument("--algorithm-jar", required=True,
+                          help="Path to the JAR file containing the algorithm implementation (required)")
+        parser.add_argument("--last-test-time", required=True,
+                          help="Last test time in YYYY-MM-DD format, e.g., '2025-04-30' (required)")
+        parser.add_argument("--algorithm-override",
+                          help="Path to JSON file containing algorithm configuration overrides (optional)")
+        parser.add_argument("--extra-jvm-args",
+                          help="Additional JVM arguments for training, comma-separated, e.g., '-Xmx64g,-XX:+UseG1GC' (optional)")
+
+    def execute(self, args: argparse.Namespace) -> None:
+        # Parse extra JVM args if provided
+        jvm_options = ["-Xmx32g"]  # Default JVM memory
+        if args.extra_jvm_args:
+            extra_jvm_args = [arg.strip() for arg in args.extra_jvm_args.split(',')]
+            jvm_options.extend(extra_jvm_args)
+
+        # Create the pipeline context
+        context = AlgorithmPipelineContext(
+            algorithm_jar_path=Path(args.algorithm_jar),
+            state_soruce_base_path=Path(args.data_base_dir),
+            data_base_path=Path(args.data_base_dir),
+            metadata_base_path=Path(args.output_base_dir) / "metadata",
+            output_base_path=Path(args.output_base_dir),
+            jvm_options=jvm_options,
+            enable_gzip=False,
+            max_threads=5
+        )
+
+        logger.info(f"Starting training for algorithm: {args.algorithm_name}")
+        logger.info(f"Data base directory: {args.data_base_dir}")
+        logger.info(f"Output base directory: {args.output_base_dir}")
+        logger.info(f"Algorithm JAR: {args.algorithm_jar}")
+
+        # Parse last test time
+        from datetime import date
+        last_test_time = date.fromisoformat(args.last_test_time)
+
+        # Handle algorithm definition with optional overrides
+        algorithm_definition = args.algorithm_name
+        if args.algorithm_override:
+            import json
+            logger.info(f"Loading algorithm overrides from: {args.algorithm_override}")
+            with open(args.algorithm_override, 'r') as f:
+                override_config = json.load(f)
+            algorithm_definition = (args.algorithm_name, override_config)
+            logger.info(f"Applied algorithm overrides: {override_config}")
+
+        # Create and run the pipeline
+        from hotvect.mlutils import standard_evaluation
+
+        pipeline = AlgorithmPipeline(
+            algorithm_pipeline_context=context,
+            algorithm_definition=algorithm_definition,
+            last_test_time=last_test_time,
+            evaluation_func=standard_evaluation
+        )
+        pipeline.run_all()
+
+        logger.info("Training pipeline completed successfully")
+
+
+class BacktestCommand(BaseCommand):
+    def get_name(self) -> str:
+        return "backtest"
+
+    def get_help(self) -> str:
+        return "Run backtest on git references to compare algorithm performance"
+
+    def get_description(self) -> str:
+        return "Run backtest on git references to compare algorithm performance across different versions or configurations. For SageMaker execution, returns immediately after job submission without waiting for completion."
+
+    def add_arguments(self, parser: argparse.ArgumentParser) -> None:
+        # Create mutually exclusive group for git references
+        ref_group = parser.add_mutually_exclusive_group(required=True)
+        ref_group.add_argument("--git-reference", action='append', dest='git_references',
+                              help="Git reference (branch/commit) to test. Can be specified multiple times for multiple references")
+        ref_group.add_argument("--backtest-config",
+                              help="Path to JSON file containing list of git references and their overrides")
+
+        parser.add_argument("--algorithm-override", action='append', dest='algorithm_overrides',
+                          help="Path to JSON file containing algorithm configuration overrides. If one override provided, applies to all git references. If multiple overrides provided, applies to git references in order (optional)")
+
+        # Required arguments
+        parser.add_argument("--algo-repo-url", required=True,
+                          help="Git repository URL for the algorithm (required)")
+        parser.add_argument("--data-base-dir",
+                          help="Base directory containing training and test data (required for local execution, optional for SageMaker - data comes from S3 channels in SageMaker config)")
+        parser.add_argument("--output-base-dir", required=True,
+                          help="Base directory where backtest results will be saved (required)")
+        parser.add_argument("--scratch-dir", required=True,
+                          help="Directory for temporary files like JARs and working data during backtest execution (required)")
+        parser.add_argument("--last-test-time", required=True,
+                          help="Last test time in YYYY-MM-DD format, e.g., '2025-08-05' (required)")
+
+        # Optional arguments
+        parser.add_argument("--number-of-runs", type=int, default=1,
+                          help="Number of backtest runs to execute (default: 1)")
+        parser.add_argument("--extra-jvm-args",
+                          help="Additional JVM arguments, comma-separated, e.g., '-Xmx176g,-XX:+UseG1GC' (optional)")
+        parser.add_argument("--sagemaker-config",
+                          help="Path to JSON file containing SageMaker training job configuration (optional)")
+        parser.add_argument("--role-arn",
+                          help="AWS role ARN to assume for SageMaker execution (optional)")
+        parser.add_argument("--n-process", type=int, default=1,
+                          help="Number of parallel processes for local execution (default: 1)")
+        parser.add_argument("--max-threads-per-process", type=int, default=-1,
+                          help="Maximum threads per process for local execution (default: auto-calculated)")
+        parser.add_argument("--clean", action='store_true',
+                          help="Clean output directories before starting backtest (optional)")
+        parser.add_argument("--no-performance-test", action='store_true',
+                          help="Disable system performance testing (optional)")
+        parser.add_argument("--auto-attach-data", action='store_true',
+                          help="Automatically populate SageMaker InputDataConfig based on algorithm dependencies (SageMaker mode only)")
+        parser.add_argument("--auto-attach-data-default-s3-base",
+                          help="Default S3 base URI used when dependencies do not specify explicit s3_uri (e.g., s3://bucket/tables/)")
+        parser.add_argument("--auto-attach-data-environment", choices=['production', 'test'], default='production',
+                          help="Environment key to use when dependency s3_uri is a map (default: production)")
+
+    def execute(self, args: argparse.Namespace) -> None:
+        from datetime import date
+        from hotvect.mlutils import standard_evaluation
+        import json
+
+        # Parse git references and overrides
+        if args.backtest_config:
+            # Load from config file
+            with open(args.backtest_config, 'r') as f:
+                config = json.load(f)
+            git_references = [(item['git_reference'], item.get('algorithm_definition_override')) for item in config]
+        else:
+            # Build from command line arguments
+            git_references = []
+            overrides = args.algorithm_overrides or []
+
+            # Smart padding logic and validation
+            if len(overrides) == 1 and len(args.git_references) > 1:
+                logger.info(f"Single algorithm override provided for {len(args.git_references)} git references. Applying the same override to all references: {overrides[0]}")
+                # Pad with the single override instead of None
+                while len(overrides) < len(args.git_references):
+                    overrides.append(overrides[0])
+            elif len(overrides) > 1 and len(overrides) != len(args.git_references):
+                # Multiple overrides provided but count doesn't match git references - fail
+                import sys
+                print(f"Error: {len(overrides)} algorithm overrides provided but {len(args.git_references)} git references specified. Numbers don't match.", file=sys.stderr)
+                sys.exit(2)
+            else:
+                # Either no overrides, or exact match, or single git ref - use original padding logic
+                while len(overrides) < len(args.git_references):
+                    overrides.append(None)
+
+            for i, git_ref in enumerate(args.git_references):
+                override = None
+                if i < len(overrides) and overrides[i]:
+                    with open(overrides[i], 'r') as f:
+                        override = json.load(f)
+                    logger.info(f"Applied algorithm override from {overrides[i]} to git reference {git_ref}")
+                else:
+                    logger.info(f"No algorithm override applied to git reference {git_ref}")
+                git_references.append((git_ref, override))
+
+        # Parse JVM options
+        jvm_options = None
+        if args.extra_jvm_args:
+            jvm_options = [arg.strip() for arg in args.extra_jvm_args.split(',')]
+
+        # Parse SageMaker config
+        sagemaker_training_job_definition = None
+        if args.sagemaker_config:
+            with open(args.sagemaker_config, 'r') as f:
+                sagemaker_training_job_definition = json.load(f)
+
+        # Validate data-base-dir requirement
+        if not sagemaker_training_job_definition and not args.data_base_dir:
+            import sys
+            print("Error: --data-base-dir is required for local execution (when not using --sagemaker-config)", file=sys.stderr)
+            sys.exit(2)
+
+        # For SageMaker mode, use placeholder if data_base_dir not provided
+        if sagemaker_training_job_definition and not args.data_base_dir:
+            args.data_base_dir = args.scratch_dir  # Use scratch dir as placeholder
+
+        # Parse last test time
+        last_test_time = date.fromisoformat(args.last_test_time)
+
+        logger.info(f"Starting backtest with {len(git_references)} git references")
+        logger.info(f"Git references: {[ref[0] for ref in git_references]}")
+        logger.info(f"SageMaker mode: {'enabled' if sagemaker_training_job_definition else 'disabled'}")
+
+        # Use the existing run_backtest_on_git_references function which has proper job naming
+        results = run_backtest_on_git_references(
+            algo_repo_url=args.algo_repo_url,
+            algo_git_references=git_references,
+            data_base_dir=args.data_base_dir,
+            output_base_dir=args.output_base_dir,
+            hyperparameter_base_dir=args.scratch_dir,
+            evaluation_function=standard_evaluation,
+            last_test_time=last_test_time,
+            number_of_runs=args.number_of_runs,
+            jvm_options=jvm_options,
+            sagemaker_training_job_definition=sagemaker_training_job_definition,
+            role_arn_to_assume=args.role_arn,
+            clean=args.clean,
+            system_performance_test=not args.no_performance_test,
+            auto_attach_data=args.auto_attach_data,
+            auto_attach_data_default_s3_base=args.auto_attach_data_default_s3_base,
+            auto_attach_data_environment=args.auto_attach_data_environment,
+        )
+
+        # Display results
+        if sagemaker_training_job_definition:
+            logger.info("SageMaker jobs submitted successfully!")
+            for result in results:
+                logger.info(f"Git reference: {result.algo_git_reference}")
+                if result.error:
+                    logger.error(f"Error: {result.error}")
+                elif result.backtest_iteration_results:
+                    for iteration in result.backtest_iteration_results:
+                        if iteration.result and 'training_job_name' in iteration.result:
+                            logger.info(f"  SageMaker job submitted: {iteration.result['training_job_name']}")
+        else:
+            logger.info("Local backtest completed!")
+            for result in results:
+                logger.info(f"Git reference: {result.algo_git_reference}")
+                if result.error:
+                    logger.error(f"Error: {result.error}")
+                elif result.backtest_iteration_results:
+                    for iteration in result.backtest_iteration_results:
+                        if iteration.result:
+                            logger.info(f"Results for {iteration.parameter_version}: {iteration.result}")
+
+        logger.info("Backtest execution completed")
+
 
 
 def main():
-    available_commands = ['audit', 'performance-test', 'encode', 'predict', 'list-available-transformations']
-    parser = argparse.ArgumentParser(description="Hotvect CLI tool", add_help=True)
-    subparsers = parser.add_subparsers(dest='command', help='Available operations', required=True)
-
-    arguments = {
-        "algorithm-jar": {
-            "required": True,
-            "help": "Path to the algorithm jar file"
-        },
-        "algorithm-name": {
-            "required": True,
-            "help": "The name of the algorithm to run"
-        },
-        "metadata-path": {
-            "help": "Path to write the metadata of the operation"
-        },
-        "source-path": {
-            "help": "Path to the data source to use for the operation"
-        },
-        "dest-path": {
-            "help": "Path to write the result of the operation"
-        },
-        "parameter-path": {
-            "help": "Path to the parameter file (if applicable)"
-        },
-        "dest-schema-path": {
-            "help": "Path to write the schema description (in case of encoding)"
-        },
-        "samples": {
-            "help": "Number of samples to process"
-        },
+    # Define available commands
+    commands = {
+        'audit': AuditCommand(),
+        'performance-test': PerformanceTestCommand(),
+        'encode': EncodeCommand(),
+        'predict': PredictCommand(),
+        'list-transformations': ListTransformationsCommand(),
+        'evaluate': EvaluateCommand(),
+        'train': TrainCommand(),
+        'backtest': BacktestCommand()
     }
 
-    for command in available_commands:
-        subp = subparsers.add_parser(command, help=f"{command} operation")
-        for argument, options in arguments.items():
-            if argument == "java_args":
-                subp.add_argument(argument, **options)
-            else:
-                subp.add_argument(f"--{argument}", **options)
+    parser = argparse.ArgumentParser(
+        prog='hv',
+        description="Hotvect Command Line Interface (CLI) tool for performing various operations like encoding, predicting, auditing, etc.",
+        epilog="Use 'hv <command> -h' to see help for each command.",
+        add_help=True
+    )
 
+    subparsers = parser.add_subparsers(dest='command', help='Available subcommands')
+
+    # Add subparsers for each command
+    for command_name, command_instance in commands.items():
+        subparser = subparsers.add_parser(
+            command_name,
+            help=command_instance.get_help(),
+            description=command_instance.get_description()
+        )
+        command_instance.add_arguments(subparser)
+
+    # If no arguments are provided, show the help message
+    if len(sys.argv) == 1:
+        parser.print_help(sys.stderr)
+        sys.exit(1)
+
+    # Parse known args to separate command args from JVM args
     args, jvm_args = parser.parse_known_args()
 
-    # Dynamically set default paths if not provided
-    if not getattr(args, 'metadata_path', None):
-        metadata_path = f"{args.algorithm_name}.{args.command}.metadata.json"
-        logger.info(f"Metadata path not provided. Using default: {metadata_path}")
-        args.metadata_path = metadata_path
+    # Store JVM args for Java commands
+    args._jvm_args = jvm_args
 
-    if not getattr(args, 'dest_path', None):
-        dest_path = f"{args.algorithm_name}.{args.command}.output"
-        logger.info(f"Destination path not provided. Using default: {dest_path}")
-        args.dest_path = dest_path
-
-    if not getattr(args, 'dest-schema-description', None):
-        dest_schema_path = f"{args.algorithm_name}.{args.command}.output.schema"
-        logger.info(f"Destination path not provided. Using default: {dest_schema_path}")
-        args.dest_schema_path = dest_schema_path
-
-    # Adjusted to check for parameter-path and not parameter
-    parameter_path = getattr(args, 'parameter_path', None)
-
-    run_command(
-        java_args=jvm_args,
-        algorithm_jar=Path(args.algorithm_jar),
-        algorithm_name=args.algorithm_name,
-        metadata_path=Path(args.metadata_path),
-        source_path=Path(args.source_path) if args.source_path else None,
-        dest_path=Path(args.dest_path),
-        parameter_path=Path(parameter_path) if parameter_path else None,
-        dest_schema_path=Path(args.dest_schema_path),
-        samples=args.samples,
-        command_type=args.command
-    )
+    # Execute the selected command
+    if args.command in commands:
+        commands[args.command].execute(args)
+    else:
+        parser.error(f"Unknown command {args.command}")
 
 
 if __name__ == '__main__':

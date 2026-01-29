@@ -48,8 +48,7 @@ public class DataRecord<K extends Enum<K>, V> {
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
-        if (!(o instanceof DataRecord)) return false;
-        DataRecord<?, ?> dataRecord = (DataRecord<?, ?>) o;
+        if (!(o instanceof DataRecord<?, ?> dataRecord)) return false;
         return Arrays.equals(values, dataRecord.values) &&
                 Objects.equals(keyClass, dataRecord.keyClass);
     }

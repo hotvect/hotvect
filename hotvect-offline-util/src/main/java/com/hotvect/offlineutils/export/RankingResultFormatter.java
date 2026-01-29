@@ -23,18 +23,18 @@ public class RankingResultFormatter<SHARED, ACTION, OUTCOME> implements BiFuncti
     @Override
     public Function<RankingExample<SHARED, ACTION, OUTCOME>, String> apply(RewardFunction<OUTCOME> rewardFunction, Ranker<SHARED, ACTION> ranker) {
         return ex -> {
-            var rankResult = ranker.rank(ex.getRankingRequest());
-            var decisions = new ArrayList<>(rankResult.getRankingDecisions());
+            var rankResult = ranker.rank(ex.rankingRequest());
+            var decisions = new ArrayList<>(rankResult.decisions());
             Map<Integer, Integer> actionIdxToRank = toActionIdxToRank(decisions);
 
             // We want to keep the original order when we write the results
             decisions.sort(Comparator.comparingInt(RankingDecision::getActionIndex));
 
             ObjectNode root = objectMapper.createObjectNode();
-            root.put("example_id", ex.getExampleId());
+            root.put("example_id", ex.exampleId());
             Map<String, Object> sharedAdditionalProperties = new HashMap<>();
-            sharedAdditionalProperties.putAll(rankResult.getAdditionalProperties());
-            sharedAdditionalProperties.putAll(getAdditionalProperties(ex.getRankingRequest().getShared()));
+            sharedAdditionalProperties.putAll(rankResult.additionalProperties());
+            sharedAdditionalProperties.putAll(getAdditionalProperties(ex.rankingRequest().shared()));
             if (!sharedAdditionalProperties.isEmpty()) {
                 root.putPOJO("additional_properties", sharedAdditionalProperties);
             }
@@ -45,11 +45,11 @@ public class RankingResultFormatter<SHARED, ACTION, OUTCOME> implements BiFuncti
                 var decision = decisions.get(i);
                 var actionIdx = decision.getActionIndex();
                 checkState(i == actionIdx);
-                var score = decision.getScore();
-                var probability = decision.getProbability();
-                var outcome = ex.getOutcomes().get(i);
-                checkState(i == outcome.getRankingDecision().getActionIndex());
-                var reward = rewardFunction.applyAsDouble(outcome.getOutcome());
+                var score = decision.score();
+                var probability = decision.probability();
+                var outcome = ex.outcomes().get(i);
+                checkState(i == outcome.rankingDecision().getActionIndex());
+                var reward = rewardFunction.applyAsDouble(outcome.outcome());
                 var result = objectMapper.createObjectNode();
                 var rank = actionIdxToRank.get(actionIdx);
                 result.put("rank", rank);
@@ -60,9 +60,9 @@ public class RankingResultFormatter<SHARED, ACTION, OUTCOME> implements BiFuncti
                     result.put("probability", probability);
                 }
                 result.put("reward", reward);
-                Map<String, Object> outcomeAdditionalProperties = getAdditionalProperties(outcome.getOutcome());
-                Map<String, Object> actionAdditionalProperties = getAdditionalProperties(decision.getAction());
-                Map<String, Object> decisionAdditionalProperties = decision.getAdditionalProperties();
+                Map<String, Object> outcomeAdditionalProperties = getAdditionalProperties(outcome.outcome());
+                Map<String, Object> actionAdditionalProperties = getAdditionalProperties(decision.action());
+                Map<String, Object> decisionAdditionalProperties = decision.additionalProperties();
                 Map<String, Object> merged = mergeAdditionalProperties(outcomeAdditionalProperties, actionAdditionalProperties, decisionAdditionalProperties);
                 if (!merged.isEmpty()) {
                     result.putPOJO("additional_properties", merged);

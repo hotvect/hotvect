@@ -1,3 +1,25 @@
+---
+title: How to Reuse Existing Outputs
+description: Reuse trained model parameters and other pipeline outputs for faster iteration and debugging
+tags: [parameters, caching, training, pipeline, optimization]
+difficulty: intermediate
+estimated_time: 15 minutes
+prerequisites:
+  - Understanding of hotvect training pipeline
+  - Algorithm with dependency structure (for with_parameter)
+  - S3 access configured (if using S3 URIs)
+related_docs:
+  - ./develop-a-re-ranker-with-hotvect.md
+  - ../cli/usage.md
+related_commands:
+  - hv train
+  - hv predict
+next_steps:
+  - Run evaluation on different test datasets
+  - Compare cached vs regenerated outputs
+  - Set up automated caching strategy
+---
+
 # How to: Reuse existing outputs like prediction parameters
 
 ## Quick guide for reusing existing prediction parameters (model parameters)
@@ -58,7 +80,7 @@ Since it's a caching mechanism, if the output is not available in the specified 
         },
     },
     "dependencies": {
-        "impression2add2cart-model": {
+        "my-algorithm-model": {
             "hotvect_execution_parameters": {
                 "train": {
                     # This will store the cache to the specified location
@@ -84,4 +106,3 @@ Since it's a caching mechanism, if the output is not available in the specified 
 }
 ```
 Unlike "with_parameter", even if cache is specified, the pipeline will still execute subsequent steps (`prediction`, and `performance-test`), step by default. If you want to skip these steps, you can set "enabled" to false for these steps. Or, you can use `with_parameter` to achieve the same behavior.
-

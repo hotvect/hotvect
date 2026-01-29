@@ -5,6 +5,7 @@ import java.util.Comparator;
 /**
  * Namespace interface for {@link HashedValue}.
  */
+@Deprecated(forRemoval = true)
 public interface FeatureNamespace extends Namespace {
     ValueType getFeatureValueType();
     static <V extends FeatureNamespace> Comparator<V> alphabetical(){

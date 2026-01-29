@@ -10,11 +10,13 @@ import java.util.*;
 import java.util.stream.Collectors;
 
 public class NamespaceUtils {
+    @Deprecated(forRemoval = true)
     public static <V extends FeatureNamespace> SortedSet<V> findFeatureNamespaces(Optional<JsonNode> transformerHyperparameters, SortedSet<V> availableFeatures) {
         Set<String> features = extractFeatureNamespaces(transformerHyperparameters);
         return findFeatureNamespaces(features, availableFeatures);
     }
 
+    @Deprecated(forRemoval = true)
     public static <V extends FeatureNamespace> SortedSet<V> findFeatureNamespaces(Set<String> features, SortedSet<V> availableFeatures) {
         SortedSet<V> featureIds = new TreeSet<>(FeatureNamespace.alphabetical());
         for (String feature : features) {
@@ -30,6 +32,7 @@ public class NamespaceUtils {
         return ImmutableSortedSet.copyOf(FeatureNamespace.alphabetical(), featureIds);
     }
 
+    @Deprecated(forRemoval = true)
     @SafeVarargs
     public static <V extends FeatureNamespace> SortedSet<V> findFeatureNamespaces(Set<String> features, Class<? extends Enum<?>>... candidateEnums) {
         SortedSet<V> featureIds = new TreeSet<>(FeatureNamespace.alphabetical());
@@ -48,6 +51,7 @@ public class NamespaceUtils {
         return ImmutableSortedSet.copyOf(FeatureNamespace.alphabetical(), featureIds);
     }
 
+    @Deprecated(forRemoval = true)
     @SafeVarargs
     public static <V extends FeatureNamespace> SortedSet<V> findFeatureNamespaces(Optional<JsonNode> transformerHyperparameters, Class<? extends Enum<?>>... candidateEnums) {
         Set<String> features = extractFeatureNamespaces(transformerHyperparameters);

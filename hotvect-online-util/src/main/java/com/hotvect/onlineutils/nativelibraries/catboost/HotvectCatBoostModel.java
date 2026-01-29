@@ -4,6 +4,7 @@ import ai.catboost.CatBoostError;
 import ai.catboost.CatBoostModel;
 import ai.catboost.CatBoostPredictions;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
+import com.hotvect.onlineutils.hotdeploy.util.CatBoostModelClosedException;
 import com.hotvect.utils.VerboseRunnable;
 import it.unimi.dsi.fastutil.doubles.DoubleArrayList;
 import it.unimi.dsi.fastutil.doubles.DoubleList;
@@ -19,6 +20,8 @@ import static com.google.common.base.Preconditions.checkState;
 public class HotvectCatBoostModel implements AutoCloseable {
     private static final Logger log = LoggerFactory.getLogger(HotvectCatBoostModel.class);
     private static final Cleaner CLEANER = Cleaner.create(new ThreadFactoryBuilder().setNameFormat("catboost-model-cleaner-%s").build());
+
+    private volatile boolean isClosed = false;
 
     private static Runnable getCleanResourceAction(final CatBoostModel catBoostModel) {
         return new VerboseRunnable() {
@@ -47,6 +50,10 @@ public class HotvectCatBoostModel implements AutoCloseable {
     }
 
     public double predict(@Nullable float[] numericFeatures, @Nullable String[] catFeatures, @Nullable String[] textFeatures, @Nullable float[][] embeddingFeatures) {
+        if (isClosed) {
+            throw new CatBoostModelClosedException("Cannot predict using a closed model");
+        }
+
         try {
             CatBoostPredictions predictions = this.catBoostModel.predict(numericFeatures, catFeatures, textFeatures, embeddingFeatures);
             checkState(predictions.getObjectCount()==1);
@@ -70,6 +77,10 @@ public class HotvectCatBoostModel implements AutoCloseable {
 
 
     public DoubleList predict(@Nullable float[][] numericFeatures, @Nullable String[][] catFeatures, @Nullable String[][] textFeatures, @Nullable float[][][] embeddingFeatures) {
+        if (isClosed) {
+            throw new CatBoostModelClosedException("Cannot predict using a closed model");
+        }
+
         try {
             CatBoostPredictions predictions = this.catBoostModel.predict(numericFeatures, catFeatures, textFeatures, embeddingFeatures);
             int objectCount = predictions.getObjectCount();
@@ -98,6 +109,11 @@ public class HotvectCatBoostModel implements AutoCloseable {
 
     @Override
     public void close() throws Exception {
+        if (this.isClosed) {
+            return;
+        }
+
+        this.isClosed = true;
         this.cleanable.clean();
     }
 }

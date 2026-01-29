@@ -18,22 +18,10 @@ import java.util.stream.Collectors;
 import static org.junit.jupiter.api.Assertions.*;
 
 class CompoundNamespaceFactoryTest {
-    enum TestA implements Namespace {
-        testA1, testA2, testA3
-    }
-
-    enum TestB implements Namespace {
-        testB1, testB2, testB3
-    }
-
-    enum TestC implements Namespace {
-        testC1, testC2, testC3
-    }
-
-    enum TestD implements Namespace {
-        testD1, testD2, testD3
-    }
-
+    enum TestA implements Namespace { testA1, testA2, testA3 }
+    enum TestB implements Namespace { testB1, testB2, testB3 }
+    enum TestC implements Namespace { testC1, testC2, testC3 }
+    enum TestD implements Namespace { testD1, testD2, testD3 }
     enum TestABC implements Namespace {
         testA1_testB1_testC1,
         testA1_testB1_testC2,
@@ -70,7 +58,6 @@ class CompoundNamespaceFactoryTest {
         CompoundNamespace.clear();
     }
 
-
     @Test
     void test() throws Exception {
         NamespacedRecord<Namespace, String> record = new NamespacedRecordImpl<>();
@@ -80,7 +67,7 @@ class CompoundNamespaceFactoryTest {
                     CompoundNamespace.NamespaceId theNameSpace = (CompoundNamespace.NamespaceId) CompoundNamespace.declareNamespace(testA, testB, testC);
                     record.put(theNameSpace, Joiner.on("_").join(testA, testB, testC));
                     CompoundNamespace.NamespaceId probe = (CompoundNamespace.NamespaceId) CompoundNamespace.declareNamespace(testA, testB, testC);
-                    assertArrayEquals(new Namespace[]{testA, testB, testC}, probe.getNamespaces());
+                    assertArrayEquals(new Namespace[]{testA, testB, testC}, probe.getComponents());
                     assertEquals(Joiner.on("_").join(testA, testB, testC), record.get(probe));
                 }
             }
@@ -100,7 +87,7 @@ class CompoundNamespaceFactoryTest {
         populate(flatHashMap);
         Map<String, String> string = new HashMap<>();
         populateString(string);
-        int times = 10000000;
+        int times = 100000000;
         double compoundIdentityResult = nsPerOp(compound, times, getCompoundKeys());
         double compoundConcatIdentityResult = nsPerOpConcat(compound, times, getCompoundKeysArr());
         double flatEnumMapResult = nsPerOp(enumMap, times, Iterators.cycle(TestABC.values()));
@@ -241,14 +228,14 @@ class CompoundNamespaceFactoryTest {
 
     @Test
     void testFeatureValueType() throws Exception {
-        FeatureNamespace stringsOne = CompoundNamespace.declareFeatureNamespace(RawValueType.STRINGS, TestA.testA1, TestD.testD1);
+        Namespace stringsOne = CompoundNamespace.declareFeatureNamespace(RawValueType.STRINGS, TestA.testA1, TestD.testD1);
         assertEquals(RawValueType.STRINGS, stringsOne.getFeatureValueType());
         stringsOne = CompoundNamespace.declareFeatureNamespace(RawValueType.STRINGS, TestA.testA1, TestD.testD1);
         assertEquals(RawValueType.STRINGS, stringsOne.getFeatureValueType());
         assertThrows(IllegalArgumentException.class, () -> {
             CompoundNamespace.declareFeatureNamespace(RawValueType.SINGLE_NUMERICAL, TestA.testA1, TestD.testD1);
         });
-        FeatureNamespace singleCategoricalTwo = CompoundNamespace.declareFeatureNamespace(RawValueType.SINGLE_CATEGORICAL, TestA.testA1, TestD.testD2);
+        Namespace singleCategoricalTwo = CompoundNamespace.declareFeatureNamespace(RawValueType.SINGLE_CATEGORICAL, TestA.testA1, TestD.testD2);
         assertEquals(RawValueType.SINGLE_CATEGORICAL, singleCategoricalTwo.getFeatureValueType());
     }
 
@@ -262,7 +249,7 @@ class CompoundNamespaceFactoryTest {
         CompoundNamespace.NamespaceId namespaceId = (CompoundNamespace.NamespaceId) compositeABC;
         // The expected namespaces after flattening should be TestA.testA1, TestB.testB1, TestC.testC1
         Namespace[] expectedNamespaces = new Namespace[]{TestA.testA1, TestB.testB1, TestC.testC1};
-        assertArrayEquals(expectedNamespaces, namespaceId.getNamespaces());
+        assertArrayEquals(expectedNamespaces, namespaceId.getComponents());
         assertEquals("testA1_testB1_testC1", namespaceId.toString());
     }
 
@@ -271,14 +258,14 @@ class CompoundNamespaceFactoryTest {
         // Create a composite namespace from TestA and TestB
         Namespace compositeAB = CompoundNamespace.declareNamespace(TestA.testA2, TestB.testB2);
         // Obtain a feature namespace by mixing an enum and the composite namespace
-        FeatureNamespace featureNamespace = CompoundNamespace.declareFeatureNamespace(RawValueType.SINGLE_NUMERICAL, compositeAB, TestC.testC2);
-        assertTrue(featureNamespace instanceof CompoundNamespace.FeatureNamespaceId);
-        CompoundNamespace.FeatureNamespaceId featureNamespaceId = (CompoundNamespace.FeatureNamespaceId) featureNamespace;
+        Namespace featureNamespace = CompoundNamespace.declareFeatureNamespace(RawValueType.SINGLE_NUMERICAL, compositeAB, TestC.testC2);
+        assertTrue(featureNamespace instanceof CompoundNamespace.NamespaceId);
+        CompoundNamespace.NamespaceId namespaceId = (CompoundNamespace.NamespaceId) featureNamespace;
         // The expected namespaces after flattening should be TestA.testA2, TestB.testB2, TestC.testC2
         Namespace[] expectedNamespaces = new Namespace[]{TestA.testA2, TestB.testB2, TestC.testC2};
-        assertArrayEquals(expectedNamespaces, featureNamespaceId.getNamespaces());
-        assertEquals("testA2_testB2_testC2", featureNamespaceId.toString());
-        assertEquals(RawValueType.SINGLE_NUMERICAL, featureNamespaceId.getFeatureValueType());
+        assertArrayEquals(expectedNamespaces, namespaceId.getComponents());
+        assertEquals("testA2_testB2_testC2", namespaceId.toString());
+        assertEquals(RawValueType.SINGLE_NUMERICAL, namespaceId.getFeatureValueType());
     }
 
     @Test
@@ -292,7 +279,7 @@ class CompoundNamespaceFactoryTest {
         CompoundNamespace.NamespaceId namespaceId = (CompoundNamespace.NamespaceId) compositeABCD;
         // The expected namespaces after flattening should be TestA.testA3, TestB.testB3, TestC.testC3, TestD.testD1
         Namespace[] expectedNamespaces = new Namespace[]{TestA.testA3, TestB.testB3, TestC.testC3, TestD.testD1};
-        assertArrayEquals(expectedNamespaces, namespaceId.getNamespaces());
+        assertArrayEquals(expectedNamespaces, namespaceId.getComponents());
         assertEquals("testA3_testB3_testC3_testD1", namespaceId.toString());
     }
 
@@ -301,14 +288,14 @@ class CompoundNamespaceFactoryTest {
         // Create composite namespaces
         Namespace compositeAC = CompoundNamespace.declareNamespace(TestA.testA2, TestC.testC2);
         // Obtain a feature namespace using the composite namespace
-        FeatureNamespace featureNamespace = CompoundNamespace.declareFeatureNamespace(RawValueType.STRINGS, TestB.testB1, compositeAC);
-        assertTrue(featureNamespace instanceof CompoundNamespace.FeatureNamespaceId);
-        CompoundNamespace.FeatureNamespaceId featureNamespaceId = (CompoundNamespace.FeatureNamespaceId) featureNamespace;
+        Namespace featureNamespace = CompoundNamespace.declareFeatureNamespace(RawValueType.STRINGS, TestB.testB1, compositeAC);
+        assertTrue(featureNamespace instanceof CompoundNamespace.NamespaceId);
+        CompoundNamespace.NamespaceId namespaceId = (CompoundNamespace.NamespaceId) featureNamespace;
         // The expected namespaces after flattening should be TestB.testB1, TestA.testA2, TestC.testC2
         Namespace[] expectedNamespaces = new Namespace[]{TestB.testB1, TestA.testA2, TestC.testC2};
-        assertArrayEquals(expectedNamespaces, featureNamespaceId.getNamespaces());
-        assertEquals("testB1_testA2_testC2", featureNamespaceId.toString());
-        assertEquals(RawValueType.STRINGS, featureNamespaceId.getFeatureValueType());
+        assertArrayEquals(expectedNamespaces, namespaceId.getComponents());
+        assertEquals("testB1_testA2_testC2", namespaceId.toString());
+        assertEquals(RawValueType.STRINGS, namespaceId.getFeatureValueType());
     }
 
     @Test
@@ -316,13 +303,13 @@ class CompoundNamespaceFactoryTest {
         // Use a unique combination of namespaces that hasn't been declared as a regular Namespace
         Namespace compositeAC = CompoundNamespace.declareNamespace(TestA.testA2, TestC.testC2);
         // Obtain a feature namespace with a specific ValueType using the composite namespace
-        FeatureNamespace featureNamespace = CompoundNamespace.declareFeatureNamespace(RawValueType.SINGLE_CATEGORICAL, TestB.testB1, compositeAC, TestD.testD2);
+        Namespace featureNamespace = CompoundNamespace.declareFeatureNamespace(RawValueType.SINGLE_CATEGORICAL, TestB.testB1, compositeAC, TestD.testD2);
         assertEquals(RawValueType.SINGLE_CATEGORICAL, featureNamespace.getFeatureValueType());
         // Attempt to obtain the same feature namespace with a different ValueType, expect exception
         Exception exception = assertThrows(IllegalArgumentException.class, () -> {
             CompoundNamespace.declareFeatureNamespace(RawValueType.SINGLE_NUMERICAL, TestB.testB1, compositeAC, TestD.testD2);
         });
-        String expectedMessage = "Attempted to retrieve a FeatureNamespace with ValueType SINGLE_NUMERICAL, but this namespace was already assigned ValueType SINGLE_CATEGORICAL";
+        String expectedMessage = "Attempted to set featureValueType to";
         String actualMessage = exception.getMessage();
         assertTrue(actualMessage.contains(expectedMessage));
     }
@@ -338,7 +325,7 @@ class CompoundNamespaceFactoryTest {
         CompoundNamespace.NamespaceId namespaceId = (CompoundNamespace.NamespaceId) compositeFull;
         // Expected namespaces after flattening: TestC.testC3, TestB.testB2, TestA.testA2, TestD.testD3
         Namespace[] expectedNamespaces = new Namespace[]{TestC.testC3, TestB.testB2, TestA.testA2, TestD.testD3};
-        assertArrayEquals(expectedNamespaces, namespaceId.getNamespaces());
+        assertArrayEquals(expectedNamespaces, namespaceId.getComponents());
         assertEquals("testC3_testB2_testA2_testD3", namespaceId.toString());
     }
 
@@ -350,25 +337,62 @@ class CompoundNamespaceFactoryTest {
         assertEquals("At least two namespaces are required to create a composite namespace", exception.getMessage());
     }
 
-    // Added tests to verify the older deprecated methods still work
-    @SuppressWarnings("removal")    @Test
+    @SuppressWarnings("removal")
+    @Test
     void testDeprecatedGetNamespace() {
         Namespace ns = CompoundNamespace.getNamespace(TestA.testA1, TestB.testB1, TestC.testC1);
         assertTrue(ns instanceof CompoundNamespace.NamespaceId);
         CompoundNamespace.NamespaceId nsId = (CompoundNamespace.NamespaceId) ns;
         Namespace[] expected = new Namespace[]{TestA.testA1, TestB.testB1, TestC.testC1};
-        assertArrayEquals(expected, nsId.getNamespaces());
+        assertArrayEquals(expected, nsId.getComponents());
         assertEquals("testA1_testB1_testC1", nsId.toString());
     }
 
-    @SuppressWarnings("removal")    @Test
+    @SuppressWarnings("removal")
+    @Test
     void testDeprecatedGetFeatureNamespace() {
-        FeatureNamespace fns = CompoundNamespace.getFeatureNamespace(RawValueType.STRINGS, TestA.testA2, TestB.testB2, TestC.testC2);
-        assertTrue(fns instanceof CompoundNamespace.FeatureNamespaceId);
-        CompoundNamespace.FeatureNamespaceId fnsId = (CompoundNamespace.FeatureNamespaceId) fns;
+        Namespace fns = CompoundNamespace.getFeatureNamespace(RawValueType.STRINGS, TestA.testA2, TestB.testB2, TestC.testC2);
+        assertTrue(fns instanceof CompoundNamespace.NamespaceId);
+        CompoundNamespace.NamespaceId nsId = (CompoundNamespace.NamespaceId) fns;
         Namespace[] expected = new Namespace[]{TestA.testA2, TestB.testB2, TestC.testC2};
-        assertArrayEquals(expected, fnsId.getNamespaces());
-        assertEquals("testA2_testB2_testC2", fnsId.toString());
-        assertEquals(RawValueType.STRINGS, fnsId.getFeatureValueType());
+        assertArrayEquals(expected, nsId.getComponents());
+        assertEquals("testA2_testB2_testC2", nsId.toString());
+        assertEquals(RawValueType.STRINGS, nsId.getFeatureValueType());
+    }
+
+    @Test
+    void testDeclareNamespaceWithReturnTypeHint() {
+        Namespace ns = CompoundNamespace.declareNamespace(String.class, TestA.testA1, TestB.testB1);
+        assertNotNull(ns);
+        assertTrue(ns instanceof CompoundNamespace.NamespaceId);
+        assertEquals("testA1_testB1", ns.toString());
+        assertEquals(String.class, ns.getReturnTypeHint());
+    }
+
+    @Test
+    void testDeclareNamespaceWithoutReturnTypeHint() {
+        Namespace ns = CompoundNamespace.declareNamespace(TestA.testA1, TestB.testB1);
+        assertNotNull(ns);
+        assertTrue(ns instanceof CompoundNamespace.NamespaceId);
+        assertEquals("testA1_testB1", ns.toString());
+        assertNull(ns.getReturnTypeHint());
+    }
+
+    @Test
+    void testDeclareNamespaceWithConflictingReturnTypeHints() {
+        Namespace ns1 = CompoundNamespace.declareNamespace(String.class, TestA.testA1, TestB.testB1);
+        Exception exception = assertThrows(IllegalArgumentException.class, () -> {
+            CompoundNamespace.declareNamespace(Integer.class, TestA.testA1, TestB.testB1);
+        });
+        String expectedMessage = "Attempted to set returnTypeHint to";
+        String actualMessage = exception.getMessage();
+        assertTrue(actualMessage.contains(expectedMessage));
+    }
+
+    @Test
+    void testFeatureNamespaceReturnTypeHint() {
+        Namespace featureNamespace = CompoundNamespace.declareFeatureNamespace(RawValueType.SINGLE_CATEGORICAL, TestA.testA2, TestB.testB2);
+        assertNotNull(featureNamespace);
+        assertEquals(RawValueType.SINGLE_CATEGORICAL.getJavaType(), featureNamespace.getReturnTypeHint());
     }
 }

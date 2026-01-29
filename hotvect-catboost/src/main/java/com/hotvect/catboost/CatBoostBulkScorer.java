@@ -2,41 +2,42 @@ package com.hotvect.catboost;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
-import com.hotvect.api.data.FeatureNamespace;
-import com.hotvect.api.data.RawValue;
-import com.hotvect.api.data.RawValueType;
+import com.hotvect.api.data.Namespace;
 import com.hotvect.api.data.common.NamespacedRecord;
 import com.hotvect.api.data.ranking.RankingRequest;
-import com.hotvect.api.transformation.memoization.ComputingCandidate;
-import com.hotvect.api.transformation.ranking.MemoizableBulkScorer;
-import com.hotvect.api.transformation.ranking.MemoizableRankingTransformer;
-import com.hotvect.api.transformation.ranking.MemoizedRankingRequest;
+import com.hotvect.api.data.ranking.TransformedAction;
+import com.hotvect.api.data.scoring.ScoringDecision;
+import com.hotvect.core.transform.ranking.ComputingBulkScorer;
+import com.hotvect.core.transform.ranking.ComputingCandidate;
+import com.hotvect.core.transform.ranking.ComputingRankingRequest;
+import com.hotvect.core.transform.ranking.ComputingRankingTransformer;
+import com.hotvect.onlineutils.concurrency.CommonPool;
 import com.hotvect.onlineutils.nativelibraries.catboost.HotvectCatBoostModel;
 import it.unimi.dsi.fastutil.doubles.DoubleList;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
-import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.RecursiveTask;
 import java.util.stream.Collectors;
 
 import static com.google.common.base.Preconditions.checkState;
-import static com.hotvect.utils.Utils.checkCollectionIsEnumsOrNamespaceIdObjects;
+import static com.hotvect.core.util.Utils.checkCollectionIsEnumsOrNamespaceIdObjects;
 
-public class CatBoostBulkScorer<SHARED, ACTION> implements MemoizableBulkScorer<SHARED, ACTION> {
-    private final MemoizableRankingTransformer<SHARED, ACTION> transformer;
+public class CatBoostBulkScorer<SHARED, ACTION> implements ComputingBulkScorer<SHARED, ACTION> {
+    private final ComputingRankingTransformer<SHARED, ACTION> transformer;
     private final HotvectCatBoostModel hotvectCatBoostModel;
 
-    private final List<FeatureNamespace> numericalFeatures;
-    private final List<FeatureNamespace> categoricalFeatures;
-    private final List<FeatureNamespace> textFeatures;
-    private final List<FeatureNamespace> embdeddedFeatures;
+    private final List<Namespace> numericalFeatures;
+    private final List<Namespace> categoricalFeatures;
+    private final List<Namespace> textFeatures;
+    private final List<Namespace> embdeddedFeatures;
 
     private final int noForkThreshold;
     private final TaskType taskType;
 
     public CatBoostBulkScorer(
-            MemoizableRankingTransformer<SHARED, ACTION> transformer,
+            ComputingRankingTransformer<SHARED, ACTION> transformer,
             HotvectCatBoostModel hotvectCatBoostModel,
             int noForkThreshold,
             String taskType
@@ -46,58 +47,66 @@ public class CatBoostBulkScorer<SHARED, ACTION> implements MemoizableBulkScorer<
         this.hotvectCatBoostModel = hotvectCatBoostModel;
         this.taskType = TaskType.fromString(taskType);
 
-
         checkCollectionIsEnumsOrNamespaceIdObjects(transformer.getUsedFeatures());
 
-        Set<FeatureNamespace> featureNamespaces = transformer.getUsedFeatures();
+        Set<Namespace> Namespaces = transformer.getUsedFeatures();
 
-        this.numericalFeatures = ImmutableList.copyOf(featureNamespaces.stream().filter(x -> x.getFeatureValueType() == CatBoostFeatureType.NUMERICAL).collect(Collectors.toList()));
-        this.categoricalFeatures = ImmutableList.copyOf(featureNamespaces.stream().filter(x -> x.getFeatureValueType() == CatBoostFeatureType.CATEGORICAL).collect(Collectors.toList()));
-        this.textFeatures = ImmutableList.copyOf(featureNamespaces.stream().filter(x -> x.getFeatureValueType() == CatBoostFeatureType.TEXT).collect(Collectors.toList()));
-        this.embdeddedFeatures = ImmutableList.copyOf(featureNamespaces.stream().filter(x -> x.getFeatureValueType() == CatBoostFeatureType.EMBEDDING).collect(Collectors.toList()));
+        this.numericalFeatures = ImmutableList.copyOf(Namespaces.stream().filter(x -> x.getFeatureValueType() == CatBoostFeatureType.NUMERICAL).collect(Collectors.toList()));
+        this.categoricalFeatures = ImmutableList.copyOf(Namespaces.stream().filter(x -> x.getFeatureValueType() == CatBoostFeatureType.CATEGORICAL).collect(Collectors.toList()));
+        this.textFeatures = ImmutableList.copyOf(Namespaces.stream().filter(x -> x.getFeatureValueType() == CatBoostFeatureType.TEXT).collect(Collectors.toList()));
+        this.embdeddedFeatures = ImmutableList.copyOf(Namespaces.stream().filter(x -> x.getFeatureValueType() == CatBoostFeatureType.EMBEDDING).collect(Collectors.toList()));
     }
 
     @Override
-    public DoubleList apply(RankingRequest<SHARED, ACTION> rankingRequest) {
-        MemoizedRankingRequest<SHARED, ACTION> memoized = transformer.memoize(rankingRequest);
-        return this.apply(memoized);
+    public List<ScoringDecision<ACTION>> bulkScore(RankingRequest<SHARED, ACTION> rankingRequest) {
+        ComputingRankingRequest<SHARED, ACTION> computingRankingRequest = transformer.prepare(rankingRequest);
+        return this.doApply(computingRankingRequest);
     }
 
     @Override
-    public DoubleList apply(MemoizedRankingRequest<SHARED, ACTION> rankingRequest) {
-        if (rankingRequest.getAction().size()<=noForkThreshold){
-            return doApply(rankingRequest);
+    public List<ScoringDecision<ACTION>> bulkScore(ComputingRankingRequest<SHARED, ACTION> rankingRequest) {
+        rankingRequest = this.transformer.prepare(rankingRequest);
+        return this.doApply(rankingRequest);
+    }
+
+
+    public List<ScoringDecision<ACTION>> doApply(ComputingRankingRequest<SHARED, ACTION> rankingRequest) {
+        if (rankingRequest.candidates().size()<=noForkThreshold){
+            return process(rankingRequest);
         } else {
-            return ForkJoinPool.commonPool().invoke(new RecursiveScoringTask(rankingRequest));
+            return CommonPool.commonForkJoinPool().invoke(new RecursiveScoringTask(rankingRequest));
         }
     }
 
-    private class RecursiveScoringTask extends RecursiveTask<DoubleList> {
-        private final MemoizedRankingRequest<SHARED, ACTION> request;
 
-        private RecursiveScoringTask(MemoizedRankingRequest<SHARED, ACTION> request) {
+
+
+        private class RecursiveScoringTask extends RecursiveTask<List<ScoringDecision<ACTION>>> {
+        private final ComputingRankingRequest<SHARED, ACTION> request;
+
+        private RecursiveScoringTask(ComputingRankingRequest<SHARED, ACTION> request) {
             this.request = request;
         }
 
         @Override
-        protected DoubleList compute() {
-            if(request.getAction().size() <= noForkThreshold || noForkThreshold <= 0){
-                return doApply(request);
+        protected List<ScoringDecision<ACTION>> compute() {
+            if(request.candidates().size() <= noForkThreshold || noForkThreshold <= 0){
+                return process(request);
             } else {
-                List<ComputingCandidate<SHARED,ACTION>> actions = request.getAction();
+                List<ComputingCandidate<SHARED,ACTION>> actions = request.candidates();
                 int mid = actions.size() / 2;
                 var secondTask = new RecursiveScoringTask(
-                        new MemoizedRankingRequest<>(
-                                request.getRankingRequest(),
-                                request.getShared(),
+                        new ComputingRankingRequest<>(
+                                request.rankingRequest(),
+                                request.shared(),
                                 actions.subList(mid, actions.size())
                         )
                 );
                 var secondResult = secondTask.fork();
                 var firstTask = new RecursiveScoringTask(
-                        new MemoizedRankingRequest<>(
-                                request.getRankingRequest(),
-                                request.getShared(),
+                        new ComputingRankingRequest<>(
+                                request.rankingRequest(),
+                                request.shared(),
                                 actions.subList(0, mid)
                         )
                 );
@@ -109,15 +118,15 @@ public class CatBoostBulkScorer<SHARED, ACTION> implements MemoizableBulkScorer<
         }
     }
 
-    private DoubleList doApply(MemoizedRankingRequest<SHARED, ACTION> rankingRequest) {
-        int actionSize = rankingRequest.getAction().size();
-        List<NamespacedRecord<FeatureNamespace, RawValue>> transformed = transformer.apply(rankingRequest);
+    private List<ScoringDecision<ACTION>> process(ComputingRankingRequest<SHARED, ACTION> rankingRequest) {
+        int actionSize = rankingRequest.candidates().size();
+        List<TransformedAction<ACTION>> transformed = transformer.transform(rankingRequest);
         float[][] numericals = new float[actionSize][CatBoostBulkScorer.this.numericalFeatures.size()];
         float[][][] embeddings = new float[actionSize][CatBoostBulkScorer.this.embdeddedFeatures.size()][];
         String[][] categoricals = new String[actionSize][CatBoostBulkScorer.this.categoricalFeatures.size()];
         String[][] texts = new String[actionSize][CatBoostBulkScorer.this.textFeatures.size()];
         for (int actionIdx = 0; actionIdx < actionSize; actionIdx++) {
-            var dataRecord = transformed.get(actionIdx);
+            var dataRecord = transformed.get(actionIdx).transformed();
 
             processNumericals(dataRecord, numericals[actionIdx]);
 
@@ -131,86 +140,116 @@ public class CatBoostBulkScorer<SHARED, ACTION> implements MemoizableBulkScorer<
         DoubleList predictedScores = CatBoostBulkScorer.this.hotvectCatBoostModel.predict(numericals, categoricals, texts, embeddings);
         if (this.taskType == TaskType.CLASSIFICATION) {
             for (int i = 0; i < predictedScores.size(); i++) {
-                predictedScores.set(i, sigmoid(predictedScores.get(i)));
+                predictedScores.set(i, sigmoid(predictedScores.getDouble(i)));
             }
         }
-        return predictedScores;
+
+        List<ScoringDecision<ACTION>> ret = new ArrayList<>(predictedScores.size());
+        for (int i = 0; i < predictedScores.size(); i++) {
+            ret.add(ScoringDecision.of(rankingRequest.rankingRequest().availableActions().get(i), predictedScores.getDouble(i)));
+        }
+
+        return ret;
     }
 
-    private void processEmbedding(NamespacedRecord<FeatureNamespace, RawValue> namespacedRecord, float[][] embeddings) {
+    private static final float[] MISSING_EMBEDDING = new float[]{Float.NaN};
+
+    private void processEmbedding(NamespacedRecord<Namespace, Object> namespacedRecord, float[][] embeddings) {
         for (int featureIdx = 0; featureIdx < CatBoostBulkScorer.this.embdeddedFeatures.size(); featureIdx++) {
-            FeatureNamespace feature = CatBoostBulkScorer.this.embdeddedFeatures.get(featureIdx);
-            RawValue rawValue = namespacedRecord.get(feature);
+            Namespace feature = CatBoostBulkScorer.this.embdeddedFeatures.get(featureIdx);
+            Object value = namespacedRecord.get(feature);
 
-            float[] featureValue;
-
-            if (rawValue == null || rawValue.getNumericals().length == 0) {
-                featureValue = new float[]{Float.NaN};
-            } else {
-                featureValue = new float[rawValue.getNumericals().length];
-
-                for (int i = 0; i < featureValue.length; i++) {
-                    featureValue[i] = (float) rawValue.getNumericals()[i];
+            final float[] featureValue;
+            if (value == null) {
+                featureValue = MISSING_EMBEDDING;
+            } else if (value instanceof float[] fs) {
+                if (fs.length == 0) {
+                    featureValue = MISSING_EMBEDDING;
+                } else {
+                    featureValue = fs;
                 }
+            } else if(value instanceof double[] ds){
+                if (ds.length == 0) {
+                    featureValue = MISSING_EMBEDDING;
+                } else {
+                    float[] farr = new float[ds.length];
+                    for (int i = 0; i < ds.length; i++) {
+                        farr[i] = (float) ds[i];
+                    }
+                    featureValue = farr;
+                }
+            } else {
+                throw new RuntimeException("Invalid type for embedding:%s" + value);
             }
 
             embeddings[featureIdx] = featureValue;
         }
     }
 
-    private void processText(NamespacedRecord<FeatureNamespace, RawValue> namespacedRecord, String[] texts) {
+    private void processText(NamespacedRecord<Namespace, Object> namespacedRecord, String[] texts) {
         // text features
         for (int featureIdx = 0; featureIdx < CatBoostBulkScorer.this.textFeatures.size(); featureIdx++) {
-            FeatureNamespace feature = CatBoostBulkScorer.this.textFeatures.get(featureIdx);
-            RawValue rawValue = namespacedRecord.get(feature);
-            String featureValue;
-            if (rawValue == null || rawValue.getStrings().length == 0) {
+            Namespace feature = CatBoostBulkScorer.this.textFeatures.get(featureIdx);
+            Object value = namespacedRecord.get(feature);
+            final String featureValue;
+            if (value == null) {
                 featureValue = CatBoostEncoder.MISSING_TEXT;
-            } else {
-                StringBuilder sb = new StringBuilder();
-                for (String string : rawValue.getStrings()) {
-                    checkState(!Strings.isNullOrEmpty(string), "Suspicious empty string:%s", rawValue);
-                    checkState(!string.contains(" "), "Feature value may not contain spaces:%s", rawValue);
-                    sb.append(string);
-                    sb.append(" ");
+            } else if (value instanceof String[] arr) {
+                if (arr.length == 0) {
+                    featureValue = CatBoostEncoder.MISSING_TEXT;
+                } else {
+                    StringBuilder sb = new StringBuilder();
+                    for (String string : arr) {
+                        checkState(!Strings.isNullOrEmpty(string), "Suspicious empty string:%s", (Object)arr);
+                        checkState(!string.contains(" "), "Feature value may not contain spaces:%s", (Object)arr);
+                        sb.append(string).append(" ");
+                    }
+                    // Remove excess space character
+                    sb.deleteCharAt(sb.length() - 1);
+                    featureValue = sb.toString();
                 }
-                // Remove excess space character
-                sb.deleteCharAt(sb.length() - 1);
-                featureValue = sb.toString();
+            } else {
+                throw new RuntimeException("Invalid text type:" + value);
             }
             texts[featureIdx] = featureValue;
         }
     }
 
-    private void processCategorical(NamespacedRecord<FeatureNamespace, RawValue> namespacedRecord, String[] categoricals) {
+    private void processCategorical(NamespacedRecord<Namespace, Object> namespacedRecord, String[] categoricals) {
         // categorical features
         for (int featureIdx = 0; featureIdx < CatBoostBulkScorer.this.categoricalFeatures.size(); featureIdx++) {
-            FeatureNamespace feature = CatBoostBulkScorer.this.categoricalFeatures.get(featureIdx);
-            RawValue rawValue = namespacedRecord.get(feature);
-            String featureValue;
-            if (rawValue == null) {
+            Namespace feature = CatBoostBulkScorer.this.categoricalFeatures.get(featureIdx);
+            Object value = namespacedRecord.get(feature);
+
+            final String featureValue;
+            if (value == null) {
                 featureValue = CatBoostEncoder.MISSING_CATEGORICAL;
+            } else if (value instanceof String s) {
+                featureValue = s;
+            } else if (value instanceof Integer || value instanceof Long) {
+                featureValue = value.toString();
             } else {
-                if(rawValue.getValueType()  == RawValueType.SINGLE_STRING){
-                    featureValue = rawValue.getSingleString();
-                } else {
-                    featureValue = String.valueOf(rawValue.getSingleCategorical());
-                }
+                throw new RuntimeException("Invalid categorical value:" + value);
             }
             categoricals[featureIdx] = featureValue;
         }
     }
 
-    private void processNumericals(NamespacedRecord<FeatureNamespace, RawValue> namespacedRecord, float[] numericals) {
+    private void processNumericals(NamespacedRecord<Namespace, Object> namespacedRecord, float[] numericals) {
         // numerical features
         for (int featureIdx = 0; featureIdx < CatBoostBulkScorer.this.numericalFeatures.size(); featureIdx++) {
-            FeatureNamespace feature = CatBoostBulkScorer.this.numericalFeatures.get(featureIdx);
-            RawValue rawValue = namespacedRecord.get(feature);
-            float featureValue;
-            if (rawValue == null) {
+            Namespace feature = CatBoostBulkScorer.this.numericalFeatures.get(featureIdx);
+            Object value = namespacedRecord.get(feature);
+
+            final float featureValue;
+            if (value == null) {
                 featureValue = Float.NaN;
+            } else if (value instanceof Double d) {
+                featureValue = d.floatValue();
+            } else if (value instanceof Float f){
+                featureValue = f;
             } else {
-                featureValue = (float) rawValue.getSingleNumerical();
+                throw new RuntimeException("Invalid numerical value:" + value);
             }
             numericals[featureIdx] = featureValue;
         }

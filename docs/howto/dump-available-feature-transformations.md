@@ -1,3 +1,25 @@
+---
+title: How to Dump Available Feature Transformations
+description: Extract metadata about all feature transformations for analysis and feature selection
+tags: [features, transformations, metadata, feature-selection, analysis]
+difficulty: beginner
+estimated_time: 5 minutes
+prerequisites:
+  - Algorithm JAR built and available
+  - hotvect CLI installed
+  - jq installed (for filtering output)
+related_docs:
+  - ./develop-a-re-ranker-with-hotvect.md
+  - ./debug-feature-engineering.md
+  - ../highlevel/concepts.md
+related_commands:
+  - hv list-transformations
+next_steps:
+  - Analyze feature dependencies
+  - Perform feature selection
+  - Optimize caching strategy
+---
+
 # How to: Dump available feature transformations metadata
 
 ## What do you mean with feature transformations metadata?
@@ -98,15 +120,47 @@ Feature transformations can be declared programmatically, in which case there ca
 ## How to dump feature transformations metadata
 Run the following command:
 ```bash
-hv list-available-transformations --algorithm-jar <your algorithm jar path> --algorithm-name <the name of the algorithm to dump the features for>
+hv list-transformations --algorithm-jar <your algorithm jar path> --algorithm-name <the name of the algorithm to dump the features for>
 ```
 
 This will create the following files:
 
- - `<algorithm-name>.list-available-transformations.metadata.json`
- - `<algorithm-name>.list-available-transformations.output`
+ - `<algorithm-name>.list-transformations.metadata.json`
+ - `<algorithm-name>.list-transformations.output`
 
 The actual metadata is stored in the `output` (the `metadata.json` file contains the metadata of the operation). You can also specify the `--metadata-path` and `--dest-path` to specify the path to write the metadata and the output to.
 
-The metadata json is not designed to be read by a human - use commands like `jq` to filter and format data. For example, to list all transformations that can be used as features, and start with "add2cart", run the following script on the output:
-`jq '[.[] | select(.can_be_feature == true and .namespace_components[0] == "add2cart")]'`
+## Output formats
+
+By default, `list-transformations` produces a compact format with essential metadata:
+```json
+{
+  "transformations": [
+    {
+      "name": "order_sustainability_flag_count",
+      "return_type_hint": "double",
+      "feature_value_type": "NUMERICAL"
+    },
+    {
+      "name": "order_price_bag",
+      "return_type_hint": "[Ljava.lang.String;",
+      "feature_value_type": "TEXT"
+    }
+  ]
+}
+```
+
+For detailed metadata including computation dependencies, caching, and method names, use the `--verbose` flag. The verbose format includes all fields shown in the examples above.
+
+## Filtering and analyzing the output
+
+The metadata json is not designed to be read by a human - use commands like `jq` to filter and format data. For example, to list all transformations of NUMERICAL type:
+```bash
+jq '.transformations[] | select(.feature_value_type == "NUMERICAL")' <algorithm-name>.list-transformations.output
+```
+
+For verbose output, you can filter by namespace components:
+```bash
+hv list-transformations --algorithm-jar <jar> --algorithm-name <name> --verbose
+jq '[.[] | select(.can_be_feature == true and .namespace_components[0] == "add2cart")]' <algorithm-name>.list-transformations.output
+```

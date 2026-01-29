@@ -15,6 +15,8 @@ import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.util.HashSet;
 import java.util.Map;
@@ -37,8 +39,8 @@ public class AlgorithmUtils {
             String algoDefJson = CharStreams.toString(new InputStreamReader(is, Charsets.UTF_8));
 
             AlgorithmDefinition ret = new AlgorithmDefinitionReader().parse(algoDefJson);
-            checkState(algorithmName.equals(ret.getAlgorithmId().getAlgorithmName()),
-                    "Read algorithm name %s does not match specified algorithm %s", ret.getAlgorithmId());
+            checkState(algorithmName.equals(ret.algorithmId().algorithmName()),
+                    "Read algorithm name %s does not match specified algorithm %s", ret.algorithmId());
             return ret;
         } catch (IOException e) {
             throw new MalformedAlgorithmException(e);
@@ -70,23 +72,30 @@ public class AlgorithmUtils {
     public static AlgorithmParameterMetadata readAlgorithmParameterMetadata(AlgorithmId algorithmId, File parameterFile, boolean strictAlgorithmVersionCheck) throws MalformedAlgorithmException {
         checkState(parameterFile != null, "Parameter file is required, but was not supplied");
         checkState(parameterFile.exists(), "Specified parameter file %s does not exist", parameterFile);
-        try (ZipFile parameterFileIn = new ZipFile(parameterFile)) {
-            // TODO optional version suffix is supported for legacy reasons - when hotvect v4 algorithm disappear, we can remove it
-            String pattern = "^" + Pattern.quote(algorithmId.getAlgorithmName()) + "(@[\\w\\-\\.]+)?\\/algorithm-parameters\\.json$";
+        try (ZipFile parameterFileIn = new ZipFile.Builder().setFile(parameterFile).get()) {
+            String pattern = "^" + Pattern.quote(algorithmId.algorithmName()) + "\\/algorithm-parameters\\.json$";
             JsonNode parsed = new ObjectMapper().readTree(ZipFiles.readFromZipFirstMatching(parameterFileIn, pattern));
-            var ret = new AlgorithmParameterMetadata(
+            AlgorithmId algoId = new AlgorithmId(
                     checkNotNull(parsed.get("algorithm_name").asText(), "algorithm_name not found"),
-                    checkNotNull(parsed.get("algorithm_version").asText(), "algorithm_version not found"),
+                    checkNotNull(parsed.get("algorithm_version").asText(), "algorithm_version not found")
+            );
+            var ret = new AlgorithmParameterMetadata(
+                    algorithmId,
                     checkNotNull(parsed.get("parameter_id").asText(), "parameter_id not found"),
                     checkNotNull(ZonedDateTime.parse(parsed.get("ran_at").asText()).toInstant(), "ran_at not found"),
-                    Optional.ofNullable(parsed.get("last_training_time"))
+                    Optional.ofNullable(parsed.get("last_test_time"))
                             .map(JsonNode::asText)
-                            .map(ZonedDateTime::parse)
-                            .map(ZonedDateTime::toInstant)
+                            .map(dateTimeString -> {
+                                try {
+                                    return ZonedDateTime.parse(dateTimeString).toInstant();
+                                } catch (Exception e) {
+                                    return LocalDate.parse(dateTimeString).atStartOfDay(ZoneOffset.UTC).toInstant();
+                                }
+                            })
             );
             if (strictAlgorithmVersionCheck){
-                checkState(ret.getAlgorithmId().equals(algorithmId),
-                        "AlgorithmID read from algorithm-parameters.json does not match. Specified:%s read:%s", algorithmId, ret.getAlgorithmId());
+                checkState(ret.algorithmId().equals(algorithmId),
+                        "AlgorithmID read from algorithm-parameters.json does not match. Specified:%s read:%s", algorithmId, ret.algorithmId());
             }
             return ret;
         } catch (IOException e) {
@@ -95,7 +104,7 @@ public class AlgorithmUtils {
     }
 
     public static Map<String, InputStream> extractParameters(AlgorithmId algorithmId, ZipFile parameterFile) {
-        String pattern = "^" + Pattern.quote(algorithmId.getAlgorithmName()) + "(@[\\w\\-\\.]+)?\\/.+";
+        String pattern = "^" + Pattern.quote(algorithmId.algorithmName()) + "(@[\\w\\-\\.]+)?\\/.+";
         return ZipFiles.readFromZipMatching(parameterFile, pattern);
     }
 }

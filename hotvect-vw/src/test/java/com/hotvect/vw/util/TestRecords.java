@@ -4,7 +4,6 @@ import com.google.common.base.Charsets;
 import com.google.common.io.Resources;
 import com.hotvect.api.data.DataRecord;
 import com.hotvect.api.data.RawValue;
-import com.hotvect.api.data.scoring.ScoringExample;
 import com.hotvect.core.util.AutoMapper;
 import com.hotvect.core.util.JsonRecordDecoder;
 
@@ -18,9 +17,6 @@ public enum TestRecords {
     }
 
 
-    public static ScoringExample<DataRecord<TestRawNamespace, RawValue>, Double> getTestRecord() {
-        return new ScoringExample<>(new JsonRecordDecoder<>(TestRawNamespace.class).apply(testInputWithAllValueTypes()), 1.0);
-    }
 
     public static DataRecord<TestFeatureNamespace, RawValue> mapped(DataRecord<TestRawNamespace, RawValue> toMap) {
         AutoMapper<TestRawNamespace, TestFeatureNamespace, RawValue> automapper = new AutoMapper<>(TestRawNamespace.class, TestFeatureNamespace.class);

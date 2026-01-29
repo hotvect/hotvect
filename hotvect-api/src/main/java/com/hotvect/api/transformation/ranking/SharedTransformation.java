@@ -4,5 +4,6 @@ import com.hotvect.api.data.RawValue;
 
 import java.util.function.Function;
 
+@Deprecated(forRemoval = true)
 public interface SharedTransformation<SHARED> extends Function<SHARED, RawValue> {
 }

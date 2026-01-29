@@ -1,3 +1,27 @@
+---
+title: How to Develop a Re-ranker with Hotvect
+description: Complete guide to building a re-ranking algorithm with feature engineering, transformations, and ML integration
+tags: [development, re-ranker, feature-engineering, algorithms, tutorial]
+difficulty: intermediate
+estimated_time: 2 hours
+prerequisites:
+  - Java 17+ and Maven installed
+  - Understanding of ML concepts (features, models)
+  - Familiarity with Java POJOs and functional programming
+related_docs:
+  - ../highlevel/concepts.md
+  - ../cli/usage.md
+  - ./debug-feature-engineering.md
+related_commands:
+  - hv encode
+  - hv train
+  - hv audit
+next_steps:
+  - Debug feature engineering code
+  - Run and compare feature audits
+  - Deploy algorithm to production
+---
+
 # How to: Develop a Re-ranker with Hotvect
 
 ## What is hotvect's scope?
@@ -233,15 +257,15 @@ public enum SkuAttribute implements Namespace {
 
     // This is where we store the extractor function
     // In this case we always extract a String, but you can mix output types as well
-    private final MemoizedActionTransformation<Ad, String> extractFromAction;
+    private final MemoizedActionTransformation<Ad, String> extractFromItemAction;
 
     SkuAttribute(MemoizedActionTransformation<Ad, String> extractor) {
-        this.extractFromAction = extractor;
+        this.extractFromItemAction = extractor;
     }
     
     // This function can be used in a loop to register the extractor for this enum value
     public MemoizedActionTransformation<Ad, String> getExtractor() {
-        return this.extractFromAction;
+        return this.extractFromItemAction;
     }
 }
 ```
@@ -348,12 +372,313 @@ Transformation functions are instantiated as singletons and shared across thread
 
 You could also use a global cache, but be careful with this, as it can lead to memory leaks and/or hurt performance. Caches that are shared across threads have relatively high costs and only make sense in rather extreme cases.
 
-#### How to debug/profile it?
+## How do I implement the Ranker interface correctly?
+
+The `Ranker<SHARED, ACTION>` interface is the core component that receives a `RankingRequest` and returns a `RankingResponse`. While the transformer handles feature engineering, the ranker is responsible for making the actual ranking decisions. This section covers the critical requirements for implementing rankers correctly.
+
+### Critical Requirement: Preserve ActionIndex
+
+**The most important rule when implementing a ranker is preserving the original `actionIndex` from the input.**
+
+#### What is ActionIndex?
+
+The `actionIndex` is the position of each action in the original `RankingRequest.availableActions()` list. During training and evaluation, this index establishes the mapping between:
+- **Actions** (what your ranker reorders)
+- **Outcomes** (ground truth results from the decoder, such as clicks, purchases, ratings)
+
+The evaluation pipeline (`RankingResultFormatter`) uses `actionIndex` to match each ranked action with its corresponding outcome:
+
+```java
+// How the evaluation pipeline matches actions to outcomes
+decisions.sort(Comparator.comparingInt(RankingDecision::getActionIndex));  // Sort back to decoder order
+for (int i = 0; i < decisions.size(); i++) {
+    var decision = decisions.get(i);     // Action at original position i
+    var outcome = examples.outcomes().get(i);   // Outcome at original position i
+    var reward = rewardFunction.apply(outcome.outcome());
+}
+```
+
+#### What Happens If You Don't Preserve ActionIndex?
+
+If your ranker overwrites `actionIndex` with new values (like sorted positions), the evaluation pipeline will match actions with the **wrong** outcomes. This causes:
+
+1. **Position-based reward assignment** instead of action-based reward assignment
+2. The same action receives different rewards depending on where it's ranked
+3. Different rankers ranking completely different items appear to have identical metrics
+4. Invalid evaluation results that cannot be used for algorithm comparison
+
+### Correct Implementation Pattern
+
+#### Reference Implementation: BulkScoreGreedyRanker
+
+This is the standard pattern from `BulkScoreGreedyRanker`:
+
+```java
+@Override
+public RankingResponse<ACTION> rank(RankingRequest<SHARED, ACTION> request) {
+    int numActions = request.availableActions().size();
+
+    // Step 1: Store original indices alongside actions and scores
+    List<IndexedScoredAction> processed = new ArrayList<>(numActions);
+    for (int i = 0; i < numActions; i++) {
+        processed.add(new IndexedScoredAction(
+            i,                                    // ✓ Store original index
+            request.availableActions().get(i),    // Action
+            computeScore(i)                       // Score
+        ));
+    }
+
+    // Step 2: Sort by score (or any other criteria)
+    processed.sort(Comparator.comparing(x -> x.score, Comparator.reverseOrder()));
+
+    // Step 3: Build decisions using ORIGINAL indices, not sorted positions
+    var decisions = processed.stream()
+        .map(x -> RankingDecision
+            .builder(x.index, x.action)  // ✓ Use stored original index
+            .withScore(x.score)
+            .build())
+        .collect(Collectors.toList());
+
+    return RankingResponse.newResponse(decisions);
+}
+
+// Helper class to store original index with action
+private class IndexedScoredAction {
+    final int index;      // Original position from input
+    final ACTION action;
+    final double score;
+}
+```
+
+**Key steps:**
+1. **Before reordering**: Store the original index `i` from the input loop
+2. **Apply your logic**: Sort, filter, or reorder actions as needed
+3. **When building decisions**: Use the stored original index, NOT the new sorted position
+
+### Common Mistakes
+
+#### ❌ Mistake 1: Using Sorted Position as ActionIndex
+
+```java
+// WRONG: Using sorted position instead of original index
+processed.sort(COMPARATOR);
+List<RankingDecision<ACTION>> decisions = new ArrayList<>();
+for (int sortedPosition = 0; sortedPosition < processed.size(); sortedPosition++) {
+    IndexedScoredAction item = processed.get(sortedPosition);
+    decisions.add(RankingDecision
+        .builder(sortedPosition, item.action)  // ❌ WRONG
+        .withScore(item.score)
+        .build());
+}
+```
+
+**Why this is wrong:** `sortedPosition` is the new rank position after sorting. Using it as `actionIndex` destroys the action→outcome mapping, causing rewards to be assigned by position rather than by action identity.
+
+#### ❌ Mistake 2: Using Loop Index After Reordering
+
+```java
+// WRONG: Loop index only matches original if order is unchanged
+List<ACTION> reorderedActions = customReorder(request.availableActions());
+List<RankingDecision<ACTION>> decisions = new ArrayList<>();
+for (int i = 0; i < reorderedActions.size(); i++) {
+    decisions.add(RankingDecision
+        .builder(i, reorderedActions.get(i))  // ❌ WRONG
+        .withScore(scores.get(i))
+        .build());
+}
+```
+
+**Why this is wrong:** After reordering, loop index `i` refers to the new position in `reorderedActions`, not the original position in `request.availableActions()`.
+
+#### ✓ Acceptable: Loop Index When Order Unchanged
+
+```java
+// OK: Loop index works if you iterate in original input order
+List<ACTION> inputActions = request.availableActions();
+List<RankingDecision<ACTION>> decisions = new ArrayList<>();
+for (int i = 0; i < inputActions.size(); i++) {
+    decisions.add(RankingDecision
+        .builder(i, inputActions.get(i))  // ✓ OK if order unchanged
+        .withScore(computeScore(inputActions.get(i)))
+        .build());
+}
+```
+
+**However**, explicitly storing and using original indices (as shown in the correct pattern) is more robust and makes your intent clear.
+
+### Decorator Pattern
+
+When implementing a decorator ranker that wraps another ranker:
+
+```java
+@Override
+public RankingResponse<ACTION> rank(RankingRequest<SHARED, ACTION> request) {
+    // Step 1: Call base ranker
+    RankingResponse<ACTION> baseResponse = baseRanker.rank(request);
+
+    // Step 2: Apply your modifications (filter, reorder, add metadata, etc.)
+    List<RankingDecision<ACTION>> modifiedDecisions = applyModifications(baseResponse);
+
+    // Step 3: Preserve original actionIndex from base ranker
+    List<RankingDecision<ACTION>> finalDecisions = new ArrayList<>();
+    for (RankingDecision<ACTION> decision : modifiedDecisions) {
+        finalDecisions.add(RankingDecision
+            .builder(decision.getActionIndex(), decision.getAction())  // ✓ Preserve from base
+            .withScore(decision.getScore())
+            .withAdditionalProperties(decision.getAdditionalProperties())
+            .build());
+    }
+
+    return RankingResponse.newResponse(finalDecisions);
+}
+```
+
+**Never** use loop index or sorted position when rebuilding decisions from a base ranker's response. Always use `decision.getActionIndex()`.
+
+### Real-World Example
+
+Here's a complete example of a ranker that reorders by score within groups:
+
+```java
+public class GroupedRanker<SHARED, ACTION> implements Ranker<SHARED, ACTION> {
+    private final BulkScorer<SHARED, ACTION> scorer;
+    private final Function<ACTION, Integer> groupExtractor;
+
+    public GroupedRanker(BulkScorer<SHARED, ACTION> scorer,
+                        Function<ACTION, Integer> groupExtractor) {
+        this.scorer = scorer;
+        this.groupExtractor = groupExtractor;
+    }
+
+    @Override
+    public RankingResponse<ACTION> rank(RankingRequest<SHARED, ACTION> request) {
+        // Step 1: Score all actions and store original indices
+        List<ScoringDecision<ACTION>> scores = scorer.bulkScore(request);
+        List<IndexedScoredAction> indexed = new ArrayList<>();
+
+        for (int i = 0; i < scores.size(); i++) {
+            ACTION action = request.availableActions().get(i);
+            indexed.add(new IndexedScoredAction(
+                i,                          // ✓ Original index
+                action,
+                scores.get(i).score(),
+                groupExtractor.apply(action)
+            ));
+        }
+
+        // Step 2: Sort by group, then by score (descending)
+        indexed.sort(Comparator
+            .comparing((IndexedScoredAction x) -> x.group)
+            .thenComparing(x -> x.score, Comparator.reverseOrder()));
+
+        // Step 3: Build decisions with original indices
+        List<RankingDecision<ACTION>> decisions = indexed.stream()
+            .map(x -> RankingDecision
+                .builder(x.originalIndex, x.action)  // ✓ Use stored original index
+                .withScore(x.score)
+                .build())
+            .collect(Collectors.toList());
+
+        return RankingResponse.newResponse(decisions);
+    }
+
+    private class IndexedScoredAction {
+        final int originalIndex;
+        final ACTION action;
+        final double score;
+        final int group;
+
+        IndexedScoredAction(int originalIndex, ACTION action, double score, int group) {
+            this.originalIndex = originalIndex;
+            this.action = action;
+            this.score = score;
+            this.group = group;
+        }
+    }
+}
+```
+
+## How to debug/profile it?
 To inspect if there are issues in the calculated feature value: Use the "feature-audit" functionality. Especially for regression testing, you can use the "compare-audit" script to see only the feature values that have changed between versions.
 
 To debug issues: Without a debugger, it will be difficult to debug issues. Refer to [How to debug feature engineering](./debug-feature-engineering.md) to use a debugger.
 
 To profile the feature engineering to optimize its performance: it can be helpful to turn-off the parallelization feature (so that the profiling results are easier to interpret). You can do this from the hyperparameter.
 
-#### How to unit test it?
+## How to unit test it?
+
+### Testing Feature Transformations
+
 WIP
+
+### Testing Ranker: Verify ActionIndex Preservation
+
+When testing your ranker implementation, the most critical test is verifying that original action indices are preserved:
+
+```java
+@Test
+void shouldPreserveOriginalActionIndices() {
+    // Arrange: Create request with known actions
+    List<ACTION> actions = Arrays.asList(action1, action2, action3);
+    RankingRequest<SHARED, ACTION> request = new RankingRequest<>("test-id", shared, actions);
+
+    // Act: Rank the actions
+    RankingResponse<ACTION> response = ranker.rank(request);
+
+    // Assert: Each action's decision uses its original input index
+    Map<ACTION, Integer> actionToExpectedIndex = new HashMap<>();
+    for (int i = 0; i < actions.size(); i++) {
+        actionToExpectedIndex.put(actions.get(i), i);
+    }
+
+    for (RankingDecision<ACTION> decision : response.getRankingDecisions()) {
+        int expectedIndex = actionToExpectedIndex.get(decision.getAction());
+        assertEquals(expectedIndex, decision.getActionIndex(),
+            "Action should have its original actionIndex from input list");
+    }
+}
+```
+
+### Integration Test: Verify Evaluation Correctness
+
+```java
+@Test
+void shouldAssignRewardsByActionNotByPosition() {
+    // Arrange: Two rankers that rank same items in different orders
+    Ranker<SHARED, ACTION> rankerA = ...; // Returns [action1, action2, action3]
+    Ranker<SHARED, ACTION> rankerB = ...; // Returns [action3, action1, action2]
+
+    RankingExample<SHARED, ACTION, OUTCOME> example = createExampleWithOutcomes();
+
+    // Act: Format predictions using both rankers
+    String predictionA = formatter.apply(example, rankerA);
+    String predictionB = formatter.apply(example, rankerB);
+
+    // Assert: Same action gets same reward regardless of ranking
+    Prediction parsedA = parsePrediction(predictionA);
+    Prediction parsedB = parsePrediction(predictionB);
+
+    for (ACTION action : example.actions()) {
+        double rewardA = parsedA.getRewardForAction(action);
+        double rewardB = parsedB.getRewardForAction(action);
+        assertEquals(rewardA, rewardB, 0.001,
+            "Same action should have same reward in both predictions");
+    }
+
+    // Assert: Different orderings produce different metrics
+    if (!sameOrdering(rankerA, rankerB, example)) {
+        assertNotEquals(parsedA.getNDCG(), parsedB.getNDCG(),
+            "Different orderings should produce different NDCG");
+    }
+}
+```
+
+### Implementation Checklist
+
+When implementing or reviewing a ranker, verify:
+
+- [ ] Store original indices before any sorting/reordering
+- [ ] Use stored original indices when building `RankingDecision` objects
+- [ ] Test that same action gets same reward across different ranker implementations
+- [ ] Test that different orderings produce different evaluation metrics
+- [ ] When wrapping rankers, use `decision.getActionIndex()` not loop index

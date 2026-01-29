@@ -1,13 +1,13 @@
 init:
-	pip install -r requirements.txt -r requirements-dev.txt
+	uv sync --all-extras
 	cd ../ && mvn clean install -DskipTests && cd ./python
-	python setup.py copy_hotvect_jar
+	uv run scripts/copy_jar.py
 
 test:
 	cd ../ && mvn clean install -Pintegration-test && cd ./python
-	python setup.py copy_hotvect_jar
-	pytest --hypothesis-verbosity=verbose
+	uv run scripts/copy_jar.py
+	uv run pytest --hypothesis-verbosity=verbose
 
 quick:
-	cd ../ && mvn clean install -DskipTests -Dmaven.javadoc.skip=true && cd ./python
-	python setup.py copy_hotvect_jar
+	cd ../ && mvn clean install -Dmaven.test.skip=true -Dmaven.javadoc.skip=true && cd ./python
+	uv run scripts/copy_jar.py

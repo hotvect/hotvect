@@ -25,8 +25,8 @@ from pebble import ProcessFuture, ProcessPool
 
 from hotvect import utils
 from hotvect.mlutils import extract_evaluation
-from hotvect.pyhotvect import AlgorithmPipeline, AlgorithmPipelineContext
-from hotvect.sagemaker import SagemakerTrainingExecutor, wait_for_sagemaker_executors_to_finish
+from hotvect.pyhotvect import AlgorithmPipeline, AlgorithmPipelineContext, DataDependency
+from hotvect.sagemaker import SagemakerTrainingExecutor
 from hotvect.utils import (
     AlgorithmSpec,
     ConcurrencySetting,
@@ -46,7 +46,6 @@ logger = logging.getLogger(__name__)
 
 class BacktestIterationResult(NamedTuple):
     parameter_version: str
-    training_data_time: str
     test_data_time: str
     result: Optional[Dict[str, Any]] = None
     error: Optional[str] = None
@@ -68,11 +67,13 @@ class BacktestPipeline:
         output_base_dir: str,
         hyperparameter_base_dir: str,
         evaluation_function: Callable[[str], Dict[str, Any]],
-        last_training_time: date,
+        last_test_time: date,
         number_of_runs: int,
-        test_data_lag: timedelta,
         additional_jars: List[Path] = None,
         algorithm_definition_override: Dict[str, Any] = None,
+        auto_attach_data: bool = False,
+        auto_attach_data_default_s3_base: Optional[str] = None,
+        auto_attach_data_environment: str = "production",
     ):
         self.algo_repo_url = algo_repo_url
         self.algo_git_reference = algo_git_reference
@@ -87,10 +88,12 @@ class BacktestPipeline:
         self.hyperparameter_dir.mkdir(parents=True, exist_ok=True)
 
         self.evaluation_function = evaluation_function
-        self.last_training_time = last_training_time
+        self.last_test_time = last_test_time
         self.number_of_runs = number_of_runs
-        self.test_data_lag = test_data_lag
         self.algorithm_definition_override = algorithm_definition_override
+        self.auto_attach_data = auto_attach_data
+        self.auto_attach_data_environment = (auto_attach_data_environment or "production").lower()
+        self.auto_attach_data_default_s3_base = auto_attach_data_default_s3_base
 
         logger.info(f"Initialized BacktestPipeline with {self.__dict__}")
 
@@ -110,6 +113,9 @@ class BacktestPipeline:
             (f"cd {cloned_path} && " "git fetch --all --tags && " f"git checkout {git_reference} && " "git clean -df"),
             shell=True,
         )
+
+        # Get the commit hash for the checked out reference
+        git_commit_hash = runshell(f"cd {cloned_path} && git rev-parse HEAD", shell=True)["stdout"].strip()
         runshell(
             f"cd {cloned_path} && mvn clean package -DskipTests -B",
             shell=True,
@@ -140,6 +146,7 @@ class BacktestPipeline:
         return AlgorithmSpec(
             algorithm_name=algorithm_name,
             algorithm_jar_path=Path(destination),
+            git_commit_hash=git_commit_hash,
         )
 
     def _resolve_algorithm_definition(
@@ -181,14 +188,14 @@ class BacktestPipeline:
 
     def _write_execution_parameters(
         self,
-        last_training_time: date,
+        last_test_time: date,
         number_of_runs: int,
         clean: bool,
         system_performance_test: bool,
         jvm_options: List[str],
     ):
         execution_parameters = {
-            "last_training_time": last_training_time.isoformat(),
+            "last_test_time": last_test_time.isoformat(),
             "number_of_runs": number_of_runs,
             "performance_test": system_performance_test,
             "clean": clean,
@@ -210,6 +217,7 @@ class BacktestPipeline:
         max_threads_per_process: int = -1,
         sagemaker_training_job_definition: Dict[str, Any] = None,
         role_arn_to_assume: Optional[str] = None,
+        auto_attach_data: bool = False,
     ) -> BacktestResult:
         laptime = time.time()
         algorithm_spec = self._prepare_algorithm_jar(self.algo_git_reference)
@@ -222,7 +230,7 @@ class BacktestPipeline:
         logger.info(f"Prepared algorithm definition: {algorithm_definition}")
 
         execution_parameter_path = self._write_execution_parameters(
-            self.last_training_time,
+            self.last_test_time,
             self.number_of_runs,
             clean,
             system_performance_test,
@@ -231,7 +239,12 @@ class BacktestPipeline:
         execution_parameters = read_json(execution_parameter_path)
         logger.info(f"Wrote down execution parameters: {execution_parameters}")
 
-        algorithm_spec = AlgorithmSpec(algorithm_definition["algorithm_name"], algorithm_spec.algorithm_jar_path)
+        algorithm_spec = AlgorithmSpec(
+            algorithm_definition["algorithm_name"], algorithm_spec.algorithm_jar_path, algorithm_spec.git_commit_hash
+        )
+
+        if auto_attach_data and not sagemaker_training_job_definition:
+            logger.warning("auto_attach_data ignored because SageMaker config was not provided.")
 
         if not sagemaker_training_job_definition:
             logger.info("Executing in local mode")
@@ -244,7 +257,7 @@ class BacktestPipeline:
             return self._execute_on_local(
                 algorithm_spec=algorithm_spec,
                 algorithm_definition_override=algorithm_definition,
-                last_training_time=self.last_training_time,
+                last_test_time=self.last_test_time,
                 number_of_runs=self.number_of_runs,
                 system_performance_test=system_performance_test,
                 jvm_options=jvm_options,
@@ -259,26 +272,28 @@ class BacktestPipeline:
                 role_arn_to_assume=role_arn_to_assume,
                 algorithm_spec=algorithm_spec,
                 algorithm_definition_override=algorithm_definition,
-                last_training_time=self.last_training_time,
+                last_test_time=self.last_test_time,
                 number_of_runs=self.number_of_runs,
                 system_performance_test=system_performance_test,
                 jvm_options=jvm_options,
                 clean=clean,
+                auto_attach_data=auto_attach_data,
             )
 
     def _execute_on_sagemaker(
         self,
         algorithm_spec: AlgorithmSpec,
         algorithm_definition_override: Dict[str, Any],
-        last_training_time: date,
+        last_test_time: date,
         number_of_runs: int,
         system_performance_test: bool,
         jvm_options: List[str],
         clean: bool,
         sagemaker_training_job_definition: Dict[str, Any],
         role_arn_to_assume: Optional[str],
+        auto_attach_data: bool,
     ) -> BacktestResult:
-        last_training_days = [last_training_time - timedelta(days=i) for i in range(number_of_runs)]
+        last_test_days = [last_test_time - timedelta(days=i) for i in range(number_of_runs)]
         additional_jar_files = self.additional_jars
         context = AlgorithmPipelineContext(
             algorithm_jar_path=algorithm_spec.algorithm_jar_path,
@@ -287,33 +302,44 @@ class BacktestPipeline:
             metadata_base_path=Path(os.path.join(self.output_data_dir, "meta")),
             output_base_path=Path(os.path.join(self.output_data_dir, "out")),
             enable_gzip=False,
-            jvm_options=jvm_options if jvm_options else ["-Xmx32g"],
+            jvm_options=jvm_options if jvm_options else ["-Xmx256g"],
             max_threads=None,
             queue_length=None,
             batch_size=None,
             additional_jar_files=additional_jar_files,
         )
         backtest_sagemaker_executors: List[SagemakerTrainingExecutor] = []
-        for last_training_day in last_training_days:
-            parameter_version = (
-                f"last_train_date_{last_training_day}-last_test_date_{last_training_day + self.test_data_lag}"
-            )
+
+        for last_test_day in last_test_days:
+            parameter_version = f"last_test_date_{last_test_day}"
             algorithm_pipeline = AlgorithmPipeline(
                 algorithm_pipeline_context=context,
                 algorithm_definition=(
                     algorithm_spec.algorithm_name,
                     algorithm_definition_override,
                 ),
-                last_training_time=last_training_day,
-                test_lag=self.test_data_lag,
-                # passing the evaluation function to SageMaker is not supported yet. So the next line has no effect
+                last_test_time=last_test_day,
                 evaluation_func=self.evaluation_function,
                 parameter_version=parameter_version,
             )
-
             this_iteration_sagemaker_training_job_definition = copy.deepcopy(sagemaker_training_job_definition)
-            last_test_day = last_training_day + self.test_data_lag
-            this_iteration_sagemaker_training_job_definition["TrainingJobName"] += f"-{last_test_day}"
+            if auto_attach_data:
+                self._attach_input_data_config(
+                    algorithm_pipeline=algorithm_pipeline,
+                    training_job_definition=this_iteration_sagemaker_training_job_definition,
+                )
+
+            # Build job name: jobid-githash-hyperparamhash-testtime
+            git_hash = algorithm_spec.git_commit_hash[:6]
+            hyperparameter_version = (
+                algorithm_definition_override.get("hyperparameter_version", "") if algorithm_definition_override else ""
+            )
+            hyperparam_hash = hashlib.md5(hyperparameter_version.encode("utf-8")).hexdigest()[:6]
+            hyperparam_hash_alphanumeric = hexigest_as_alphanumeric(hyperparam_hash)
+
+            this_iteration_sagemaker_training_job_definition[
+                "TrainingJobName"
+            ] += f"-{git_hash}-{hyperparam_hash_alphanumeric}-{last_test_day}"
             sagemaker_executor = SagemakerTrainingExecutor(
                 algorithm_pipeline=algorithm_pipeline,
                 training_job_definition=this_iteration_sagemaker_training_job_definition,
@@ -322,17 +348,17 @@ class BacktestPipeline:
             sagemaker_executor.run()
             backtest_sagemaker_executors.append(sagemaker_executor)
 
-        wait_for_sagemaker_executors_to_finish(backtest_sagemaker_executors)
+        # Don't wait for SageMaker jobs - return immediately with job submission info
         backtest_iteration_results: List[BacktestIterationResult] = []
-        errors: List[str] = []
         for backtest_sagemaker_executor in backtest_sagemaker_executors:
             backtest_iteration_result = BacktestIterationResult(
-                **backtest_sagemaker_executor.get_results_as_iteration_results_params()
+                parameter_version=backtest_sagemaker_executor.algorithm_pipeline.parameter_version,
+                test_data_time=backtest_sagemaker_executor.algorithm_pipeline.last_test_time.isoformat(),
+                result={"training_job_name": backtest_sagemaker_executor.training_job_name},
+                error=None,
             )
             backtest_iteration_results.append(backtest_iteration_result)
-            if backtest_iteration_result.error:
-                errors.append(backtest_iteration_result.error)
-        error = "\n".join(errors) if errors else None
+        error = None
         backtest_result = BacktestResult(
             algo_git_reference=self.algo_git_reference,
             backtest_iteration_results=backtest_iteration_results,
@@ -340,11 +366,101 @@ class BacktestPipeline:
         )
         return backtest_result
 
+    def _attach_input_data_config(
+        self,
+        algorithm_pipeline: AlgorithmPipeline,
+        training_job_definition: Dict[str, Any],
+    ) -> None:
+        """Augment SageMaker job definition with InputDataConfig entries derived from algorithm dependencies."""
+        dependencies = algorithm_pipeline.data_dependencies()
+        if not dependencies:
+            logger.info("No data dependencies detected; skipping InputDataConfig auto-attachment.")
+            return
+
+        input_data_config = training_job_definition.setdefault("InputDataConfig", [])
+        if not isinstance(input_data_config, list):
+            raise ValueError("InputDataConfig in SageMaker config must be a list when auto-attach is enabled.")
+
+        existing_channels = {channel.get("ChannelName") for channel in input_data_config if isinstance(channel, dict)}
+        added_channels = []
+
+        for dependency in dependencies:
+            channel_name = dependency.data_prefix
+            if not channel_name:
+                continue
+            if channel_name in existing_channels:
+                continue
+
+            s3_uri = self._resolve_dependency_s3_uri(dependency)
+            if not s3_uri:
+                raise ValueError(
+                    f"Cannot resolve S3 URI for dependency '{channel_name}'. "
+                    f"Provide a 's3_uri' in the algorithm definition or specify a default base via "
+                    f"'--auto-attach-data-default-s3-base'."
+                )
+
+            channel = {
+                "ChannelName": channel_name,
+                "DataSource": {
+                    "S3DataSource": {
+                        "S3DataType": "S3Prefix",
+                        "S3Uri": s3_uri,
+                    }
+                },
+                "InputMode": training_job_definition.get("AlgorithmSpecification", {}).get(
+                    "TrainingInputMode", "FastFile"
+                ),
+            }
+            logger.info("Auto-attach InputDataConfig channel '%s' with S3 URI '%s'", channel_name, s3_uri)
+            added_channels.append(channel)
+            existing_channels.add(channel_name)
+
+        if added_channels:
+            input_data_config.extend(added_channels)
+            logger.info(
+                "Auto-attached %d InputDataConfig channel(s): %s",
+                len(added_channels),
+                ", ".join(channel["ChannelName"] for channel in added_channels),
+            )
+        else:
+            logger.info("All auto-attach InputDataConfig channels already present; nothing to add.")
+
+    def _resolve_dependency_s3_uri(self, dependency: DataDependency) -> Optional[str]:
+        """Resolve the S3 URI for a dependency."""
+        additional_props = dependency.additional_properties or {}
+        s3_uri_spec = additional_props.get("s3_uri")
+
+        if isinstance(s3_uri_spec, str):
+            return s3_uri_spec
+
+        if isinstance(s3_uri_spec, dict):
+            # Attempt to pick requested environment, fall back to common keys, then any value.
+            normalized_map = {str(k).lower(): v for k, v in s3_uri_spec.items()}
+            preferred_order = [
+                self.auto_attach_data_environment,
+                "production",
+                "prod",
+                "test",
+                "staging",
+            ]
+            for key in preferred_order:
+                if key in normalized_map:
+                    return normalized_map[key]
+            if normalized_map:
+                first_value = next(iter(normalized_map.values()))
+                return first_value
+
+        if self.auto_attach_data_default_s3_base:
+            base = self.auto_attach_data_default_s3_base.rstrip("/") + "/"
+            return f"{base}{dependency.data_prefix}/"
+
+        return None
+
     def _execute_on_local(
         self,
         algorithm_spec: AlgorithmSpec,
         algorithm_definition_override: Dict[str, Any],
-        last_training_time: date,
+        last_test_time: date,
         number_of_runs: int,
         system_performance_test: bool,
         jvm_options: List[str],
@@ -353,10 +469,8 @@ class BacktestPipeline:
         queue_length: int,
         clean: bool = False,
     ) -> BacktestResult:
-        last_training_days = [last_training_time - timedelta(days=i) for i in range(number_of_runs)]
-
+        last_test_days = [last_test_time - timedelta(days=i) for i in range(number_of_runs)]
         additional_jars = list(self.additional_jars) if self.additional_jars else []
-
         context = AlgorithmPipelineContext(
             algorithm_jar_path=algorithm_spec.algorithm_jar_path,
             state_soruce_base_path=Path(os.path.join(self.data_base_dir, "states")),
@@ -364,7 +478,7 @@ class BacktestPipeline:
             metadata_base_path=Path(os.path.join(self.output_data_dir, "meta")),
             output_base_path=Path(os.path.join(self.output_data_dir, "out")),
             enable_gzip=False,
-            jvm_options=jvm_options if jvm_options else ["-Xmx32g"],
+            jvm_options=jvm_options if jvm_options else ["-Xmx256g"],
             max_threads=max_thread_per_process,
             queue_length=queue_length,
             batch_size=None,
@@ -379,10 +493,9 @@ class BacktestPipeline:
                 exec_pool = DirectProcessPool()
             else:
                 exec_pool = pool
-            for last_training_day in last_training_days:
-                parameter_version = (
-                    f"last_train_date_{last_training_day}-last_test_date_{last_training_day + self.test_data_lag}"
-                )
+
+            for last_test_day in last_test_days:
+                parameter_version = f"last_test_date_{last_test_day}"
                 logging.info(f"Scheduling parameter_version: {parameter_version}")
                 future = exec_pool.schedule(
                     run_one_cycle_locally,
@@ -393,19 +506,16 @@ class BacktestPipeline:
                             algorithm_definition_override,
                         ),
                         "parameter_version": parameter_version,
-                        "last_training_time": last_training_day,
-                        "test_data_lag": self.test_data_lag,
+                        "last_test_time": last_test_day,
                         "evaluation_function": self.evaluation_function,
                         "clean": clean,
-                        "performance_test": system_performance_test,
                     },
                 )
                 futures.append(
                     (
                         BacktestIterationResult(
                             parameter_version=parameter_version,
-                            training_data_time=last_training_day.isoformat(),
-                            test_data_time=(last_training_day + self.test_data_lag).isoformat(),
+                            test_data_time=last_test_day.isoformat(),
                             result=None,
                             error=None,
                         ),
@@ -417,7 +527,7 @@ class BacktestPipeline:
         last_error = None
         for partial_result, future in futures:
             result = utils.get_result(future)
-            if type(result) == BacktestIterationResult:
+            if isinstance(result, BacktestIterationResult):
                 ret.append(result)
             else:
                 assert "error" in result.keys() and len(result.keys()) == 1
@@ -448,28 +558,23 @@ def run_one_cycle_locally(
     context: AlgorithmPipelineContext,
     algorithm_definition: Union[str, Tuple[str, Dict[str, Any]]],
     parameter_version: str,
-    last_training_time: date,
-    test_data_lag: timedelta,
+    last_test_time: date,
     evaluation_function: Callable[[str], Dict[str, Any]],
     clean: bool,
-    performance_test: bool,
 ) -> BacktestIterationResult:
     pipeline = AlgorithmPipeline(
         algorithm_pipeline_context=context,
         algorithm_definition=algorithm_definition,
-        last_training_time=last_training_time,
-        test_lag=test_data_lag,
+        last_test_time=last_test_time,
         parameter_version=parameter_version,
         evaluation_func=evaluation_function,
     )
     result = pipeline.run_all(
         clean=clean,
-        performance_test=performance_test,
     )
     return BacktestIterationResult(
         parameter_version=parameter_version,
-        training_data_time=last_training_time.isoformat(),
-        test_data_time=(last_training_time + test_data_lag).isoformat(),
+        test_data_time=last_test_time.isoformat(),
         result=result,
         error=None,
     )
@@ -482,9 +587,8 @@ def run_backtest_on_git_reference(
     output_base_dir: str,
     hyperparameter_base_dir: str,
     evaluation_function: Callable[[str], Dict[str, Any]],
-    last_training_time: date,
+    last_test_time: date,
     number_of_runs: int,
-    test_data_lag: timedelta,
     algorithm_definition_override: Dict[str, Any] = None,
     jvm_options: List[str] = None,
     additional_jars: List[Path] = None,
@@ -495,26 +599,16 @@ def run_backtest_on_git_reference(
     sagemaker_training_job_definition: Dict[str, Any] = None,
     role_arn_to_assume: Optional[str] = None,
     online_offline_analysis_on_variant_id: Optional[str] = None,
+    auto_attach_data: bool = False,
+    auto_attach_data_default_s3_base: Optional[str] = None,
+    auto_attach_data_environment: str = "production",
 ) -> BacktestResult:
     def updated_sagemaker_training_job_definition():
         if not sagemaker_training_job_definition:
             return None
         copy_of_sagemaker_training_job_definition = copy.deepcopy(sagemaker_training_job_definition)
 
-        def extract_algorithm_version_identifier():
-            algo_git_ref = algo_git_reference
-            hyperparameter_version = (
-                algorithm_definition_override.get("hyperparameter_version", "") if algorithm_definition_override else ""
-            )
-            if online_offline_analysis_on_variant_id:
-                # If this is a online offline analysis, and there is no explicit hyperparameter, use the variant ID
-                hyperparameter_version = (
-                    hyperparameter_version if hyperparameter_version else online_offline_analysis_on_variant_id
-                )
-            hyperparam_hash = hashlib.md5(hyperparameter_version.encode("utf-8")).hexdigest()[:6]
-            return f"-{algo_git_ref[:6]}-{hexigest_as_alphanumeric(hyperparam_hash)}"
-
-        copy_of_sagemaker_training_job_definition["TrainingJobName"] += extract_algorithm_version_identifier()
+        # Note: The git hash and hyperparameter identifiers will be added in _execute_on_sagemaker where we have access to the algorithm spec
         return copy_of_sagemaker_training_job_definition
 
     this_gitref_sagemaker_training_job_definition = updated_sagemaker_training_job_definition()
@@ -526,11 +620,13 @@ def run_backtest_on_git_reference(
         output_base_dir=output_base_dir,
         hyperparameter_base_dir=hyperparameter_base_dir,
         evaluation_function=evaluation_function,
-        last_training_time=last_training_time,
+        last_test_time=last_test_time,
         number_of_runs=number_of_runs,
-        test_data_lag=test_data_lag,
         algorithm_definition_override=algorithm_definition_override,
         additional_jars=additional_jars,
+        auto_attach_data=auto_attach_data,
+        auto_attach_data_default_s3_base=auto_attach_data_default_s3_base,
+        auto_attach_data_environment=auto_attach_data_environment,
     )
     return pipeline.run_all(
         clean=clean,
@@ -540,6 +636,7 @@ def run_backtest_on_git_reference(
         jvm_options=jvm_options,
         n_process=n_process,
         max_threads_per_process=max_threads_per_process,
+        auto_attach_data=auto_attach_data,
     )
 
 
@@ -550,9 +647,8 @@ def run_backtest_on_git_references(
     output_base_dir: str,
     hyperparameter_base_dir: str,
     evaluation_function: Callable[[str], Dict[str, Any]],
-    last_training_time: date,
+    last_test_time: date,
     number_of_runs: int,
-    test_data_lag: timedelta,
     available_physical_cores: int = psutil.cpu_count(logical=False),
     clean: bool = False,
     system_performance_test: bool = True,
@@ -562,6 +658,9 @@ def run_backtest_on_git_references(
     role_arn_to_assume: Optional[str] = None,
     concurrency_setting: ConcurrencySetting = None,
     online_offline_analysis_on_variant_id: Optional[str] = None,
+    auto_attach_data: bool = False,
+    auto_attach_data_default_s3_base: Optional[str] = None,
+    auto_attach_data_environment: str = "production",
 ) -> List[BacktestResult]:
     if not concurrency_setting:
         concurrency_setting = utils.recommend_concurrency(
@@ -635,9 +734,8 @@ def run_backtest_on_git_references(
                     "output_base_dir": output_base_dir,
                     "hyperparameter_base_dir": hyperparameter_base_dir,
                     "evaluation_function": evaluation_function,
-                    "last_training_time": last_training_time,
+                    "last_test_time": last_test_time,
                     "number_of_runs": number_of_runs,
-                    "test_data_lag": test_data_lag,
                     "algorithm_definition_override": algorithm_definition_override,
                     "jvm_options": jvm_options,
                     "n_process": concurrency_setting.nproc_per_backtest_pipeline,
@@ -647,6 +745,9 @@ def run_backtest_on_git_references(
                     "sagemaker_training_job_definition": this_sagemaker_training_job_definition,
                     "role_arn_to_assume": role_arn_to_assume,
                     "online_offline_analysis_on_variant_id": online_offline_analysis_on_variant_id,
+                    "auto_attach_data": auto_attach_data,
+                    "auto_attach_data_default_s3_base": auto_attach_data_default_s3_base,
+                    "auto_attach_data_environment": auto_attach_data_environment,
                 },
             )
             futures.append(
@@ -698,7 +799,7 @@ def list_output_dirs(
     return [Path(x) for x in glob.glob(full_glob) if include(x)]
 
 
-PATTERN = r"/([\w-]+)@([\.\w-]+)/last_train_date_(\d{4}-\d{2}-\d{2}|NA)-last_test_date_(\d{4}-\d{2}-\d{2})"
+PATTERN = r"/([\w-]+)@([\.\w-]+)/(?:last_train_date_[\w-]+-)?last_test_date_(\d{4}-\d{2}-\d{2})"
 
 
 def is_valid(path):
@@ -721,7 +822,7 @@ def to_algorithm_name(path):
 
 def to_test_date(path):
     if match := re.search(PATTERN, path):
-        return date.fromisoformat(match.group(4))
+        return date.fromisoformat(match.group(3))
     else:
         raise ValueError(path)
 
@@ -854,17 +955,17 @@ class SageMakerBacktestResultsDownloader:
         match = re.match(self._match_regex, key["Key"])
         if not match:
             return
-        training_job, last_training_backtest_date, algorithm_name = match.group(1, 2, 3)
+        training_job, backtest_test_date, algorithm_name = match.group(1, 2, 3)
         algorithm_version, hyperparameter = match.group(4, 6)
-        if not self._is_date_in_range(last_training_backtest_date):
+        if not self._is_date_in_range(backtest_test_date):
             return
-        backtest_key = (last_training_backtest_date, algorithm_name, algorithm_version, hyperparameter)
+        backtest_key = (backtest_test_date, algorithm_name, algorithm_version, hyperparameter)
         if (
             backtest_key not in relevant_executions
             or relevant_executions[backtest_key].execution_date < key["LastModified"]
         ):
             relevant_executions[backtest_key] = _SuccessfulSageMakerResultsComponents(
-                backtest_test_date=last_training_backtest_date,
+                backtest_test_date=backtest_test_date,
                 algorithm_name=algorithm_name,
                 algorithm_version=algorithm_version,
                 training_job=training_job,
@@ -873,15 +974,10 @@ class SageMakerBacktestResultsDownloader:
                 key=key["Key"],
             )
 
-    def _is_date_in_range(self, last_training_backtest_date: str):
-        if self._from_including_test_date and self._from_including_test_date > date.fromisoformat(
-            last_training_backtest_date
-        ):
+    def _is_date_in_range(self, backtest_test_date: str):
+        if self._from_including_test_date and self._from_including_test_date > date.fromisoformat(backtest_test_date):
             return False
-        if (
-            self._to_including_test_date
-            and date.fromisoformat(last_training_backtest_date) > self._to_including_test_date
-        ):
+        if self._to_including_test_date and date.fromisoformat(backtest_test_date) > self._to_including_test_date:
             return False
         return True
 
@@ -905,9 +1001,7 @@ class SageMakerBacktestResultsDownloader:
                 hyperparam = "" if result_components.hyperparameter is None else f"-{result_components.hyperparameter}"
                 algo_id = f"{result_components.algorithm_name}@{result_components.algorithm_version}{hyperparam}"
                 remote_result_json_path = f"{algo_id}/result.json"
-                local_result_json_path = (
-                    f"{algo_id}/last_train_date_NA-last_test_date_{result_components.backtest_test_date}/result.json"
-                )
+                local_result_json_path = f"{algo_id}/last_test_date_{result_components.backtest_test_date}/result.json"
                 self._download_result_from_s3(
                     result_components, remote_result_json_path, os.path.join("meta", local_result_json_path)
                 )
@@ -969,7 +1063,7 @@ class SageMakerBacktestResultsDownloader:
                 glob.glob(
                     str(
                         self._dest_base_dir.joinpath(
-                            f"meta/{result_components.algorithm_name}@{result_components.algorithm_version}{hyperparam}/last_train_date*last_test_date_{result_components.backtest_test_date}/result.json"
+                            f"meta/{result_components.algorithm_name}@{result_components.algorithm_version}{hyperparam}/*last_test_date_{result_components.backtest_test_date}/result.json"
                         )
                     )
                 )

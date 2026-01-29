@@ -4,6 +4,7 @@ import com.hotvect.api.algorithms.BulkScorer;
 import com.hotvect.api.algorithms.Ranker;
 import com.hotvect.api.data.ranking.RankingDecision;
 import com.hotvect.api.data.ranking.RankingRequest;
+import com.hotvect.api.data.scoring.ScoringDecision;
 import it.unimi.dsi.fastutil.doubles.DoubleArrayList;
 import it.unimi.dsi.fastutil.doubles.DoubleList;
 
@@ -24,13 +25,22 @@ public class RankerToBulkScorer<SHARED, ACTION> implements BulkScorer<SHARED, AC
 
     @Override
     public DoubleList apply(RankingRequest<SHARED, ACTION> rankingRequest) {
-        List<RankingDecision<ACTION>> scoredAndRanked = new ArrayList<>(this.ranker.rank(rankingRequest).getRankingDecisions());
+        List<RankingDecision<ACTION>> scoredAndRanked = new ArrayList<>(this.ranker.rank(rankingRequest).decisions());
         double[] scores = new double[scoredAndRanked.size()];
         for (RankingDecision<ACTION> rankingDecision : scoredAndRanked) {
             int actionIdx = rankingDecision.getActionIndex();
-            scores[actionIdx] = rankingDecision.getScore();
+            scores[actionIdx] = rankingDecision.score();
         }
         return DoubleArrayList.wrap(scores);
+    }
 
+    @Override
+    public List<ScoringDecision<ACTION>> bulkScore(RankingRequest<SHARED, ACTION> rankingRequest) {
+        DoubleList scores = apply(rankingRequest);
+        List<ScoringDecision<ACTION>> ret = new ArrayList<>(scores.size());
+        for (int i = 0; i < scores.size(); i++) {
+            ret.add(ScoringDecision.of(rankingRequest.availableActions().get(i), scores.getDouble(i)));
+        }
+        return ret;
     }
 }

@@ -1,73 +1,67 @@
 package com.hotvect.api.data.topk;
 
 import com.google.common.collect.ImmutableMap;
+import com.hotvect.api.data.Decision;
 
 import java.util.Map;
 
-public class TopKDecision<ACTION> {
-    private final String actionId;
+/**
+ * A record representing a TopK decision, including an actionId,
+ * optional score and probability, the ACTION, and additional properties.
+ *
+ * @param <ACTION> the type associated with the decision
+ */
+public record TopKDecision<ACTION>(
+        String actionId,
+        Double score,
+        ACTION action,
+        Double probability,
+        Map<String, Object> additionalProperties
+) implements Decision<ACTION> {
 
-    private final Double probability;
-    private final Double score;
-    private final ACTION action;
-
-    private final Map<String, Object> additionalProperties;
-
-    private TopKDecision(String actionId, Double score, ACTION action, Double probability, Map<String, Object> additionalProperties) {
-        this.actionId = actionId;
-        this.score = score;
-        this.action = action;
-        this.probability = probability;
-        this.additionalProperties = additionalProperties;
-    }
-
-
-    public Map<String, Object> getAdditionalProperties() {
-        return additionalProperties;
-    }
-
+    @Deprecated(forRemoval = true)
     public String getActionId() {
         return actionId;
     }
 
+    @Deprecated(forRemoval = true)
     public Double getScore() {
         return score;
     }
 
+    @Deprecated(forRemoval = true)
     public ACTION getAction() {
         return action;
     }
 
+    @Deprecated(forRemoval = true)
     public Double getProbability() {
         return probability;
     }
 
-
-    private boolean isSameDouble(Double d1, Double d2) {
-        if (d1 == null || d2 == null) {
-            return d1 == d2;
-        }
-        return Double.compare(d1, d2) == 0;
+    @Deprecated(forRemoval = true)
+    public Map<String, Object> getAdditionalProperties() {
+        return additionalProperties;
     }
 
-    public static <ACTION> TopKDecisionBuilder<ACTION> builder(String actionId, ACTION action){
+    // -------------------------------------------------------------------------
+    // Builder pattern
+    // -------------------------------------------------------------------------
+    public static <ACTION> TopKDecisionBuilder<ACTION> builder(String actionId, ACTION action) {
         return new TopKDecisionBuilder<>(actionId, action);
     }
-
 
     public static class TopKDecisionBuilder<ACTION> {
         private final String actionId;
         private final ACTION action;
         private Double score;
         private Double probability;
-
         private Map<String, Object> additionalProperties = ImmutableMap.of();
 
-        private TopKDecisionBuilder(String actionId, ACTION action){
+        private TopKDecisionBuilder(String actionId, ACTION action) {
             this.actionId = actionId;
             this.action = action;
         }
-
 
         public TopKDecisionBuilder<ACTION> withScore(Double score) {
             this.score = score;
@@ -79,13 +73,13 @@ public class TopKDecision<ACTION> {
             return this;
         }
 
-        public TopKDecisionBuilder<ACTION> withAdditionalProperties(Map<String, Object>additionalProperties) {
+        public TopKDecisionBuilder<ACTION> withAdditionalProperties(Map<String, Object> additionalProperties) {
             this.additionalProperties = additionalProperties;
             return this;
         }
 
         public TopKDecision<ACTION> build() {
-            return new TopKDecision<>(actionId, score, action, probability, additionalProperties);
+            return new TopKDecision<>(this.actionId, this.score, this.action, this.probability, this.additionalProperties);
         }
     }
 }

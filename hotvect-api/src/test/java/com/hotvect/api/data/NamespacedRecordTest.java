@@ -1,83 +1,67 @@
 package com.hotvect.api.data;
 
-import org.junit.jupiter.api.Test;
-import org.quicktheories.core.Gen;
+import net.jqwik.api.*;
 
 import java.util.EnumMap;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
-import static org.quicktheories.QuickTheory.qt;
-import static org.quicktheories.generators.Generate.enumValues;
-import static org.quicktheories.generators.SourceDSL.maps;
 
 class NamespacedRecordTest {
-    @Test
-    public void initializedMapBehavesConsistently() {
-        qt().forAll(generate()).checkAssert(x -> {
-            EnumMap<ExampleRawNamespace, ExampleRawNamespace> enumMap = toEnumMap(x);
-            DataRecord<ExampleRawNamespace, ExampleRawNamespace> subject = toDataRecord(enumMap);
 
-            assertEquals(enumMap, subject.asEnumMap());
-
-            for (ExampleRawNamespace k : ExampleRawNamespace.values()) {
+    @Property
+    void initializedMapBehavesConsistently(@ForAll("generate") Map<ExampleRawNamespace, ExampleRawNamespace> x) {
+        EnumMap<ExampleRawNamespace, ExampleRawNamespace> enumMap = toEnumMap(x);
+        DataRecord<ExampleRawNamespace, ExampleRawNamespace> subject = toDataRecord(enumMap);
+        assertEquals(enumMap, subject.asEnumMap());
+        for (ExampleRawNamespace k : ExampleRawNamespace.values()) {
+            assertEquals(x.get(k), subject.get(k));
+        }
+        for (ExampleRawNamespace k : ExampleRawNamespace.values()) {
+            if (x.get(k) != null) {
+                subject.put(k, x.get(k));
                 assertEquals(x.get(k), subject.get(k));
             }
-
-            for (ExampleRawNamespace k : ExampleRawNamespace.values()) {
-                if (x.get(k) != null) {
-                    subject.put(k, x.get(k));
-                    assertEquals(x.get(k), subject.get(k));
-                }
-                subject.put(k, null);
-                assertNull(subject.get(k));
-            }
-        });
+            subject.put(k, null);
+            assertNull(subject.get(k));
+        }
     }
 
-
-    @Test
-    public void mutationBehavesConsistently() {
-        qt().forAll(generate()).checkAssert(x -> {
-            DataRecord<ExampleRawNamespace, ExampleRawNamespace> subject = toDataRecord(x);
-
-            ExampleRawNamespace previous = subject.get(ExampleRawNamespace.strings_1);
-            assertEquals(x.get(ExampleRawNamespace.strings_1), previous);
-
-            subject.put(ExampleRawNamespace.strings_1, ExampleRawNamespace.strings_1);
-            assertEquals(ExampleRawNamespace.strings_1, subject.get(ExampleRawNamespace.strings_1));
-
-            subject.put(ExampleRawNamespace.strings_1, null);
-            assertNull(subject.get(ExampleRawNamespace.strings_1));
-        });
+    @Property
+    void mutationBehavesConsistently(@ForAll("generate") Map<ExampleRawNamespace, ExampleRawNamespace> x) {
+        DataRecord<ExampleRawNamespace, ExampleRawNamespace> subject = toDataRecord(x);
+        ExampleRawNamespace previous = subject.get(ExampleRawNamespace.strings_1);
+        assertEquals(x.get(ExampleRawNamespace.strings_1), previous);
+        subject.put(ExampleRawNamespace.strings_1, ExampleRawNamespace.strings_1);
+        assertEquals(ExampleRawNamespace.strings_1, subject.get(ExampleRawNamespace.strings_1));
+        subject.put(ExampleRawNamespace.strings_1, null);
+        assertNull(subject.get(ExampleRawNamespace.strings_1));
     }
 
-    @Test
-    public void nullKeyNotAllowed() {
+    @Example
+    void nullKeyNotAllowed() {
         assertThrows(NullPointerException.class, () -> {
             DataRecord<ExampleRawNamespace, String> subject = new DataRecord<>(ExampleRawNamespace.class);
             subject.put(null, null);
         });
     }
 
-    @Test
-    public void equality() {
-        qt().forAll(generate(), generate()).checkAssert((x, y) -> {
-            DataRecord<ExampleRawNamespace, ExampleRawNamespace> xd = toDataRecord(x);
-            DataRecord<ExampleRawNamespace, ExampleRawNamespace> yd = toDataRecord(y);
-            if(x.equals(y)){
-                assertEquals(xd.hashCode(), yd.hashCode());
-                assertEquals(xd, yd);
-            }
-        });
+    @Property
+    void equality(@ForAll("generate") Map<ExampleRawNamespace, ExampleRawNamespace> x,
+                  @ForAll("generate") Map<ExampleRawNamespace, ExampleRawNamespace> y) {
+        DataRecord<ExampleRawNamespace, ExampleRawNamespace> xd = toDataRecord(x);
+        DataRecord<ExampleRawNamespace, ExampleRawNamespace> yd = toDataRecord(y);
+        if (x.equals(y)) {
+            assertEquals(xd.hashCode(), yd.hashCode());
+            assertEquals(xd, yd);
+        }
     }
 
-
-    private Gen<Map<ExampleRawNamespace, ExampleRawNamespace>> generate() {
-        return maps().of(
-                enumValues(ExampleRawNamespace.class),
-                enumValues(ExampleRawNamespace.class))
-                .ofSizeBetween(0, 2);
+    @Provide
+    Arbitrary<Map<ExampleRawNamespace, ExampleRawNamespace>> generate() {
+        Arbitrary<ExampleRawNamespace> keys = Arbitraries.of(ExampleRawNamespace.values());
+        Arbitrary<ExampleRawNamespace> values = Arbitraries.of(ExampleRawNamespace.values());
+        return Arbitraries.maps(keys, values).ofMinSize(0).ofMaxSize(2);
     }
 
     private DataRecord<ExampleRawNamespace, ExampleRawNamespace> toDataRecord(EnumMap<ExampleRawNamespace, ExampleRawNamespace> enumMap) {
@@ -91,7 +75,4 @@ class NamespacedRecordTest {
     private EnumMap<ExampleRawNamespace, ExampleRawNamespace> toEnumMap(Map<ExampleRawNamespace, ExampleRawNamespace> x) {
         return x.isEmpty() ? new EnumMap<>(ExampleRawNamespace.class) : new EnumMap<>(x);
     }
-
-
-
 }

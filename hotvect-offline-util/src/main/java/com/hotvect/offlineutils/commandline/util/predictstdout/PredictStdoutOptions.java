@@ -1,6 +1,7 @@
 package com.hotvect.offlineutils.commandline.util.predictstdout;
 
 import picocli.CommandLine;
+
 import java.io.File;
 
 public class PredictStdoutOptions {

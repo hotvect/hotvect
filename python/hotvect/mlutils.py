@@ -1,266 +1,266 @@
 import gzip
 import json
 import logging
-import re
 from datetime import datetime
 from typing import Any, Dict, Optional, Union
 
 import numpy as np
-import pandas as pd
 from sklearn.metrics import average_precision_score, ndcg_score, roc_auc_score
 
 logger = logging.getLogger(__name__)
 
 
-def pr_auc_score(y_true, y_pred):
-    return average_precision_score(y_true, y_pred)
+def ndcg_for_each_k(reward_arrays, rank_arrays, ks):
+    n = len(reward_arrays)
+    max_k = max(ks)
+    # Set the padding for any ranking requests that have less than k items
+    rewards = np.zeros((n, max_k))
+    ranks = 10**8 * np.ones((n, max_k))
+    for i, (reward, rank) in enumerate(zip(reward_arrays, rank_arrays)):
+        # Sort so that the first k are always used
+        ranking_indices = np.argsort(rank)
+        rank = rank[ranking_indices]
+        reward = reward[ranking_indices]
+        copy_length = min(max_k, reward.shape[0])
+        rewards[i, :copy_length] = reward[:copy_length]
+        ranks[i, :copy_length] = rank[:copy_length]
+
+    return [ndcg_score(rewards[:, :k], -ranks[:, :k]) for k in ks]
 
 
-def bootstrap_classification_metrics(y_true, y_pred, dict_metric_functions, n_bootstraps=5, rng_seed=42):
-    return_dict = {}
+def map_for_each_k(binary_reward_arrays, rank_arrays, k_values):
+    total_average_precisions = [0.0] * len(k_values)
+    n = 0
+    for rewards, ranks in zip(binary_reward_arrays, rank_arrays):
+        ranking_indices = np.argsort(ranks)
+        rewards = rewards[ranking_indices]
+        # Calculate cumulative sum of relevant items (1s)
+        relevant_items = np.cumsum(rewards)
 
-    # Check if we have enough samples for bootstrapping
-    if len(y_true) < 10000:
-        # If not enough samples, calculate only the mean for each metric
-        for metric_name, metric_function in dict_metric_functions.items():
-            score = metric_function(y_true, y_pred)
-            return_dict[metric_name] = {"mean": score}
-        return return_dict
+        # Calculate precision at each position where there is a relevant item
+        positions = np.arange(1, len(rewards) + 1)
+        precisions = relevant_items / positions
 
-    rng = np.random.RandomState(rng_seed)
-    dict_metrics_bootstrap = {metric_name: [] for metric_name in dict_metric_functions.keys()}
+        # Only consider precision at positions where we have 1s
+        precisions_for_ones = precisions * rewards
 
-    for i in range(n_bootstraps):
-        # Bootstrap by sampling with replacement on the prediction indices
-        indices = rng.randint(0, len(y_pred), len(y_pred))
+        # Now calculate for each k
+        for i, k in enumerate(k_values):
+            if k is None:
+                k = rewards.shape[0]
+            total_ones = np.sum(rewards[:k])
+            if total_ones == 0:
+                ap_score_at_k = 0.0
+            else:
+                total_precision_for_ones = np.sum(precisions_for_ones[:k])
+                ap_score_at_k = total_precision_for_ones / total_ones
+            total_average_precisions[i] += ap_score_at_k
+        n += 1
 
-        # For metrics that need both classes, check if both are present
-        classes_in_sample = np.unique(y_true.iloc[indices])
-        for metric_name, metric_function in dict_metric_functions.items():
-            if metric_name in ["roc_auc", "pr_auc"] and len(classes_in_sample) < 2:
-                # Skip metrics that require both classes
-                continue
-            score = metric_function(y_true.iloc[indices], y_pred.iloc[indices])
-            dict_metrics_bootstrap[metric_name].append(score)
-
-    # For each metric calculate the confidence interval and store the result in the dict
-    for metric in dict_metrics_bootstrap.keys():
-        sorted_scores = np.array(dict_metrics_bootstrap[metric])
-        sorted_scores.sort()
-        # Computing the lower and upper bound of the 90% confidence interval
-        # You can change the bounds percentiles to 0.025 and 0.975 to get
-        # a 95% confidence interval instead.
-        return_dict[metric] = {
-            "lower_bound": sorted_scores[int(0.05 * len(sorted_scores))],
-            "mean": dict_metric_functions[metric](y_true, y_pred),
-            "upper_bound": sorted_scores[int(0.95 * len(sorted_scores))],
-        }
-
-    return return_dict
+    if n == 0:
+        return np.nan
+    return [total_ap / n for total_ap in total_average_precisions]
 
 
-def standard_evaluation(simulation_output_path: str) -> Dict[str, Any]:
-    df = read_predicted_data_from_json(simulation_output_path)
-    logger.debug(f"Loaded data to evaluate from: {simulation_output_path}")
+def diversity(rank_arrays, category_arrays, k_list):
+    total_unique_k = np.zeros(len(k_list))
 
-    # Evaluate the offline results (plain rank and score) and store at root level
-    result = {}
-    result.update(_calculate_score_metric(df))
-    result.update(calculate_ranking_metric(df))
-    # Only calculate diversity if the 'additional_properties.action_category' column exists
-    if "additional_properties.action_category" in df.columns:
-        result.update(calculate_diversity(df))
+    n = 0
+    for ranks, categories in zip(rank_arrays, category_arrays):
+        for i, k in enumerate(k_list):
+            ranking_indices = np.argsort(ranks)
+            categories = categories[ranking_indices]
+            unique = np.unique(categories[:k])
+            total_unique_k[i] += unique.shape[0]
+        n += 1
 
-    # Check for additional dimensions in columns starting with 'additional_properties.online'
-    online_columns = [col for col in df.columns if col.startswith("additional_properties.online.")]
-    if online_columns:
-        result["online"] = {}
-        dimensions = set()
-
-        # Use regex to extract dimension names
-        pattern = r"additional_properties\.online\.(\w+)\.(rank|score)$"
-        for column in online_columns:
-            match = re.match(pattern, column)
-            if match:
-                dimensions.add(match.group(1))
-
-        for dimension in dimensions:
-            dimension_df = df.copy()
-            dimension_result = {}
-
-            score_column = f"additional_properties.online.{dimension}.score"
-            rank_column = f"additional_properties.online.{dimension}.rank"
-
-            if score_column in df.columns:
-                if df[score_column].isna().any():
-                    logger.warning(f"Skipping score evaluation for dimension '{dimension}' due to NaN values.")
-                else:
-                    # If no NaNs in score, proceed with score evaluation
-                    dimension_df["score"] = df[score_column]
-                    dimension_result.update(_calculate_score_metric(dimension_df))
-
-            if rank_column in df.columns:
-                if df[rank_column].isna().any():
-                    logger.warning(f"Skipping rank evaluation for dimension '{dimension}' due to NaN values.")
-                else:
-                    # If no NaNs in rank, proceed with rank evaluation
-                    dimension_df["rank"] = df[rank_column]
-                    dimension_result.update(calculate_ranking_metric(dimension_df))
-                dimension_result.update(calculate_ranking_metric(dimension_df))
-
-            if dimension_result:
-                logger.info(f"Evaluated online {dimension} results for: {simulation_output_path}")
-                result["online"][dimension] = dimension_result
-
-    return result
+    if n == 0:
+        raise ValueError("No Categories specified, cannot calculate diversity")
+    mean_unique_k = total_unique_k / np.array(k_list) / n
+    return mean_unique_k.tolist()
 
 
-def mean_score(y_true, y_pred):
-    return np.mean(y_pred)
-
-
-def _calculate_score_metric(df: pd.DataFrame) -> Dict[str, Any]:
-    # Add binary reward
-    df.loc[df["reward"] <= 0, "binary_reward"] = 0
-    df.loc[df["reward"] > 0, "binary_reward"] = 1
-
-    return bootstrap_classification_metrics(
-        y_true=df["binary_reward"],
-        y_pred=df["score"],
-        dict_metric_functions={
-            "roc_auc": roc_auc_score,
-            "pr_auc": pr_auc_score,
-            "mean_score": mean_score,
-        },
-    )
-
-
-def calculate_ranking_metric(df):
-    # Add binary reward
-    df.loc[df["reward"] <= 0, "binary_reward"] = 0
-    df.loc[df["reward"] > 0, "binary_reward"] = 1
-
+def calculate_metrics(ks, reward_arrays, binary_reward_arrays, rank_arrays, score_arrays):
     evaluate_dict = {}
-    K_LIST = [10, 50, np.nan]
-    for k in K_LIST:
-        k_string = "all" if pd.isna(k) else str(k)
-        for metric, fun in [
-            ("map", calculate_mean_average_precision),
-            ("ndcg", calculate_ndcg),
-        ]:
-            evaluate_dict[f"{metric}_at_{k_string}"] = fun(df, k)
+
+    ndcgs = ndcg_for_each_k(reward_arrays, rank_arrays, ks)
+    # For each k calculate the NDCG.
+    for ndcg_at_k, k in zip(ndcgs, ks):
+        evaluate_dict[f"ndcg_at_{k}"] = ndcg_at_k
+
+    # Compute the MAP10, MAP50, and MAP_ALL all at once for performance gains
+    maps = map_for_each_k(binary_reward_arrays, rank_arrays, ks)
+    for mean_ap, k in zip(maps, ks):
+        evaluate_dict[f"map_at_{k}"] = mean_ap
+
+    # Concatenate Arrays to calculate the Area under the ROC and PR curves
+    all_rewards = np.concatenate(binary_reward_arrays)
+    all_scores = np.concatenate(score_arrays)
+    # Have eliminated unused confidence intervals
+    evaluate_dict["roc_auc"] = {"mean": roc_auc_score(all_rewards, all_scores)}
+    evaluate_dict["pr_auc"] = {"mean": average_precision_score(all_rewards, all_scores)}
+    evaluate_dict["mean_score"] = {"mean": np.mean(all_scores)}
     return evaluate_dict
 
 
-def calculate_diversity(df, k_list=None):
-    k_list = k_list if k_list else [5, 10, 30]
-
-    def _calculate_diversity(df, k):
-        df = df[df["rank"] <= k]
-        df = df.sort_values(["example_id", "rank"])
-        return df.groupby("example_id")["additional_properties.action_category"].nunique().mean() / k
-
-    eval_dict = {}
-    for k in k_list:
-        eval_dict[f"diversity@{k}"] = _calculate_diversity(df, k)
-
+def calculate_all_metrics(
+    ks, diversity_ks, reward_arrays, binary_reward_arrays, rank_arrays, score_arrays, categories, dimensions
+):
+    if len(rank_arrays) == 0 and len(reward_arrays) == 0 and len(score_arrays) == 0:
+        return {"skipped": "This algorithm always returns empty results. No metrics can be calculated."}
+    eval_dict = calculate_metrics(ks, reward_arrays, binary_reward_arrays, rank_arrays, score_arrays)
+    if categories:
+        mean_diversity_k = diversity(rank_arrays, categories, diversity_ks)
+        for k, diversity_at_k in zip(diversity_ks, mean_diversity_k):
+            eval_dict[f"diversity@{k}"] = diversity_at_k
+    if dimensions:
+        eval_dict["online"] = {}
+        for dim_name, dim_dict in dimensions.items():
+            ranks = dim_dict["ranks"]
+            scores = dim_dict["scores"]
+            eval_dict["online"][dim_name] = calculate_metrics(ks, reward_arrays, binary_reward_arrays, ranks, scores)
     return eval_dict
 
 
-def calculate_ndcg(df, k=None):
-    def _safe_ndcg_score(y_true, y_score, k=None, sample_weight=None):
-        # ndcg doesnt work for lists of length 1,
-        # see: https://stackoverflow.com/questions/67631896/getting-error-while-calculating-ndcg-using-sklearn
-        if len(y_true) == 1:
-            return np.nan
-        return ndcg_score([y_true], [y_score], k=k, sample_weight=sample_weight)
+def _process_row(data, dimensions, rewards, binary_rewards, ranks, scores, categories):
+    current_rewards = []
+    current_ranks = []
+    current_scores = []
+    current_categories = []
+    # Append the current ranks and scores for each dimension too
+    for dim in dimensions.values():
+        dim["ranks"].append([])
+        dim["scores"].append([])
+    for item in data["result"]:
+        current_rewards.append(item["reward"])
+        current_ranks.append(item["rank"])
+        current_scores.append(item["score"])
+        if "additional_properties" in item:
+            additional_properties = item["additional_properties"]
+            if "action_category" in additional_properties:
+                current_categories.append(additional_properties["action_category"])
+            if "online" in additional_properties:
+                online_data = additional_properties["online"]
+                for dim_name, dim_data in online_data.items():
+                    if "rank" in dim_data and "score" in dim_data:
+                        if dim_name not in dimensions:
+                            dimensions[dim_name] = {"ranks": [[]], "scores": [[]]}
+                        dimensions[dim_name]["ranks"][-1].append(dim_data["rank"])
+                        dimensions[dim_name]["scores"][-1].append(dim_data["score"])
 
-    if pd.isna(k):
-        k = None
-
-    # calculate ndcg per example
-    df = df.sort_values(["example_id", "rank"])
-    example_ndcg = df.groupby("example_id")[["reward", "rank"]].apply(
-        lambda x: _safe_ndcg_score(x.reward.values, (-1) * x["rank"].values, k)
-    )
-    if np.all(np.isnan(example_ndcg)):
-        return np.nan
-    else:
-        return np.nanmean(example_ndcg)
-
-
-def calculate_mean_average_precision(df: pd.DataFrame, k: int = None):
-    # for map@k
-    if pd.isna(k):
-        k = np.inf
-    df = df[df["rank"] <= k]
-    # just in case
-    df = df.sort_values(["example_id", "rank"])
-
-    # calculate ap per example
-    df_map = df.groupby("example_id")["binary_reward"].agg([average_precision]).reset_index(drop=False)
-    return np.nanmean(df_map.average_precision)
+    # Only keep the current ranks and scores if they are non-empty
+    if current_ranks and current_scores and current_rewards:
+        rewards.append(np.array(current_rewards))
+        binary_rewards.append(np.where(rewards[-1] > 0, 1.0, 0.0))
+        ranks.append(np.array(current_ranks))
+        scores.append(np.array(current_scores))
+    for dim in dimensions.values():
+        if len(dim["ranks"][-1]) == 0 or len(dim["scores"][-1]) == 0:
+            dim["ranks"].pop()
+            dim["scores"].pop()
+        else:
+            dim["ranks"][-1] = np.array(dim["ranks"][-1])
+            dim["scores"][-1] = np.array(dim["scores"][-1])
+    if current_categories:
+        categories.append(np.array(current_categories))
 
 
-def precision_at_k(r, k):
-    """Score is precision @ k
-    Relevance is binary (nonzero is relevant).
+def standard_evaluation(path, ks=None, diversity_ks=None):
+    rewards = []
+    binary_rewards = []
+    ranks = []
+    scores = []
+    categories = []
+    dimensions = {}
 
-    Args:
-        r: Relevance scores (list or numpy) in rank order
-            (first element is the first item)
-    Returns:
-        Precision @ k
-    Raises:
-        ValueError: len(r) must be >= k
+    if not ks:
+        ks = [10, 50, 100]
+    if not diversity_ks:
+        diversity_ks = [5, 10, 30]
+
+    opener = gzip.open if path.lower().endswith(".gz") else open
+    with opener(path, "rt") as f:
+        for line in f:
+            _process_row(json.loads(line), dimensions, rewards, binary_rewards, ranks, scores, categories)
+
+    return calculate_all_metrics(ks, diversity_ks, rewards, binary_rewards, ranks, scores, categories, dimensions)
+
+
+def dcg_adapted(reward):
     """
-    assert k >= 1
-    r = np.asarray(r)[:k] != 0
-    if r.size != k:
-        raise ValueError("Relevance score length < k")
-    return np.mean(r)
+    Calculate the adapted DCG score with penalty for negative rewards.
 
+    Parameters:
+    - reward (list of float): List of reward values.
 
-def average_precision(r):
-    """Score is average precision
-    Relevance is binary (nonzero is relevant).
-    Args:
-        r: Relevance scores (list or numpy) in rank order
-            (first element is the first item)
     Returns:
-        Average precision
+    - float: Adapted DCG score.
     """
-    if np.sum(r) == 0:
-        return 0.0
-    r = np.asarray(r) != 0
-    out = [precision_at_k(r, k + 1) for k in range(r.size) if r[k]]
-    if not out:
-        return 0.0
-    return np.mean(out)
+    dcg_gain = sum(g / np.log2(i + 1) for i, g in enumerate(reward, start=1))
+    dcg_penalty = sum(np.abs(p) / np.log2(j + 1) for j, p in enumerate(reward, start=1) if p < 0)
+    return dcg_gain - dcg_penalty
 
 
-def read_predicted_data_from_json(path):
-    def open_file():
-        return gzip.open(path) if path.lower().endswith(".gz") else open(path)
+def ndcg_with_worst_dcg(scores, k):
+    """
+    Calculate the normalized discounted cumulative gain (NDCG) with worst-case scenario normalization.
 
-    def data_gen():
-        with open_file() as f:
-            for line in f:
-                yield json.loads(line)
+    Parameters:
+    - scores (list of float): List of scores containing positive and negative values.
+    - k (int): The cutoff rank position.
 
-    return pd.json_normalize(data=data_gen(), record_path=["result"], meta=["example_id"])
+    Returns:
+    - float: NDCG score bounded between 0 and 1.
+    """
+    ideal_scores = sorted(scores, reverse=True)
+    worst_scores = sorted(scores, reverse=False)
+
+    dcg_current = dcg_adapted(scores[:k])
+    dcg_worst = dcg_adapted(worst_scores[:k])
+    dcg_ideal = dcg_adapted(ideal_scores[:k])
+
+    return (dcg_current - dcg_worst) / (dcg_ideal - dcg_worst) if dcg_ideal - dcg_worst != 0 else 0
 
 
-def _get_nested_value(d: Dict, *keys):
-    for key in keys:
-        if d is None:
-            return None
-        d = d.get(key)
-    return d
+def real_numbers_reward_evaluation(path, ks=None):
+    """
+    Evaluate the NDCG metric for the rewards in range [-inf, inf].
 
+    Parameters:
+    - path (str): Path to the input data file (JSON or GZIP format).
+    - ks (list of int, optional): List of k values for NDCG calculation. Defaults to [10, 50, 100].
 
-def _none_as_missing(d: Dict):
-    return {k: v for k, v in d.items() if v is not None}
+    Returns:
+    - dict: Dictionary containing NDCG scores for each k value.
+    """
+    rewards = []
+    ranks = []
+
+    if not ks:
+        ks = [10, 50, 100]
+
+    # Determine file opener based on extension
+    opener = gzip.open if path.lower().endswith(".gz") else open
+    with opener(path, "rt") as f:
+        for line in f:
+            data = json.loads(line)
+            current_rewards = [item["reward"] for item in data["result"]]
+            current_ranks = [item["rank"] for item in data["result"]]
+
+            # Sort rewards based on their ranks
+            sorted_indices = np.argsort(current_ranks)
+            sorted_rewards = np.array(current_rewards)[sorted_indices].tolist()
+
+            rewards.append(sorted_rewards)
+            ranks.append(current_ranks)
+
+    # Compute NDCG scores for each k value
+    evaluation_results = {}
+    for k in ks:
+        ndcg_scores = [ndcg_with_worst_dcg(r, k) for r in rewards]
+        evaluation_results[f"ndcg_at_{k}"] = np.mean(ndcg_scores)
+
+    return evaluation_results
 
 
 def extract_evaluation(result_dict: Dict[str, Any]) -> Optional[Dict[str, Union[str, float]]]:

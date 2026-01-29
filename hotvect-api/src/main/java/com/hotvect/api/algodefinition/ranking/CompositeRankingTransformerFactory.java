@@ -2,7 +2,7 @@ package com.hotvect.api.algodefinition.ranking;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.hotvect.api.algodefinition.AlgorithmInstance;
-import com.hotvect.api.data.FeatureNamespace;
+import com.hotvect.api.data.Namespace;
 import com.hotvect.api.transformation.CompositeTransformerFactory;
 
 import java.io.InputStream;
@@ -15,7 +15,7 @@ public interface CompositeRankingTransformerFactory<SHARED, ACTION> extends Comp
     RankingTransformer<SHARED, ACTION> apply(Optional<JsonNode> hyperparameters, Map<String, InputStream> parameters, Map<String, AlgorithmInstance<?>> algorithmDependencies);
 
     @Override
-    default SortedSet<FeatureNamespace> getUsedFeatures(Optional<JsonNode> transformerHyperparameters) {
+    default SortedSet<Namespace> getUsedFeatures(Optional<JsonNode> transformerHyperparameters) {
         throw new UnsupportedOperationException("Please implement this method");
     }
 }

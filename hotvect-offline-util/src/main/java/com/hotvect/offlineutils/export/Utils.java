@@ -11,11 +11,13 @@ import java.util.Map;
 
 import static com.google.common.base.Preconditions.checkState;
 
+@Deprecated(forRemoval = true)
 public class Utils {
     private Utils(){}
     private static final ObjectMapper OM = new ObjectMapper();
     private static final Joiner joinOnHat = Joiner.on("^");
 
+    @Deprecated(forRemoval = true)
     static void addFeatures(Map<Integer, List<RawFeatureName>> names, int[] indices, double[] values, ArrayNode features) {
         for (int i = 0; i < indices.length; i++) {
             ObjectNode feature = OM.createObjectNode();

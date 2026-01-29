@@ -4,14 +4,15 @@ import com.google.common.base.Strings;
 import com.google.common.base.Throwables;
 import com.hotvect.api.algodefinition.common.RewardFunction;
 import com.hotvect.api.codec.ranking.RankingExampleEncoder;
-import com.hotvect.api.data.FeatureNamespace;
-import com.hotvect.api.data.RawValue;
+import com.hotvect.api.data.Namespace;
 import com.hotvect.api.data.common.NamespacedRecord;
 import com.hotvect.api.data.ranking.RankingExample;
 import com.hotvect.api.data.ranking.RankingOutcome;
-import com.hotvect.api.transformation.ranking.MemoizableRankingTransformer;
-import com.hotvect.api.transformation.ranking.MemoizedRankingRequest;
+import com.hotvect.api.data.ranking.TransformedAction;
+import com.hotvect.core.transform.ranking.ComputingRankingRequest;
+import com.hotvect.core.transform.ranking.ComputingRankingTransformer;
 import com.hotvect.core.util.DoubleFormatUtils;
+import com.hotvect.utils.ListTransform;
 
 import java.util.List;
 import java.util.Optional;
@@ -24,13 +25,13 @@ import static java.util.stream.Collectors.toSet;
 
 public class CatBoostEncoder<SHARED, ACTION, OUTCOME> implements RankingExampleEncoder<SHARED, ACTION, OUTCOME> {
     private static final int FLOAT_FORMAT_PRECISION = 9;
-    private final MemoizableRankingTransformer<SHARED, ACTION> transformer;
+    private final ComputingRankingTransformer<SHARED, ACTION> transformer;
     private final RewardFunction<OUTCOME> rewardFunction;
 
-    public CatBoostEncoder(MemoizableRankingTransformer<SHARED, ACTION> transformer, RewardFunction<OUTCOME> rewardFunction) {
+    public CatBoostEncoder(ComputingRankingTransformer<SHARED, ACTION> transformer, RewardFunction<OUTCOME> rewardFunction) {
         this.transformer = transformer;
-        Set<FeatureNamespace> notOfCatBoostType = transformer.getUsedFeatures().stream().filter(x -> !(x.getFeatureValueType() instanceof CatBoostFeatureType)).collect(toSet());
-        checkArgument(notOfCatBoostType.isEmpty(), "All features must be CatBoostFeatureType. Offending features: %s", notOfCatBoostType);
+        Set<Namespace> notOfCatBoostType = transformer.getUsedFeatures().stream().filter(x -> !(x.getFeatureValueType() instanceof CatBoostFeatureType)).collect(toSet());
+        checkArgument(notOfCatBoostType.isEmpty(), "All features must have a CatboostFeatureType defined. Offending features: %s", notOfCatBoostType);
         this.rewardFunction = rewardFunction;
     }
 
@@ -41,22 +42,20 @@ public class CatBoostEncoder<SHARED, ACTION, OUTCOME> implements RankingExampleE
 
     @Override
     public String apply(RankingExample<SHARED, ACTION, OUTCOME> toEncode) {
-        MemoizedRankingRequest<SHARED, ACTION> memoized = transformer.memoize(toEncode.getRankingRequest());
-        List<NamespacedRecord<FeatureNamespace, RawValue>> transformed =
-                transformer.apply(
-                        memoized
-                );
+        ComputingRankingRequest<SHARED, ACTION> memoized = transformer.prepare(toEncode.rankingRequest());
+        List<TransformedAction<ACTION>> transformedActions = transformer.transform(memoized);
+        List<NamespacedRecord<Namespace, Object>> transformed = ListTransform.map(transformedActions, TransformedAction::transformed);
         StringBuilder sb = new StringBuilder();
 
         for (int i = 0; i < transformed.size(); i++) {
-            RankingOutcome<OUTCOME, ACTION> outcome = toEncode.getOutcomes().get(i);
-            double reward = rewardFunction.applyAsDouble(outcome.getOutcome());
+            RankingOutcome<OUTCOME, ACTION> outcome = toEncode.outcomes().get(i);
+            double reward = rewardFunction.applyAsDouble(outcome.outcome());
             appendDouble(sb, reward);
             sb.append('\t');
 
-            NamespacedRecord<FeatureNamespace, RawValue> record = transformed.get(i);
+            NamespacedRecord<Namespace, Object> record = transformed.get(i);
 
-            for (FeatureNamespace featureKey : transformer.getUsedFeatures()) {
+            for (Namespace featureKey : transformer.getUsedFeatures()) {
                 CatBoostFeatureType catBoostFeatureType = (CatBoostFeatureType) featureKey.getFeatureValueType();
                 appendFeature(featureKey, catBoostFeatureType, record.get(featureKey), sb);
                 sb.append('\t');
@@ -66,7 +65,7 @@ public class CatBoostEncoder<SHARED, ACTION, OUTCOME> implements RankingExampleE
             sb.append('\n');
         }
 
-        if(sb.length() > 0){
+        if(!sb.isEmpty()){
             // If we have added records, remove the last excessive new line
             sb.deleteCharAt(sb.length() - 1);
         }
@@ -83,55 +82,103 @@ public class CatBoostEncoder<SHARED, ACTION, OUTCOME> implements RankingExampleE
 
     public static final String MISSING_TEXT = "NA";
 
-    private void appendFeature(FeatureNamespace featureKey, CatBoostFeatureType valueType, RawValue rawValue, StringBuilder sb) {
+    private void appendFeature(Namespace featureKey, CatBoostFeatureType valueType, Object Object, StringBuilder sb) {
         try {
-            doAppendFeature(valueType, rawValue, sb);
+            doAppendFeature(valueType, Object, sb);
         }catch (RuntimeException e){
             Throwable cause = Throwables.getRootCause(e);
-            throw new RuntimeException(Strings.lenientFormat("Error while processing feature key=%s, value=%s, valueType=%s", featureKey, rawValue, valueType), cause);
+            throw new RuntimeException(Strings.lenientFormat("Error while processing feature key=%s, value=%s, valueType=%s", featureKey, Object, valueType), cause);
         }
     }
 
-    private void doAppendFeature(CatBoostFeatureType valueType, RawValue rawValue, StringBuilder sb) {
-        if (valueType == CatBoostFeatureType.CATEGORICAL){
-            String v = rawValue == null ? MISSING_CATEGORICAL : rawValue.getSingleString();
-            sb.append(v);
-        } else if (valueType == CatBoostFeatureType.NUMERICAL){
-            if(rawValue == null){
-                sb.append(MISSING_NUMERICAL);
-            } else {
-                appendDouble(sb, rawValue.getSingleNumerical());
+    private void doAppendFeature(CatBoostFeatureType valueType, Object v, StringBuilder sb) {
+        switch (valueType) {
+            case CATEGORICAL -> {
+                // CATEGORICAL: allowed null, String, Integer, Long
+                if (v == null) {
+                    sb.append(MISSING_CATEGORICAL);
+                } else if (v instanceof String || v instanceof Integer || v instanceof Long || v instanceof Boolean) {
+                    sb.append(v);
+                } else {
+                    throw new RuntimeException("Unexpected value type for CATEGORICAL feature: " + v
+                            + ". Allowed types: null, String, Integer, Long.");
+                }
             }
-        } else if(valueType == CatBoostFeatureType.TEXT){
-            if (rawValue == null || rawValue.getStrings().length == 0){
-                // Catboost requires an empty column
-                sb.append(" ");
-            } else {
-                for (String string : rawValue.getStrings()) {
-                    checkState(!Strings.isNullOrEmpty(string), "Suspicious empty string:%s", rawValue);
-                    checkState(!string.contains(" "), "Feature value may not contain spaces, %s", rawValue);
-                    sb.append(string);
+            case NUMERICAL -> {
+                // NUMERICAL: allowed null, Double, Float
+                if (v == null) {
+                    sb.append(MISSING_NUMERICAL);
+                } else if (v instanceof Double d) {
+                    appendDouble(sb, d);
+                } else if (v instanceof Float f) {
+                    appendDouble(sb, f.doubleValue());
+                } else {
+                    throw new RuntimeException("Unexpected value type for NUMERICAL feature: " + v
+                            + " of type: " + v.getClass() + ". Allowed types: null, Double, Float.");
+                }
+            }
+            case TEXT -> {
+                // TEXT: allowed null or String[]. If null => " ", no empty arrays, no spaces in strings.
+                if (v == null) {
                     sb.append(" ");
+                } else if (v instanceof String[] arr) {
+                    if(arr.length == 0){
+                        sb.append(MISSING_TEXT);
+                        return;
+                    }
+                    for (String string : arr) {
+                        checkState(!Strings.isNullOrEmpty(string), "TEXT feature value in an array may not be empty or null, %s. If the entire feature is missing, return null instead.", v);
+                        checkState(!string.contains(" "), "Feature value may not contain spaces, %s. This is due to CatBoost's restriction.", v);
+                        sb.append(string).append(" ");
+                    }
+                    sb.deleteCharAt(sb.length() - 1);
+
+                } else {
+                    throw new RuntimeException("Unexpected value type for TEXT feature: " + v
+                            + ". Allowed types: null, String[].");
                 }
-                // Remove excess space character
-                sb.deleteCharAt(sb.length() - 1);
             }
-        } else if (valueType == CatBoostFeatureType.GROUP_ID) {
-            sb.append(rawValue.getSingleString());
-        } else if (valueType == CatBoostFeatureType.EMBEDDING){
-            if (rawValue == null || rawValue.getNumericals().length == 0){
-                sb
-                        .append(MISSING_NUMERICAL);
-            } else {
-                for (double numerical : rawValue.getNumericals()) {
-                    appendDouble(sb, numerical);
-                    sb.append(";");
+            case GROUP_ID -> {
+                // GROUP_ID: allowed null or String
+                if (v == null) {
+                    sb.append(MISSING_CATEGORICAL);
+                } else if (v instanceof String) {
+                    sb.append(v);
+                } else {
+                    throw new RuntimeException("Unexpected value type for GROUP_ID feature: " + v
+                            + ". Allowed types: null, String.");
                 }
-                // Remove excess space character
-                sb.deleteCharAt(sb.length() - 1);
             }
-        } else {
-            throw new AssertionError("valueType " + valueType + " should be processed in appendFeatures.");
+            case EMBEDDING -> {
+                // EMBEDDING: allowed null, double[], float[]
+                if (v == null) {
+                    sb.append(MISSING_NUMERICAL);
+                } else if (v instanceof double[] darr) {
+                    if (darr.length == 0) {
+                        sb.append(MISSING_NUMERICAL);
+                    } else {
+                        for (double num : darr) {
+                            appendDouble(sb, num);
+                            sb.append(";");
+                        }
+                        sb.deleteCharAt(sb.length() - 1);
+                    }
+                } else if (v instanceof float[] farr) {
+                    if (farr.length == 0) {
+                        sb.append(MISSING_NUMERICAL);
+                    } else {
+                        for (float num : farr) {
+                            appendDouble(sb, (double) num);
+                            sb.append(";");
+                        }
+                        sb.deleteCharAt(sb.length() - 1);
+                    }
+                } else {
+                    throw new RuntimeException("Unexpected value type for EMBEDDING feature: " + v
+                            + ". Allowed types: null, double[], float[].");
+                }
+            }
+            default -> throw new AssertionError("valueType " + valueType + " should be processed in appendFeatures.");
         }
     }
 }

@@ -13,7 +13,12 @@ public interface NamespacedRecord<K, V>{
 
     NamespacedRecord<K,V> shallowCopy();
 
-    void merge(NamespacedRecord<? extends Namespace, V> nonMemoized);
+    @Deprecated
+    void merge(NamespacedRecord<? extends Namespace, V> other);
+
+    boolean putAllIfAbsent(K[] ks, V[] vs);
+
+    boolean putIfAbsent(K key, V value);
 
     Map<K, V> asMap();
 
@@ -21,7 +26,7 @@ public interface NamespacedRecord<K, V>{
 
     static <K, V> NamespacedRecord<K, V> empty() {
 
-        return new NamespacedRecord<>() {
+        return new NamespacedRecordImpl<>() {
             @Override
             public V get(Object key) {
                 return null;
@@ -39,7 +44,7 @@ public interface NamespacedRecord<K, V>{
             }
 
             @Override
-            public void merge(NamespacedRecord<? extends Namespace, V> nonMemoized) {
+            public void merge(NamespacedRecord<? extends Namespace, V> other) {
                 throw new UnsupportedOperationException("This namespaced record is immutable");
             }
 

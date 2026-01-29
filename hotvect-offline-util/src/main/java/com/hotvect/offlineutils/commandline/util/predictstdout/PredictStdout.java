@@ -27,7 +27,9 @@ import picocli.CommandLine;
 import java.io.*;
 import java.net.URL;
 import java.net.URLClassLoader;
-import java.util.*;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.function.Function;
 
 public class PredictStdout {
@@ -86,7 +88,7 @@ public class PredictStdout {
         // Load AlgorithmInstance
         AlgorithmOfflineSupporterFactory algorithmSupporterFactory = new AlgorithmOfflineSupporterFactory(algoClassLoader);
         AlgorithmInstanceFactory algorithmInstanceFactory = new AlgorithmInstanceFactory(algoClassLoader, false);
-        AlgorithmInstance<?> algorithmInstance = algorithmInstanceFactory.load(algorithmDefinition, opts.parameters);
+        AlgorithmInstance<?> algorithmInstance = algorithmInstanceFactory.load(algorithmDefinition, opts.parameters, Map.of());
         LOGGER.info("Loaded AlgorithmInstance: {}", algorithmInstance);
 
         // Get ExampleDecoder
@@ -96,7 +98,7 @@ public class PredictStdout {
         RewardFunction<?> rewardFunction = algorithmSupporterFactory.getRewardFunction(algorithmDefinition);
 
         // Create output formatter
-        Function<Example, String> algorithmOutputFormatter = getOutputFormatter(algorithmInstance.getAlgorithm(), rewardFunction);
+        Function<Example, String> algorithmOutputFormatter = getOutputFormatter(algorithmInstance.algorithm(), rewardFunction);
 
         // Create transformation function
         Function<String, String> transformation = s -> {
@@ -142,22 +144,20 @@ public class PredictStdout {
         }
     }
 
-    private static Function<Example, String> getOutputFormatter(Algorithm algo, RewardFunction<?> rewardFunction) throws MalformedAlgorithmException {
-        if (algo instanceof Scorer) {
-            Scorer<?> scorer = (Scorer<?>) algo;
-            return new ScoringResultFormatter().apply(rewardFunction, scorer);
-        } else if (algo instanceof Ranker) {
-            Ranker<?, ?> ranker = (Ranker<?, ?>) algo;
+    private static <EXAMPLE, ALGO, OUTCOME> Function<EXAMPLE, String> getOutputFormatter(ALGO algo, RewardFunction<OUTCOME> rewardFunction) {
+        if (algo instanceof Ranker ranker) {
             return new RankingResultFormatter().apply(rewardFunction, ranker);
-        } else if (algo instanceof BulkScorer) {
-            BulkScorer<?, ?> bulkScorer = (BulkScorer<?, ?>) algo;
-            Ranker<?, ?> ranker = new BulkScoreGreedyRanker(bulkScorer);
+        } else if (algo instanceof BulkScorer bulkScorer) {
+            Ranker ranker = new BulkScoreGreedyRanker(bulkScorer);
             return new RankingResultFormatter().apply(rewardFunction, ranker);
-        } else if (algo instanceof TopK) {
-            TopK topK = (TopK) algo;
+        } else if (algo instanceof ThemedTopK themedTopK) {
+            // Handle ThemedTopK
+            return new ThemedTopKResultFormatter().apply(rewardFunction, themedTopK);
+        } else if (algo instanceof TopK topK) {
             return new TopKResultFormatter().apply(rewardFunction, topK);
         } else {
-            throw new MalformedAlgorithmException("Unknown algorithm type: " + algo.getClass().getCanonicalName());
+            throw new MalformedAlgorithmException(
+                    "Unknown algorithm type: " + algo.getClass().getCanonicalName());
         }
     }
 

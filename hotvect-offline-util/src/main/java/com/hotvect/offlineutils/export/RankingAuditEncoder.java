@@ -16,6 +16,7 @@ import java.util.stream.Collectors;
 
 import static com.hotvect.offlineutils.export.Utils.addFeatures;
 
+@Deprecated(forRemoval = true)
 public class RankingAuditEncoder<SHARED, ACTION, OUTCOME> implements RankingExampleEncoder<SHARED, ACTION, OUTCOME> {
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final ThreadLocal<Map<Integer, List<RawFeatureName>>> names;
@@ -31,21 +32,21 @@ public class RankingAuditEncoder<SHARED, ACTION, OUTCOME> implements RankingExam
 
     @Override
     public String apply(RankingExample<SHARED, ACTION, OUTCOME> toEncode) {
-        List<SparseVector> vector = vectorizer.apply(toEncode.getRankingRequest());
+        List<SparseVector> vector = vectorizer.apply(toEncode.rankingRequest());
         return jsonEncode(toEncode, vector, names.get());
     }
 
 
     private String jsonEncode(RankingExample<SHARED, ACTION, OUTCOME> toEncode, List<SparseVector> vector, Map<Integer, List<RawFeatureName>> names) {
         var root = objectMapper.createObjectNode();
-        root.put("example_id", toEncode.getExampleId());
+        root.put("example_id", toEncode.exampleId());
 
         ArrayNode results = objectMapper.createArrayNode();
-        var actions = toEncode.getRankingRequest().getAvailableActions();
-        var outcomes = toEncode.getOutcomes();
+        var actions = toEncode.rankingRequest().availableActions();
+        var outcomes = toEncode.outcomes();
         Map<Integer, Double> actionIdxToReward = outcomes.stream().collect(Collectors.toMap(
-                x -> x.getRankingDecision().getActionIndex(),
-                x -> rewardFunction.applyAsDouble(x.getOutcome())
+                x -> x.rankingDecision().getActionIndex(),
+                x -> rewardFunction.applyAsDouble(x.outcome())
         ));
 
         for (int i = 0; i < actions.size(); i++) {

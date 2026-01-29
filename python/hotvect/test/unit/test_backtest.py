@@ -61,4 +61,4 @@ def test_read_results_of_range():
         to_including_test_date=datetime.date(2022, 9, 3),
     )
     assert len(jsons) == 1
-    assert str(jsons[0]).endswith("example-algorithm@1.1.1/last_train_date_2022-09-02-last_test_date_2022-09-03")
+    assert str(jsons[0]).endswith("example-algorithm@1.1.1/last_test_date_2022-09-03")

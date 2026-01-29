@@ -2,8 +2,8 @@ package com.hotvect.core.util;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Sets;
-import com.hotvect.api.data.Namespace;
 import com.hotvect.api.data.DataRecord;
+import com.hotvect.api.data.Namespace;
 
 import java.lang.reflect.Array;
 import java.util.*;

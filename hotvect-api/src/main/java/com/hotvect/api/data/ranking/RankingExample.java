@@ -2,55 +2,51 @@ package com.hotvect.api.data.ranking;
 
 import com.hotvect.api.data.common.Example;
 
-import javax.annotation.Nonnull;
 import java.util.List;
-import java.util.Objects;
 
-public class RankingExample<SHARED, ACTION, OUTCOME> implements Example {
-    private final String exampleId;
-    private final RankingRequest<SHARED, ACTION> rankingRequest;
-    private final List<RankingOutcome<OUTCOME, ACTION>> outcomes;
+public record RankingExample<SHARED, ACTION, OUTCOME>(
+        String exampleId,
+        OfflineRankingRequest<SHARED, ACTION> request,
+        List<RankingOutcome<OUTCOME, ACTION>> outcomes
+) implements Example<OfflineRankingRequest<SHARED, ACTION>, RankingOutcome<OUTCOME, ACTION>> {
 
-    public RankingExample(String exampleId, RankingRequest<SHARED, ACTION> rankingRequest, List<RankingOutcome<OUTCOME, ACTION>> outcomes) {
-        this.exampleId = exampleId;
-        this.rankingRequest = rankingRequest;
-        this.outcomes = outcomes;
+    /**
+     * Legacy constructor for backward compatibility with v64.4.0 and older versions.
+     * This constructor matches the old 3-parameter signature used by legacy algorithms.
+     * For non-OfflineRankingRequest instances, it creates a wrapper with empty feature store container.
+     *
+     * @param exampleId the example identifier
+     * @param request the ranking request (generic RankingRequest)
+     * @param outcomes the list of ranking outcomes
+     * @deprecated This constructor is deprecated and marked for removal. Use the record constructor instead.
+     */
+    @Deprecated(forRemoval = true)
+    @SuppressWarnings("unchecked")
+    public RankingExample(String exampleId, RankingRequest<SHARED, ACTION> request, List<RankingOutcome<OUTCOME, ACTION>> outcomes) {
+        this(exampleId,
+             request instanceof OfflineRankingRequest ?
+                 (OfflineRankingRequest<SHARED, ACTION>) request :
+                 OfflineRankingRequest.newOfflineRankingRequest(request.exampleId(), request.shared(), request.availableActions(), com.hotvect.api.data.FeatureStoreResponseContainer.empty()),
+             outcomes);
     }
 
+    /**
+     * Backward compatibility method for legacy algos
+     * @return
+     */
+    @Deprecated(forRemoval = true)
+    public RankingRequest<SHARED, ACTION> rankingRequest() {
+        return request;
+    }
 
+    @Deprecated(forRemoval = true)
     public RankingRequest<SHARED, ACTION> getRankingRequest() {
-        return rankingRequest;
+        return request;
     }
 
+    @Deprecated(forRemoval = true)
     public List<RankingOutcome<OUTCOME, ACTION>> getOutcomes() {
         return outcomes;
     }
 
-    @Nonnull
-    @Override
-    public String getExampleId() {
-        return this.exampleId;
-    }
-
-    @Override
-    public String toString() {
-        return "RankingExample{" +
-                "exampleId='" + exampleId + '\'' +
-                ", rankingRequest=" + rankingRequest +
-                ", outcomes=" + outcomes +
-                '}';
-    }
-
-    @Override
-    public boolean equals(Object o) {
-        if (this == o) return true;
-        if (o == null || getClass() != o.getClass()) return false;
-        RankingExample<?, ?, ?> that = (RankingExample<?, ?, ?>) o;
-        return exampleId.equals(that.exampleId) && rankingRequest.equals(that.rankingRequest) && Objects.equals(outcomes, that.outcomes);
-    }
-
-    @Override
-    public int hashCode() {
-        return Objects.hash(exampleId, rankingRequest, outcomes);
-    }
 }

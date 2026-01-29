@@ -1,9 +1,9 @@
 package com.hotvect.offlineutils.commandline.util.flatmap;
 
-import com.codahale.metrics.MetricRegistry;
+import io.micrometer.core.instrument.MeterRegistry;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.hotvect.offlineutils.commandline.CommandlineUtility;
-import com.hotvect.offlineutils.util.OrderedFileMapper;
+import com.hotvect.onlineutils.concurrency.fileutils.OrderedFileMapper;
 import com.hotvect.utils.VerboseCallable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -21,11 +21,11 @@ import static java.lang.Math.max;
 
 public class FlatMapTask extends VerboseCallable<Map<String, Object>> {
     private static final Logger log = LoggerFactory.getLogger(FlatMapTask.class);
-    private final MetricRegistry metricRegistry;
+    private final MeterRegistry meterRegistry;
     private final FlatMapOptions flatMapOptions;
 
-    public FlatMapTask(MetricRegistry metricRegistry, FlatMapOptions opts) {
-        this.metricRegistry = metricRegistry;
+    public FlatMapTask(MeterRegistry meterRegistry, FlatMapOptions opts) {
+        this.meterRegistry = meterRegistry;
         this.flatMapOptions = opts;
     }
 
@@ -44,7 +44,7 @@ public class FlatMapTask extends VerboseCallable<Map<String, Object>> {
         Function<String, List<String>> flatMap = flatMapFunFactory.apply(hyperparameter);
 
         OrderedFileMapper processor = OrderedFileMapper.mapper(
-                this.metricRegistry,
+                this.meterRegistry,
                 this.flatMapOptions.sourceFile,
                 this.flatMapOptions.destinationFile,
                 flatMap,

@@ -42,10 +42,11 @@ public class PropagationOfAlgorithmDefinitionTest {
 
             var algorithmInstance = algoAlgorithmInstanceFactory.load(
                     "com-hotvect-test",
-                    new File(ClassLoader.getSystemResource("mock.parameters.1.0.0.zip").getFile())
+                    new File(ClassLoader.getSystemResource("mock.parameters.1.0.0.zip").getFile()),
+                    ImmutableMap.of()
             );
 
-            assertEquals(outerAlgorithmExpected, algorithmInstance.getAlgorithmDefinition());
+            assertEquals(outerAlgorithmExpected, algorithmInstance.algorithmDefinition());
         }
 
         // The inner algorithm (dependency)
@@ -59,9 +60,10 @@ public class PropagationOfAlgorithmDefinitionTest {
 
             var algorithmInstance = innerAlgorithmInstanceFactory.load(
                     "com-hotvect-test-iris-model",
-                    new File(ClassLoader.getSystemResource("mock.parameters.1.0.0.zip").getFile())
+                    new File(ClassLoader.getSystemResource("mock.parameters.1.0.0.zip").getFile()),
+                    ImmutableMap.of()
             );
-            assertEquals(innerAlgorithmExpected, algorithmInstance.getAlgorithmDefinition());
+            assertEquals(innerAlgorithmExpected, algorithmInstance.algorithmDefinition());
         }
 
     }
@@ -73,25 +75,25 @@ public class PropagationOfAlgorithmDefinitionTest {
         AlgorithmDefinition innerAlgorithmExpected = new AlgorithmDefinitionReader().parse(CharStreams.toString(new InputStreamReader(ClassLoader.getSystemResourceAsStream("com-hotvect-test-iris-model-algorithm-definition.json"), Charsets.UTF_8)));
         outerAlgorithmExpected = outerAlgorithmExpected.replace(ImmutableMap.of("com-hotvect-test-iris-model", innerAlgorithmExpected));
 
-        ObjectNode testDecoderProp = (ObjectNode) outerAlgorithmExpected.getVectorizerParameter().orElseThrow();
+        ObjectNode testDecoderProp = (ObjectNode) outerAlgorithmExpected.vectorizerParameter().orElseThrow();
         testDecoderProp.put("vectorizer_test_parameter", "overwritten");
 
         JsonNode innerAlgorithmExpectedJsonNode = new ObjectMapper().readTree(new InputStreamReader(ClassLoader.getSystemResourceAsStream("com-hotvect-test-iris-model-algorithm-definition.json"), Charsets.UTF_8));
         ObjectNode testVectorizerProp = (ObjectNode) innerAlgorithmExpectedJsonNode.get("vectorizer_parameters");
         testVectorizerProp.put("vectorizer_test_parameter", "overwritten");
 
-        outerAlgorithmExpected.getDependencyAlgorithmOverrides().put("com-hotvect-test-iris-model", Optional.of(innerAlgorithmExpectedJsonNode));
-        ((ObjectNode)(outerAlgorithmExpected.getDependencies().get("com-hotvect-test-iris-model").getRawAlgorithmDefinition().get("vectorizer_parameters"))).put("vectorizer_test_parameter", "overwritten");
+        outerAlgorithmExpected.dependencyAlgorithmOverrides().put("com-hotvect-test-iris-model", Optional.of(innerAlgorithmExpectedJsonNode));
+        ((ObjectNode)(outerAlgorithmExpected.dependencies().get("com-hotvect-test-iris-model").rawAlgorithmDefinition().get("vectorizer_parameters"))).put("vectorizer_test_parameter", "overwritten");
 
         AlgorithmInstanceFactory algoAlgorithmInstanceFactory = new AlgorithmInstanceFactory(
                 Thread.currentThread().getContextClassLoader(),
                 false
         );
 
-        AlgorithmInstance<Ranker<String, Map<String, String>>> algorithmInstance = algoAlgorithmInstanceFactory.load(outerAlgorithmExpected, new File(ClassLoader.getSystemResource("mock.parameters.1.0.0.zip").getFile()));
-        assertEquals(outerAlgorithmExpected, algorithmInstance.getAlgorithmDefinition());
+        AlgorithmInstance<Ranker<String, Map<String, String>>> algorithmInstance = algoAlgorithmInstanceFactory.load(outerAlgorithmExpected, new File(ClassLoader.getSystemResource("mock.parameters.1.0.0.zip").getFile()), ImmutableMap.of());
+        assertEquals(outerAlgorithmExpected, algorithmInstance.algorithmDefinition());
 
-        algorithmInstance.getAlgorithm().rank(new RankingRequest<>("example1", "shared", ImmutableList.of(ImmutableMap.of(
+        algorithmInstance.algorithm().rank(new RankingRequest<>("example1", "shared", ImmutableList.of(ImmutableMap.of(
                 "iris.model.parameter.id", "test_iris_model_parameter_id_123",
                 "iris.model.vectorizer_test_parameter", "overwritten"
         ))));

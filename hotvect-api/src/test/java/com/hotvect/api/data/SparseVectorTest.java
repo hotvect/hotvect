@@ -1,77 +1,77 @@
 package com.hotvect.api.data;
 
-import com.google.common.collect.ImmutableList;
-import org.junit.jupiter.api.Test;
-import org.quicktheories.api.Pair;
-import org.quicktheories.core.Gen;
+import net.jqwik.api.*;
+import net.jqwik.api.Tuple.Tuple2;
 
 import java.util.Arrays;
-import java.util.function.BiConsumer;
 
-import static com.hotvect.testutils.TestUtils.*;
 import static org.junit.jupiter.api.Assertions.*;
-import static org.quicktheories.QuickTheory.qt;
-import static org.quicktheories.generators.Generate.*;
-import static org.quicktheories.generators.SourceDSL.integers;
 
 class SparseVectorTest {
-    private final Gen<Double> doubles = pick(ImmutableList.of(Double.MIN_VALUE, -1.0, 0.0, 1.0, Double.MAX_VALUE));
-    private final Gen<Pair<int[], double[]>> vectors =  intArrays(integers().between(0, 3), integers().all())
-            .mutate((is, rand) -> Pair.of(is, doubleArrays(constant(is.length), doubles).generate(rand)));
 
-    @Test
-    void correctlyInitializes() {
-        qt().withFixedSeed(10).forAll(vectors).checkAssert(x -> {
-            int[] names = x._1;
-            double[] values = x._2;
-            assert names.length == values.length;
+    @Provide
+    Arbitrary<Double> doubles() {
+        return Arbitraries.of(Double.MIN_VALUE, -1.0, 0.0, 1.0, Double.MAX_VALUE);
+    }
 
-            SparseVector subject = new SparseVector(names, values);
+    @Provide
+    Arbitrary<Tuple2<int[], double[]>> vectors() {
+        Arbitrary<int[]> intArrays = Arbitraries.integers()
+                .array(int[].class)
+                .ofMinSize(0)
+                .ofMaxSize(3);
 
-            assertArrayEquals(names, subject.getNumericalIndices());
-            assertArrayEquals(values, subject.getNumericalValues());
+        return intArrays.flatMap(is -> {
+            int length = is.length;
+            Arbitrary<double[]> doubleArrays = doubles()
+                    .array(double[].class)
+                    .ofSize(length);
+            return doubleArrays.map(ds -> Tuple.of(is, ds));
         });
     }
 
-    @Test
-    void correctlyInitializesWithNamesOnly() {
-        qt().withFixedSeed(10).forAll(intArrays(integers().between(0, 3), integers().all())).checkAssert(x -> {
-            SparseVector subject = new SparseVector(x);
-
-            assertArrayEquals(x, subject.getCategoricalIndices());
-        });
+    @Property
+    void correctlyInitializes(@ForAll("vectors") Tuple2<int[], double[]> x) {
+        int[] names = x.get1();
+        double[] values = x.get2();
+        assertEquals(names.length, values.length);
+        SparseVector subject = new SparseVector(names, values);
+        assertArrayEquals(names, subject.getNumericalIndices());
+        assertArrayEquals(values, subject.getNumericalValues());
     }
 
-    @Test
+    @Provide
+    Arbitrary<int[]> intArrays() {
+        return Arbitraries.integers()
+                .array(int[].class)
+                .ofMinSize(0)
+                .ofMaxSize(3);
+    }
+
+    @Property
+    void correctlyInitializesWithNamesOnly(@ForAll("intArrays") int[] x) {
+        SparseVector subject = new SparseVector(x);
+        assertArrayEquals(x, subject.getCategoricalIndices());
+    }
+
+    @Example
     void invalidInputs() {
-        assertThrows(NullPointerException.class, () -> new SparseVector((int[])null));
-        assertThrows(NullPointerException.class, () -> new SparseVector((double[])null));
+        assertThrows(NullPointerException.class, () -> new SparseVector((int[]) null));
+        assertThrows(NullPointerException.class, () -> new SparseVector((double[]) null));
         assertThrows(NullPointerException.class, () -> new SparseVector(null, null));
         assertThrows(IllegalArgumentException.class, () -> new SparseVector(new int[1], new double[2]));
     }
 
-
-
-
-    @Test
-    void equality() {
-        Gen<Pair<int[], double[]>> data = testVectors();
-        BiConsumer<Pair<int[], double[]>, Pair<int[], double[]>> assertSparseVectors = (x, y) -> {
-            SparseVector xp = new SparseVector(x._1, x._2);
-            SparseVector yp = new SparseVector(y._1, y._2);
-
-            boolean equal = Arrays.equals(x._1, y._1) && Arrays.equals(x._2, y._2);
-            assertEquals(equal, xp.equals(yp));
-            if (equal){
-                assertEquals(xp.hashCode(), yp.hashCode());
-            }
-        };
-
-        qt().withFixedSeed(10).forAll(data, data)
-                .assuming((x, y) -> !Arrays.equals(x._1, y._1) || !Arrays.equals(x._2, y._2))
-                .checkAssert(assertSparseVectors);
-
-        qt().withFixedSeed(10).forAll(generateEquals(data)).checkAssert(x -> assertSparseVectors.accept(x._1, x._2));
-
+    @Property
+    void equality(@ForAll("vectors") Tuple2<int[], double[]> x, @ForAll("vectors") Tuple2<int[], double[]> y) {
+        SparseVector xp = new SparseVector(x.get1(), x.get2());
+        SparseVector yp = new SparseVector(y.get1(), y.get2());
+        boolean arraysEqual = Arrays.equals(x.get1(), y.get1()) && Arrays.equals(x.get2(), y.get2());
+        if (arraysEqual) {
+            assertEquals(xp, yp);
+            assertEquals(xp.hashCode(), yp.hashCode());
+        } else {
+            assertNotEquals(xp, yp);
+        }
     }
 }

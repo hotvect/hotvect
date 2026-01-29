@@ -10,6 +10,7 @@ import java.util.function.Function;
 /**
  * Interface for classes that constructs a feature vector from hashed records
  */
+@Deprecated
 public interface Combiner<FEATURE extends FeatureNamespace> extends Function<NamespacedRecord<FEATURE, HashedValue>, SparseVector> {
 
     /**

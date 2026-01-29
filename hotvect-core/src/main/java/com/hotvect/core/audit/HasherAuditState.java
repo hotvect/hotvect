@@ -9,6 +9,7 @@ import com.hotvect.api.data.RawValue;
 import java.util.HashMap;
 import java.util.Map;
 
+@Deprecated(forRemoval = true)
 public class HasherAuditState {
     private final ThreadLocal<Map<HashedFeatureName, RawFeatureName>> featureName2SourceRawValue = ThreadLocal.withInitial(HashMap::new);
 

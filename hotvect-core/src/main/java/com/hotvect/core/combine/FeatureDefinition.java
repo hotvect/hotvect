@@ -15,6 +15,7 @@ import java.util.*;
 import static com.google.common.base.Preconditions.checkArgument;
 
 
+@Deprecated
 public class FeatureDefinition implements Serializable {
     private final ValueType valueType;
     private final Set<FeatureNamespace> components;

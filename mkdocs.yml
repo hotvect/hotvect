@@ -2,26 +2,40 @@ site_name: hotvect
 site_url: https://hotvect.docs.zalando.net
 docs_dir: docs/
 
-repo_url: https://github.bus.zalan.do/Lounge-Data/hotvect
+repo_url: https://github.com/zalando-lounge/hotvect
 repo_name: GHE
 edit_uri: edit/main/docs/
 
 nav:
   - Getting Started: index.md
-  - Key differences with other similar frameworks: ./highlevel/motivation.md
-  - Concepts and terminology: ./highlevel/concepts.md
-  - Migration Guide:
-    - Migration from v7 to v8: ./migration-guides/migration-from-v7-to-v8.md
-    - Migration from v6 to v7: ./migration-guides/migration-from-v6-to-v7.md
-    - Migration from v4 to v6: ./migration-guides/migration-from-v4-to-v6.md
+  - Quick Start: quickstart.md
+  - Concepts and Terminology:
+      - Overview: ./highlevel/concepts.md
+      - Key differences with other frameworks: ./highlevel/motivation.md
+      - Namespaces: ./highlevel/namespaces.md
+      - Tutorials: ./highlevel/tutorials.md
   - How to:
-      - Use previously generated parameters and other outputs in the pipeline: ./howto/use-previous-outputs.md
       - Develop algorithms with hotvect: ./howto/develop-a-re-ranker-with-hotvect.md
       - Debug feature engineering code: ./howto/debug-feature-engineering.md
       - Run and compare feature audits: ./howto/run-and-compare-feature-audits.md
+      - Use previously generated parameters and other outputs: ./howto/use-previous-outputs.md
       - Run User Defined Functions on sagemaker: ./howto/run-udf-on-sagemaker.md
       - Dump available transformation metadata: ./howto/dump-available-feature-transformations.md
+  - Patterns:
+      - Data Dependencies: ./patterns/data-dependencies.md
+      - Override Files: ./patterns/override-files.md
+      - Parent-Child Algorithms: ./patterns/parent-child-algorithms.md
+  - Command Line Interface:
+      - Usage: ./cli/usage.md
   - FAQ: faq.md
+  - Troubleshooting: troubleshooting.md
+  - Migration Guide:
+      - Migration from v7 to v8: ./migration-guides/migration-from-v7-to-v8.md
+      - Migration from v6 to v7: ./migration-guides/migration-from-v6-to-v7.md
+      - Migration from v4 to v6: ./migration-guides/migration-from-v4-to-v6.md
+  - Blog articles:
+      - What is hotvect?: ./blog/what-is-hotvect.md
+      - Why Java?: ./blog/why-java.md
 
 theme:
   name: material

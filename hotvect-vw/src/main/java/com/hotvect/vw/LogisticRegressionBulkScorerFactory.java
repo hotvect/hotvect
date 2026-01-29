@@ -4,7 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.google.common.base.Charsets;
 import com.hotvect.api.algodefinition.ranking.BulkScorerFactory;
 import com.hotvect.api.algorithms.BulkScorer;
-import com.hotvect.api.transformation.ranking.MemoizableRankingVectorizer;
+import com.hotvect.api.transformation.ranking.ComputingRankingVectorizer;
 import com.hotvect.utils.HyperparamUtils;
 import it.unimi.dsi.fastutil.ints.Int2DoubleMap;
 import org.slf4j.Logger;
@@ -16,11 +16,11 @@ import java.io.InputStreamReader;
 import java.util.Map;
 import java.util.Optional;
 
-public class LogisticRegressionBulkScorerFactory<SHARED, ACTION> implements BulkScorerFactory<MemoizableRankingVectorizer<SHARED, ACTION>, SHARED, ACTION> {
+public class LogisticRegressionBulkScorerFactory<SHARED, ACTION> implements BulkScorerFactory<ComputingRankingVectorizer<SHARED, ACTION>, SHARED, ACTION> {
     private static final Logger log = LoggerFactory.getLogger(LogisticRegressionBulkScorerFactory.class);
 
     @Override
-    public BulkScorer<SHARED, ACTION> apply(MemoizableRankingVectorizer<SHARED, ACTION> dependency, Map<String, InputStream> parameters, Optional<JsonNode> hyperparameter) {
+    public BulkScorer<SHARED, ACTION> apply(ComputingRankingVectorizer<SHARED, ACTION> dependency, Map<String, InputStream> parameters, Optional<JsonNode> hyperparameter) {
         int noforkThreshold = HyperparamUtils.getOrDefault(hyperparameter, JsonNode::asInt, 100, "vw_scorer", "nofork_threshold");
         log.info("Using nofork threshold of {}", noforkThreshold);
         Int2DoubleMap params = (new VwModelImporter()).apply(new BufferedReader(new InputStreamReader(parameters.get("model.parameter"), Charsets.UTF_8)));

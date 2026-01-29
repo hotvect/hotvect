@@ -1,0 +1,217 @@
+{
+  "algorithm_id": "example-algorithm@1.1.1",
+  "parameter_version": "last_train_date_2022-09-01-last_test_date_2022-09-02",
+  "ran_at": "2022-09-01T01:02:03.123456+00:00",
+  "test_data_time": "2022-09-04T01:02:03.123456+00:00",
+  "algorithm_definition": {
+    "git_describe": "1.1.1-1-abc",
+    "algorithm_name": "example-algorithm",
+    "algorithm_version": "1.1.1",
+    "dependencies": [
+      "example-algorithm-model@example-algorithm-1.1.1"
+    ],
+    "decoder_factory_classname": "com.hotvect.example.DecoderFactory",
+    "reward_function_factory_classname": "com.hotvect.example.RewardFunctionFactory",
+    "algorithm_factory_classname": "com.hotvect.example.RankerFactory",
+    "test_data_prefix": "something/test"
+  },
+  "dependencies": {
+    "example-algorithm-model:example-algorithm-1.1.1": {
+      "algorithm_id": "example-algorithm-model:example-algorithm-1.1.1",
+      "parameter_version": "last_train_date_2022-09-01-last_test_date_2022-09-02",
+      "ran_at": "2022-09-01T01:02:03.123456+00:00",
+      "algorithm_definition": {
+        "git_describe": "1.1.1-1-abc",
+        "algorithm_name": "example-algorithm-model",
+        "algorithm_version": "example-algorithm-1.1.1",
+        "decoder_factory_classname": "com.hotvect.example.model.DecoderFactory",
+        "vectorizer_factory_classname": "com.hotvect.example.model.VectorizerFactory",
+        "reward_function_factory_classname": "com.hotvect.example.model.RewardFunctionFactory",
+        "encoder_factory_classname": "com.hotvect.example.model.EncoderFactory",
+        "algorithm_factory_classname": "com.hotvect.example.model.RankerFactory",
+        "test_data_prefix": "something2/test",
+        "train_data_prefix": "something2/train",
+        "train_decoder_parameters": {
+          "include_negative_per_million": 10000
+        },
+        "number_of_training_days": 7,
+        "training_container": "hotvect-vw-training-container:latest",
+        "training_command": "vw {{ encoded_file }} --readable_model {{ parameter_output_path }} --noconstant --loss_function logistic --ftrl -b 26",
+        "vectorizer_parameters": {
+          "hash_bits": 26,
+          "features": [
+            [
+              "feature1",
+              "feature2"
+            ],
+            [
+              "feature3"
+            ]
+          ]
+        }
+      },
+      "states": {},
+      "package_encode_params": {
+        "sources": [],
+        "package": "encode_package_parameter.zip"
+      },
+      "predict": {
+        "max_memory_usage": 12321232,
+        "mean_throughput": 1234,
+        "total_record_count": 20000,
+        "algorithm_jar": "algorithm.jar"
+      },
+      "evaluate": {
+        "roc_auc": {
+          "lower_bound": 0.58,
+          "mean": 0.60,
+          "upper_bound": 0.62
+        },
+        "pr_auc": {
+          "lower_bound": 0.02,
+          "mean": 0.03,
+          "upper_bound": 0.04
+        },
+        "map_at_10": 0.04,
+        "ndcg_at_10": 0.04,
+        "map_at_50": 0.04,
+        "ndcg_at_50": 0.04,
+        "map_at_all": 0.04,
+        "ndcg_at_all": 0.05
+      },
+      "performance_test": {
+        "max_memory_usage": 12341234,
+        "mean_throughput": 1234,
+        "total_record_count": 100000,
+        "algorithm_jar": "algorithm.jar",
+        "response_time_metrics": {
+          "p99": {
+            "upper": 9179122.513969962,
+            "mean": 7369685.0,
+            "lower": 5560247.486030038
+          },
+          "mean_throughput": {
+            "upper": 1725.0048280098938,
+            "mean": 1569.737331550679,
+            "lower": 1414.4698350914643
+          },
+          "mean": {
+            "upper": 1192133.786926757,
+            "mean": 1080729.5099844057,
+            "lower": 969325.2330420542
+          },
+          "count": {
+            "upper": 20000.0,
+            "mean": 20000.0,
+            "lower": 20000.0
+          },
+          "p999": {
+            "upper": 47595100.10580313,
+            "mean": 29163224.8,
+            "lower": 10731349.494196873
+          },
+          "p50": {
+            "upper": 645801.407198778,
+            "mean": 577101.6,
+            "lower": 508401.79280122195
+          },
+          "p95": {
+            "upper": 4110173.221537344,
+            "mean": 3473317.6,
+            "lower": 2836461.978462656
+          },
+          "p75": {
+            "upper": 1408365.1109730804,
+            "mean": 1248810.2,
+            "lower": 1089255.2890269195
+          }
+        }
+      }
+    }
+  },
+  "states": {},
+  "package_encode_params": {
+    "skipped": true
+  },
+  "encode": {
+    "skipped": true
+  },
+  "train": {
+    "skipped": true
+  },
+  "predict": {
+    "max_memory_usage": 12341234,
+    "mean_throughput": 1234,
+    "total_record_count": 20000,
+    "algorithm_version": "1.1.1",
+    "algorithm_name": "example-algorithm",
+    "destination_file": "prediction.jsonl.gz"
+  },
+  "evaluate": {
+    "roc_auc": {
+      "lower_bound": 0.60,
+      "mean": 0.61,
+      "upper_bound": 0.62
+    },
+    "pr_auc": {
+      "lower_bound": 0.01,
+      "mean": 0.02,
+      "upper_bound": 0.03
+    },
+    "map_at_10": 0.001,
+    "ndcg_at_10": 0.001,
+    "map_at_50": 0.001,
+    "ndcg_at_50": 0.01,
+    "map_at_all": 0.01,
+    "ndcg_at_all": 0.01
+  },
+  "performance_test": {
+    "max_memory_usage": 12341234,
+    "mean_throughput": 1234,
+    "total_record_count": 100000,
+    "algorithm_version": "1.1.1",
+    "algorithm_name": "example-algorithm",
+    "response_time_metrics": {
+      "p99": {
+        "upper": 23002882.338734314,
+        "mean": 11725205.4,
+        "lower": 447528.4612656869
+      },
+      "mean_throughput": {
+        "upper": 2142.1230392435823,
+        "mean": 1484.2020229358682,
+        "lower": 826.2810066281539
+      },
+      "mean": {
+        "upper": 2050284.8432357637,
+        "mean": 1325849.073398272,
+        "lower": 601413.3035607802
+      },
+      "count": {
+        "upper": 20000.0,
+        "mean": 20000.0,
+        "lower": 20000.0
+      },
+      "p999": {
+        "upper": 65862427.40503648,
+        "mean": 35302789.4,
+        "lower": 4743151.394963518
+      },
+      "p50": {
+        "upper": 867669.0533481995,
+        "mean": 626158.0,
+        "lower": 384646.9466518006
+      },
+      "p95": {
+        "upper": 6943881.960389324,
+        "mean": 4464158.4,
+        "lower": 1984434.8396106763
+      },
+      "p75": {
+        "upper": 2003470.0395271187,
+        "mean": 1401592.6,
+        "lower": 799715.1604728814
+      }
+    }
+  }
+}

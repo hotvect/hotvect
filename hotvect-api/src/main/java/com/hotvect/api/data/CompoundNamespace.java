@@ -1,213 +1,179 @@
 package com.hotvect.api.data;
 
 import com.google.common.base.Joiner;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-import javax.annotation.concurrent.NotThreadSafe;
 import java.util.*;
-import java.util.stream.Collectors;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static com.google.common.base.Preconditions.checkArgument;
 
 /**
  * CompoundNamespace is a class that represents a composite of namespaces,
  * allowing for hierarchical representation of namespaces and feature namespaces.
- * It provides methods to retrieve or create Namespace and FeatureNamespace instances
+ * It provides methods to retrieve or create Namespace instances
  * based on a sequence of Namespace enums or composite namespaces.
  *
  * Note: This class is not thread-safe. Do not use methods in this class concurrently
  * in multiple threads without external synchronization.
+ *
+ * @deprecated Scheduled for removal. Use Namespaces in hotvect-core instead.
  */
-@NotThreadSafe
+@Deprecated(forRemoval = true)
 public class CompoundNamespace {
-    private static final Map<List<Class<? extends Namespace>>, CompoundNamespace> DEFINED_FACTORIES = new HashMap<>();
-    private final EnumMap<?, ?> index;
+    private static final Logger log = LoggerFactory.getLogger(CompoundNamespace.class);
+    private static final AtomicInteger WARN_COUNT = new AtomicInteger(0);
+    private static final Map<List<Namespace>, Namespace> NAMESPACE_REGISTER = new HashMap<>();
 
-    private CompoundNamespace(boolean isFeature, List<Class<? extends Namespace>> namespaceClasses) {
-        checkAllEnums(namespaceClasses);
-        checkArgument(
-                !DEFINED_FACTORIES.containsKey(namespaceClasses),
-                "A Namespace factory for %s has already been defined. Namespace factories must be singletons for each unique sequence of Namespace classes.",
-                namespaceClasses
-        );
-        this.index = createIndex(isFeature, namespaceClasses.toArray(new Class[0]));
-    }
-
-    /**
-     * Please do not use this method while you are performing inference as it is not thread-safe nor performant.
-     * Instead, store the Namespace object in a field during constructing the transformer and use the cached
-     * value during inference.
-     *
-     * @param namespaces Sequence of Namespaces (must include at least two).
-     * @return A Namespace instance representing the composite of the provided namespaces.
-     * @throws IllegalArgumentException if fewer than two namespaces are provided or if the provided namespaces result in a single flattened namespace.
-     */
-    public static Namespace declareNamespace(Namespace... namespaces) {
+    public static Namespace declareNamespace(Class<?> returnTypeHint, Namespace... namespaces) {
         Objects.requireNonNull(namespaces, "Namespaces cannot be null");
         checkArgument(namespaces.length >= 2, "At least two namespaces are required to create a composite namespace");
-
         List<Namespace> flattenedNamespaces = flattenNamespaces(namespaces);
         checkArgument(flattenedNamespaces.size() >= 2, "Cannot create a composite namespace from a single namespace");
 
-        List<Class<? extends Namespace>> factoryKey = flattenedNamespaces.stream()
-                .map(Namespace::getClass)
-                .collect(Collectors.toList());
+        NamespaceId newNamespaceId = new NamespaceId(flattenedNamespaces.toArray(new Namespace[0]), returnTypeHint, null);
+        Namespace result = NAMESPACE_REGISTER.putIfAbsent(flattenedNamespaces, newNamespaceId);
+        if (result == null) {
+            result = newNamespaceId;
+        } else {
+            if (result instanceof NamespaceId namespaceId) {
+                if (namespaceId.returnTypeHint == null) {
+                    namespaceId.returnTypeHint = returnTypeHint;
+                } else if (returnTypeHint != null && !namespaceId.returnTypeHint.equals(returnTypeHint)) {
+                    throw new IllegalArgumentException(String.format(
+                            "Attempted to set returnTypeHint to %s, but it was already set to %s for namespace %s",
+                            returnTypeHint, namespaceId.returnTypeHint, namespaceId
+                    ));
+                }
+            } else {
+                throw new AssertionError("Did not expect anything other than NamespaceId:" + result.getClass().getCanonicalName());
+            }
+        }
 
-        CompoundNamespace factory = DEFINED_FACTORIES.computeIfAbsent(factoryKey, key -> new CompoundNamespace(false, key));
-        return factory.get(flattenedNamespaces.toArray(new Namespace[0]));
+        int callcount = WARN_COUNT.incrementAndGet();
+        if (callcount > 20 * 1000 && callcount % 1000 == 0) {
+            log.warn("declareNamespace or declareFeatureNamespace is being called many times ({}). This may indicate a bug. Namespaces should be cached after declaration.", callcount);
+        }
+        return result;
     }
 
-    /**
-     * Please do not use this method while you are performing inference as it is not thread-safe nor performant.
-     * Instead, store the Namespace object in a field during constructing the transformer and use this cached
-     * value during inference.
-     *
-     * A FeatureNamespace can only have one feature value type. If you create a FeatureNamespace with a feature value
-     * type, and then later attempt to retrieve the same FeatureNamespace with a different feature value type, an exception
-     * is thrown.
-     *
-     * @param featureValueType The ValueType associated with the feature.
-     * @param namespaces       Sequence of Namespaces (must include at least two).
-     * @return A FeatureNamespace instance representing the composite of the provided namespaces and associated with the given ValueType.
-     * @throws IllegalArgumentException if fewer than two namespaces are provided or if the provided namespaces result in a single flattened namespace.
-     */
-    public static FeatureNamespace declareFeatureNamespace(ValueType featureValueType, Namespace... namespaces) {
+    public static Namespace declareNamespace(Namespace... namespaces) {
+        return declareNamespace(null, namespaces);
+    }
+
+    public static Namespace declareFeatureNamespace(ValueType featureValueType, Namespace... namespaces) {
         Objects.requireNonNull(featureValueType, "Feature value type cannot be null");
         Objects.requireNonNull(namespaces, "Namespaces cannot be null");
         checkArgument(namespaces.length >= 2, "At least two namespaces are required to create a composite feature namespace");
-
         List<Namespace> flattenedNamespaces = flattenNamespaces(namespaces);
         checkArgument(flattenedNamespaces.size() >= 2, "Cannot create a composite namespace from a single namespace");
 
-        List<Class<? extends Namespace>> factoryKey = flattenedNamespaces.stream()
-                .map(Namespace::getClass)
-                .collect(Collectors.toList());
-
-        CompoundNamespace factory = DEFINED_FACTORIES.computeIfAbsent(factoryKey, key -> new CompoundNamespace(true, key));
-        Namespace namespace = factory.get(flattenedNamespaces.toArray(new Namespace[0]));
-
-        checkArgument(
-                namespace instanceof FeatureNamespace,
-                "The namespace %s was already declared as a non-feature namespace. Each sequence of Namespace classes can only correspond to either a plain Namespace or a FeatureNamespace. You cannot mix them.",
-                namespace
-        );
-
-        FeatureNamespaceId featureNamespace = (FeatureNamespaceId) namespace;
-        if (featureNamespace.getFeatureValueType() == null) {
-            featureNamespace.setFeatureValueType(featureValueType);
+        NamespaceId newNamespaceId = new NamespaceId(flattenedNamespaces.toArray(new Namespace[0]), null, featureValueType);
+        Namespace result = NAMESPACE_REGISTER.putIfAbsent(flattenedNamespaces, newNamespaceId);
+        if (result == null) {
+            result = newNamespaceId;
+            newNamespaceId.returnTypeHint = featureValueType.getJavaType();
         } else {
-            checkArgument(
-                    featureNamespace.getFeatureValueType() == featureValueType,
-                    "Attempted to retrieve a FeatureNamespace with ValueType %s, but this namespace was already assigned ValueType %s. Offending namespace: %s",
-                    featureValueType,
-                    featureNamespace.getFeatureValueType(),
-                    namespace
-            );
+            if (result instanceof NamespaceId namespaceId) {
+                if (namespaceId.featureValueType == null) {
+                    namespaceId.featureValueType = featureValueType;
+                    if (namespaceId.returnTypeHint == null) {
+                        namespaceId.returnTypeHint = featureValueType.getJavaType();
+                    } else if (!namespaceId.returnTypeHint.equals(featureValueType.getJavaType())) {
+                        throw new IllegalArgumentException(String.format(
+                                "Attempted to set featureValueType to %s (Java type %s) but returnTypeHint was already set to %s for namespace %s",
+                                featureValueType, featureValueType.getJavaType(), namespaceId.returnTypeHint, namespaceId
+                        ));
+                    }
+                } else if (!namespaceId.featureValueType.equals(featureValueType)) {
+                    throw new IllegalArgumentException(String.format(
+                            "Attempted to set featureValueType to %s, but it was already set to %s for namespace %s",
+                            featureValueType, namespaceId.featureValueType, namespaceId
+                    ));
+                }
+            } else {
+                throw new AssertionError("Did not expect anything other than NamespaceId:" + result.getClass().getCanonicalName());
+            }
         }
 
-        return featureNamespace;
+        int callcount = WARN_COUNT.incrementAndGet();
+        if (callcount > 20 * 1000 && callcount % 1000 == 0) {
+            log.warn("declareNamespace or declareFeatureNamespace is being called many times ({}). This may indicate a bug. Namespaces should be cached after declaration.", callcount);
+        }
+        return result;
     }
 
-    /**
-     * @deprecated This method is deprecated and scheduled for removal.
-     * Use {@link #declareNamespace(Namespace... namespaces)} instead.
-     *
-     * Please do not use this method while you are performing inference as it is not thread-safe nor performant.
-     * Instead, store the Namespace object in a field during constructing the transformer and use the cached
-     * value during inference.
-     *
-     * @param namespaces Sequence of Namespaces (must include at least two).
-     * @return A Namespace instance representing the composite of the provided namespaces.
-     * @throws IllegalArgumentException if fewer than two namespaces are provided.
-     */
     @Deprecated(forRemoval = true)
     public static Namespace getNamespace(Namespace... namespaces) {
         checkArgument(namespaces != null && namespaces.length >= 2, "At least two namespaces are required to create a composite namespace");
         return declareNamespace(namespaces);
     }
 
-    /**
-     * @deprecated This method is deprecated and scheduled for removal.
-     * Use {@link #declareFeatureNamespace(ValueType featureValueType, Namespace... namespaces)} instead.
-     *
-     * Please do not use this method while you are performing inference as it is not thread-safe nor performant.
-     * Instead, store the Namespace object in a field during constructing the transformer and use this cached
-     * value during inference.
-     *
-     * A FeatureNamespace can only have one feature value type. If you create a FeatureNamespace with a feature value
-     * type, and then later attempt to retrieve the same FeatureNamespace with a different feature value type, an exception
-     * is thrown.
-     *
-     * @param featureValueType The ValueType associated with the feature.
-     * @param namespaces       Sequence of Namespaces (must include at least two).
-     * @return A FeatureNamespace instance representing the composite of the provided namespaces and associated with the given ValueType.
-     * @throws IllegalArgumentException if fewer than two namespaces are provided.
-     */
     @Deprecated(forRemoval = true)
     public static FeatureNamespace getFeatureNamespace(ValueType featureValueType, Namespace... namespaces) {
         Objects.requireNonNull(featureValueType, "Feature value type cannot be null");
         checkArgument(namespaces != null && namespaces.length >= 2, "At least two namespaces are required to create a composite feature namespace");
-        return declareFeatureNamespace(featureValueType, namespaces);
-    }
 
-    /** Rest of the class remains unchanged **/
+        List<Namespace> flattenedNamespaces = flattenNamespaces(namespaces);
+        checkArgument(flattenedNamespaces.size() >= 2, "Cannot create a composite namespace from a single namespace");
 
-    /**
-     * Creates an index map that represents the hierarchical structure of the namespaces.
-     *
-     * @param isFeature       Indicates whether the namespaces are feature namespaces.
-     * @param namespaceClasses Array of Namespace classes.
-     * @return An EnumMap representing the namespace hierarchy.
-     */
-    private EnumMap<?, ?> createIndex(boolean isFeature, Class<? extends Namespace>[] namespaceClasses) {
-        checkArgument(namespaceClasses.length > 0, "At least one namespace is required");
-        EnumMap enumMap = new EnumMap(namespaceClasses[0]);
-        for (Enum enumConstant : (Enum[]) namespaceClasses[0].getEnumConstants()) {
-            enumMap.put(enumConstant, createNestedMap(isFeature, namespaceClasses, 1, (Namespace) enumConstant));
-        }
-        return enumMap;
-    }
-
-    /**
-     * Recursively creates nested maps for the namespace hierarchy.
-     *
-     * @param isFeature       Indicates whether the namespaces are feature namespaces.
-     * @param namespaceClasses Array of Namespace classes.
-     * @param level           Current depth level in the hierarchy.
-     * @param currentPath     Array of Namespace instances representing the current path.
-     * @return An EnumMap representing the nested namespace hierarchy.
-     */
-    private EnumMap<?, ?> createNestedMap(boolean isFeature, Class<? extends Namespace>[] namespaceClasses, int level, Namespace... currentPath) {
-        if (level >= namespaceClasses.length) {
-            throw new IllegalStateException("Level exceeds the number of namespaces");
-        }
-        EnumMap nestedMap = new EnumMap(namespaceClasses[level]);
-        for (Enum enumConstant : (Enum[]) namespaceClasses[level].getEnumConstants()) {
-            Namespace[] newPath = Arrays.copyOf(currentPath, level + 1);
-            newPath[level] = (Namespace) enumConstant;
-            if (level == namespaceClasses.length - 1) {
-                if (!isFeature) {
-                    nestedMap.put(enumConstant, new NamespaceId(newPath));
-                } else {
-                    nestedMap.put(enumConstant, new FeatureNamespaceId(newPath));
-                }
+        Namespace result;
+        synchronized (NAMESPACE_REGISTER) {
+            result = NAMESPACE_REGISTER.get(flattenedNamespaces);
+            if (result == null) {
+                FeatureNamespaceId newFeatureNamespaceId = new FeatureNamespaceId(flattenedNamespaces.toArray(new Namespace[0]), featureValueType);
+                NAMESPACE_REGISTER.put(flattenedNamespaces, newFeatureNamespaceId);
+                result = newFeatureNamespaceId;
             } else {
-                nestedMap.put(enumConstant, createNestedMap(isFeature, namespaceClasses, level + 1, newPath));
+                if (result instanceof FeatureNamespaceId featureNamespaceId) {
+                    if (featureNamespaceId.featureValueType == null) {
+                        featureNamespaceId.featureValueType = featureValueType;
+                        if (featureNamespaceId.returnTypeHint == null) {
+                            featureNamespaceId.returnTypeHint = featureValueType.getJavaType();
+                        } else if (!featureNamespaceId.returnTypeHint.equals(featureValueType.getJavaType())) {
+                            throw new IllegalArgumentException(String.format(
+                                    "Attempted to set featureValueType to %s (Java type %s) but returnTypeHint was already set to %s for namespace %s",
+                                    featureValueType, featureValueType.getJavaType(), featureNamespaceId.returnTypeHint, featureNamespaceId
+                            ));
+                        }
+                    } else if (!featureNamespaceId.featureValueType.equals(featureValueType)) {
+                        throw new IllegalArgumentException(String.format(
+                                "Attempted to set featureValueType to %s, but it was already set to %s for namespace %s",
+                                featureValueType, featureNamespaceId.featureValueType, featureNamespaceId
+                        ));
+                    }
+                } else if (result instanceof NamespaceId namespaceId) {
+                    throw new IllegalArgumentException(String.format(
+                            "The namespace %s was already declared as a non-feature namespace. Each sequence of Namespace classes can only correspond to either a plain Namespace or a FeatureNamespace. You cannot mix them.",
+                            result
+                    ));
+                } else {
+                    throw new AssertionError("Did not expect anything other than NamespaceId or FeatureNamespaceId:" + result.getClass().getCanonicalName());
+                }
             }
         }
-        return nestedMap;
+
+        int callcount = WARN_COUNT.incrementAndGet();
+        if (callcount > 20 * 1000 && callcount % 1000 == 0) {
+            log.warn("getFeatureNamespace is being called many times ({}). This may indicate a bug. Namespaces should be cached after declaration.", callcount);
+        }
+
+        return (FeatureNamespace) result;
     }
 
-    /**
-     * Represents a composite namespace identifier.
-     */
     public static class NamespaceId implements Namespace {
         private static final Joiner UNDERSCORE_JOINER = Joiner.on('_');
         private final Namespace[] namespaces;
         private final String namespaceName;
+        protected Class<?> returnTypeHint;
+        protected ValueType featureValueType;
 
-        private NamespaceId(Namespace[] namespaces) {
+        private NamespaceId(Namespace[] namespaces, Class<?> returnTypeHint, ValueType featureValueType) {
             this.namespaces = Arrays.copyOf(namespaces, namespaces.length);
             this.namespaceName = UNDERSCORE_JOINER.join(namespaces);
+            this.returnTypeHint = returnTypeHint;
+            this.featureValueType = featureValueType;
         }
 
         @Override
@@ -215,73 +181,44 @@ public class CompoundNamespace {
             return namespaceName;
         }
 
-        public Namespace[] getNamespaces() {
-            return namespaces;
+        @Override
+        public Namespace[] getComponents() {
+            return Arrays.copyOf(namespaces, namespaces.length);
         }
-    }
 
-    /**
-     * Represents a composite feature namespace identifier with an associated ValueType.
-     */
-    public static class FeatureNamespaceId extends NamespaceId implements FeatureNamespace {
-        private ValueType featureValueType;
-
-        private FeatureNamespaceId(Namespace[] namespaces) {
-            super(namespaces);
+        @Override
+        public Class<?> getReturnTypeHint() {
+            return returnTypeHint;
         }
 
         @Override
         public ValueType getFeatureValueType() {
-            return this.featureValueType;
+            return featureValueType;
         }
 
-        public void setFeatureValueType(ValueType featureValueType) {
-            this.featureValueType = featureValueType;
+        @Deprecated
+        public Namespace[] getNamespaces() {
+            return getComponents();
         }
     }
 
-    /**
-     * Checks that all provided Namespace classes are enums.
-     *
-     * @param namespaceClasses List of Namespace classes.
-     */
-    private static void checkAllEnums(List<Class<? extends Namespace>> namespaceClasses) {
-        checkArgument(
-                namespaceClasses.stream().allMatch(Class::isEnum),
-                "All Namespace classes must be enums. Found the following classes that are not enums: %s",
-                namespaceClasses.stream().filter(clazz -> !clazz.isEnum()).collect(Collectors.toList())
-        );
-    }
-
-    /**
-     * Retrieves the Namespace instance based on the provided sequence of namespaces.
-     *
-     * @param namespaces Sequence of Namespaces.
-     * @return The Namespace instance corresponding to the sequence.
-     */
-    public Namespace get(Namespace... namespaces) {
-        Map<Enum<?>, Object> currentMap = (Map<Enum<?>, Object>) this.index;
-        for (int i = 0; i < namespaces.length - 1; i++) {
-            currentMap = (Map<Enum<?>, Object>) currentMap.get(namespaces[i]);
-            if (currentMap == null) {
-                throw new IllegalArgumentException("Invalid namespace path: " + Arrays.toString(namespaces));
-            }
+    public static class FeatureNamespaceId extends NamespaceId implements FeatureNamespace {
+        private FeatureNamespaceId(Namespace[] namespaces, ValueType featureValueType) {
+            super(namespaces, null, featureValueType);
+            this.returnTypeHint = featureValueType.getJavaType();
         }
-        return (Namespace) currentMap.get(namespaces[namespaces.length - 1]);
+
+        @Override
+        public Class<?> getReturnTypeHint() {
+            return featureValueType.getJavaType();
+        }
     }
 
-    /**
-     * Recursively flattens an array of Namespaces, expanding any composite namespaces into their components.
-     *
-     * @param namespaces Sequence of Namespaces which may include composite namespaces.
-     * @return A list of Namespaces with all composite namespaces expanded.
-     */
     private static List<Namespace> flattenNamespaces(Namespace... namespaces) {
         List<Namespace> result = new ArrayList<>();
         for (Namespace ns : namespaces) {
-            if (ns instanceof NamespaceId) {
-                NamespaceId namespaceId = (NamespaceId) ns;
-                result.addAll(flattenNamespaces(namespaceId.getNamespaces()));
+            if (ns instanceof NamespaceId namespaceId) {
+                result.addAll(flattenNamespaces(namespaceId.getComponents()));
             } else {
                 result.add(ns);
             }
@@ -289,10 +226,7 @@ public class CompoundNamespace {
         return result;
     }
 
-    /**
-     * This method is intended for testing purposes only. Do not use it in production code.
-     */
     static void clear() {
-        DEFINED_FACTORIES.clear();
+        NAMESPACE_REGISTER.clear();
     }
 }

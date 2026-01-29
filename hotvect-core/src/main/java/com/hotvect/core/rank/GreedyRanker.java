@@ -32,7 +32,7 @@ public class GreedyRanker<SHARED, ACTION> implements Ranker<SHARED, ACTION> {
 
     @Override
     public RankingResponse<ACTION> rank(RankingRequest<SHARED, ACTION> request) {
-        var numActions = request.getAvailableActions().size();
+        var numActions = request.availableActions().size();
         var vectorizedActions = actionVectorizer.apply(request);
 
         List<IndexedScoredAction> processed = new ArrayList<>(numActions);
@@ -40,7 +40,7 @@ public class GreedyRanker<SHARED, ACTION> implements Ranker<SHARED, ACTION> {
             processed.add(
                     new IndexedScoredAction(
                             i,
-                            request.getAvailableActions().get(i),
+                            request.availableActions().get(i),
                             vectorizedActions.get(i),
                             model.applyAsDouble(vectorizedActions.get(i))
                     )

@@ -5,11 +5,15 @@ import com.hotvect.api.data.CompoundNamespace;
 import java.util.Collection;
 import java.util.Map;
 
+/**
+ * This class was moved to hotvect-core
+ */
+@Deprecated(forRemoval = true)
 public class Utils {
     private Utils() {
     }
 
-    @Deprecated
+    @Deprecated(forRemoval = true)
     public static void checkKeysAreEnums(Map<?, ?> map) {
         for (Object o : map.keySet()) {
             if (!Enum.class.isAssignableFrom(o.getClass())) {
@@ -22,18 +26,18 @@ public class Utils {
     }
 
 
-
+    @Deprecated(forRemoval = true)
     public static void checkCollectionIsEnumsOrNamespaceIdObjects(Collection<?> collection) {
         for (Object o : collection) {
-            if (!Enum.class.isAssignableFrom(o.getClass()) &&
-                            !CompoundNamespace.NamespaceId.class.isAssignableFrom(o.getClass())
-            ){
+            Class<?> clazz = o.getClass();
+            if (!(Enum.class.isAssignableFrom(clazz) ||
+                    CompoundNamespace.NamespaceId.class.isAssignableFrom(clazz) ||
+                    CompoundNamespace.FeatureNamespaceId.class.isAssignableFrom(clazz))) {
                 throw new IllegalArgumentException(
-                        "Keys of this map must be an enum or a special object managed by hotvect. Please implement the interface using an enum, or use the compound namespace factories " +
-                                " Offending class:" + o.getClass().getCanonicalName()
+                        "Collection elements must be an enum or a special object managed by hotvect. " +
+                                "Offending class: " + clazz.getCanonicalName()
                 );
             }
         }
     }
-
 }
