@@ -1,7 +1,10 @@
 package com.hotvect.core.combine;
 
 import com.hotvect.api.audit.RawFeatureName;
-import com.hotvect.api.data.*;
+import com.hotvect.api.data.FeatureNamespace;
+import com.hotvect.api.data.HashedValue;
+import com.hotvect.api.data.HashedValueType;
+import com.hotvect.api.data.SparseVector;
 import com.hotvect.api.data.common.NamespacedRecord;
 import com.hotvect.core.audit.AuditableCombiner;
 import com.hotvect.core.audit.HashedFeatureName;
@@ -23,6 +26,7 @@ import static com.hotvect.core.hash.HashUtils.FNV1_PRIME_32;
  * A {@link Combiner} that creates specified feature interactions
  *
  */
+@Deprecated
 public class InteractionCombiner<FEATURE extends FeatureNamespace> implements AuditableCombiner<FEATURE> {
     private final ThreadLocal<CacheEntry> CACHE = new ThreadLocal<>() {
         @Override

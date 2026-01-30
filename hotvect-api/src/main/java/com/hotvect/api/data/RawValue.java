@@ -9,6 +9,7 @@ import static com.google.common.base.Preconditions.*;
 /**
  * Containers for feature values that may need hashing
  */
+@Deprecated(forRemoval = true)
 public class RawValue {
     private static final EnumSet<RawValueType> ALLOWS_NUMERICALS = EnumSet.of(
             RawValueType.STRINGS_TO_NUMERICALS,
@@ -159,46 +160,33 @@ public class RawValue {
     }
 
     public HashedValue getHashedValue() {
-        switch (valueType) {
-            case SINGLE_NUMERICAL:
-                return HashedValue.singleNumerical(singleNumerical);
-            case SINGLE_CATEGORICAL:
-                return HashedValue.singleCategorical(singleCategorical);
-            case CATEGORICALS:
-                return HashedValue.categoricals(rawCategoricals);
-            case SPARSE_VECTOR:
-                return HashedValue.sparseVector(sparseVector.getNumericalIndices(), sparseVector.getNumericalValues());
-            case DENSE_VECTOR:
-                return HashedValue.denseVector(rawNumericals);
-            default:
-                throw new IllegalStateException("You cannot obtain a hashed value for type :" + valueType);
-        }
+        return switch (valueType) {
+            case SINGLE_NUMERICAL -> HashedValue.singleNumerical(singleNumerical);
+            case SINGLE_CATEGORICAL -> HashedValue.singleCategorical(singleCategorical);
+            case CATEGORICALS -> HashedValue.categoricals(rawCategoricals);
+            case SPARSE_VECTOR ->
+                    HashedValue.sparseVector(sparseVector.getNumericalIndices(), sparseVector.getNumericalValues());
+            case DENSE_VECTOR -> HashedValue.denseVector(rawNumericals);
+            default -> throw new IllegalStateException("You cannot obtain a hashed value for type :" + valueType);
+        };
     }
 
     @Override
     public String toString() {
         String header = "RawValue{type=" + valueType + ", value=";
-        switch (valueType) {
-            case SINGLE_NUMERICAL:
-                return header + singleNumerical + "}";
-            case SINGLE_CATEGORICAL:
-                return header + singleCategorical + "}";
-            case CATEGORICALS:
-                return header + Arrays.toString(rawCategoricals) + "}";
-            case CATEGORICALS_TO_NUMERICALS:
-                return header + "(" + Arrays.toString(rawCategoricals) + " ," + Arrays.toString(rawNumericals) + ")" + "}";
-            case SINGLE_STRING:
-                return header + singleString + "}";
-            case STRINGS:
-                return header + Arrays.toString(strings) + "}";
-            case STRINGS_TO_NUMERICALS:
-                return header + "(" + Arrays.toString(getStrings()) + " ," + Arrays.toString(getNumericals()) + ")" + "}";
-            case DENSE_VECTOR:
-                return header + Arrays.toString(rawNumericals) + "}";
-            case SPARSE_VECTOR:
-                return header + sparseVector + "}";
-            default: throw new AssertionError();
-        }
+        return switch (valueType) {
+            case SINGLE_NUMERICAL -> header + singleNumerical + "}";
+            case SINGLE_CATEGORICAL -> header + singleCategorical + "}";
+            case CATEGORICALS -> header + Arrays.toString(rawCategoricals) + "}";
+            case CATEGORICALS_TO_NUMERICALS ->
+                    header + "(" + Arrays.toString(rawCategoricals) + " ," + Arrays.toString(rawNumericals) + ")" + "}";
+            case SINGLE_STRING -> header + singleString + "}";
+            case STRINGS -> header + Arrays.toString(strings) + "}";
+            case STRINGS_TO_NUMERICALS ->
+                    header + "(" + Arrays.toString(getStrings()) + " ," + Arrays.toString(getNumericals()) + ")" + "}";
+            case DENSE_VECTOR -> header + Arrays.toString(rawNumericals) + "}";
+            case SPARSE_VECTOR -> header + sparseVector + "}";
+        };
     }
 
     @Override

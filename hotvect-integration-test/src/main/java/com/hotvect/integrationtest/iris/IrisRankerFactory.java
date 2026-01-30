@@ -24,17 +24,17 @@ public class IrisRankerFactory implements CompositeRankerFactory<String, Map<Str
     public Ranker<String, Map<String, String>> apply(Optional<JsonNode> hyperparameters, Map<String, InputStream> parameters, Map<String, AlgorithmInstance<?>> dependencies) {
         var algoInstance =
                 ((AlgorithmInstance<Scorer<Map<String, String>>>) dependencies.get("com-hotvect-test-iris-model"));
-        Scorer<Map<String, String>> irisModel = algoInstance.getAlgorithm();
+        Scorer<Map<String, String>> irisModel = algoInstance.algorithm();
 
         return new Ranker<>() {
             @Override
             public RankingResponse<Map<String, String>> rank(RankingRequest<String, Map<String, String>> rankingRequest) {
-                List<RankingDecision<Map<String, String>>> scored = Streams.mapWithIndex(rankingRequest.getAvailableActions().stream(), (from, index) -> {
-                    assertEquals(from.get("iris.model.parameter.id"), algoInstance.getAlgorithmParameterMetadata().getParameterId());
+                List<RankingDecision<Map<String, String>>> scored = Streams.mapWithIndex(rankingRequest.availableActions().stream(), (from, index) -> {
+                    assertEquals(from.get("iris.model.parameter.id"), algoInstance.algorithmParameterMetadata().parameterId());
 
                     var score = irisModel.applyAsDouble(from);
                     return RankingDecision.builder((int) index, from).withScore(score).build();
-                }).sorted(Comparator.comparingDouble(RankingDecision::getScore)).collect(Collectors.toList());
+                }).sorted(Comparator.comparingDouble(RankingDecision::score)).collect(Collectors.toList());
                 return RankingResponse.newResponse(scored);
             }
         };

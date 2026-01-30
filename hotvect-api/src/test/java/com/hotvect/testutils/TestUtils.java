@@ -4,19 +4,13 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.hash.Hashing;
-import org.quicktheories.api.Pair;
-import org.quicktheories.core.Gen;
+import net.jqwik.api.Arbitraries;
+import net.jqwik.api.Arbitrary;
+import net.jqwik.api.Tuple;
+import net.jqwik.api.Tuple.Tuple2;
 
-import java.lang.reflect.Array;
-import java.util.Arrays;
 import java.util.Random;
 import java.util.concurrent.ThreadLocalRandom;
-import java.util.stream.IntStream;
-import java.util.stream.Stream;
-
-import static org.quicktheories.generators.Generate.constant;
-import static org.quicktheories.generators.Generate.intArrays;
-import static org.quicktheories.generators.SourceDSL.*;
 
 public enum TestUtils {
     ;
@@ -24,7 +18,6 @@ public enum TestUtils {
     private static final ObjectMapper mapper = new ObjectMapper();
 
     public static void assertJsonEquals(String json1, String json2) {
-
         try {
             JsonNode tree1 = mapper.readTree(json1);
             JsonNode tree2 = mapper.readTree(json2);
@@ -36,86 +29,59 @@ public enum TestUtils {
         }
     }
 
-    public static Gen<double[]> doubleArrays(Gen<Integer> sizes, Gen<Double> contents) {
-        Gen<double[]> gen = td -> {
-            int size = sizes.generate(td);
-            double[] ds = new double[size];
-            for (int i = 0; i != size; i++) {
-                ds[i] = contents.generate(td);
-            }
-            return ds;
-        };
-        return gen.describedAs(Arrays::toString);
+    public static Arbitrary<double[]> doubleArrays(Arbitrary<Integer> sizes, Arbitrary<Double> contents) {
+        return sizes.flatMap(size -> contents.array(double[].class).ofSize(size));
     }
 
-
-    public static Gen<String[]> stringArrays(Gen<Integer> sizes, Gen<String> contents) {
-        Gen<String[]> gen = td -> {
-            int size = sizes.generate(td);
-            String[] ds = new String[size];
-            for (int i = 0; i != size; i++) {
-                ds[i] = contents.generate(td);
-            }
-            return ds;
-        };
-        return gen.describedAs(Arrays::toString);
+    public static Arbitrary<String[]> stringArrays(Arbitrary<Integer> sizes, Arbitrary<String> contents) {
+        return sizes.flatMap(size -> contents.array(String[].class).ofSize(size));
     }
 
-    public static Gen<String[]> stringArraysWithDefaultContent() {
-        return stringArrays(integers().between(0, 2), strings().allPossible().ofLengthBetween(0, 4));
+    public static Arbitrary<String[]> stringArraysWithDefaultContent() {
+        Arbitrary<Integer> sizes = Arbitraries.integers().between(0, 2);
+        Arbitrary<String> contents = Arbitraries.strings().ofMinLength(0).ofMaxLength(4);
+        return stringArrays(sizes, contents);
     }
 
-    public static Gen<String> defaultStrings() {
-        return strings().allPossible().ofLengthBetween(0, 3);
+    public static Arbitrary<String> defaultStrings() {
+        return Arbitraries.strings().ofMinLength(0).ofMaxLength(3);
     }
 
-
-    public static Gen<int[]> categoricalVectors() {
-        return intArrays(integers().between(0, 3), integers().all());
+    public static Arbitrary<int[]> categoricalVectors() {
+        Arbitrary<Integer> sizes = Arbitraries.integers().between(0, 3);
+        Arbitrary<Integer> contents = Arbitraries.integers();
+        return sizes.flatMap(size -> contents.array(int[].class).ofSize(size));
     }
 
-    public static Gen<int[]> categoricalVectors(Gen<Integer> content) {
-        return intArrays(integers().between(0, 3), content);
+    public static Arbitrary<int[]> categoricalVectors(Arbitrary<Integer> content) {
+        Arbitrary<Integer> sizes = Arbitraries.integers().between(0, 3);
+        return sizes.flatMap(size -> content.array(int[].class).ofSize(size));
     }
 
-    public static Gen<Double> discreteDoubles() {
-        return doubles().any();
+    public static Arbitrary<Double> discreteDoubles() {
+        return Arbitraries.doubles();
     }
 
-    public static Gen<Pair<int[], double[]>> testVectors() {
-        return categoricalVectors(integers().between(0, 3))
-                .mutate((is, rand) -> Pair.of(is, doubleArrays(constant(is.length), discreteDoubles()).generate(rand)));
+    public static Arbitrary<Tuple2<int[], double[]>> testVectors() {
+        return categoricalVectors().flatMap(is -> {
+            int length = is.length;
+            Arbitrary<double[]> doublesArray = discreteDoubles().array(double[].class).ofSize(length);
+            return doublesArray.map(ds -> Tuple.of(is, ds));
+        });
     }
 
-    public static Gen<Pair<String[], double[]>> stringToNumericals() {
-        return stringArrays(integers().between(0, 3), strings().allPossible().ofLengthBetween(0, 3))
-                .mutate((is, rand) -> Pair.of(is, doubleArrays(constant(is.length), discreteDoubles()).generate(rand)));
+    public static Arbitrary<Tuple2<String[], double[]>> stringToNumericals() {
+        Arbitrary<Integer> sizes = Arbitraries.integers().between(0, 3);
+        Arbitrary<String> strings = Arbitraries.strings().withCharRange('a', 'z').ofMinLength(0).ofMaxLength(3);
+        return stringArrays(sizes, strings).flatMap(is -> {
+            int length = is.length;
+            Arbitrary<double[]> doublesArray = discreteDoubles().array(double[].class).ofSize(length);
+            return doublesArray.map(ds -> Tuple.of(is, ds));
+        });
     }
 
-
-    public static <T> Gen<Pair<T, T>> generateEquals(Gen<T> gen) {
-        return gen.mutate((i, rand) -> Pair.of(i, constant(i).generate(rand)));
-    }
-
-    public static IntStream ints() {
-        return ints(System.currentTimeMillis());
-    }
-
-
-    public static IntStream ints(long seed) {
-        Random rng = new Random(seed);
-        return IntStream.concat(
-                IntStream.of(Integer.MIN_VALUE, -1, 0, 1, Integer.MAX_VALUE),
-                IntStream.generate(rng::nextInt));
-    }
-
-    public static Stream<Pair<int[], int[]>> twoIntArrays() {
-        return twoIntArrays(System.currentTimeMillis());
-    }
-
-    public static Stream<Pair<int[], int[]>> twoIntArrays(long seed) {
-        IntStream ints = ints(seed);
-        return ints.mapToObj(i -> Pair.of(generateCategoricals(i), generateCategoricals(i)));
+    public static <T> Arbitrary<Tuple2<T, T>> generateEquals(Arbitrary<T> gen) {
+        return gen.map(i -> Tuple.of(i, i));
     }
 
     public static void shuffleArray(int[] ar) {
@@ -129,19 +95,9 @@ public enum TestUtils {
         }
     }
 
-    public static <T> Gen<T[]> generateArrays(Gen<Integer> sizes, Gen<T> contents, Class<T> contentType){
-            Gen<T[]> gen = td -> {
-                int size = sizes.generate(td);
-                @SuppressWarnings("unchecked")
-                T[] ds = (T[]) Array.newInstance(contentType, size);
-                for (int i = 0; i != size; i++) {
-                    ds[i] = contents.generate(td);
-                }
-                return ds;
-            };
-            return gen.describedAs(Arrays::toString);
-    }
-
+//    public static <T> Arbitrary<T[]> generateArrays(Arbitrary<Integer> sizes, Arbitrary<T> contents, Class<T> contentType) {
+//        return sizes.flatMap(size -> contents.array(contentType).ofSize(size));
+//    }
 
     private static int[] generateCategoricals(final int seed) {
         int size = Math.abs(Hashing.murmur3_32().hashInt(seed).asInt() % 3) + 1;
@@ -153,5 +109,4 @@ public enum TestUtils {
         }
         return ret;
     }
-
 }

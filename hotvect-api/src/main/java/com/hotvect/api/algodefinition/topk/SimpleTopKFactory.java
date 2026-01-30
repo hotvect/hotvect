@@ -8,7 +8,6 @@ import java.util.Optional;
 
 public interface SimpleTopKFactory<SHARED, ACTION> extends AlgorithmFactory {
     TopK<SHARED, ACTION> apply(
-            AvailableActionState<SHARED, ACTION> availableActionState,
             Optional<JsonNode> hyperparameter
     );
 }

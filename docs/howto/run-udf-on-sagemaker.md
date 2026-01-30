@@ -1,3 +1,25 @@
+---
+title: How to Run User Defined Functions on SageMaker
+description: Execute custom flatMap functions over large datasets using hotvect's UDF interface
+tags: [udf, sagemaker, flatmap, data-processing, advanced]
+difficulty: advanced
+estimated_time: 30 minutes
+prerequisites:
+  - UDF JAR implementing FlatMapFunFactory
+  - hotvect-offline-util JAR available
+  - Test data available locally
+  - SageMaker access (for remote execution)
+related_docs:
+  - ./develop-a-re-ranker-with-hotvect.md
+  - ../cli/usage.md
+related_commands:
+  - java -cp ... FlatMapFile
+next_steps:
+  - Deploy UDF to SageMaker for large-scale processing
+  - Create reusable UDF library
+  - Integrate UDF results into training pipeline
+---
+
 # How to: Run User Defined Functions (UDF) on SageMaker
 
 ## What can you do with it?

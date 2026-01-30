@@ -86,18 +86,17 @@ public class HashUtils {
     }
 
     public static HashedValue hash(RawValue rawDataElementValue) {
-        switch (rawDataElementValue.getValueType()) {
-            case SINGLE_STRING: return HashedValue.singleCategorical(hashSingleString(rawDataElementValue.getSingleString()));
-            case STRINGS: return HashedValue.categoricals(hashStrings(rawDataElementValue.getStrings()));
-            case SINGLE_NUMERICAL: return HashedValue.singleNumerical(rawDataElementValue.getSingleNumerical());
-            case STRINGS_TO_NUMERICALS: return hashStringsToNumericals(rawDataElementValue.getStrings(), rawDataElementValue.getNumericals());
-            case SINGLE_CATEGORICAL:
-            case CATEGORICALS:
-            case CATEGORICALS_TO_NUMERICALS: return rawDataElementValue.getHashedValue();
-            case SPARSE_VECTOR: return rawDataElementValue.getHashedValue();
-            case DENSE_VECTOR: return rawDataElementValue.getHashedValue();
-            default: throw new AssertionError();
-        }
+        return switch (rawDataElementValue.getValueType()) {
+            case SINGLE_STRING ->
+                    HashedValue.singleCategorical(hashSingleString(rawDataElementValue.getSingleString()));
+            case STRINGS -> HashedValue.categoricals(hashStrings(rawDataElementValue.getStrings()));
+            case SINGLE_NUMERICAL -> HashedValue.singleNumerical(rawDataElementValue.getSingleNumerical());
+            case STRINGS_TO_NUMERICALS ->
+                    hashStringsToNumericals(rawDataElementValue.getStrings(), rawDataElementValue.getNumericals());
+            case SINGLE_CATEGORICAL, CATEGORICALS, CATEGORICALS_TO_NUMERICALS -> rawDataElementValue.getHashedValue();
+            case SPARSE_VECTOR -> rawDataElementValue.getHashedValue();
+            case DENSE_VECTOR -> rawDataElementValue.getHashedValue();
+        };
     }
 
     private static int hashSingleString(String string) {

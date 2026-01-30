@@ -1,11 +1,11 @@
 package com.hotvect.vw.audit;
 
-import com.hotvect.api.state.State;
+import com.hotvect.api.algorithms.Algorithm;
 import it.unimi.dsi.fastutil.ints.Int2DoubleMap;
 import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 
-public class VwAuditState implements State {
+public class VwAuditState implements Algorithm {
     private final Int2ObjectMap<VwAuditRecord> state;
 
     public VwAuditState(Int2DoubleMap parameters) {
@@ -19,8 +19,4 @@ public class VwAuditState implements State {
         return state;
     }
 
-    @Override
-    public String getVersionId() {
-        throw new AssertionError("not implemented");
-    }
 }

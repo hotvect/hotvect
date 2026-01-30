@@ -1,3 +1,21 @@
+---
+title: Key Differences with Other Similar Frameworks
+description: Why hotvect takes a different approach to ML integration compared to industry-standard patterns
+tags: [motivation, architecture, integration, philosophy, performance]
+difficulty: beginner
+estimated_time: 15 minutes
+prerequisites:
+  - Understanding of typical ML serving architectures
+  - Familiarity with microservices and API patterns
+related_docs:
+  - ./concepts.md
+  - ../howto/develop-a-re-ranker-with-hotvect.md
+next_steps:
+  - Understand hotvect concepts
+  - Build your first algorithm
+  - Compare with your current architecture
+---
+
 # Key differences with other similar frameworks
 
 ## Integration model with business applications

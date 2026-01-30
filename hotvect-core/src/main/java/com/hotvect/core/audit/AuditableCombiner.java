@@ -7,6 +7,7 @@ import com.hotvect.core.combine.Combiner;
 import java.util.List;
 import java.util.Map;
 
+@Deprecated(forRemoval = true)
 public interface AuditableCombiner<FEATURE extends FeatureNamespace> extends Combiner<FEATURE> {
     ThreadLocal<Map<Integer, List<RawFeatureName>>> enableAudit(ThreadLocal<Map<HashedFeatureName, RawFeatureName>> featureName2SourceRawValue);
     void clearAuditState();

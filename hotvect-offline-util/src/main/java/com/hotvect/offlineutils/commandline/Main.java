@@ -6,6 +6,11 @@ import ch.qos.logback.core.FileAppender;
 import ch.qos.logback.core.util.StatusPrinter;
 import com.codahale.metrics.MetricRegistry;
 import com.codahale.metrics.Slf4jReporter;
+import io.micrometer.core.instrument.Clock;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.dropwizard.DropwizardConfig;
+import io.micrometer.core.instrument.dropwizard.DropwizardMeterRegistry;
+import io.micrometer.core.instrument.util.HierarchicalNameMapper;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.PropertyNamingStrategies;
@@ -43,6 +48,32 @@ public class Main {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(Main.class);
     private static final MetricRegistry METRIC_REGISTRY = new MetricRegistry();
+
+    private static DropwizardConfig createDropwizardConfig() {
+        return new DropwizardConfig() {
+            @Override
+            public String get(String key) {
+                return null;
+            }
+
+            @Override
+            public String prefix() {
+                return "";
+            }
+        };
+    }
+
+    private static final MeterRegistry METER_REGISTRY = new DropwizardMeterRegistry(
+            createDropwizardConfig(),
+            METRIC_REGISTRY,
+            HierarchicalNameMapper.DEFAULT,
+            Clock.SYSTEM
+    ) {
+        @Override
+        protected Double nullGaugeValue() {
+            return Double.NaN;
+        }
+    };
 
     private static void configureLogFile(File logfile){
                 LoggerContext loggerContext = (LoggerContext) LoggerFactory.getILoggerFactory();
@@ -84,15 +115,17 @@ public class Main {
 
             CommandlineUtility.expandTildaOnFileFields(opts);
 
-
             reporter.start(10, TimeUnit.SECONDS);
             Callable<Map<String, Object>> task = getTask(opts);
             Map<String, Object> metadata = task.call();
             metadata.put("logfile", logFileLocation.getAbsolutePath());
+
+
             OM.writeValue(opts.metadataLocation, metadata);
             LOGGER.info("Wrote metadata: location={}, metadata={}", opts.metadataLocation, metadata);
 
         }catch (Throwable e) {
+
             LOGGER.error("Exception encountered:", e);
             System.err.println(Throwables.getStackTraceAsString(e));
             System.exit(1);
@@ -114,9 +147,9 @@ public class Main {
         } else if (opts.performanceTest) {
             return "performance-test";
         } else if (opts.listAvailableTransformations) {
-            return "list-available-transformations";
+            return "list-transformations";
         } else {
-            throw new UnsupportedOperationException("No command given. Available: encode, predict, generate-State, audit, performance-test, list-available-transformations");
+            throw new UnsupportedOperationException("No command given. Available: encode, predict, generate-State, audit, performance-test, list-transformations");
         }
     }
 
@@ -125,22 +158,15 @@ public class Main {
 
         OfflineTaskContext offlineTaskContext = getOfflineTaskContext(opts);
         String taskName = getTaskName(opts);
-        switch (taskName) {
-            case "encode":
-                return new EncodeTask<>(offlineTaskContext);
-            case "predict":
-                return new PredictTask<>(offlineTaskContext);
-            case "generate-state":
-                return new GenerateStateTask(offlineTaskContext);
-            case "audit":
-                return new AuditTask<>(offlineTaskContext);
-            case "performance-test":
-                return new PerformanceTestTask<>(offlineTaskContext);
-//            case "list-available-transformations":
-//                return new ListAvailableTransformationsTask<>(offlineTaskContext);
-            default:
-                throw new AssertionError("Unknown task: " + taskName);
-        }
+        return switch (taskName) {
+            case "encode" -> new EncodeTask<>(offlineTaskContext);
+            case "predict" -> new PredictTask<>(offlineTaskContext);
+            case "generate-state" -> new GenerateStateTask(offlineTaskContext);
+            case "audit" -> new AuditTask<>(offlineTaskContext);
+            case "performance-test" -> new PerformanceTestTask<>(offlineTaskContext);
+            case "list-transformations" -> new ListAvailableTransformationsTask(offlineTaskContext);
+            default -> throw new AssertionError("Unknown task: " + taskName);
+        };
     }
 
     private static OfflineTaskContext getOfflineTaskContext(Options opts) throws IOException, MalformedAlgorithmException {
@@ -149,7 +175,7 @@ public class Main {
 
         List<URL> classPath  = new ArrayList<>();
         if(!opts.additionalJarFiles.isEmpty()){
-            LOGGER.info("Additional jar files specified:" + opts.additionalJarFiles);
+            LOGGER.info("Additional jar files specified:{}", opts.additionalJarFiles);
         }
 
         for (File additionalJarFile : opts.additionalJarFiles) {
@@ -171,7 +197,7 @@ public class Main {
             LOGGER.info("Read customized algorithm definition:{}", algorithmDefinition.get());
         }
 
-        Optional<JsonNode> rawAlgorithmDef = algorithmDefinition.map(AlgorithmDefinition::getRawAlgorithmDefinition);
+        Optional<JsonNode> rawAlgorithmDef = algorithmDefinition.map(AlgorithmDefinition::rawAlgorithmDefinition);
 
         String taskName = getTaskName(opts);
 
@@ -237,12 +263,12 @@ public class Main {
 
         LOGGER.info("Options after possible overrides:{}", opts);
 
-        return new OfflineTaskContext(algoClassLoader, METRIC_REGISTRY, opts, algorithmDefinition.get());
+        return new OfflineTaskContext(algoClassLoader, METER_REGISTRY, opts, algorithmDefinition.get());
     }
 
     private static void validate(Options opts) {
         boolean exactlyOneTask = Stream.of(opts.encode, opts.predict, opts.audit, opts.performanceTest, opts.generateStateTask != null, opts.listAvailableTransformations).filter(x -> x).count() == 1;
-        checkArgument(exactlyOneTask, "You must specify exactly one of: encode, test, audit, generate-state, list-available-transformations");
+        checkArgument(exactlyOneTask, "You must specify exactly one of: encode, test, audit, generate-state, list-transformations");
         // TODO do more
     }
 

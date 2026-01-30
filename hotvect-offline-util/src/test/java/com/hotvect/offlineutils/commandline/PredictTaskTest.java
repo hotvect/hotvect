@@ -1,6 +1,6 @@
 package com.hotvect.offlineutils.commandline;
 
-import com.codahale.metrics.MetricRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -16,7 +16,7 @@ import com.hotvect.api.algorithms.Ranker;
 import com.hotvect.api.codec.ranking.RankingExampleDecoder;
 import com.hotvect.api.data.common.Example;
 import com.hotvect.api.data.ranking.*;
-import com.hotvect.offlineutils.util.OrderedFileMapper;
+import com.hotvect.onlineutils.concurrency.fileutils.OrderedFileMapper;
 import org.junit.jupiter.api.Test;
 
 import java.io.File;
@@ -38,7 +38,7 @@ public class PredictTaskTest {
         @Override
         public RankingExampleDecoder<String, String, String> apply(Optional<JsonNode> hyperparameter) {
             return toDecode -> ImmutableList.of(
-                    new RankingExample<>(
+                    new RankingExample<String, String, String>(
                             "example",
                             new RankingRequest<>(
                                     "example",
@@ -82,11 +82,11 @@ public class PredictTaskTest {
     @Test
     void noSampling() throws Exception {
         AlgorithmDefinition mockedAlgoDef = mock(AlgorithmDefinition.class);
-        when(mockedAlgoDef.getDecoderFactoryName()).thenReturn(ExampleDecoderFactory.class.getDeclaringClass().getCanonicalName() +"$" + ExampleDecoderFactory.class.getSimpleName());
-        when(mockedAlgoDef.getTransformerFactoryName()).thenReturn(ExampleDecoderFactory.class.getDeclaringClass().getCanonicalName() +"$" + TestTransformer.class.getSimpleName());
-        when(mockedAlgoDef.getRewardFunctionFactoryName()).thenReturn(ExampleDecoderFactory.class.getDeclaringClass().getCanonicalName() +"$" + TestRewardFunctionFactoroy.class.getSimpleName());
-        when(mockedAlgoDef.getAlgorithmFactoryName()).thenReturn(ExampleDecoderFactory.class.getDeclaringClass().getCanonicalName() +"$" + TestAlgorithmFactory.class.getSimpleName());
-        when(mockedAlgoDef.getAlgorithmId()).thenReturn(new AlgorithmId("test-algorithm", "1.2.3"));
+        when(mockedAlgoDef.decoderFactoryName()).thenReturn(ExampleDecoderFactory.class.getDeclaringClass().getCanonicalName() +"$" + ExampleDecoderFactory.class.getSimpleName());
+        when(mockedAlgoDef.transformerFactoryName()).thenReturn(ExampleDecoderFactory.class.getDeclaringClass().getCanonicalName() +"$" + TestTransformer.class.getSimpleName());
+        when(mockedAlgoDef.rewardFunctionFactoryName()).thenReturn(ExampleDecoderFactory.class.getDeclaringClass().getCanonicalName() +"$" + TestRewardFunctionFactoroy.class.getSimpleName());
+        when(mockedAlgoDef.algorithmFactoryName()).thenReturn(ExampleDecoderFactory.class.getDeclaringClass().getCanonicalName() +"$" + TestAlgorithmFactory.class.getSimpleName());
+        when(mockedAlgoDef.algorithmId()).thenReturn(new AlgorithmId("test-algorithm", "1.2.3"));
 
         Options options = new Options();
         options.parameters = Paths.get(Objects.requireNonNull(this.getClass().getResource("test-algorithm-parameter.zip")).toURI()).toFile();
@@ -96,9 +96,9 @@ public class PredictTaskTest {
         options.destinationFile = tempFile;
 
         try{
-            OfflineTaskContext offlineTaskContext = new OfflineTaskContext(new URLClassLoader(new URL[0], this.getClass().getClassLoader()), new MetricRegistry(), options, mockedAlgoDef);
+            OfflineTaskContext offlineTaskContext = new OfflineTaskContext(new URLClassLoader(new URL[0], this.getClass().getClassLoader()), new SimpleMeterRegistry(), options, mockedAlgoDef);
 
-            PredictTask<Example, Ranker<String, String>, String> testSubject = new PredictTask<>(offlineTaskContext);
+            PredictTask<? extends Example<?, ?>, Ranker<String, String>, String> testSubject = new PredictTask<>(offlineTaskContext);
 
             var result = testSubject.perform();
             System.out.println(result);
@@ -111,11 +111,11 @@ public class PredictTaskTest {
     @Test
     void withSampling() throws Exception {
         AlgorithmDefinition mockedAlgoDef = mock(AlgorithmDefinition.class);
-        when(mockedAlgoDef.getDecoderFactoryName()).thenReturn(ExampleDecoderFactory.class.getDeclaringClass().getCanonicalName() +"$" + ExampleDecoderFactory.class.getSimpleName());
-        when(mockedAlgoDef.getTransformerFactoryName()).thenReturn(ExampleDecoderFactory.class.getDeclaringClass().getCanonicalName() +"$" + TestTransformer.class.getSimpleName());
-        when(mockedAlgoDef.getRewardFunctionFactoryName()).thenReturn(ExampleDecoderFactory.class.getDeclaringClass().getCanonicalName() +"$" + TestRewardFunctionFactoroy.class.getSimpleName());
-        when(mockedAlgoDef.getAlgorithmFactoryName()).thenReturn(ExampleDecoderFactory.class.getDeclaringClass().getCanonicalName() +"$" + TestAlgorithmFactory.class.getSimpleName());
-        when(mockedAlgoDef.getAlgorithmId()).thenReturn(new AlgorithmId("test-algorithm", "1.2.3"));
+        when(mockedAlgoDef.decoderFactoryName()).thenReturn(ExampleDecoderFactory.class.getDeclaringClass().getCanonicalName() +"$" + ExampleDecoderFactory.class.getSimpleName());
+        when(mockedAlgoDef.transformerFactoryName()).thenReturn(ExampleDecoderFactory.class.getDeclaringClass().getCanonicalName() +"$" + TestTransformer.class.getSimpleName());
+        when(mockedAlgoDef.rewardFunctionFactoryName()).thenReturn(ExampleDecoderFactory.class.getDeclaringClass().getCanonicalName() +"$" + TestRewardFunctionFactoroy.class.getSimpleName());
+        when(mockedAlgoDef.algorithmFactoryName()).thenReturn(ExampleDecoderFactory.class.getDeclaringClass().getCanonicalName() +"$" + TestAlgorithmFactory.class.getSimpleName());
+        when(mockedAlgoDef.algorithmId()).thenReturn(new AlgorithmId("test-algorithm", "1.2.3"));
 
         Options options = new Options();
         options.parameters = Paths.get(Objects.requireNonNull(this.getClass().getResource("test-algorithm-parameter.zip")).toURI()).toFile();
@@ -126,9 +126,9 @@ public class PredictTaskTest {
         options.samples = 1987;
 
         try{
-            OfflineTaskContext offlineTaskContext = new OfflineTaskContext(new URLClassLoader(new URL[0], this.getClass().getClassLoader()), new MetricRegistry(), options, mockedAlgoDef);
+            OfflineTaskContext offlineTaskContext = new OfflineTaskContext(new URLClassLoader(new URL[0], this.getClass().getClassLoader()), new SimpleMeterRegistry(), options, mockedAlgoDef);
 
-            PredictTask<Example, Ranker<String, String>, String> testSubject = new PredictTask<>(offlineTaskContext);
+            PredictTask<? extends Example<?, ?>, Ranker<String, String>, String> testSubject = new PredictTask<>(offlineTaskContext);
 
             var result = testSubject.perform();
             System.out.println(result);
@@ -144,11 +144,11 @@ public class PredictTaskTest {
     @Test
     void shouldThrowExceptionWhenNoRowsWritten() throws Exception {
         AlgorithmDefinition mockedAlgoDef = mock(AlgorithmDefinition.class);
-        when(mockedAlgoDef.getDecoderFactoryName()).thenReturn(ExampleDecoderFactory.class.getDeclaringClass().getCanonicalName() + "$" + ExampleDecoderFactory.class.getSimpleName());
-        when(mockedAlgoDef.getTransformerFactoryName()).thenReturn(ExampleDecoderFactory.class.getDeclaringClass().getCanonicalName() + "$" + TestTransformer.class.getSimpleName());
-        when(mockedAlgoDef.getRewardFunctionFactoryName()).thenReturn(ExampleDecoderFactory.class.getDeclaringClass().getCanonicalName() + "$" + TestRewardFunctionFactoroy.class.getSimpleName());
-        when(mockedAlgoDef.getAlgorithmFactoryName()).thenReturn(ExampleDecoderFactory.class.getDeclaringClass().getCanonicalName() + "$" + TestAlgorithmFactory.class.getSimpleName());
-        when(mockedAlgoDef.getAlgorithmId()).thenReturn(new AlgorithmId("test-algorithm", "1.2.3"));
+        when(mockedAlgoDef.decoderFactoryName()).thenReturn(ExampleDecoderFactory.class.getDeclaringClass().getCanonicalName() + "$" + ExampleDecoderFactory.class.getSimpleName());
+        when(mockedAlgoDef.transformerFactoryName()).thenReturn(ExampleDecoderFactory.class.getDeclaringClass().getCanonicalName() + "$" + TestTransformer.class.getSimpleName());
+        when(mockedAlgoDef.rewardFunctionFactoryName()).thenReturn(ExampleDecoderFactory.class.getDeclaringClass().getCanonicalName() + "$" + TestRewardFunctionFactoroy.class.getSimpleName());
+        when(mockedAlgoDef.algorithmFactoryName()).thenReturn(ExampleDecoderFactory.class.getDeclaringClass().getCanonicalName() + "$" + TestAlgorithmFactory.class.getSimpleName());
+        when(mockedAlgoDef.algorithmId()).thenReturn(new AlgorithmId("test-algorithm", "1.2.3"));
 
         Options options = new Options();
         options.parameters = Paths.get(Objects.requireNonNull(this.getClass().getResource("test-algorithm-parameter.zip")).toURI()).toFile();
@@ -157,9 +157,9 @@ public class PredictTaskTest {
         tempFile.deleteOnExit();
         options.destinationFile = tempFile;
 
-        OfflineTaskContext offlineTaskContext = new OfflineTaskContext(new URLClassLoader(new URL[0], this.getClass().getClassLoader()), new MetricRegistry(), options, mockedAlgoDef);
+        OfflineTaskContext offlineTaskContext = new OfflineTaskContext(new URLClassLoader(new URL[0], this.getClass().getClassLoader()), new SimpleMeterRegistry(), options, mockedAlgoDef);
 
-        PredictTask<Example, Ranker<String, String>, String> testSubject = spy(new PredictTask<>(offlineTaskContext));
+        PredictTask<? extends Example<?, ?>, Ranker<String, String>, String> testSubject = spy(new PredictTask<>(offlineTaskContext));
 
         doReturn(Map.of("total_record_count", 0L)).when(testSubject)
                 .callOrderedFileMapper(any(OrderedFileMapper.class));

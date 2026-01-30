@@ -3,7 +3,6 @@ package com.hotvect.core.util;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableMap;
-import com.hotvect.api.codec.scoring.ScoringExampleEncoder;
 import com.hotvect.api.data.DataRecord;
 import com.hotvect.api.data.Namespace;
 import com.hotvect.api.data.RawValue;
@@ -16,7 +15,7 @@ import static java.util.stream.Collectors.toList;
 import static java.util.stream.Collectors.toMap;
 
 /**
- * A {@link ScoringExampleEncoder} that encodes a {@link DataRecord} into a JSON String
+ * Encodes a {@link DataRecord} into a JSON String
  * @param <K>
  */
 public class JsonRecordEncoder<K extends Enum<K> & Namespace> implements Function<DataRecord<K, RawValue>, String> {

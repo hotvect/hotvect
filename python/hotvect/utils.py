@@ -16,10 +16,10 @@ import traceback
 import zipfile
 from asyncio.subprocess import PIPE
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date
 from pathlib import Path
 from typing import Any, Dict, List, NamedTuple, Optional, Tuple
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 import boto3
 import psutil
@@ -44,6 +44,7 @@ class MalformedAlgorithmException(Exception):
 class AlgorithmSpec(NamedTuple):
     algorithm_name: str
     algorithm_jar_path: Path
+    git_commit_hash: str
 
 
 def write_data(data: Dict[str, Any], dest: str) -> Path:
@@ -195,17 +196,26 @@ def try_max(li):
 
 
 def to_local_paths(data_base_dir: str, dates: List[date], fail_if_unavailable: bool = True) -> List[str]:
+    # Retrieve all directories that start with "dt="
     all_available_date_paths = glob.glob(os.path.join(data_base_dir, "dt=*"))
 
     def to_dt(path: str) -> date:
+        # Get the last directory name and URL-decode it (converts %3A back to ':')
         last_dir = pathlib.PurePath(path).name
-        if match := re.search(r"^dt=(\d{4}-\d{2}-\d{2})$", last_dir):
+        decoded = unquote(last_dir)
+        # Capture the date part and then optionally match a separator (' ' or 'T')
+        # followed by any extra characters (which may be hours, minutes, timestamps etc.
+        if match := re.search(r"^dt=(\d{4}-\d{2}-\d{2})(?:[\sT].*)?$", decoded):
             return date.fromisoformat(match.group(1))
         else:
-            raise ValueError(r"Last directory must have the format ^dt=(\d{4}-\d{2}-\d{2})$ but was " + path)
+            raise ValueError(
+                r"Last directory must have the format ^dt=(\d{4}-\d{2}-\d{2})(?:[\sT].*)?$ but was " + path
+            )
 
+    # Create a set of all dates available in the directory names.
     all_available_dates = {to_dt(path) for path in all_available_date_paths}
 
+    # If fail_if_unavailable is True, ensure all requested dates are present.
     if fail_if_unavailable:
         asked_dates = set(dates)
         assert asked_dates.issubset(all_available_dates), (
@@ -213,6 +223,7 @@ def to_local_paths(data_base_dir: str, dates: List[date], fail_if_unavailable: b
             f"dates were not available: {sorted(asked_dates - all_available_dates)}. Looked in: {data_base_dir}"
         )
 
+    # Filter and return only the paths that correspond to the requested dates.
     specified_dt_dirs = [x for x in all_available_date_paths if to_dt(x) in dates]
     return sorted(specified_dt_dirs)
 
@@ -221,21 +232,6 @@ def to_local_paths(data_base_dir: str, dates: List[date], fail_if_unavailable: b
 class InputDataDates:
     training_dates: List[date]
     test_dates: List[date]
-
-
-def create_backtest_specs(
-    num_of_training_runs: int,
-    num_of_training_days: int,
-    last_training_date: date,
-    test_date_lag: int,
-) -> List[InputDataDates]:
-    ret: List[InputDataDates] = []
-    for i in range(num_of_training_runs):
-        current_last_training_day = last_training_date - timedelta(i)
-        training_dates = [current_last_training_day - timedelta(days=x) for x in range(num_of_training_days)]
-        testing_dates = [current_last_training_day + timedelta(days=test_date_lag)]
-        ret.append(InputDataDates(training_dates, testing_dates))
-    return ret
 
 
 def to_required_data_dates(backtest_specs: List[InputDataDates]) -> InputDataDates:
@@ -292,7 +288,7 @@ def get_result(future: ProcessFuture) -> Dict[str, Any]:
     try:
         return future.result()  # blocks until results are ready
     except Exception as ex:
-        return {"error": "".join(traceback.format_exception(etype=type(ex), value=ex, tb=ex.__traceback__))}
+        return {"error": "".join(traceback.format_exception(type(ex), ex, ex.__traceback__))}
 
 
 def get_immediate_subdirectories(a_dir):

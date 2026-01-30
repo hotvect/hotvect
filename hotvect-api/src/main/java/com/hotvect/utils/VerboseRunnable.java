@@ -11,7 +11,7 @@ public abstract class VerboseRunnable implements Runnable {
         try {
             doRun();
         } catch (Throwable t) {
-            logger.error("Error while running:" + this, t);
+            logger.error("Error while running:{}", this, t);
             throw new RuntimeException(t);
         }
     }

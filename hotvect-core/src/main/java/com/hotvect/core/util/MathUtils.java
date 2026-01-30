@@ -12,14 +12,7 @@ import org.apache.commons.math3.util.MathArrays;
 import java.util.Arrays;
 
 public class MathUtils {
-    public static class Draw {
-        public final int index;
-        public final double probability;
-
-        public Draw(int index, double probability) {
-            this.index = index;
-            this.probability = probability;
-        }
+    public record Draw(int index, double probability) {
     }
 
     private static final ThreadLocal<RandomGenerator> THREAD_LOCAL_RANDOM = ThreadLocal.withInitial(XoShiRo256PlusPlusRandomGenerator::new);

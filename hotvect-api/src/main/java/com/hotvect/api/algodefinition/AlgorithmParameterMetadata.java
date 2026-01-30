@@ -1,60 +1,42 @@
 package com.hotvect.api.algodefinition;
 
 import java.time.Instant;
-import java.util.Objects;
 import java.util.Optional;
 
-public class AlgorithmParameterMetadata {
-    private final String parameterId;
-    private final Instant ranAt;
-
-    private final Optional<Instant> lastTrainingTime;
-
-    private final AlgorithmId algorithmId;
-
-    public AlgorithmParameterMetadata(String algorithmName, String algorithmVersion, String parameterId, Instant ranAt, Optional<Instant> lastTrainingTime) {
-        this.lastTrainingTime = lastTrainingTime;
-        this.algorithmId = new AlgorithmId(algorithmName, algorithmVersion);
-        this.parameterId = parameterId;
-        this.ranAt = ranAt;
-    }
-
-    public String getParameterId() {
-        return parameterId;
-    }
-
-    public Instant getRanAt() {
-        return ranAt;
-    }
-
+public record AlgorithmParameterMetadata(
+        AlgorithmId algorithmId,
+        String parameterId,
+        Instant ranAt,
+        Optional<Instant> lastTestTime
+) {
+    @Deprecated(forRemoval = true)
     public AlgorithmId getAlgorithmId() {
-        return algorithmId;
+        return this.algorithmId;
     }
 
-    public Optional<Instant> getLastTrainingTime() {
-        return lastTrainingTime;
+    @Deprecated(forRemoval = true)
+    public String getParameterId() {
+        return this.parameterId;
     }
 
-    @Override
-    public boolean equals(Object o) {
-        if (this == o) return true;
-        if (o == null || getClass() != o.getClass()) return false;
-        AlgorithmParameterMetadata that = (AlgorithmParameterMetadata) o;
-        return Objects.equals(parameterId, that.parameterId) && Objects.equals(ranAt, that.ranAt) && Objects.equals(lastTrainingTime, that.lastTrainingTime) && Objects.equals(algorithmId, that.algorithmId);
+    @Deprecated(forRemoval = true)
+    public Instant getRanAt() {
+        return this.ranAt;
     }
 
-    @Override
-    public int hashCode() {
-        return Objects.hash(parameterId, ranAt, lastTrainingTime, algorithmId);
-    }
-
-    @Override
-    public String toString() {
-        return "AlgorithmParameterMetadata{" +
-                "parameterId='" + parameterId + '\'' +
-                ", ranAt=" + ranAt +
-                ", lastTrainingDataUpdate=" + lastTrainingTime +
-                ", algorithmId=" + algorithmId +
-                '}';
+    /**
+     * Creates AlgorithmParameterMetadata for external dependencies that are not hotvect algorithms.
+     * Uses current time as ranAt and empty lastTestTime since external dependencies have no training.
+     *
+     * @param algorithmName the name of the external algorithm
+     * @return AlgorithmParameterMetadata suitable for external dependencies
+     */
+    public static AlgorithmParameterMetadata externalAlgorithm(String algorithmName) {
+        return new AlgorithmParameterMetadata(
+                new AlgorithmId(algorithmName, "NA"),
+                "NA",
+                Instant.now(),
+                Optional.empty()
+        );
     }
 }

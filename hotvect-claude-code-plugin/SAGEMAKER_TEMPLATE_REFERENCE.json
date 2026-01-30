@@ -1,0 +1,38 @@
+{
+  "TrainingJobName": "ml-exp",
+  "AlgorithmSpecification": {
+    "TrainingInputMode": "FastFile",
+    "TrainingImage": "123456789012.dkr.ecr.us-east-1.amazonaws.com/my-namespace/my-team/hotvect:9.29.0",
+    "MetricDefinitions": [
+      {
+        "Name": "ndcg_at_all",
+        "Regex": "'ndcg_at_all': (.*?)[,}]"
+      },
+      {
+        "Name": "map_at_all",
+        "Regex": "'map_at_all': (.*?)[,}]"
+      }
+    ]
+  },
+  "OutputDataConfig": {
+    "S3OutputPath": "s3://my-ml-bucket/temp/username/sagemaker_output/"
+  },
+  "ResourceConfig": {
+    "InstanceType": "ml.m6i.12xlarge",
+    "VolumeSizeInGB": 40,
+    "InstanceCount": 1
+  },
+  "StoppingCondition": {
+    "MaxRuntimeInSeconds": 86400
+  },
+  "RoleArn": "arn:aws:iam::123456789012:role/SageMakerExecutionRole",
+  "Environment": {
+    "WRITE_OUTPUT_TO_S3": "false"
+  },
+  "Tags": [
+    {
+      "Key": "team",
+      "Value": "my-team"
+    }
+  ]
+}

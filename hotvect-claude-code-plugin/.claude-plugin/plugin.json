@@ -1,0 +1,20 @@
+{
+  "name": "hv",
+  "version": "9.31.2",
+  "description": "Hotvect ML algorithm development tools - specialized agents, autonomous skills, and quick commands for algorithm lifecycle management",
+  "author": {
+    "name": "Hotvect Team",
+    "email": "team@example.com"
+  },
+  "homepage": "https://github.com/your-org/hotvect",
+  "repository": "https://github.com/your-org/hotvect",
+  "license": "Apache-2.0",
+  "keywords": [
+    "machine-learning",
+    "ml-ops",
+    "algorithm-development",
+    "feature-engineering",
+    "model-training",
+    "backtesting"
+  ]
+}

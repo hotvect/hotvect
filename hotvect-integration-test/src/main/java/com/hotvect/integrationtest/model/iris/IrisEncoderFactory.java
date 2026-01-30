@@ -11,8 +11,8 @@ public class IrisEncoderFactory implements RankingExampleEncoderFactory<RankingV
     @Override
     public RankingExampleEncoder<String, Map<String, String>, String> apply(RankingVectorizer<String, Map<String, String>> dependency, RewardFunction<String> rewardFunction) {
         return toEncode -> {
-            var vectorized  = dependency.apply(toEncode.getRankingRequest());
-            var reward = rewardFunction.applyAsDouble(toEncode.getOutcomes().get(0).getOutcome());
+            var vectorized  = dependency.apply(toEncode.rankingRequest());
+            var reward = rewardFunction.applyAsDouble(toEncode.outcomes().get(0).outcome());
             return String.format("%s | %s", reward, vectorized);
         };
     }

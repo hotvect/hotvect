@@ -1,7 +1,6 @@
 package com.hotvect.api.data.common;
 
 
-
 import com.hotvect.api.data.Namespace;
 
 import java.util.IdentityHashMap;
@@ -21,8 +20,12 @@ public class NamespacedRecordImpl<K, V> implements NamespacedRecord<K, V> {
         this.delegate = new IdentityHashMap<>(kvMap);
     }
 
-    private NamespacedRecordImpl(NamespacedRecordImpl<K, V> kvNamespacedRecordImpl) {
-        this.delegate = (IdentityHashMap<K, V>) kvNamespacedRecordImpl.delegate.clone();
+    public NamespacedRecordImpl(IdentityHashMap<K, V> delegate) {
+        this.delegate = delegate;
+    }
+
+    private NamespacedRecordImpl(NamespacedRecordImpl<K, V> other) {
+        this.delegate = (IdentityHashMap<K, V>) other.delegate.clone();
     }
 
     public NamespacedRecordImpl() {
@@ -44,6 +47,7 @@ public class NamespacedRecordImpl<K, V> implements NamespacedRecord<K, V> {
         return new NamespacedRecordImpl<>(this);
     }
 
+    @Deprecated(forRemoval = true)
     @Override
     public void merge(NamespacedRecord<? extends Namespace, V> otherRecord) {
         // I haven't figured out how to clean this up yet
@@ -54,6 +58,22 @@ public class NamespacedRecordImpl<K, V> implements NamespacedRecord<K, V> {
             // Such that if the parent's transformation differ from the child's transformation, the parent's win
             this.delegate.putIfAbsent(kvEntry.getKey(), kvEntry.getValue());
         }
+    }
+
+    @Override
+    public boolean putAllIfAbsent(K[] ks, V[] vs){
+        boolean hasChanged = false;
+        for (int i = 0; i < ks.length; i++) {
+            var previous = this.delegate.putIfAbsent(ks[i], vs[i]);
+            // If the previous value was null, then the putIfAbsent operation has changed the map
+            hasChanged = previous == null;
+        }
+        return hasChanged;
+    }
+
+    @Override
+    public boolean putIfAbsent(K key, V value) {
+        return this.delegate.putIfAbsent(key, value) == null;
     }
 
     @Override
@@ -78,4 +98,5 @@ public class NamespacedRecordImpl<K, V> implements NamespacedRecord<K, V> {
     public int size() {
         return delegate.size();
     }
+
 }

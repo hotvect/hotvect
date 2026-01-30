@@ -22,10 +22,10 @@ public class VwRankingEncoder<SHARED, ACTION, OUTCOME> implements RankingExample
 
     @Override
     public String apply(RankingExample<SHARED, ACTION, OUTCOME> toEncode) {
-        var actionVectors = vectorizer.apply(toEncode.getRankingRequest());
-        Map<Integer, OUTCOME> actionIdx2Outcome = toEncode.getOutcomes().stream().collect(Collectors.toMap(
-                x -> x.getRankingDecision().getActionIndex(),
-                RankingOutcome::getOutcome
+        var actionVectors = vectorizer.apply(toEncode.rankingRequest());
+        Map<Integer, OUTCOME> actionIdx2Outcome = toEncode.outcomes().stream().collect(Collectors.toMap(
+                x -> x.rankingDecision().getActionIndex(),
+                RankingOutcome::outcome
         ));
 
         StringBuilder sb = new StringBuilder();

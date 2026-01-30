@@ -25,14 +25,14 @@ public class RankingExampleJsonEncoder<SHARED, ACTION, OUTCOME> implements Ranki
     @Override
     public String apply(RankingExample<SHARED, ACTION, OUTCOME> toEncode) {
         var root = objectMapper.createObjectNode();
-        root.put("example_id", toEncode.getExampleId());
+        root.put("example_id", toEncode.exampleId());
 
         ArrayNode actionToEncoded = objectMapper.createArrayNode();
-        var actions = toEncode.getRankingRequest().getAvailableActions();
-        var transformeds = rankingTransformer.apply(toEncode.getRankingRequest());
-        Map<Integer, Double> rewards = toEncode.getOutcomes().stream().collect(toMap(
-                outcomeRankingOutcome -> outcomeRankingOutcome.getRankingDecision().getActionIndex(),
-                o -> rewardFunction.applyAsDouble(o.getOutcome())
+        var actions = toEncode.rankingRequest().availableActions();
+        var transformeds = rankingTransformer.apply(toEncode.rankingRequest());
+        Map<Integer, Double> rewards = toEncode.outcomes().stream().collect(toMap(
+                outcomeRankingOutcome -> outcomeRankingOutcome.rankingDecision().getActionIndex(),
+                o -> rewardFunction.applyAsDouble(o.outcome())
         ));
 
         for (int i = 0; i < actions.size(); i++) {

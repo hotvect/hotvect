@@ -28,7 +28,7 @@ def run_performance_test(
         cmd = ["java"]
         cmd.extend(java_args)
         if "-Xmx" not in java_args:
-            cmd.append("-Xmx32g")
+            cmd.append("-Xmx256g")
         if "-XX:+ExitOnOutOfMemoryError" not in java_args:
             cmd.append("-XX:+ExitOnOutOfMemoryError")
         if "-cp" not in java_args:

@@ -1,10 +1,11 @@
 package com.hotvect.api.data.ranking;
 
+import com.hotvect.api.data.Request;
+
 import java.util.List;
 import java.util.Objects;
 
-public class RankingRequest<SHARED, ACTION> {
-
+public class RankingRequest<SHARED, ACTION> implements Request<SHARED> {
     private final String exampleId;
     private final SHARED shared;
     private final List<ACTION> availableActions;
@@ -15,17 +16,44 @@ public class RankingRequest<SHARED, ACTION> {
         this.availableActions = availableActions;
     }
 
+    public String exampleId() {
+        return exampleId;
+    }
 
-    public SHARED getShared() {
+    public SHARED shared() {
         return shared;
     }
 
+    public List<ACTION> availableActions() {
+        return availableActions;
+    }
+
+    /**
+     * For backward compatibility.
+     * @return
+     * @deprecated Use {@link #availableActions()} instead
+     */
+    @Deprecated(forRemoval = true)
     public List<ACTION> getAvailableActions() {
         return availableActions;
     }
 
+    /**
+     * @deprecated Use {@link #exampleId()} instead
+     */
+    @Deprecated(forRemoval = true)
+    @Override
     public String getExampleId() {
         return exampleId;
+    }
+
+    /**
+     * @deprecated Use {@link #shared()} instead
+     */
+    @Deprecated(forRemoval = true)
+    @Override
+    public SHARED getShared() {
+        return shared;
     }
 
     @Override
@@ -33,7 +61,9 @@ public class RankingRequest<SHARED, ACTION> {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
         RankingRequest<?, ?> that = (RankingRequest<?, ?>) o;
-        return Objects.equals(exampleId, that.exampleId) && Objects.equals(shared, that.shared) && Objects.equals(availableActions, that.availableActions);
+        return Objects.equals(exampleId, that.exampleId) &&
+               Objects.equals(shared, that.shared) &&
+               Objects.equals(availableActions, that.availableActions);
     }
 
     @Override

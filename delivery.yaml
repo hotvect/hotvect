@@ -2,6 +2,28 @@ version: "2017-09-20"
 
 allow_concurrent_steps: true
 
+dependencies:
+  - id: python_base_image
+    type: docker
+    ref: registry.opensource.zalan.do/library/python-3.11-slim
+    autostart_on_update: true
+  - id: jdk_base_image
+    type: docker
+    ref: container-registry.zalando.net/library/eclipse-temurin-21-jdk
+    autostart_on_update: true
+
+shared_vars: &SHARED_ENV
+  APPLICATION_ID: "lounge-relevance-service"
+  TEAM_ID: "lounge-relevance"
+  UV_DOWNLOAD_PYTHON: "never"
+  UV_NATIVE_TLS: true
+  UV_DEFAULT_INDEX: "https://pypi.zalando.net/repository/pypi/simple"
+  UV_PUBLISH_URL: "https://pypi.zalando.net/repository/pypi-internal/"
+  UV_PUBLISH_USERNAME: "root"
+  UV_PUBLISH_PASSWORD: ""
+  HOTVECT_VERSION: "9.31.2"
+  IMAGE_NAME: &IMAGE_NAME "#{CDP_ZAPPR_TEAM}/hotvect"
+
 pipeline:
   - id: "check-linters"
     depends_on: []
@@ -9,23 +31,29 @@ pipeline:
     timeout: 15m
     vm_config:
       type: linux
-      image: cdp-runtime/python-3.9
+      image: cdp-runtime/python-3.11
     when:
       event: pull_request
     cache:
       paths:
         - ~/.cache
+    env:
+      <<: *SHARED_ENV
     commands:
       - desc: "run-pre-commit"
         cmd: |
           pre-commit install
           pre-commit run --from-ref origin/HEAD --to-ref HEAD
+      - desc: "Run version upgrade checks"
+        cmd: |
+          # The script uses only builtin libraries so it can be run directly without uv
+          cd python && python scripts/check_versions.py ${HOTVECT_VERSION} ${CDP_TARGET_COMMIT_ID}
 
   - id: build-snapshot
     type: script
     vm_config:
       type: linux
-      image: cdp-runtime/jdk17-maven
+      image: cdp-runtime/jdk21-maven
     commands:
       - desc: "Add -SNAPSHOT suffix"
         cmd: mvn build-helper:parse-version versions:set -DnewVersion=\${parsedVersion.majorVersion}.\${parsedVersion.minorVersion}.\${parsedVersion.incrementalVersion}-SNAPSHOT -B
@@ -44,11 +72,14 @@ pipeline:
       - build-snapshot
     vm_config:
       type: linux
-      image: cdp-runtime/python-3.9
+      image: cdp-runtime/python-3.11
+    env:
+      <<: *SHARED_ENV
     commands:
       - desc: "Checks install requirements"
         cmd: |
-          pip install -r python/requirements.txt -r python/requirements-dev.txt
+          cd python
+          uv sync --frozen --all-extras
       - desc: "Copy hotvect offline util jar"
         cmd: |
           cdp-tool stash pop stashed
@@ -56,8 +87,9 @@ pipeline:
           ls hotvect-offline-util/target/*
       - desc: "Runs unittests"
         cmd: |
-          python python/setup.py copy_hotvect_jar
-          python -m pytest
+          cd python
+          uv run scripts/copy_jar.py
+          uv run pytest
 
   - id: build-docs
     depends_on: []
@@ -81,6 +113,36 @@ pipeline:
         name: hotvect
         path: site
 
+  - id: build-training-image-stg
+    desc: Builds training docker image.
+    type: script
+    vm_config:
+      type: linux
+      image: cdp-runtime/python-3.11
+    depends_on:
+      - build-snapshot
+    when:
+      event: pull_request
+    env:
+      <<: *SHARED_ENV
+    commands:
+      - desc: "Copy hotvect offline util jar"
+        cmd: |
+          cdp-tool stash pop stashed
+          mv stashed/snapshot-hotvect-offline-util-target hotvect-offline-util/target
+          ls hotvect-offline-util/target/*
+      - desc: "Verifies that building the docker image works and pushes to staging"
+        cmd: |
+          # Need to copy the certificates so requests to internal pypi work from the container
+          # https://nexus.docs.zalando.net/faq/#docker-build-is-unable-to-access-nexus-from-cdp
+          cp -r /usr/local/share/ca-certificates/cdp ./cdp-certs
+
+          EXTRA_VERSION=".dev${CDP_TARGET_REPOSITORY_COUNTER}"
+          TAG="${CDP_REGISTRY}/${IMAGE_NAME}:${HOTVECT_VERSION}${EXTRA_VERSION}"
+          uv run --project=python python/scripts/copy_jar.py
+          docker build --network=host -t ${TAG} --build-arg BASE_IMAGE=${DEP_PYTHON_BASE_IMAGE_REF} --build-arg BASE_IMAGE_VERSION=${DEP_PYTHON_BASE_IMAGE_VERSION} --build-arg BASE_JDK_IMAGE=${DEP_JDK_BASE_IMAGE_REF} --build-arg BASE_JDK_IMAGE_VERSION=${DEP_JDK_BASE_IMAGE_VERSION} .
+          docker push ${TAG}
+
   - id: build-release
     type: script
     depends_on:
@@ -88,7 +150,7 @@ pipeline:
       - test-python
     vm_config:
       type: linux
-      image: cdp-runtime/jdk17-maven
+      image: cdp-runtime/jdk21-maven
     requires_human_approval: false
     commands:
       - desc: "Deploy release version"
@@ -107,14 +169,13 @@ pipeline:
     type: script
     vm_config:
       type: linux
-      image: cdp-runtime/python-3.9
+      image: cdp-runtime/python-3.11
     when:
       event: push
     depends_on:
       - build-release
     env:
-      PIP_INDEX_URL: "https://pypi.zalando.net/repository/pypi/simple"
-      PIP_TRUSTED_HOST: "pypi.zalando.net"
+      <<: *SHARED_ENV
     commands:
       - desc: "Copy hotvect offline util jar"
         cmd: |
@@ -124,6 +185,39 @@ pipeline:
       - desc: Publishes the package to internal PyPI
         cmd: |
           cd python
-          python setup.py copy_hotvect_jar
-          python setup.py sdist bdist_wheel
-          twine upload dist/*
+          uv run scripts/copy_jar.py
+          uv build
+          uv publish
+
+  - id: build-training-image
+    desc: Builds training docker image.
+    type: script
+    vm_config:
+      type: linux
+      image: cdp-runtime/python-3.11
+    depends_on:
+      - build-release
+    when:
+      event: push
+    env:
+      <<: *SHARED_ENV
+    commands:
+      # Push to ZCR. See details: https://github.com/zalando-build/zflow-examples/blob/01150415d6135349fa577fcd0695c13e74b61924/sagemaker-custom-image/README.md
+      # https://cloud.docs.zalando.net/concepts/builds/#publishing-artifacts
+      # https://cloud.docs.zalando.net/concepts/builds/#zalando-container-registry-zcr-images
+      - desc: "Copy hotvect offline util jar"
+        cmd: |
+          cdp-tool stash pop stashed
+          mv stashed/hotvect-offline-util-target hotvect-offline-util/target
+          ls hotvect-offline-util/target/*
+      - desc: "Verifies that building the docker image works and pushes to staging"
+        cmd: |
+          # Need to copy the certificates so requests to internal pypi work from the container
+          # https://nexus.docs.zalando.net/faq/#docker-build-is-unable-to-access-nexus-from-cdp
+          cp -r /usr/local/share/ca-certificates/cdp ./cdp-certs
+
+          TAG="${CDP_REGISTRY}/${IMAGE_NAME}:${HOTVECT_VERSION}"
+          uv run --project=python python/scripts/copy_jar.py
+          docker build --network=host -t ${TAG} --build-arg BASE_IMAGE=${DEP_PYTHON_BASE_IMAGE_REF} --build-arg BASE_IMAGE_VERSION=${DEP_PYTHON_BASE_IMAGE_VERSION} --build-arg BASE_JDK_IMAGE=${DEP_JDK_BASE_IMAGE_REF} --build-arg BASE_JDK_IMAGE_VERSION=${DEP_JDK_BASE_IMAGE_VERSION} .
+          docker push ${TAG}
+          cdp-promote-image ${TAG}

@@ -1,6 +1,59 @@
+[project]
+name = "hotvect"
+version = "9.31.2"
+description = "Hotvect python interface"
+readme = "README.rst"
+license = "Apache-2.0"
+authors = [
+    { name = "HotVect Team", email = "team@example.com" },
+]
+requires-python = ">=3.11"
+dependencies = [
+    "boto3",
+    "boto3-stubs[essential,sagemaker]",
+    "catboost~=1.2",
+    "jinja2",
+    "numpy~=1.22",
+    "pandas",
+    "pebble",
+    "psutil",
+    "scikit-learn",
+]
+
+[project.urls]
+Homepage = "https://github.com/zalando/hotvect"
+
+[project.optional-dependencies]
+sagemaker = [
+    "emsclient~=9.10.0",
+    "s3fs",
+    "sagemaker-training",
+]
+
 [tool.black]
 line-length = 120
 
 [tool.isort]
 profile = "black"
 line_length = 120
+
+[tool.uv.sources]
+# Currently installing this from the github page because they haven't released the version
+# that contains the fix so it campiles on M1 macs. After they release v5.0.1 we can change this
+sagemaker-training = { git = "https://github.com/aws/sagemaker-training-toolkit/", rev = "fc6f6c0f491a188f4df5e35a794685078b078657" }
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[dependency-groups]
+dev = [
+    "hypothesis>=6.135.29",
+    "pytest>=8.4.1",
+    "pre-commit>=4.0.0",
+]
+
+[tool.uv]
+# native-tls is optional, instructs to use host cert store
+native-tls = true
+

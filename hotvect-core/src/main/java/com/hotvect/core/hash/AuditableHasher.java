@@ -12,6 +12,7 @@ import java.util.function.Function;
 /**
  * A function that converts all {@link RawValue} into {@link HashedValue} by hashing any strings
  */
+@Deprecated
 public class AuditableHasher<FEATURE extends FeatureNamespace> implements Function<NamespacedRecord<FEATURE, RawValue>, NamespacedRecord<FEATURE, HashedValue>> {
 //    private HasherAuditState auditState;
 //

@@ -13,7 +13,7 @@ public abstract class VerboseCallable<V> implements Callable<V> {
         try {
             return doCall();
         } catch (Throwable t) {
-            logger.error("Error while running:" + this, t);
+            logger.error("Error while running:{}", this, t);
             throw new RuntimeException(t);
         }
     }

@@ -40,7 +40,6 @@ class ArrayTransformTest {
     @Property(afterFailure = AfterFailureMode.SAMPLE_FIRST)
     void filter(@ForAll("arrays") Integer[] xs, @ForAll("predicates") Predicate<Integer> predicate) {
         var expected = Arrays.stream(xs).filter(predicate).toArray(Integer[]::new);
-
         var actual = ArrayTransform.filter(xs, predicate, Integer.class);
         assertEquals(Arrays.asList(expected), Arrays.asList(actual));
     }
@@ -48,7 +47,6 @@ class ArrayTransformTest {
     @Property(afterFailure = AfterFailureMode.SAMPLE_FIRST)
     void toDoubleArray(@ForAll("arrays") Integer[] xs, @ForAll("toDoubleFunctions") ToDoubleFunction<Integer> function) {
         var expected = Arrays.stream(xs).mapToDouble(function).toArray();
-
         var actual = ArrayTransform.mapToDouble(xs, function);
         assertEquals(DoubleArrayList.wrap(expected), DoubleArrayList.wrap(actual));
     }
@@ -56,7 +54,6 @@ class ArrayTransformTest {
     @Property(afterFailure = AfterFailureMode.SAMPLE_FIRST)
     void toIntArray(@ForAll("arrays") Integer[] xs, @ForAll("toIntFunctions") ToIntFunction<Integer> function) {
         var expected = Arrays.stream(xs).mapToInt(function).toArray();
-
         var actual = ArrayTransform.mapToInt(xs, function);
         assertEquals(IntStream.of(expected).boxed().collect(Collectors.toList()), IntStream.of(actual).boxed().collect(Collectors.toList()));
     }
@@ -82,7 +79,6 @@ class ArrayTransformTest {
     @Property(afterFailure = AfterFailureMode.SAMPLE_FIRST)
     void filterList(@ForAll("lists") List<Integer> xs, @ForAll("predicates") Predicate<Integer> predicate) {
         var expected = xs.stream().filter(predicate).toArray(Integer[]::new);
-
         var actual = ArrayTransform.filter(xs, predicate, Integer.class);
         assertEquals(Arrays.asList(expected), Arrays.asList(actual));
     }
@@ -90,7 +86,6 @@ class ArrayTransformTest {
     @Property(afterFailure = AfterFailureMode.SAMPLE_FIRST)
     void toDoubleArrayList(@ForAll("lists") List<Integer> xs, @ForAll("toDoubleFunctions") ToDoubleFunction<Integer> function) {
         var expected = xs.stream().mapToDouble(function).toArray();
-
         var actual = ArrayTransform.mapToDouble(xs, function);
         assertEquals(DoubleArrayList.wrap(expected), DoubleArrayList.wrap(actual));
     }
@@ -98,9 +93,76 @@ class ArrayTransformTest {
     @Property(afterFailure = AfterFailureMode.SAMPLE_FIRST)
     void toIntArrayList(@ForAll("lists") List<Integer> xs, @ForAll("toIntFunctions") ToIntFunction<Integer> function) {
         var expected = xs.stream().mapToInt(function).toArray();
-
         var actual = ArrayTransform.mapToInt(xs, function);
         assertEquals(IntStream.of(expected).boxed().collect(Collectors.toList()), IntStream.of(actual).boxed().collect(Collectors.toList()));
+    }
+
+    @Property(afterFailure = AfterFailureMode.SAMPLE_FIRST)
+    void addArrays(@ForAll("genericArrays") Integer[][] arrays) {
+        Integer[] expected = Arrays.stream(arrays).flatMap(Arrays::stream).toArray(Integer[]::new);
+        Integer[] actual = ArrayTransform.addArrays(Integer.class, arrays);
+        assertTrue(Arrays.deepEquals(expected, actual));
+    }
+
+    // -----------------------
+    // New tests (for new methods)
+    // -----------------------
+
+    @Property(afterFailure = AfterFailureMode.SAMPLE_FIRST)
+    void mapNew(@ForAll("arrays") Integer[] xs, @ForAll("functions") Function<Integer, String> function) {
+        var expected = Arrays.stream(xs).map(function).toArray(String[]::new);
+        var actual = ArrayTransform.map(xs, function, size -> new String[size]); // new method
+        assertEquals(Arrays.asList(expected), Arrays.asList(actual));
+    }
+
+    @Property(afterFailure = AfterFailureMode.SAMPLE_FIRST)
+    void flatMapNew(@ForAll("arrays") Integer[] xs, @ForAll("arrayFunctions") Function<Integer, String[]> function) {
+        var expected = Arrays.stream(xs).flatMap(x -> {
+            var transformed = function.apply(x);
+            return transformed != null ? Stream.of(transformed) : Stream.empty();
+        }).toArray(String[]::new);
+
+        var actual = ArrayTransform.flatMap(xs, function, size -> new String[size]); // new method
+        assertEquals(Arrays.asList(expected), Arrays.asList(actual));
+    }
+
+    @Property(afterFailure = AfterFailureMode.SAMPLE_FIRST)
+    void filterNew(@ForAll("arrays") Integer[] xs, @ForAll("predicates") Predicate<Integer> predicate) {
+        var expected = Arrays.stream(xs).filter(predicate).toArray(Integer[]::new);
+        var actual = ArrayTransform.filter(xs, predicate); // new method
+        assertEquals(Arrays.asList(expected), Arrays.asList(actual));
+    }
+
+    @Property(afterFailure = AfterFailureMode.SAMPLE_FIRST)
+    void mapListNew(@ForAll("lists") List<Integer> xs, @ForAll("functions") Function<Integer, String> function) {
+        var expected = xs.stream().map(function).toArray(String[]::new);
+        var actual = ArrayTransform.map(xs, function, String[]::new); // new method
+        assertEquals(Arrays.asList(expected), Arrays.asList(actual));
+    }
+
+    @Property(afterFailure = AfterFailureMode.SAMPLE_FIRST)
+    void flatMapListNew(@ForAll("lists") List<Integer> xs, @ForAll("listFunctions") Function<Integer, List<String>> function) {
+        var expected = xs.stream().flatMap(x -> {
+            var transformed = function.apply(x);
+            return transformed != null ? transformed.stream() : Stream.empty();
+        }).toArray(String[]::new);
+
+        var actual = ArrayTransform.flatMap(xs, function, String[]::new); // new method
+        assertEquals(Arrays.asList(expected), Arrays.asList(actual));
+    }
+
+    @Property(afterFailure = AfterFailureMode.SAMPLE_FIRST)
+    void filterListNew(@ForAll("lists") List<Integer> xs, @ForAll("predicates") Predicate<Integer> predicate) {
+        var expected = xs.stream().filter(predicate).toArray(Integer[]::new);
+        var actual = ArrayTransform.filter(xs, predicate, Integer[]::new); // new method
+        assertEquals(Arrays.asList(expected), Arrays.asList(actual));
+    }
+
+    @Property(afterFailure = AfterFailureMode.SAMPLE_FIRST)
+    void addArraysNew(@ForAll("genericArrays") Integer[][] arrays) {
+        Integer[] expected = Arrays.stream(arrays).flatMap(Arrays::stream).toArray(Integer[]::new);
+        Integer[] actual = ArrayTransform.addArrays(Integer[]::new, arrays); // new method
+        assertTrue(Arrays.deepEquals(expected, actual));
     }
 
     @Provide
@@ -140,6 +202,7 @@ class ArrayTransformTest {
                 Integer::valueOf
         );
     }
+
     @Provide
     Arbitrary<Function<Integer, String[]>> arrayFunctions() {
         Arbitrary<String> strings = Arbitraries.strings().alpha().ofLength(5);
@@ -165,16 +228,6 @@ class ArrayTransformTest {
         return Arbitraries.integers().between(-100, 100).list().ofMaxSize(100);
     }
 
-    @Property(afterFailure = AfterFailureMode.SAMPLE_FIRST)
-    void addArrays(@ForAll("genericArrays") Integer[][] arrays) {
-        // Flatten the arrays to calculate the expected result
-        Integer[] expected = Arrays.stream(arrays).flatMap(Arrays::stream).toArray(Integer[]::new);
-
-        // Use the addArrays method to get the actual result
-        Integer[] actual = ArrayTransform.addArrays(Integer.class, arrays);
-        assertTrue(Arrays.deepEquals(expected, actual));
-    }
-
     @Provide
     Arbitrary<Integer[][]> genericArrays() {
         return Arbitraries.integers().between(-100, 100)
@@ -183,8 +236,4 @@ class ArrayTransformTest {
                 .array(Integer[][].class)
                 .ofMaxSize(5); // Number of arrays
     }
-
-
-
-
 }

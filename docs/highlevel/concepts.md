@@ -1,3 +1,26 @@
+---
+title: Concepts and Terminologies
+description: Core concepts in hotvect - Algorithms, Rankers, Scorers, training/inference modes, and packaging
+tags: [concepts, algorithms, rankers, scorers, architecture, fundamentals]
+difficulty: beginner
+estimated_time: 30 minutes
+prerequisites:
+  - Basic understanding of ML systems
+  - Familiarity with inference and training concepts
+related_docs:
+  - ./motivation.md
+  - ./namespaces.md
+  - ../howto/develop-a-re-ranker-with-hotvect.md
+related_commands:
+  - hv train
+  - hv predict
+  - hv audit
+next_steps:
+  - Develop your first algorithm
+  - Understand namespace identity
+  - Read about hotvect's motivation
+---
+
 Concepts and terminologies
 ========
 
@@ -11,6 +34,14 @@ Technically, almost anything could be an "Algorithm", but the current, natively 
  - `Scorers`: Models that accept one, or multiple possible content candidates and scores them. Usually the scores are then used for re-ranking.
 
 Multiple algorithms can be combined to form a "Composite Algorithm" (for example, a `Scorer` can be combined with a ranking policy to form a `Ranker`, or multiple `Scorer`s can be combined to create an ensemble model). We will cover this in detail later.
+
+# Outer vs inner algorithms
+Composite algorithms typically follow an **outer / inner** layering:
+
+- **Outer algorithms** expose the public interface and orchestrate evaluation logic, often adding heuristics or business rules. They declare dependencies on inner algorithms but typically don't train ML models themselves.
+- **Inner algorithms** either train ML models (with feature engineering and vectorization) or generate state through aggregation/fitting/transformation. State generation produces parameters via non-ML means—could be simple (copying data) or complex (computing aggregations or statistics).
+
+**CLI command targeting:** Low-level commands that require feature transformations—`audit` and `encode`—must point at an algorithm that trains ML models (check for `training_command` in the algorithm definition, commonly found in inner algorithms). `generate-state` requires an algorithm with `generator_factory_classname` (algorithms that produce state parameters). High-level orchestration commands like `train`, `predict`, or `backtest` can target outer or inner algorithms; when targeting an outer algorithm, they automatically cascade into dependencies. See [CLI usage](../cli/usage.md#commands-for-training-algorithms) for a quick reference.
 
 # Training-mode and inference-mode, offline-mode and online-mode
 ## Training-mode and inference-mode

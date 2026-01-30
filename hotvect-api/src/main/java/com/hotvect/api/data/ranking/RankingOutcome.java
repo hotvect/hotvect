@@ -1,42 +1,25 @@
 package com.hotvect.api.data.ranking;
 
-import java.util.Objects;
+import com.hotvect.api.data.Decision;
+import com.hotvect.api.data.common.Outcome;
 
-public class RankingOutcome<OUTCOME, ACTION> {
-    private final RankingDecision<ACTION> rankingDecision;
-    private final OUTCOME outcome;
+public record RankingOutcome<OUTCOME, ACTION>(
+        RankingDecision<ACTION> rankingDecision,
+        OUTCOME outcome
+) implements Outcome<OUTCOME, ACTION> {
 
-    public RankingOutcome(RankingDecision<ACTION> rankingDecision, OUTCOME outcome) {
-        this.rankingDecision = rankingDecision;
-        this.outcome = outcome;
-    }
-
-    public RankingDecision<ACTION> getRankingDecision() {
+    @Override
+    public Decision<ACTION> decision() {
         return rankingDecision;
     }
 
+    @Deprecated(forRemoval = true)
+    public RankingDecision<ACTION> getRankingDecision() {
+        return this.rankingDecision;
+    }
+
+    @Deprecated(forRemoval = true)
     public OUTCOME getOutcome() {
-        return outcome;
-    }
-
-    @Override
-    public String toString() {
-        return "RankingOutcome{" +
-                "rankingDecision=" + rankingDecision +
-                ", outcome=" + outcome +
-                '}';
-    }
-
-    @Override
-    public boolean equals(Object o) {
-        if (this == o) return true;
-        if (o == null || getClass() != o.getClass()) return false;
-        RankingOutcome<?, ?> that = (RankingOutcome<?, ?>) o;
-        return rankingDecision.equals(that.rankingDecision) && Objects.equals(outcome, that.outcome);
-    }
-
-    @Override
-    public int hashCode() {
-        return Objects.hash(rankingDecision, outcome);
+        return this.outcome;
     }
 }

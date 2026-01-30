@@ -1,8 +1,8 @@
 package com.hotvect.vw;
 
-import com.codahale.metrics.MetricRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import com.hotvect.onlineutils.concurrency.CpuIntensiveAggregator;
 import com.hotvect.utils.Pair;
-import com.hotvect.util.CpuIntensiveAggregator;
 import it.unimi.dsi.fastutil.ints.Int2DoubleMap;
 import it.unimi.dsi.fastutil.ints.Int2DoubleOpenHashMap;
 
@@ -59,7 +59,6 @@ public class VwModelImporter implements Function<BufferedReader, Int2DoubleMap> 
         // The rest
         Stream<String> rest = parameter.lines();
         CpuIntensiveAggregator<VwModelState, String> aggregator = new CpuIntensiveAggregator<>(
-                new MetricRegistry(),
                 () -> state,
                 (state1, line) -> {
                     checkState(tryExtractAndAppendWeight(line, state1),
@@ -115,7 +114,7 @@ public class VwModelImporter implements Function<BufferedReader, Int2DoubleMap> 
                 first = s.substring(a+1, b);
             } else {
                 second = s.substring(a+1, b);
-                return Pair.of(first, second);
+                return new Pair<>(first, second);
             }
             a = b;
             b++;

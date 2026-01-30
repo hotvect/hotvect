@@ -41,3 +41,5 @@ site
 .vscode
 
 .DS_Store
+CLAUDE.md
+.claude

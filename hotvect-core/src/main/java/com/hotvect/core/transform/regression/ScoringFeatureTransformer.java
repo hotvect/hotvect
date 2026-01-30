@@ -11,6 +11,7 @@ import java.util.Set;
 import java.util.function.Function;
 
 //TODO Add test
+@Deprecated
 public class ScoringFeatureTransformer<RECORD, FEATURE extends Enum<FEATURE> & FeatureNamespace> implements ScoringTransformer<RECORD, FEATURE> {
     private final Class<FEATURE> featureKeyClass;
     private final EnumMap<FEATURE, Function<RECORD, RawValue>> transformations;

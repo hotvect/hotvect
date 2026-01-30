@@ -282,8 +282,7 @@ class SagemakerTrainingExecutor:
     def _add_algorithm_pipeline_params_as_hyperparameters(self):
         """This method flattens the pipeline parameters, so it can be sent to Sagemaker."""
         algorithm_pipeline_params_to_send = {
-            "last_training_time": self.algorithm_pipeline.last_training_time.isoformat(),
-            "test_lag": self.algorithm_pipeline.test_lag.total_seconds(),
+            "last_test_time": self.algorithm_pipeline.last_test_time.isoformat(),
             "evaluation_func": self.algorithm_pipeline.evaluation_function.__name__,
             "parameter_version": self.algorithm_pipeline.parameter_version,
         }
@@ -389,8 +388,7 @@ class SagemakerTrainingExecutor:
             error = str(e)
         return dict(
             parameter_version=self.algorithm_pipeline.parameter_version,
-            training_data_time=self.algorithm_pipeline.last_training_time.isoformat(),
-            test_data_time=(self.algorithm_pipeline.last_training_time + self.algorithm_pipeline.test_lag).isoformat(),
+            test_data_time=self.algorithm_pipeline.last_test_time.isoformat(),
             result=result,
             error=error,
         )
@@ -464,8 +462,7 @@ class SagemakerAlgorithmPipelineRebuilder:
                 algorithm_definition["algorithm_name"],
                 algorithm_definition,
             ),
-            last_training_time=datetime.date.fromisoformat(algorithm_pipeline_params["last_training_time"]),
-            test_lag=datetime.timedelta(seconds=algorithm_pipeline_params["test_lag"]),
+            last_test_time=datetime.date.fromisoformat(algorithm_pipeline_params["last_test_time"]),
             # TODO: support other evaluation functions.
             evaluation_func=mlutils.standard_evaluation,
             hyperparameter_version=None,
@@ -514,7 +511,7 @@ class SagemakerAlgorithmPipelineRebuilder:
             metadata_base_path=metadata_base_path,
             output_base_path=output_data_base_path,
             enable_gzip=context_in_hyperparameters.get("enable_gzip", False),
-            jvm_options=context_in_hyperparameters.get("jvm_options", ["-Xmx32g"]),
+            jvm_options=context_in_hyperparameters.get("jvm_options", ["-Xmx256g"]),
             max_threads=context_in_hyperparameters.get("max_threads"),
             queue_length=context_in_hyperparameters.get("queue_length"),
             batch_size=context_in_hyperparameters.get("batch_size"),

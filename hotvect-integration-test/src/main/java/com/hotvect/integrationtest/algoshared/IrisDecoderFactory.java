@@ -5,10 +5,8 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
 import com.hotvect.api.algodefinition.ranking.RankingExampleDecoderFactory;
 import com.hotvect.api.codec.ranking.RankingExampleDecoder;
-import com.hotvect.api.data.ranking.RankingDecision;
-import com.hotvect.api.data.ranking.RankingExample;
-import com.hotvect.api.data.ranking.RankingOutcome;
-import com.hotvect.api.data.ranking.RankingRequest;
+import com.hotvect.api.data.ranking.*;
+import com.hotvect.api.data.FeatureStoreResponseContainer;
 
 import java.io.IOException;
 import java.io.StringReader;
@@ -31,12 +29,13 @@ public class IrisDecoderFactory implements RankingExampleDecoderFactory<String, 
 
                 RankingExample<String, Map<String, String>, String> exp = new RankingExample<>(
                         "incoming:" +toDecode,
-                        new RankingRequest<>(
+                        OfflineRankingRequest.newOfflineRankingRequest(
                                 "example1",
                                 shared,
                                 ImmutableList.of(
                                         record
-                                )),
+                                ),
+                                FeatureStoreResponseContainer.empty()),
                         ImmutableList.of(
                                 new RankingOutcome<>(RankingDecision.builder(0, record).withScore(1.0).build(), outcome)
                         )

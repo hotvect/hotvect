@@ -1,0 +1,27 @@
+{
+  "max_memory_usage": 1000.0,
+  "mean_throughput": 500.0,
+  "response_time_metrics": {
+    "mean_throughput": {
+      "mean": 480.0
+    },
+    "mean": {
+      "mean": 10.0
+    },
+    "p50": {
+      "mean": 8.0
+    },
+    "p75": {
+      "mean": 12.0
+    },
+    "p95": {
+      "mean": 20.0
+    },
+    "p99": {
+      "mean": 30.0
+    },
+    "p999": {
+      "mean": 50.0
+    }
+  }
+}

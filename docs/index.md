@@ -1,3 +1,19 @@
+---
+title: Hotvect - Open Source ML Framework
+description: Library for developing real-time and batch machine learning applications, especially personalized content re-rankers
+tags: [introduction, getting-started, overview]
+difficulty: beginner
+estimated_time: 10 minutes
+related_docs:
+  - ./highlevel/concepts.md
+  - ./highlevel/motivation.md
+  - ./howto/develop-a-re-ranker-with-hotvect.md
+  - ./cli/usage.md
+next_steps:
+  - Read concepts and terminologies
+  - Build your first algorithm
+  - Explore CLI commands
+---
 
 <div style="text-align:center; margin-bottom: 3em">
   <img alt="Hotvect Logo" src="https://hotvect.docs.zalando.net/hot_pepper.png" />
