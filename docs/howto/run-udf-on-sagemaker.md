@@ -59,13 +59,13 @@ def main():
                 "DataSource": {
                     "S3DataSource": {
                         "S3DataType": "S3Prefix",
-                        "S3Uri": "s3://my_data/",
+                        "S3Uri": "s3://example-bucket/",
                     }
                 },
                 "InputMode": "FastFile",
             },
         ],
-        "OutputDataConfig": {"S3OutputPath": "s3://my_output/"},
+        "OutputDataConfig": {"S3OutputPath": "s3://example-bucket/"},
         "ResourceConfig": {
             "InstanceType": "ml.m5.2xlarge",
             "VolumeSizeInGB": 30,
@@ -76,12 +76,12 @@ def main():
             "MaxRuntimeInSeconds": 123,
             "MaxWaitTimeInSeconds": 123,
         },
-        "RoleArn": "arn:aws:iam::my_role",
+        "RoleArn": "arn:aws:iam::123456789012:role/example-role",
         "HyperParameters": {},
     }
 
     run_remote_using_git_reference(
-        remote_work_dir="s3://my_emote_work_dir",
+        remote_work_dir="s3://example-bucket",
         local_work_dir="/Users/abcdef/my_local_work_dir",
         repo_url="git@myrepo:my-udf-repo.git",
         git_reference="123abcdef123",

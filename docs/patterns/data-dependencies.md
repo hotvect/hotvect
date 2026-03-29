@@ -32,7 +32,7 @@ Hotvect algorithms declare their data dependencies in the algorithm-definition.j
 {
   "data_dependency_spec": {
     "training_data": {
-      "data_prefix": "config_sort_add_to_cart_sampled_w_fs",
+      "data_prefix": "example_training_data_with_features",
       "number_of_days": 7,
       "training_lag_days": 1,
       "s3_uri": {
@@ -41,7 +41,7 @@ Hotvect algorithms declare their data dependencies in the algorithm-definition.j
     }
   },
   "test_data_spec": {
-    "data_prefix": "my_test_data_w_fs",
+    "data_prefix": "example_test_data_with_features",
     "s3_uri": {
       "production": "s3://bucket/test-data/"
     }
@@ -53,7 +53,7 @@ Hotvect algorithms declare their data dependencies in the algorithm-definition.j
 
 | Field | Description | Example |
 |-------|-------------|---------|
-| `data_prefix` | Directory name under data-base-dir | `config_sort_add_to_cart_sampled_w_fs` |
+| `data_prefix` | Directory name under data-base-dir | `example_training_data_with_features` |
 | `number_of_days` | How many days of data to use | `7` |
 | `training_lag_days` | Days to lag from last-test-time | `1` |
 | `s3_uri.production` | S3 location for download | `s3://bucket/tables/` |
@@ -177,7 +177,7 @@ For specific dates:
 
 ```bash
 # Login first
-zalando-aws-cli login my-team-data ReadOnly
+aws sso login
 
 # Download single date
 aws s3 sync \
@@ -229,14 +229,14 @@ Calculate dates separately for each dependency.
 
 Parent and child algorithms have independent data dependencies:
 
-**Parent** (`my-algorithm`):
-- Test data: `test_data_prefix`
+**Parent** (`example-algorithm`):
+- Test data: `example_test_data_with_features`
 - Date: `dt=2025-08-09` (last_test_time)
 
-**Child** (`my-algorithm-model`):
-- Training data: `training_data_prefix`
+**Child** (`example-algorithm-model`):
+- Training data: `example_training_data_attribution`
 - Dates: `dt=2025-08-02` through `dt=2025-08-08` (7 days)
-- Test data: `test_data_prefix`
+- Test data: `example_test_data_attribution`
 - Date: `dt=2025-08-08` (last_test_time - training_lag_days)
 
 **Download both**:
@@ -366,12 +366,12 @@ In project README:
 ```markdown
 ## Data Requirements
 
-- **Training data**: `config_sort_add_to_cart_sampled_w_fs`
+- **Training data**: `example_training_data_with_features`
   - Number of days: 7
   - Lag days: 1
   - S3: `s3://bucket/tables/`
 
-- **Test data**: `my_test_data_w_fs`
+- **Test data**: `example_test_data_with_features`
   - S3: `s3://bucket/tables/`
 ```
 

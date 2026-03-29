@@ -2,7 +2,6 @@ package com.hotvect.core.transform.ranking;
 
 import com.hotvect.api.data.ranking.RankingRequest;
 import com.hotvect.core.transform.Computable;
-import com.hotvect.core.transform.Computing;
 
 import java.util.List;
 

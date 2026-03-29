@@ -104,8 +104,15 @@ class PerfCompareCommand(BaseCommand):
         }
 
         # Compare mean_throughput (higher is better)
-        throughput_baseline = baseline_data["mean_throughput"]
-        throughput_treatment = treatment_data["mean_throughput"]
+        # Try top level first, fallback to response_time_metrics
+        throughput_baseline = baseline_data.get("mean_throughput")
+        if throughput_baseline is None:
+            throughput_baseline = baseline_data["response_time_metrics"]["mean_throughput"]["mean"]
+
+        throughput_treatment = treatment_data.get("mean_throughput")
+        if throughput_treatment is None:
+            throughput_treatment = treatment_data["response_time_metrics"]["mean_throughput"]["mean"]
+
         throughput_change = self._compute_percentage_change(throughput_baseline, throughput_treatment)
         throughput_result = "better" if throughput_change > 0 else "worse"
 

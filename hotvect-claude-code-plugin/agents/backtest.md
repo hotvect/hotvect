@@ -10,7 +10,7 @@ model: sonnet
 **This agent has ISOLATED CONTEXT** - it cannot see the main conversation. When you (Claude) invoke this agent, you MUST provide a complete, self-contained prompt including:
 
 **Required information to pass:**
-1. **Algorithm repository URL**: Full git URL (e.g., `https://github.com/company/algorithm.git`)
+1. **Algorithm repository URL**: Full git URL (e.g., `https://github.com/zalando-example/example-algorithm.git`)
 2. **Git references**: Baseline and treatment versions/branches (e.g., `v77.0.0`, `v64.4.0`)
 3. **Last test time**: Date in YYYY-MM-DD format (e.g., `2025-08-09`)
 4. **Data base directory**: Absolute path (get from `~/.hotvect/config.json` `directories.data_base_dir` if not user-specified)
@@ -26,13 +26,13 @@ model: sonnet
 
 **Example good invocation:**
 ```
-Run backtest comparing my-algorithm versions v64.4.0 (baseline) vs v77.0.0 (treatment).
-Repository: https://github.com/company/algorithm.git
+Run backtest comparing example-algorithm versions v64.4.0 (baseline) vs v77.0.0 (treatment).
+Repository: https://github.com/zalando-example/example-algorithm.git
 Last test time: 2025-08-09
-Data directory: /path/to/data
-Output directory: /path/to/backtest-output
-Scratch directory: /tmp/backtest-scratch
-Algorithm override: /path/to/2day-override.json (2-day training)
+Data directory: /Users/exampleuser/workspace/example/example-algorithm-data/2025Aug
+Output directory: /Users/exampleuser/workspace/example/tmp/backtest-output
+Scratch directory: /Users/exampleuser/workspace/example/tmp/backtest-scratch
+Algorithm override: /Users/exampleuser/workspace/example/tmp/2day-override.json (2-day training)
 ```
 
 ---
@@ -80,7 +80,7 @@ You understand:
    - `directories.data_base_dir` → `--data-base-dir` argument
    - `directories.output_base_dir` → `--output-base-dir` argument
    - `directories.scratch_dir` → `--scratch-dir` argument
-   - `aws.credential_helper` → Command to run when refreshing credentials
+   - `aws.login_command` → Command to run when refreshing credentials
    - `sagemaker.default_s3_data_base_dir` → Default S3 location
 
 4. **Fail fast** if config doesn't exist and user didn't provide required parameters
@@ -191,7 +191,7 @@ aws sts get-caller-identity
 
 If expired, guide user to refresh:
 ```bash
-zalando-aws-cli login my-team-data ReadOnly
+aws sso login
 ```
 
 ### 3. Verify Data Availability
@@ -259,7 +259,7 @@ Let the framework populate InputDataConfig by adding the following flags to the 
 
 ```
 --auto-attach-data \
---auto-attach-data-default-s3-base s3://<bucket>/<tables>/ \
+--auto-attach-data-default-s3-base s3://example-bucket/<tables>/ \
 --auto-attach-data-environment production   # or test, if requested
 ```
 
@@ -331,7 +331,7 @@ hv-ext download-results \
   --dest-base-dir ./backtest-results \
   --from-date ${start_date} \
   --to-date ${end_date} \
-  --role-arn arn:aws:iam::account:role/RoleName  # If needed
+  --role-arn arn:aws:iam::123456789012:role/example-role  # If needed
 ```
 
 ### 8. Compare Evaluation Results
@@ -381,7 +381,7 @@ Interpret results and present key metric differences to user.
 ## Error Handling
 
 **AWS credentials expired:**
-- Run `zalando-aws-cli login my-team-data ReadOnly`
+- Run `aws sso login`
 
 **Data not found:**
 - Guide user to download with `hv-ext download-data-dependency`
@@ -398,7 +398,7 @@ Interpret results and present key metric differences to user.
 
 ## Parent-Child Algorithm Warning
 
-**CRITICAL:** If the algorithm has parent-child structure (e.g., `my-algorithm` with dependency `my-algorithm-model`):
+**CRITICAL:** If the algorithm has parent-child structure (e.g., `example-algorithm` with dependency `example-algorithm-model`):
 
 - **ALWAYS train the PARENT algorithm**
 - The override file's `dependencies` section specifies child overrides

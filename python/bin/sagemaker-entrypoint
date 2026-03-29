@@ -15,10 +15,6 @@ from sagemaker_training.environment import Environment
 
 
 import s3fs
-from emsclient.auth import SecretsManagerAuth
-from emsclient.ems import Ems, EmsConnection
-from emsclient.ems import Environment as EmsEnv
-from emsclient.models import AlgorithmName, AlgorithmParameterSpec
 from hotvect.pyhotvect import AlgorithmPipeline
 from hotvect.sagemaker import (
     WRITE_METADATA_ENV_VARIABLE,
@@ -34,12 +30,27 @@ logger = logging.getLogger(__name__)
 SHOULD_UPDATE_EMS_PARAMETER_VAR = "should_update_ems_parameter"
 EMS_S3_OUTPUT_PREFIX_VAR = "ems_s3_output_prefix"
 EMS_ENV_VAR = "ems_env"
-TOKEN_SECRET_ID_VAR = "token_secret_id"
+ZALANDO_TOKEN_SECRET_ID_VAR = "zalando_token_secret_id"
 REQUIRED_PARAMS_FOR_EMS_UPDATE = [
     EMS_S3_OUTPUT_PREFIX_VAR,
     EMS_ENV_VAR,
-    TOKEN_SECRET_ID_VAR,
+    ZALANDO_TOKEN_SECRET_ID_VAR,
 ]
+
+
+def load_emsclient():
+    try:
+        from emsclient.auth import SecretsManagerAuth
+        from emsclient.ems import Ems, EmsConnection
+        from emsclient.ems import Environment as EmsEnv
+        from emsclient.models import AlgorithmName, AlgorithmParameterSpec
+    except ImportError as exc:
+        raise RuntimeError(
+            "EMS parameter updates require the internal-only 'emsclient' package. "
+            "Disable should_update_ems_parameter when using OSS Hotvect."
+        ) from exc
+
+    return SecretsManagerAuth, Ems, EmsConnection, EmsEnv, AlgorithmName, AlgorithmParameterSpec
 
 
 def train():
@@ -62,7 +73,7 @@ def train():
     if should_update_ems_parameter:
         ems_env = hyperparameters.get(EMS_ENV_VAR)
         ems_s3_output_prefix = hyperparameters.get(EMS_S3_OUTPUT_PREFIX_VAR)
-        secret_id = hyperparameters.get(TOKEN_SECRET_ID_VAR)
+        secret_id = hyperparameters.get(ZALANDO_TOKEN_SECRET_ID_VAR)
         training_result_updater = EmsUpdaterAgent(
             algorithm_pipeline=hotvect_rebuilder.algorithm_pipeline,
             output_s3_path=ems_s3_output_prefix,
@@ -118,7 +129,17 @@ class EmsUpdaterAgent:
     ):
         self._algorithm_pipeline: AlgorithmPipeline = algorithm_pipeline
         self._output_s3_path: str = output_s3_path
-        self._ems_client: Ems = Ems(
+        (
+            SecretsManagerAuth,
+            Ems,
+            EmsConnection,
+            EmsEnv,
+            AlgorithmName,
+            AlgorithmParameterSpec,
+        ) = load_emsclient()
+        self._algorithm_name_type = AlgorithmName
+        self._algorithm_parameter_spec_type = AlgorithmParameterSpec
+        self._ems_client = Ems(
             EmsConnection(environment=EmsEnv[ems_env], bearer_auth=SecretsManagerAuth(secret_id))
         )
 
@@ -143,14 +164,14 @@ class EmsUpdaterAgent:
 
     def _update_parameter_in_ems(self):
         logger.info("Updating EMS with the training parameters.")
-        algorithm = AlgorithmName(
+        algorithm = self._algorithm_name_type(
             algorithm_name=self._algorithm_pipeline.algorithm_name,
             algorithm_version=self._algorithm_pipeline.algorithm_version,
         )
         parameter_zip_s3_uri = os.path.join(
             self._output_s3_path, f"{self._algorithm_pipeline.parameter_version}.parameters.zip"
         )
-        algorithm_parameter_spec = AlgorithmParameterSpec(
+        algorithm_parameter_spec = self._algorithm_parameter_spec_type(
             algorithm_parameter_id=self._algorithm_pipeline.parameter_version,
             algorithm=algorithm,
             evaluation_results="",

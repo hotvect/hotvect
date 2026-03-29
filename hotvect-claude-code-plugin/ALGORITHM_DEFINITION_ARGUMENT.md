@@ -11,7 +11,7 @@ Many hotvect commands accept an `--algorithm-definition` (or `--algorithm-name`)
 ```bash
 hv audit \
   --algorithm-jar /path/to/algorithm.jar \
-  --algorithm-name my-algorithm-model \
+  --algorithm-name example-algorithm-model \
   --source-path data.jsonl \
   --dest-path audit.jsonl
 ```
@@ -93,7 +93,7 @@ When running commands manually, it's more convenient to:
 ```bash
 hv audit \
   --algorithm-jar ~/.m2/repository/.../algorithm-77.0.0.jar \
-  --algorithm-name my-algorithm-model \
+  --algorithm-name example-algorithm-model \
   --source-path test-data/ \
   --dest-path audit.jsonl
 ```
@@ -102,7 +102,7 @@ hv audit \
 ```bash
 # You run this command (with algorithm name):
 hv train \
-  --algorithm-name my-algorithm \
+  --algorithm-name example-algorithm \
   --algorithm-jar /path/to/jar \
   --algorithm-override 2day-override.json \
   ...
@@ -121,7 +121,7 @@ When saving commands for debugging, prefer algorithm name over file path:
 # GOOD: Uses algorithm name (portable, replayable)
 hv audit \
   --algorithm-jar ~/.m2/repository/.../algorithm-77.0.0.jar \
-  --algorithm-name my-algorithm-model \
+  --algorithm-name example-algorithm-model \
   --source-path /absolute/path/to/data.jsonl \
   --dest-path /absolute/path/to/audit.jsonl
 

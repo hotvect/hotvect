@@ -1,3 +1,4 @@
+# TODO: move code base to a separate sub-package (1k+ lines quite hard to read)
 import copy
 import glob
 import hashlib
@@ -74,6 +75,8 @@ class BacktestPipeline:
         auto_attach_data: bool = False,
         auto_attach_data_default_s3_base: Optional[str] = None,
         auto_attach_data_environment: str = "production",
+        encode_test_data: bool = False,
+        execute_audit: bool = False,
     ):
         self.algo_repo_url = algo_repo_url
         self.algo_git_reference = algo_git_reference
@@ -94,6 +97,8 @@ class BacktestPipeline:
         self.auto_attach_data = auto_attach_data
         self.auto_attach_data_environment = (auto_attach_data_environment or "production").lower()
         self.auto_attach_data_default_s3_base = auto_attach_data_default_s3_base
+        self.encode_test_data = encode_test_data
+        self.execute_audit = execute_audit
 
         logger.info(f"Initialized BacktestPipeline with {self.__dict__}")
 
@@ -297,7 +302,7 @@ class BacktestPipeline:
         additional_jar_files = self.additional_jars
         context = AlgorithmPipelineContext(
             algorithm_jar_path=algorithm_spec.algorithm_jar_path,
-            state_soruce_base_path=Path(os.path.join(self.data_base_dir, "states")),
+            state_source_base_path=Path(os.path.join(self.data_base_dir, "states")),
             data_base_path=Path(self.data_base_dir),
             metadata_base_path=Path(os.path.join(self.output_data_dir, "meta")),
             output_base_path=Path(os.path.join(self.output_data_dir, "out")),
@@ -321,6 +326,9 @@ class BacktestPipeline:
                 last_test_time=last_test_day,
                 evaluation_func=self.evaluation_function,
                 parameter_version=parameter_version,
+                encode_test_data=self.encode_test_data,
+                execute_audit=self.execute_audit,
+                clean_output_after_run=clean,
             )
             this_iteration_sagemaker_training_job_definition = copy.deepcopy(sagemaker_training_job_definition)
             if auto_attach_data:
@@ -473,7 +481,7 @@ class BacktestPipeline:
         additional_jars = list(self.additional_jars) if self.additional_jars else []
         context = AlgorithmPipelineContext(
             algorithm_jar_path=algorithm_spec.algorithm_jar_path,
-            state_soruce_base_path=Path(os.path.join(self.data_base_dir, "states")),
+            state_source_base_path=Path(os.path.join(self.data_base_dir, "states")),
             data_base_path=Path(self.data_base_dir),
             metadata_base_path=Path(os.path.join(self.output_data_dir, "meta")),
             output_base_path=Path(os.path.join(self.output_data_dir, "out")),
@@ -602,6 +610,8 @@ def run_backtest_on_git_reference(
     auto_attach_data: bool = False,
     auto_attach_data_default_s3_base: Optional[str] = None,
     auto_attach_data_environment: str = "production",
+    encode_test_data: bool = False,
+    execute_audit: bool = False,
 ) -> BacktestResult:
     def updated_sagemaker_training_job_definition():
         if not sagemaker_training_job_definition:
@@ -627,6 +637,8 @@ def run_backtest_on_git_reference(
         auto_attach_data=auto_attach_data,
         auto_attach_data_default_s3_base=auto_attach_data_default_s3_base,
         auto_attach_data_environment=auto_attach_data_environment,
+        encode_test_data=encode_test_data,
+        execute_audit=execute_audit,
     )
     return pipeline.run_all(
         clean=clean,
@@ -661,6 +673,8 @@ def run_backtest_on_git_references(
     auto_attach_data: bool = False,
     auto_attach_data_default_s3_base: Optional[str] = None,
     auto_attach_data_environment: str = "production",
+    encode_test_data: bool = False,
+    execute_audit: bool = False,
 ) -> List[BacktestResult]:
     if not concurrency_setting:
         concurrency_setting = utils.recommend_concurrency(
@@ -748,6 +762,8 @@ def run_backtest_on_git_references(
                     "auto_attach_data": auto_attach_data,
                     "auto_attach_data_default_s3_base": auto_attach_data_default_s3_base,
                     "auto_attach_data_environment": auto_attach_data_environment,
+                    "encode_test_data": encode_test_data,
+                    "execute_audit": execute_audit,
                 },
             )
             futures.append(

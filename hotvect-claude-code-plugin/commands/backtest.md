@@ -33,7 +33,7 @@ When a user invokes `/backtest`, you (Claude) should:
    - `directories.data_base_dir` → `--data-base-dir` argument
    - `directories.output_base_dir` → `--output-base-dir` argument
    - `directories.scratch_dir` → `--scratch-dir` argument
-   - `aws.credential_helper` → Command to run for AWS credential refresh
+   - `aws.login_command` → Command to run for AWS credential refresh
 4. User-provided arguments override config defaults
 5. Construct the complete `hv backtest` command with ALL arguments explicitly specified
 
@@ -134,7 +134,7 @@ cat ~/workspace/hotvect/hotvect-claude-code-plugin/ALGORITHM_DEFINITION_SCHEMA.m
 ```bash
 hv backtest \
   --git-reference v77.0.0 \
-  --algo-repo-url https://github.com/company/algorithm.git \
+  --algo-repo-url https://github.com/zalando-example/example-algorithm.git \
   --data-base-dir /path/to/data \
   --output-base-dir /path/to/backtest-output \
   --scratch-dir /tmp/backtest-scratch \
@@ -146,7 +146,7 @@ hv backtest \
 hv backtest \
   --git-reference v77.0.0 \
   --git-reference v64.4.0 \
-  --algo-repo-url https://github.com/company/algorithm.git \
+  --algo-repo-url https://github.com/zalando-example/example-algorithm.git \
   --data-base-dir /path/to/data \
   --output-base-dir /path/to/backtest-output \
   --scratch-dir /tmp/backtest-scratch \
@@ -231,7 +231,7 @@ aws sts get-caller-identity
 
 If expired, refresh:
 ```bash
-zalando-aws-cli login my-team-data ReadOnly
+aws sso login
 ```
 
 ## Comparison Analysis

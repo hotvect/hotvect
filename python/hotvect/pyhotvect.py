@@ -57,7 +57,7 @@ class AlgorithmPipelineContext(NamedTuple):
     algorithm_jar_path: Path
 
     # Parameter sources
-    state_soruce_base_path: Path
+    state_source_base_path: Path
     data_base_path: Path
 
     # Output locations
@@ -191,9 +191,21 @@ class AlgorithmPipeline:
             self.parameter_version = f"last_test_date_{self.last_test_time}"
 
         # Retrieve the evaluation function, if none found -> use default standard_evaluation
-        algo_def_evaluation_function = _recursive_get(
+        # Supports both:
+        # - "evaluation_function": "standard_evaluation"
+        # - "evaluation_function": {"name": "standard_evaluation", "arguments": {...}}
+        maybe_evaluation_function = _recursive_get(
             self.algorithm_definition, ["hotvect_execution_parameters", "evaluation_function"]
         )
+        if isinstance(maybe_evaluation_function, dict):
+            algo_def_evaluation_function = maybe_evaluation_function.get("name")
+            if not algo_def_evaluation_function:
+                raise ValueError(
+                    "Algorithm definition evaluation_function is a dict but has no 'name'. "
+                    "Expected {'name': <string>, 'arguments': <dict>}."
+                )
+        else:
+            algo_def_evaluation_function = maybe_evaluation_function
         if algo_def_evaluation_function:
             # Fetch the callable from the dictionary based on the string key
             if algo_def_evaluation_function in EVALUATION_FUNCTIONS:
@@ -1107,7 +1119,13 @@ class AlgorithmPipeline:
         logger.info(
             f"Evaluating {self.algorithm_name} with {self.evaluation_function.__name__} using {self.test_result_file_path()}"
         )
-        meta_data = self.evaluation_function(self.test_result_file_path())
+        kwargs = (
+            _recursive_get(
+                self.algorithm_definition, ["hotvect_execution_parameters", "evaluation_function", "arguments"]
+            )
+            or dict()
+        )
+        meta_data = self.evaluation_function(self.test_result_file_path(), **kwargs)
         logger.info(
             f"Evaluated {self.algorithm_name} with {self.evaluation_function.__name__}, results at {metadata_location}"
         )

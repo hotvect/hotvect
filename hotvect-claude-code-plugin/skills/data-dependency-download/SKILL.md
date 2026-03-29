@@ -33,7 +33,7 @@ Automatically download the correct training and test data needed for local algor
 3. Use config values as defaults when user hasn't specified:
    - `directories.data_base_dir` → `--local-data-dir` argument
    - `directories.scratch_dir` → `--scratch-dir` argument
-   - `aws.credential_helper` → Command for AWS credential refresh
+   - `aws.login_command` → Command for AWS credential refresh
    - `sagemaker.default_s3_data_base_dir` → `--s3-base-dir` argument
 
 4. **Fail fast** if config doesn't exist and user didn't provide required paths
@@ -103,8 +103,8 @@ Before doing anything, locate the algorithm repository:
 ### 1. Identify Data Requirements
 
 Parse algorithm definition JSON to understand:
-- Training data prefix (e.g., `config_sort_add_to_cart_sampled_touchpoint_attribution_w_fs`)
-- Test data prefix (e.g., `studio_core_config_testing_set_w_fs`)
+- Training data prefix (e.g., `example_training_data_attribution`)
+- Test data prefix (e.g., `example_test_data_with_features`)
 - S3 URIs (production vs staging)
 - Number of days required
 - Lag days
@@ -164,9 +164,9 @@ aws sts get-caller-identity
 
 If expired, guide user to refresh:
 ```bash
-zalando-aws-cli login my-team-data ReadOnly  # For data bucket
+aws sso login  # For example-bucket bucket
 # or
-zalando-aws-cli login my-team-data ReadOnly  # For other buckets
+aws sso login  # For other buckets
 ```
 
 ### 4. Download Data
@@ -265,7 +265,7 @@ Total size: 5.2 GB
 ## Error Handling
 
 **AWS credentials expired:**
-- Run appropriate `zalando-aws-cli login ...` command
+- Run appropriate `aws sso login` command
 - Retry download
 
 **S3 path not found:**

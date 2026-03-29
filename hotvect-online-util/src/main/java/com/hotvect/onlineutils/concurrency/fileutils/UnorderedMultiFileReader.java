@@ -135,7 +135,7 @@ class UnorderedMultiFileReader<X> {
             Map<String, Object> metadata = new HashMap<>();
             long linesRead = lineCounter.sum();
             metadata.put("lines_read", linesRead);
-
+            
             // Calculate throughput rate
             double rate = MetricUtils.calculateRate(startTime, System.nanoTime(), linesRead);
             metadata.put("lines_read_at_rate", rate);

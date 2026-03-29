@@ -53,8 +53,8 @@ This explains the `out/` vs `meta/` directory structure and where to find evalua
 {
   "hotvect_source_dir": "/home/user/workspace/hotvect",
   "aws": {
-    "role_arn": "arn:aws:iam::123456789:role/MyRole",
-    "credential_helper": "aws-cli-login-command"
+    "role_arn": "arn:aws:iam::123456789012:role/example-role",
+    "login_command": "aws-cli-login-command"
   },
   "directories": {
     "output_base_dir": "/home/user/hotvect-workdir/output",
@@ -62,7 +62,7 @@ This explains the `out/` vs `meta/` directory structure and where to find evalua
     "data_base_dir": "/home/user/hotvect-workdir/data"
   },
   "sagemaker": {
-    "default_s3_data_base_dir": "s3://my-bucket/tables",
+    "default_s3_data_base_dir": "s3://example-bucket/tables",
     "sagemaker_config_template": "~/.hotvect/sagemaker-config-template.json"
   }
 }
@@ -94,8 +94,8 @@ This explains the `out/` vs `meta/` directory structure and where to find evalua
 - Required before running any `hv` or `hv-ext` commands
 
 ### AWS Credentials
-- Use `aws.credential_helper` command when AWS credentials expire
-- Example: `zalando-aws-cli login my-team-data ReadOnly`
+- Use `aws.login_command` command when AWS credentials expire
+- Example: `aws sso login --profile my-profile`
 
 ## Algorithm Version Verification (CRITICAL for Backtests)
 

@@ -29,7 +29,7 @@ HotVect is a feature engineering and ML serving library for machine learning app
 
 **Core Components:**
 - `hotvect-api/` - Core API definitions and interfaces
-- `hotvect-core/` - Core feature transformation and processing logic
+- `hotvect-core/` - Core feature transformation and processing logic  
 - `hotvect-vw/` - Vowpal Wabbit integration (logistic regression)
 - `hotvect-catboost/` - CatBoost integration (gradient boosting)
 - `hotvect-online-util/` - Online serving utilities and hot-deployment
@@ -51,7 +51,7 @@ HotVect is a feature engineering and ML serving library for machine learning app
 # Full build with tests
 mvn clean install
 
-# Fast build without tests/javadocs
+# Fast build without tests/javadocs  
 mvn clean install -DskipTests -Dmaven.javadoc.skip=true
 
 # Build specific module
@@ -87,7 +87,7 @@ uv pip uninstall hotvect && uv pip install -e .
 ### Version Management
 Version updates must be coordinated across:
 - Java `pom.xml` files (parent and all modules)
-- Python `pyproject.toml` and `uv.lock`
+- Python `pyproject.toml` and `uv.lock`  
 - `delivery.yaml` HOTVECT_VERSION variable
 
 After version updates:
@@ -99,7 +99,7 @@ After version updates:
 **CRITICAL**: Hotvect is backward compatible across versions. Algorithm JARs built with different hotvect versions work fine with any hotvect CLI version.
 
 **Examples that work:**
-- Algorithm built with hotvect 9.29.1, CLI is 9.30.1 ✅
+- Algorithm built with hotvect 9.29.1, CLI is 9.32.0 ✅
 - Algorithm built with hotvect 9.28.0, CLI is 10.0.0 ✅
 - Works across major versions ✅
 
@@ -192,7 +192,7 @@ Algorithms are defined through factory classes implementing core interfaces:
 2. **Create algorithm definition JSON** specifying components
 3. **Build algorithm JAR** with Maven
 4. **Run audit** to debug feature calculations: `hv audit`
-5. **Generate training data** with encoding: `hv encode`
+5. **Generate training data** with encoding: `hv encode`  
 6. **Train model** using ML library integration: `hv train`
 7. **Run predictions** for evaluation: `hv predict`
 8. **Compare algorithm versions** with backtesting: `hv backtest`
@@ -201,7 +201,7 @@ Algorithms are defined through factory classes implementing core interfaces:
 
 ### Training Image
 The project builds Docker images for SageMaker training:
-- Base image: `registry.opensource.zalan.do/library/python-3.11-slim`
+- Base image: `python:3.11-slim`
 - Includes Java 17, Maven, Python dependencies, and hotvect JAR
 - Tags: `{team}/hotvect:{version}` for releases, `{team}/hotvect:{version}.dev{counter}` for PRs
 
@@ -220,7 +220,7 @@ The project builds Docker images for SageMaker training:
 - **Property testing**: jqwik for randomized testing
 - **Integration tests**: Full pipeline testing with real algorithm JARs
 
-### Python Testing
+### Python Testing  
 - **Unit tests**: PyTest with Hypothesis property testing
 - **JAR Integration**: Tests invoke Java CLI through subprocess
 - **Fixture Management**: Test data in `test/unit/testfiles/`
@@ -231,7 +231,7 @@ Common workflow for validating algorithm changes:
 # Generate audit for baseline version
 hv audit --algorithm-jar v64.4.0.jar --algorithm-name my-algo --source-path test_data.jsonl --dest-path v64-audit.jsonl
 
-# Generate audit for new version
+# Generate audit for new version  
 hv audit --algorithm-jar v77.0.0.jar --algorithm-name my-algo --source-path test_data.jsonl --dest-path v77-audit.jsonl
 
 # Compare with field renaming support
@@ -300,8 +300,8 @@ See `DEFENSIVE_PROGRAMMING_ANALYSIS.md` for complete analysis of defensive patte
 
 Default arguments should be used sparingly and only when they represent truly optional parameters with sensible fallback behavior. Avoid defaults that:
 
-- **Assume business logic**: `def process_data(algorithm="my-algorithm")` ❌
-- **Hide required context**: `def get_keypress(keys=['y','n'], default='y')` ❌
+- **Assume business logic**: `def process_data(algorithm="example-algorithm")` ❌
+- **Hide required context**: `def get_keypress(keys=['y','n'], default='y')` ❌  
 - **Make APIs ambiguous**: `def connect(host="localhost", port=8080)` ❌
 
 **Good defaults** (acceptable):

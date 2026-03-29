@@ -1,9 +1,12 @@
 package com.hotvect.core.rank;
 
 import com.hotvect.api.algorithms.BulkScorer;
+import com.hotvect.api.data.FeatureStoreResponseContainer;
+import com.hotvect.api.data.featurestore.SimpleFeatureStoreResponse;
 import com.hotvect.api.data.ranking.RankingDecision;
 import com.hotvect.api.data.ranking.RankingRequest;
 import com.hotvect.api.data.ranking.RankingResponse;
+import com.hotvect.api.data.scoring.BulkScoreResponse;
 import com.hotvect.api.data.scoring.ScoringDecision;
 import net.jqwik.api.Assume;
 import net.jqwik.api.ForAll;
@@ -22,6 +25,9 @@ public class BulkScoreGreedyRankerTest {
         Assume.that(scores.size() >= actions.size());
 
         RankingRequest<Void, String> request = new RankingRequest<>("exampleId", (Void) null, actions);
+        FeatureStoreResponseContainer featureStoreResponseContainer = new FeatureStoreResponseContainer(
+                java.util.Map.of("view", SimpleFeatureStoreResponse.success(java.util.Map.of()))
+        );
         BulkScorer<Void, String> scorer = new BulkScorer<>() {
             @Override
             public List<ScoringDecision<String>> bulkScore(RankingRequest<Void, String> rankingRequest) {
@@ -31,10 +37,25 @@ public class BulkScoreGreedyRankerTest {
                 }
                 return decisions;
             }
+
+            @Override
+            public BulkScoreResponse<String> score(RankingRequest<Void, String> rankingRequest) {
+                return BulkScoreResponse.of(
+                        bulkScore(rankingRequest),
+                        featureStoreResponseContainer,
+                        java.util.Map.of("algo", "v77")
+                );
+            }
         };
 
         var ranker = new BulkScoreGreedyRanker<>(scorer);
         RankingResponse<String> response = ranker.rank(request);
+        if (!featureStoreResponseContainer.equals(response.featureStoreResponseContainer())) {
+            return false;
+        }
+        if (!java.util.Map.of("algo", "v77").equals(response.additionalProperties())) {
+            return false;
+        }
         List<RankingDecision<String>> decisions = response.rankingDecisions();
 
         if (decisions.size() != actions.size()) {

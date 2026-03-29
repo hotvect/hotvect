@@ -156,7 +156,7 @@ class ShowDataDependencyCommand(BaseCommand):
                 # Create AlgorithmPipeline to extract dependencies
                 context = AlgorithmPipelineContext(
                     algorithm_jar_path=algorithm_jar,
-                    state_soruce_base_path=temp_path,
+                    state_source_base_path=temp_path,
                     data_base_path=temp_path,
                     metadata_base_path=temp_path / "metadata",
                     output_base_path=temp_path / "output",

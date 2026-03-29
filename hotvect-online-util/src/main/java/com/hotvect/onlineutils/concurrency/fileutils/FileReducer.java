@@ -219,11 +219,11 @@ public class FileReducer<Z> extends VerboseCallable<Z> {
         accumulators.shutdown();
         Map<String, Object> readerMetadata = reader.awaitTermination();
         LOGGER.info("Reader for file reducer finished reading {} records in {} seconds, {}/sec", readerMetadata.get("lines_read"), readerMetadata.get("elapsed_sec"), readerMetadata.get("lines_read_at_rate"));
-
-
+        
+        
         try {
             Z result = handle.get();
-
+            
             // Calculate and log processing metrics
             double rate = MetricUtils.calculateRate(startTime, System.nanoTime(), recordCounter.sum());
             LOGGER.info("FileReducer processed {} records at {} records/sec", recordCounter.sum(), rate);

@@ -37,7 +37,7 @@ Before starting, ensure you have:
 
 ```bash
 # Clone the repository (or download release)
-git clone https://github.com/zalando-lounge/hotvect.git
+git clone https://github.com/zalando/hotvect.git
 cd hotvect
 
 # Build Java modules

@@ -35,7 +35,7 @@ This file is not very readable. With the audit function, you can produce the sam
 
 ```json
 {
-  "example_id": "4ecceb1e-64e4-41f1-b72e-545793d02681",
+  "example_id": "00000000-0000-0000-0000-000000000000",
   "actions": [
     {
       "reward": 0.0,

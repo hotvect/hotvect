@@ -89,7 +89,7 @@ Because the validation runs during `build()`, most pipelines catch issues during
 
 ## Migration Checklist
 
-Use this checklist when upgrading an existing algorithm or client repository (including `../my-algorithm`).
+Use this checklist when upgrading an existing algorithm or client repository (including `../example-algorithm`).
 
 1. **Inventory namespaces.** List every enum constant and string literal that represents a namespace. For enums, add `Namespaces.register(EnumClass.class)` in a static initializer that runs exactly once during algorithm wiring.
 2. **Centralize string declarations.** Ensure configuration loaders call `Namespaces.declareNamespace("name")` immediately and reuse the returned object instead of re-creating `NamespaceId`s downstream.

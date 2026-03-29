@@ -257,15 +257,15 @@ public enum SkuAttribute implements Namespace {
 
     // This is where we store the extractor function
     // In this case we always extract a String, but you can mix output types as well
-    private final MemoizedActionTransformation<Ad, String> extractFromItemAction;
+    private final MemoizedActionTransformation<Ad, String> extractFromCatalogAction;
 
     SkuAttribute(MemoizedActionTransformation<Ad, String> extractor) {
-        this.extractFromItemAction = extractor;
+        this.extractFromCatalogAction = extractor;
     }
     
     // This function can be used in a loop to register the extractor for this enum value
     public MemoizedActionTransformation<Ad, String> getExtractor() {
-        return this.extractFromItemAction;
+        return this.extractFromCatalogAction;
     }
 }
 ```

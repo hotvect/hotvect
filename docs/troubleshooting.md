@@ -30,7 +30,7 @@ Run through this checklist:
 - [ ] **Sufficient memory**: `free -h` (need at least 16GB available)
 - [ ] **Sufficient disk space**: `df -h` (need space for outputs)
 
-**If still failing**: Check [Error Index](#error-index) for specific error message.
+**If still failing**: Check [Error Reference](#error-reference) for specific error message.
 
 ### Training Runs But No Output
 
@@ -67,7 +67,7 @@ See [Debugging Features](#debugging-features) for detailed workflow.
 
 ---
 
-## Error Index
+## Error Reference
 
 ### Training Errors
 
@@ -210,11 +210,11 @@ Exception in thread "main" java.util.zip.ZipException: duplicate entry: algorith
 **Example**:
 ```bash
 # CORRECT - train parent
-hv train --algorithm-name my-algorithm \
+hv train --algorithm-name example-algorithm \
   --algorithm-override parent-override.json ...
 
 # WRONG - training child with parent's override
-hv train --algorithm-name my-algorithm-model \
+hv train --algorithm-name example-algorithm-model \
   --algorithm-override parent-override.json ...
 ```
 
@@ -384,9 +384,9 @@ See [How to: Debug Feature Engineering](howto/debug-feature-engineering.md) for 
 - Parent often has no vectorizer (delegates to children)
 
 **Example**:
-- Parent: `my-algorithm` (orchestration)
-- Child: `my-algorithm-model` (ML training)
-- **Train**: `my-algorithm` (parent)
+- Parent: `example-algorithm` (orchestration)
+- Child: `example-algorithm-model` (ML training)
+- **Train**: `example-algorithm` (parent)
 
 **Why this matters**: Training child directly with parent's override file causes self-dependency bug (TRAIN-003).
 

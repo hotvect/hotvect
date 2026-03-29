@@ -1,10 +1,10 @@
-//package com.hotvect.vw.util;
+//package com.exampleuser.hotvect.vw.util;
 //
 //
-//import com.hotvect.api.data.DataRecord;
-//import com.hotvect.api.data.scoring.ScoringExample;
-//import com.hotvect.api.data.RawValue;
-//import com.hotvect.vw.LabelExtractor;
+//import com.exampleuser.hotvect.api.data.DataRecord;
+//import com.exampleuser.hotvect.api.data.scoring.ScoringExample;
+//import com.exampleuser.hotvect.api.data.RawValue;
+//import com.exampleuser.hotvect.vw.LabelExtractor;
 //import org.junit.jupiter.api.Test;
 //
 //import java.util.NoSuchElementException;

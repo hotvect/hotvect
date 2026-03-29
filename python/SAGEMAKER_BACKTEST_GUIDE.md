@@ -15,7 +15,7 @@ You need AWS credentials with permission to:
 
 ```bash
 # Login to AWS (adjust role/account as needed)
-zalando-aws-cli login my-team-data ReadOnly
+aws sso login
 ```
 
 ### 2. SageMaker Configuration Template
@@ -24,8 +24,8 @@ Create a SageMaker training job configuration template at `~/.hotvect/sagemaker-
 
 ```json
 {
-  "TrainingImage": "registry.opensource.zalan.do/myteam/hotvect:9.31.2",
-  "RoleArn": "arn:aws:iam::123456789012:role/SageMakerExecutionRole",
+  "TrainingImage": "registry.example.com/example-team/hotvect:9.33.0",
+  "RoleArn": "arn:aws:iam::123456789012:role/example-role",
   "ResourceConfig": {
     "InstanceType": "ml.m5.4xlarge",
     "InstanceCount": 1,
@@ -35,7 +35,7 @@ Create a SageMaker training job configuration template at `~/.hotvect/sagemaker-
     "MaxRuntimeInSeconds": 86400
   },
   "OutputDataConfig": {
-    "S3OutputPath": "s3://my-bucket/sagemaker-output/"
+    "S3OutputPath": "s3://example-bucket/sagemaker-output/"
   },
   "InputDataConfig": []
 }
@@ -56,7 +56,7 @@ Your `~/.hotvect/config.json` should contain SageMaker-related paths:
   },
   "sagemaker": {
     "sagemaker_config_template": "~/.hotvect/sagemaker-template.json",
-    "default_s3_data_base_dir": "s3://my-bucket/tables/"
+    "default_s3_data_base_dir": "s3://example-bucket/tables/"
   }
 }
 ```
@@ -89,13 +89,13 @@ Your algorithm's data dependencies (defined in `algorithm-definition.json`) dete
 {
   "dependencies": [
     {
-      "data_prefix": "my_data_train",
+      "data_prefix": "example_training_data",
       "number_of_training_days": 7,
       "training_lag_days": 1,
       "data_type": "training_data"
     },
     {
-      "data_prefix": "my_data_test",
+      "data_prefix": "example_test_data",
       "number_of_training_days": 1,
       "training_lag_days": 1,
       "data_type": "test_data"
@@ -109,21 +109,21 @@ Your algorithm's data dependencies (defined in `algorithm-definition.json`) dete
 {
   "InputDataConfig": [
     {
-      "ChannelName": "my_data_train",
+      "ChannelName": "example_training_data",
       "DataSource": {
         "S3DataSource": {
           "S3DataType": "S3Prefix",
-          "S3Uri": "s3://my-bucket/tables/my_data_train/"
+          "S3Uri": "s3://example-bucket/tables/example_training_data/"
         }
       },
       "InputMode": "FastFile"
     },
     {
-      "ChannelName": "my_data_test",
+      "ChannelName": "example_test_data",
       "DataSource": {
         "S3DataSource": {
           "S3DataType": "S3Prefix",
-          "S3Uri": "s3://my-bucket/tables/my_data_test/"
+          "S3Uri": "s3://example-bucket/tables/example_test_data/"
         }
       },
       "InputMode": "FastFile"
@@ -173,7 +173,7 @@ hv backtest \
   --last-test-time 2025-08-09 \
   --sagemaker-config ~/.hotvect/sagemaker-template.json \
   --auto-attach-data \
-  --auto-attach-data-default-s3-base s3://my-bucket/tables/ \
+  --auto-attach-data-default-s3-base s3://example-bucket/tables/ \
   --auto-attach-data-environment production
 ```
 
@@ -232,7 +232,7 @@ Edit `my-backtest-config.json` and add channels for each dependency:
       "DataSource": {
         "S3DataSource": {
           "S3DataType": "S3Prefix",
-          "S3Uri": "s3://my-bucket/tables/training_data/"
+          "S3Uri": "s3://example-bucket/tables/training_data/"
         }
       },
       "InputMode": "FastFile"
@@ -242,7 +242,7 @@ Edit `my-backtest-config.json` and add channels for each dependency:
       "DataSource": {
         "S3DataSource": {
           "S3DataType": "S3Prefix",
-          "S3Uri": "s3://my-bucket/tables/test_data/"
+          "S3Uri": "s3://example-bucket/tables/test_data/"
         }
       },
       "InputMode": "FastFile"
@@ -275,7 +275,7 @@ When using `--auto-attach-data`, S3 URIs are resolved in the following priority 
 {
   "data_prefix": "training_data",
   "additional_properties": {
-    "s3_uri": "s3://specific-bucket/custom-path/training_data/"
+    "s3_uri": "s3://example-bucket/custom-path/training_data/"
   }
 }
 ```
@@ -286,8 +286,8 @@ When using `--auto-attach-data`, S3 URIs are resolved in the following priority 
   "data_prefix": "training_data",
   "additional_properties": {
     "s3_uri": {
-      "production": "s3://prod-bucket/tables/training_data/",
-      "test": "s3://test-bucket/tables/training_data/"
+      "production": "s3://example-bucket/tables/training_data/",
+      "test": "s3://example-bucket/tables/training_data/"
     }
   }
 }
@@ -303,9 +303,9 @@ If no explicit `s3_uri` is specified, constructs URI as:
 ```
 
 Example:
-- Default base: `s3://my-bucket/tables/`
+- Default base: `s3://example-bucket/tables/`
 - Data prefix: `training_data`
-- Result: `s3://my-bucket/tables/training_data/`
+- Result: `s3://example-bucket/tables/training_data/`
 
 Provide the default base via the `--auto-attach-data-default-s3-base` flag.
 
@@ -374,7 +374,7 @@ After jobs complete, download results from S3:
 
 ```bash
 hv-ext download-results \
-  --s3-base-prefix s3://my-bucket/sagemaker-output/ \
+  --s3-base-prefix s3://example-bucket/sagemaker-output/ \
   --dest-base-dir ./backtest-results \
   --from-date 2025-08-01 \
   --to-date 2025-08-09
@@ -507,7 +507,7 @@ If local training works, SageMaker should work too.
 
 ```bash
 # 1. Ensure AWS credentials are valid
-zalando-aws-cli login my-team-data ReadOnly
+aws sso login
 
 # 2. Verify configuration
 cat ~/.hotvect/config.json | jq '.sagemaker'
@@ -516,32 +516,32 @@ cat ~/.hotvect/config.json | jq '.sagemaker'
 hv backtest \
   --git-reference v77.0.0 \
   --git-reference v64.4.0 \
-  --algo-repo-url https://github.com/my-org/my-algorithm.git \
-  --output-base-dir /local/path/to/backtest-output \
-  --scratch-dir /local/path/to/backtest-scratch \
+  --algo-repo-url https://github.com/zalando-example/example-algorithm.git \
+  --output-base-dir /Users/exampleuser/workspace/example/tmp/backtest-output \
+  --scratch-dir /Users/exampleuser/workspace/example/tmp/backtest-scratch \
   --last-test-time 2025-08-09 \
   --sagemaker-config ~/.hotvect/sagemaker-template.json \
   --auto-attach-data \
-  --auto-attach-data-default-s3-base s3://my-bucket/tables/ \
+  --auto-attach-data-default-s3-base s3://example-bucket/tables/ \
   --auto-attach-data-environment production \
   --algorithm-override 2day-override.json
 
 # 4. Monitor jobs (job names printed during submission)
-aws sagemaker describe-training-job --training-job-name my-algorithm-77-0-0-20250809-123456
+aws sagemaker describe-training-job --training-job-name example-algorithm-77-0-0-20250809-123456
 
 # 5. Wait for completion (or monitor in AWS Console)
 
 # 6. Download results
 hv-ext download-results \
-  --s3-base-prefix s3://my-experiment-bucket/temp/username/sagemaker_output/ \
+  --s3-base-prefix s3://example-bucket/temp/exampleuser/sagemaker_output/ \
   --dest-base-dir ./backtest-results \
   --from-date 2025-08-09 \
   --to-date 2025-08-09
 
 # 7. Compare evaluations
 hv-ext compare-evaluations \
-  backtest-results/my-algorithm@64.4.0/result.json \
-  backtest-results/my-algorithm@77.0.0/result.json
+  backtest-results/example-algorithm@64.4.0/result.json \
+  backtest-results/example-algorithm@77.0.0/result.json
 ```
 
 ## Additional Resources

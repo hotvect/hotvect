@@ -26,11 +26,11 @@ model: sonnet
 
 **Example good invocation:**
 ```
-Profile CPU performance for my-algorithm-model.
+Profile CPU performance for example-algorithm-model.
 User reports slow prediction times (taking 5 minutes for 10k records).
-Algorithm JAR: ~/.m2/repository/.../my-algorithm-78.1.0.jar
-Algorithm name: my-algorithm-model
-Test data: /path/to/data/test_data_prefix/dt=2025-08-09/
+Algorithm JAR: /Users/exampleuser/.m2/repository/.../example-algorithm-78.1.0.jar
+Algorithm name: example-algorithm-model
+Test data: /Users/exampleuser/workspace/example/example-algorithm-data/2025Aug/example_test_data_with_features/dt=2025-08-09/
 Operation to profile: prediction (hv predict)
 User has Async Profiler available at /path/to/async-profiler
 ```

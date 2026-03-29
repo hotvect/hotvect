@@ -13,7 +13,7 @@ When a user invokes `/download-backtest-results`, you (Claude) should:
 2. Parse the JSON to extract default values (you can understand JSON directly)
 3. Use config values as defaults for constructing the `hv-ext download-results` command:
    - `directories.output_base_dir` → `--dest-base-dir` argument
-   - `aws.credential_helper` → Command to run for AWS credential refresh
+   - `aws.login_command` → Command to run for AWS credential refresh
 4. User-provided arguments override config defaults
 5. Construct the complete `hv-ext download-results` command with ALL arguments explicitly specified
 
@@ -27,7 +27,7 @@ If config doesn't exist and user didn't provide required arguments, tell them to
    - `--from-date`: Start date for download range
    - `--to-date`: End date for download range
 2. Check AWS credentials with `aws sts get-caller-identity`
-3. If credentials expired, refresh with `zalando-aws-cli login my-team-data ReadOnly`
+3. If credentials expired, refresh with `aws sso login`
 4. Ask user for destination directory (default: `./backtest-results`)
 5. Construct `hv-ext download-results` command
 6. Execute download
@@ -42,13 +42,13 @@ aws sts get-caller-identity
 
 **Refresh if needed:**
 ```bash
-zalando-aws-cli login my-team-data ReadOnly
+aws sso login
 ```
 
 **Download results:**
 ```bash
 hv-ext download-results \
-  --s3-base-prefix s3://my-experiment-bucket/temp/username/sagemaker_output/ \
+  --s3-base-prefix s3://example-bucket/temp/exampleuser/sagemaker_output/ \
   --dest-base-dir ./backtest-results \
   --from-date 2025-06-01 \
   --to-date 2025-06-15 \

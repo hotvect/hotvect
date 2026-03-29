@@ -82,7 +82,7 @@ def benchmark():
     print(result)
 ```
 
-You can of course argue that there are much better ways to optimize code in Python. However, the point is that it's very easy to write Python code that performs very poorly. JVM languages are much more forgiving in this regard.
+You can of course argue that there are much better ways to optimize code in Python. However, the point is that it's very easy to write Python code that performs very poorly. JVM languages are much more forgiving in this regard. 
 
 Another supporting evidence is the fact that practically all data processing frameworks or databases are written in languages like Java, C, Rust, Go etc. Try asking LLMs to come up with “10 most popular data processing systems”:
 

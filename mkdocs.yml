@@ -1,8 +1,8 @@
 site_name: hotvect
-site_url: https://hotvect.docs.zalando.net
+site_url: https://hotvect.docs.example.com
 docs_dir: docs/
 
-repo_url: https://github.com/zalando-lounge/hotvect
+repo_url: https://github.com/zalando/hotvect
 repo_name: GHE
 edit_uri: edit/main/docs/
 

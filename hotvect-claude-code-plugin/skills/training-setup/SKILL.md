@@ -33,7 +33,7 @@ This skill reads `~/.hotvect/config.json` for directory paths but never modifies
 3. Use config values as defaults when user hasn't specified:
    - `directories.data_base_dir` → `--data-base-dir` argument
    - `directories.output_base_dir` → `--output-base-dir` argument
-   - `aws.credential_helper` → Command for AWS credential refresh
+   - `aws.login_command` → Command for AWS credential refresh
 
 4. **Fail fast** if config doesn't exist and user didn't provide required paths
 5. Tell user to run `/agent hotvect-setup-agent` if config is missing

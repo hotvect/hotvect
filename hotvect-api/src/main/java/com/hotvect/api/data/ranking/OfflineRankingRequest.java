@@ -13,10 +13,13 @@ import java.util.Objects;
 public class OfflineRankingRequest<SHARED, ACTION> extends RankingRequest<SHARED, ACTION> implements OfflineRequest<SHARED> {
     private final FeatureStoreResponseContainer featureStoreResponseContainer;
 
-    private OfflineRankingRequest(String exampleId, SHARED shared, List<ACTION> availableActions,
+    private OfflineRankingRequest(String exampleId, SHARED shared, List<ACTION> availableActions, 
                                  FeatureStoreResponseContainer featureStoreResponseContainer) {
         super(exampleId, shared, availableActions);
-        this.featureStoreResponseContainer = featureStoreResponseContainer;
+        this.featureStoreResponseContainer = Objects.requireNonNull(
+                featureStoreResponseContainer,
+                "featureStoreResponseContainer cannot be null"
+        );
     }
 
     @Override
@@ -40,7 +43,7 @@ public class OfflineRankingRequest<SHARED, ACTION> extends RankingRequest<SHARED
 
     public static <SHARED, ACTION> OfflineRankingRequest<SHARED, ACTION> newOfflineRankingRequest(
             String exampleId, SHARED shared, List<ACTION> availableActions) {
-        return new OfflineRankingRequest<>(exampleId, shared, availableActions, null);
+        return new OfflineRankingRequest<>(exampleId, shared, availableActions, FeatureStoreResponseContainer.empty());
     }
 
     public static <SHARED, ACTION> OfflineRankingRequest<SHARED, ACTION> newOfflineRankingRequest(

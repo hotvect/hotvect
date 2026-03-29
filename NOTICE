@@ -1,0 +1,13 @@
+Hotvect includes code from third-party projects under the Apache License, Version 2.0.
+
+Third-party attributions:
+
+1. Spring Integration
+   File: hotvect-online-util/src/main/java/com/hotvect/onlineutils/concurrency/CallerBlocksPolicy.java
+   This file includes code adapted from Spring Integration's CallerBlocksPolicy.
+   Copyright 2014-2020 the original author or authors.
+
+2. Apache Software Foundation
+   File: hotvect-core/src/main/java/com/hotvect/core/util/DoubleFormatUtils.java
+   This file includes code derived from an Apache Software Foundation work.
+   The original Apache 2.0 source header is preserved in the file.

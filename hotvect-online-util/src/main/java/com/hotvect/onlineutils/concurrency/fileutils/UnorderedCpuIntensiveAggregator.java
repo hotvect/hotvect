@@ -73,7 +73,7 @@ class UnorderedCpuIntensiveAggregator<Z> {
 
         Map<String, Object> metadata = new HashMap<>();
         metadata.put("records_processed", counter.sum());
-
+        
         // Calculate throughput rate
         double rate = MetricUtils.calculateRate(startTime, System.nanoTime(), counter.sum());
         metadata.put("records_processed_at_rate", rate);

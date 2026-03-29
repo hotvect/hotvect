@@ -25,14 +25,27 @@ public interface FeatureStoreResponse {
     }
 
     /**
-     * If the entire lookup request failed (e.g. connection error), this is present.
+     * If any lookup request failed (e.g. connection error, partial failure), this is present.
      * Otherwise, empty().
+     * <p>
+     * Note: The presence of a failure does not imply that the response has no entities.
+     * Partial failures are possible where some entities are successfully retrieved while
+     * others fail. Use {@link #getAllEntities()} to check for successfully retrieved entities.
      */
     Optional<String> getRequestFailure();
 
     /**
      * Returns true if—and only if—there was no request‐level failure.
+     * <p>
+     * <b>Deprecated:</b> This method is misleading as it doesn't account for partial failures.
+     * A response can have both successfully retrieved entities and failures. Instead of checking
+     * this method, check {@link #getRequestFailure()} for failures and {@link #getAllEntities()}
+     * for successfully retrieved data.
+     *
+     * @deprecated This method will be removed in a future version. Use {@link #getRequestFailure()}
+     *             and {@link #getAllEntities()} to properly handle partial failures.
      */
+    @Deprecated(forRemoval = true)
     default boolean isSuccess() {
         return getRequestFailure().isEmpty();
     }

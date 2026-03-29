@@ -41,5 +41,4 @@ public interface FeatureStore extends Algorithm {
         String[] featureNamesArray = featureNames.toArray(new String[0]);
         return getFeatures(ids, viewName, viewVersion, featureNamesArray);
     }
-
 }

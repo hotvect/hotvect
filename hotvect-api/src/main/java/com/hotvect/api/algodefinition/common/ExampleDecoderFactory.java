@@ -10,7 +10,7 @@ import java.util.function.Function;
 
 /**
  * Factory interface for creating Example decoders.
- * Since Examples are always offline data (containing outcomes),
+ * Since Examples are always offline data (containing outcomes), 
  * they always use OfflineRequest implementations.
  */
 public interface ExampleDecoderFactory<EXAMPLE extends Example<? extends OfflineRequest, ?>> extends Function<Optional<JsonNode>, ExampleDecoder<EXAMPLE>> {

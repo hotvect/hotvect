@@ -70,7 +70,7 @@ class UnorderedCpuIntensiveMapper<X, Y> {
             handle.get();
         }
         metadata.put("records_processed", recordCount.sum());
-
+        
         // Calculate throughput rate
         double rate = MetricUtils.calculateRate(startTime, System.nanoTime(), recordCount.sum());
         metadata.put("records_processed_at_rate", rate);

@@ -2,7 +2,6 @@ package com.hotvect.core.transform.ranking;
 
 import com.hotvect.api.data.Namespace;
 import com.hotvect.api.data.ranking.RankingRequest;
-import com.hotvect.api.data.ranking.RankingResponse;
 
 import java.util.Map;
 import java.util.function.Function;

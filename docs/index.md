@@ -16,7 +16,7 @@ next_steps:
 ---
 
 <div style="text-align:center; margin-bottom: 3em">
-  <img alt="Hotvect Logo" src="https://hotvect.docs.zalando.net/hot_pepper.png" />
+  <img alt="Hotvect Logo" src="https://hotvect.docs.example.com/hot_pepper.png" />
 </div>
 
 # What does it do?

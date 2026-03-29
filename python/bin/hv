@@ -11,7 +11,6 @@ import hotvect.hotvectjar
 from hotvect.utils import execute_command_with_live_output
 import hotvect.mlutils as mlutils
 from hotvect.pyhotvect import AlgorithmPipeline, AlgorithmPipelineContext
-from hotvect.backtest import run_backtest_on_git_references
 
 logging.basicConfig(
     level=logging.INFO,
@@ -291,7 +290,7 @@ class TrainCommand(BaseCommand):
         # Create the pipeline context
         context = AlgorithmPipelineContext(
             algorithm_jar_path=Path(args.algorithm_jar),
-            state_soruce_base_path=Path(args.data_base_dir),
+            state_source_base_path=Path(args.data_base_dir),
             data_base_path=Path(args.data_base_dir),
             metadata_base_path=Path(args.output_base_dir) / "metadata",
             output_base_path=Path(args.output_base_dir),
@@ -459,6 +458,8 @@ class BacktestCommand(BaseCommand):
         logger.info(f"Starting backtest with {len(git_references)} git references")
         logger.info(f"Git references: {[ref[0] for ref in git_references]}")
         logger.info(f"SageMaker mode: {'enabled' if sagemaker_training_job_definition else 'disabled'}")
+
+        from hotvect.backtest import run_backtest_on_git_references
 
         # Use the existing run_backtest_on_git_references function which has proper job naming
         results = run_backtest_on_git_references(

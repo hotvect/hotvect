@@ -13,10 +13,13 @@ import java.util.Objects;
 public class OfflineTopKRequest<SHARED> extends TopKRequest<SHARED> implements OfflineRequest<SHARED> {
     private final FeatureStoreResponseContainer featureStoreResponseContainer;
 
-    private OfflineTopKRequest(String exampleId, Instant occurredAt, SHARED shared, int k,
+    private OfflineTopKRequest(String exampleId, Instant occurredAt, SHARED shared, int k, 
                               FeatureStoreResponseContainer featureStoreResponseContainer) {
         super(exampleId, occurredAt, shared, k);
-        this.featureStoreResponseContainer = featureStoreResponseContainer;
+        this.featureStoreResponseContainer = Objects.requireNonNull(
+                featureStoreResponseContainer,
+                "featureStoreResponseContainer cannot be null"
+        );
     }
 
     @Override
@@ -40,7 +43,7 @@ public class OfflineTopKRequest<SHARED> extends TopKRequest<SHARED> implements O
 
     public static <SHARED> OfflineTopKRequest<SHARED> newOfflineTopKRequest(
             String exampleId, Instant occurredAt, SHARED shared, int k) {
-        return new OfflineTopKRequest<>(exampleId, occurredAt, shared, k, null);
+        return new OfflineTopKRequest<>(exampleId, occurredAt, shared, k, FeatureStoreResponseContainer.empty());
     }
 
     public static <SHARED> OfflineTopKRequest<SHARED> newOfflineTopKRequest(

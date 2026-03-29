@@ -26,3 +26,4 @@ public interface ComputingRankingVectorizer<SHARED, ACTION>  extends RankingVect
     ComputingRankingRequest<SHARED,ACTION> prepare(RankingRequest<SHARED, ACTION> rankingRequest);
     ComputingRankingRequest<SHARED,ACTION> prepare(ComputingRankingRequest<SHARED, ACTION> computingRankingRequest);
 }
+

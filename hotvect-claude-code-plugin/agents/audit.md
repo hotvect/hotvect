@@ -11,7 +11,7 @@ model: sonnet
 
 **Required information to pass:**
 1. **Task type**: "single audit" or "version comparison"
-2. **Algorithm repository**: Git repo name (e.g., "my-algorithm")
+2. **Algorithm repository**: Git repo name (e.g., "example-algorithm")
 3. **For single audit:**
    - Algorithm version (e.g., v74.4.0)
 4. **For comparison:**
@@ -36,12 +36,12 @@ model: sonnet
 
 **Example good invocation:**
 ```
-Generate single audit for my-algorithm version v74.4.0.
+Generate single audit for example-algorithm version v74.4.0.
 ```
 
 **Example comparison invocation:**
 ```
-Generate comparison audit for my-algorithm
+Generate comparison audit for example-algorithm
 comparing v74.4.0 (baseline) against v81.0.0 (treatment).
 Known field renamings: old_field_name→new_field_name
 ```
@@ -124,7 +124,7 @@ unzip -p /path/to/jar path/to/algo-definition.json | jq '{algorithm_name, traini
 
 **For single audit:**
 - **Algorithm version**: Which version to audit (e.g., v74.4.0)
-- **Algorithm repository**: Git repo URL (e.g., my-algorithm)
+- **Algorithm repository**: Git repo URL (e.g., example-algorithm)
 
 **For comparison:**
 - **Baseline version**: Original algorithm version (e.g., v74.4.0)
@@ -141,7 +141,7 @@ unzip -p /path/to/jar path/to/algo-definition.json | jq '{algorithm_name, traini
 
 ```bash
 # Find algorithm JAR (e.g., in ~/.m2/repository)
-find ~/.m2/repository -name "*my-algorithm*${version}.jar" -type f
+find ~/.m2/repository -name "*example-algorithm*${version}.jar" -type f
 
 # List algorithm definitions in JAR
 unzip -l /path/to/algorithm.jar | grep 'algorithm-definition.json'
@@ -155,19 +155,19 @@ unzip -p /path/to/algorithm.jar path/to/algo-definition.json | jq .
 From the algorithm definition that has `training_command`, extract `test_data_spec`:
 ```json
 {
-  "algorithm_name": "my-algorithm-model",
+  "algorithm_name": "example-algorithm-model",
   "test_data_spec": {
-    "data_prefix": "test_data_prefix",
+    "data_prefix": "example_test_data_attribution",
     "s3_uri": {
-      "production": "s3://bucket/tables/test_data_prefix"
+      "production": "s3://example-bucket/tables/example_test_data_attribution"
     }
   }
 }
 ```
 
 Now you know:
-- **Algorithm name**: `my-algorithm-model` (the inner algorithm)
-- **Data prefix**: `test_data_prefix`
+- **Algorithm name**: `example-algorithm-model` (the inner algorithm)
+- **Data prefix**: `example_test_data_attribution`
 - **S3 location**: For data download if needed
 
 ### 5. Check for Test Data Availability
@@ -191,9 +191,9 @@ ls -d ${data_base_dir}/${data_prefix}/dt=* 2>/dev/null | sort | tail -5
 - Suggest downloading with `hv-ext download-data-dependency`:
 ```bash
 hv-ext download-data-dependency \
-  --repo-url https://github.com/company/algorithm.git \
+  --repo-url https://github.com/zalando-example/example-algorithm.git \
   --git-reference v${version} \
-  --s3-base-dir s3://bucket/tables \
+  --s3-base-dir s3://example-bucket/tables \
   --local-data-dir ${data_base_dir} \
   --scratch-dir ${scratch_dir} \
   --last-test-time YYYY-MM-DD \
@@ -206,7 +206,7 @@ hv-ext download-data-dependency \
 
 **Check if JARs are available in `~/.m2/repository/`:**
 ```bash
-find ~/.m2/repository -name "*my-algorithm*${version}.jar" -type f
+find ~/.m2/repository -name "*example-algorithm*${version}.jar" -type f
 ```
 
 **If not found, guide user to build and install:**
