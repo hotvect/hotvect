@@ -8,6 +8,7 @@ import com.hotvect.api.data.topk.ThemedTopKResponse;
 import com.hotvect.api.data.topk.TopKExample;
 import com.hotvect.api.data.topk.TopKResponse;
 
+import java.nio.ByteBuffer;
 import java.util.function.Function;
 
 public class ThemedTopKResultFormatter<SHARED, ACTION, OUTCOME> extends TopKResultFormatter<SHARED, ACTION, OUTCOME> {
@@ -24,7 +25,7 @@ public class ThemedTopKResultFormatter<SHARED, ACTION, OUTCOME> extends TopKResu
     }
 
     @Override
-    public Function<TopKExample<SHARED, ACTION, OUTCOME>, String> apply(RewardFunction<OUTCOME> rewardFunction, TopK<SHARED, ACTION> topK) {
+    public Function<TopKExample<SHARED, ACTION, OUTCOME>, ByteBuffer> apply(RewardFunction<OUTCOME> rewardFunction, TopK<SHARED, ACTION> topK) {
         return ex -> {
             TopKResponse<ACTION> topKResult = topK.apply(ex.request());
             if (!(topKResult instanceof ThemedTopKResponse)) {
@@ -32,7 +33,11 @@ public class ThemedTopKResultFormatter<SHARED, ACTION, OUTCOME> extends TopKResu
             }
             ObjectNode root = createResultNode(ex, topKResult, rewardFunction);
             try {
-                return objectMapper.writeValueAsString(root);
+                byte[] jsonBytes = objectMapper.writeValueAsBytes(root);
+                byte[] withNewline = new byte[jsonBytes.length + 1];
+                System.arraycopy(jsonBytes, 0, withNewline, 0, jsonBytes.length);
+                withNewline[jsonBytes.length] = '\n';
+                return ByteBuffer.wrap(withNewline);
             } catch (JsonProcessingException e) {
                 throw new RuntimeException(e);
             }

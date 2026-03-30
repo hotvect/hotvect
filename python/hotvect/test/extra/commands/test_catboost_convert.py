@@ -38,36 +38,26 @@ class TestCatBoostConvertCommand(unittest.TestCase):
 
         # Test required arguments
         args = main_parser.parse_args(
-            ["catboost-convert", "--schema-file", "schema.txt", "--encoded-file", "data.tsv", "--output", "output.json"]
+            [
+                "catboost-convert",
+                "--schema-file",
+                "schema.txt",
+                "--encoded-file",
+                "data.tsv",
+                "--output",
+                "output.jsonl",
+            ]
         )
         self.assertEqual(args.command, "catboost-convert")
         self.assertEqual(args.schema_file, "schema.txt")
         self.assertEqual(args.encoded_file, "data.tsv")
-        self.assertEqual(args.output, "output.json")
-        self.assertEqual(args.format, "json")  # default
-        self.assertEqual(args.indent, 4)  # default
+        self.assertEqual(args.output, "output.jsonl")
 
-        # Test short arguments and optional parameters
-        args = main_parser.parse_args(
-            [
-                "catboost-convert",
-                "-s",
-                "schema.txt",
-                "-e",
-                "data.tsv",
-                "-o",
-                "output.jsonl",
-                "--format",
-                "jsonl",
-                "--indent",
-                "2",
-            ]
-        )
+        # Test short arguments
+        args = main_parser.parse_args(["catboost-convert", "-s", "schema.txt", "-e", "data.tsv", "-o", "output.jsonl"])
         self.assertEqual(args.schema_file, "schema.txt")
         self.assertEqual(args.encoded_file, "data.tsv")
         self.assertEqual(args.output, "output.jsonl")
-        self.assertEqual(args.format, "jsonl")
-        self.assertEqual(args.indent, 2)
 
     def test_parse_schema_valid(self):
         """Test parsing of valid schema file."""
@@ -209,27 +199,6 @@ class TestCatBoostConvertCommand(unittest.TestCase):
         finally:
             os.unlink(encoded_path)
 
-    def test_write_output_json_format(self):
-        """Test writing output in JSON format."""
-        data = [{"key": "value1"}, {"key": "value2"}]
-
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as output_file:
-            output_path = output_file.name
-
-        try:
-            self.command._write_output(data, output_path, "json", 2)
-
-            with open(output_path, "r") as f:
-                content = f.read()
-                loaded_data = json.loads(content)
-
-            self.assertEqual(loaded_data, data)
-            # Check indentation
-            self.assertIn('  "key"', content)  # 2-space indentation
-
-        finally:
-            os.unlink(output_path)
-
     def test_write_output_jsonl_format(self):
         """Test writing output in JSONL format."""
         data = [{"key": "value1"}, {"key": "value2"}]
@@ -238,7 +207,7 @@ class TestCatBoostConvertCommand(unittest.TestCase):
             output_path = output_file.name
 
         try:
-            self.command._write_output(data, output_path, "jsonl", 4)
+            self.command._write_output(data, output_path)
 
             with open(output_path, "r") as f:
                 lines = f.readlines()
@@ -249,51 +218,6 @@ class TestCatBoostConvertCommand(unittest.TestCase):
 
         finally:
             os.unlink(output_path)
-
-    @patch("builtins.print")
-    def test_execute_success_json(self, mock_print):
-        """Test successful execution with JSON output."""
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as schema_file:
-            schema_file.write(self.schema_content)
-            schema_path = schema_file.name
-
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".tsv", delete=False) as encoded_file:
-            encoded_file.write(self.encoded_content)
-            encoded_path = encoded_file.name
-
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as output_file:
-            output_path = output_file.name
-
-        try:
-            # Create mock args
-            args = MagicMock()
-            args.schema_file = schema_path
-            args.encoded_file = encoded_path
-            args.output = output_path
-            args.format = "json"
-            args.indent = 4
-
-            # Execute command
-            self.command.execute(args)
-
-            # Check that output file was created and contains expected data
-            with open(output_path, "r") as f:
-                result = json.load(f)
-
-            self.assertEqual(len(result), 3)  # 3 data rows
-            self.assertIn("feature_0", result[0])
-            self.assertIn("category_feature", result[0])
-
-            # Check success message
-            mock_print.assert_called_once()
-            success_message = mock_print.call_args[0][0]
-            self.assertIn("Successfully converted 3 records", success_message)
-
-        finally:
-            # Clean up temp files
-            for path in [schema_path, encoded_path, output_path]:
-                if os.path.exists(path):
-                    os.unlink(path)
 
     @patch("builtins.print")
     def test_execute_success_jsonl(self, mock_print):
@@ -315,8 +239,6 @@ class TestCatBoostConvertCommand(unittest.TestCase):
             args.schema_file = schema_path
             args.encoded_file = encoded_path
             args.output = output_path
-            args.format = "jsonl"
-            args.indent = 4
 
             # Execute command
             self.command.execute(args)
@@ -349,9 +271,7 @@ class TestCatBoostConvertCommand(unittest.TestCase):
         args = MagicMock()
         args.schema_file = "nonexistent_schema.txt"
         args.encoded_file = "nonexistent_data.tsv"
-        args.output = "output.json"
-        args.format = "json"
-        args.indent = 4
+        args.output = "output.jsonl"
 
         self.command.execute(args)
 
@@ -373,9 +293,7 @@ class TestCatBoostConvertCommand(unittest.TestCase):
             args = MagicMock()
             args.schema_file = schema_path
             args.encoded_file = "data.tsv"
-            args.output = "output.json"
-            args.format = "json"
-            args.indent = 4
+            args.output = "output.jsonl"
 
             self.command.execute(args)
 

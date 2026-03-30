@@ -12,3 +12,9 @@ test:
 quick:
 	cd ../ && mvn clean install -Dmaven.test.skip=true -Dmaven.javadoc.skip=true && cd ./python
 	uv run scripts/copy_jar.py
+
+docs-build:
+	bash scripts/docs.sh build
+
+docs-serve:
+	bash scripts/docs.sh serve

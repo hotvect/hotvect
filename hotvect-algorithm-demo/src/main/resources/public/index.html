@@ -1,0 +1,1572 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Hotvect Demo UI</title>
+  <style>
+    :root {
+      --bg: #f6f7fb;
+      --text: #0f172a;
+      --muted: #64748b;
+      --border: #e5e7eb;
+      --card: #ffffff;
+      --radius: 10px;
+      --shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+
+      --dev-bg: #0b1020;
+      --dev-surface: #101a33;
+      --dev-text: #dce1ff;
+      --dev-muted: #9aa7d6;
+      --dev-border: rgba(220, 225, 255, 0.14);
+      --dev-accent-bg: rgba(138, 164, 255, 0.16);
+      --dev-focus: rgba(138, 164, 255, 0.45);
+
+      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New";
+      --sans: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+
+      --sidebar-width: 420px;
+      --sidebar-bottom-height: 360px;
+      --io-height: 320px;
+      --io-left-width: 50%;
+      --resizer-size: 10px;
+      --split-line: rgba(148, 163, 184, 0.35);
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      font-family: var(--sans);
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    #topbar {
+      flex: 0 0 auto;
+      display: flex;
+      align-items: baseline;
+      gap: 10px;
+      padding: 8px 12px;
+      border-bottom: 1px solid var(--dev-border);
+      background: var(--dev-bg);
+      color: var(--dev-text);
+    }
+    #appTitle { font-size: 13px; font-weight: 650; letter-spacing: 0.2px; }
+    #appMeta {
+      font-size: 12px;
+      color: var(--dev-muted);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      flex: 1 1 auto;
+      min-width: 0;
+      display: block;
+    }
+	    #appMeta > span { display: inline; }
+	    #metaSep { opacity: 0.85; padding: 0 6px; }
+	    /* Separator visibility is controlled by JS (hide if either side is empty). */
+
+	    #app { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: var(--sidebar-width) var(--resizer-size) 1fr; }
+
+    /* Dev panels (dark) */
+    #sidebar {
+      display: grid;
+      grid-template-rows: auto 1fr var(--resizer-size) var(--sidebar-bottom-height);
+      overflow: hidden;
+      background: var(--dev-bg);
+      color: var(--dev-text);
+    }
+    #sidebarTop {
+      padding: 10px 12px 12px 12px;
+      display: grid;
+      gap: 10px;
+      border-bottom: 1px solid var(--dev-border);
+      background: linear-gradient(to bottom, rgba(255,255,255,0.04), rgba(255,255,255,0));
+    }
+    #sidebarBottom {
+      padding: 12px;
+      display: grid;
+      grid-template-rows: auto auto 1fr auto;
+      gap: 10px;
+      border-top: 0;
+      overflow: auto;
+      min-height: 0;
+    }
+    #content {
+      height: 100%;
+      display: grid;
+      grid-template-rows: 1fr var(--resizer-size) var(--io-height);
+      overflow: hidden;
+      background: var(--bg);
+      min-height: 0;
+      min-width: 0;
+    }
+
+    .row { display: flex; gap: 8px; align-items: center; }
+    .row input { flex: 1; padding: 8px 10px; }
+    .row button { padding: 8px 12px; }
+
+    #sidebar input, #sidebar textarea, #sidebar button { font: inherit; }
+    #sidebar button {
+      border: 1px solid transparent;
+      border-radius: 8px;
+      cursor: pointer;
+      background: var(--dev-surface);
+      color: var(--dev-text);
+    }
+    #sidebar button:hover { border-color: var(--dev-border); }
+    #sidebar button:disabled { opacity: 0.55; cursor: default; }
+    #sidebar button:focus-visible { outline: 2px solid var(--dev-focus); outline-offset: 2px; }
+    #sidebar input, #sidebar textarea {
+      border-radius: 8px;
+      border: 1px solid var(--dev-border);
+      background: rgba(255,255,255,0.03);
+      color: var(--dev-text);
+    }
+    #sidebar input::placeholder, #sidebar textarea::placeholder { color: rgba(220, 225, 255, 0.55); }
+    #sidebar input:focus-visible, #sidebar textarea:focus-visible { outline: 2px solid var(--dev-focus); outline-offset: 2px; }
+
+    #run { background: var(--dev-accent-bg); border-color: var(--dev-border); }
+	    #status {
+	      color: var(--dev-muted);
+	      font-size: 12px;
+	      padding: 2px 8px;
+	      border-radius: 999px;
+	      border: 1px solid var(--dev-border);
+	      background: rgba(255,255,255,0.03);
+	      line-height: 18px;
+	      height: 20px;
+	      display: inline-flex;
+	      align-items: center;
+	    }
+	    #status:empty { display: none; }
+	    #status[data-level="ok"] {
+	      color: rgba(187, 247, 208, 0.95);
+	      border-color: rgba(34, 197, 94, 0.35);
+	      background: rgba(34, 197, 94, 0.16);
+	    }
+	    #status[data-level="warn"] {
+	      color: rgba(254, 243, 199, 0.95);
+	      border-color: rgba(245, 158, 11, 0.35);
+	      background: rgba(245, 158, 11, 0.14);
+	    }
+	    #status[data-level="error"] {
+	      color: rgba(254, 202, 202, 0.95);
+	      border-color: rgba(239, 68, 68, 0.35);
+	      background: rgba(239, 68, 68, 0.14);
+	    }
+
+    #matchesWrap { overflow: hidden; display: grid; grid-template-rows: auto 1fr; min-height: 0; }
+    #matchesHeader { padding: 10px 12px; display: grid; gap: 8px; border-top: 1px solid var(--dev-border); border-bottom: 1px solid var(--dev-border); }
+    #matchesTitle { padding: 0; font-size: 12px; color: var(--dev-muted); }
+    #matches { overflow: auto; }
+    .match { padding: 10px 16px; border-bottom: 1px solid var(--dev-border); cursor: pointer; display: flex; gap: 10px; align-items: baseline; }
+    .match:hover { background: rgba(255,255,255,0.03); }
+    .match .primary { font-size: 13px; }
+    .match .secondary { color: var(--dev-muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .match .mono { font-family: var(--mono); font-size: 11px; color: var(--dev-muted); }
+    .match.selected { background: var(--dev-accent-bg); }
+
+    .sectionTitle { font-size: 12px; color: var(--dev-text); font-weight: 600; letter-spacing: 0.2px; }
+    .sectionSubtitle { font-size: 12px; color: var(--dev-muted); }
+
+    #pathQuery { width: 100%; padding: 8px 10px; }
+    #overrideText {
+      width: 100%;
+      height: 100%;
+      min-height: 140px;
+      font-family: var(--mono);
+      font-size: 12px;
+    }
+    #pathMatches { border: 1px solid var(--dev-border); border-radius: 8px; max-height: 140px; overflow: auto; margin: 6px 0; }
+    .pathMatch { padding: 6px 8px; border-bottom: 1px solid var(--dev-border); cursor: pointer; font-family: var(--mono); font-size: 12px; }
+    .pathMatch:last-child { border-bottom: 0; }
+    .pathMatch:hover { background: rgba(255,255,255,0.03); }
+    .pathMatch.selected { background: var(--dev-accent-bg); }
+    .hint { font-size: 12px; color: var(--dev-muted); margin-top: 6px; }
+
+	    /* Customer area (light) */
+	    #grids { display: grid; grid-template-columns: 1fr 12px 1fr; min-height: 0; min-width: 0; }
+	    .gridPanel { display: grid; grid-template-rows: auto 1fr; overflow: hidden; min-height: 0; min-width: 0; }
+	    #gridsDivider {
+	      background: rgba(15, 23, 42, 0.18);
+	      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.55);
+	    }
+		    .gridPanel.left { background: rgba(255, 228, 225, 0.55); } /* pastel salmon */
+		    .gridPanel.right { background: rgba(219, 234, 254, 0.55); } /* pastel blue */
+		    .gridTitle { padding: 10px 12px 0 12px; font-size: 12px; color: var(--muted); }
+		    .gridTitleRow { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+		    .gridToggle { display: inline-flex; align-items: center; gap: 8px; user-select: none; }
+		    .gridToggle input { accent-color: rgba(15, 23, 42, 0.85); }
+		    .gridToggle span { color: var(--muted); }
+		    .grid { padding: 12px; overflow: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; align-content: start; min-height: 0; min-width: 0; }
+		    .card { border: 1px solid var(--border); border-radius: var(--radius); overflow: visible; background: var(--card); box-shadow: var(--shadow); }
+		    .card .thumb { width: 100%; height: 160px; background: #f1f5f9; background-position: center; background-size: cover; border-top-left-radius: var(--radius); border-top-right-radius: var(--radius); position: relative; }
+		    .card .meta { padding: 8px 10px; }
+	    .card .meta .name { font-size: 13px; line-height: 1.2; margin: 0 0 4px 0; }
+	    .card .meta .id { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+	    .card .meta .score { font-family: var(--mono); font-size: 11px; color: var(--muted); margin-top: 4px; }
+	    .badge {
+	      position: absolute;
+	      top: 8px;
+	      left: 8px;
+	      padding: 2px 6px;
+	      border-radius: 999px;
+	      font-size: 11px;
+	      font-family: var(--mono);
+	      background: rgba(255, 255, 255, 0.9);
+	      border: 1px solid rgba(15, 23, 42, 0.12);
+	      color: rgba(15, 23, 42, 0.9);
+	      backdrop-filter: blur(6px);
+	    }
+
+    /* Dev IO (dark) */
+	    #io {
+	      display: grid;
+	      grid-template-columns: var(--io-left-width) var(--resizer-size) 1fr;
+	      overflow: hidden;
+	      background: var(--dev-bg);
+	      color: var(--dev-text);
+	      min-height: 0;
+	    }
+			    .panel { overflow: hidden; display: grid; grid-template-rows: auto 1fr; }
+			    .panel .title { padding: 10px 10px 0 10px; font-size: 12px; color: var(--dev-muted); }
+			    .panel .titleRow { padding: 10px 10px 0 10px; display: flex; gap: 10px; align-items: center; min-width: 0; }
+			    .panel .titleRow .label { flex: 0 0 auto; color: var(--dev-muted); font-size: 12px; }
+			    .panel .body { padding: 10px; overflow: auto; }
+			    #inputJson, #raw { background: transparent; color: var(--dev-text); font-family: var(--mono); font-size: 12px; }
+
+			    .jsonTree { font-family: var(--mono); font-size: 12px; line-height: 1.35; }
+			    .jsonTree details { margin: 0; padding: 0; }
+			    .jsonTree summary {
+			      display: flex;
+			      gap: 6px;
+			      align-items: baseline;
+			      cursor: pointer;
+			      user-select: none;
+			      padding: 2px 0;
+			    }
+			    .jsonTree summary::-webkit-details-marker { display: none; }
+			    .jsonTree .children {
+			      margin-left: 12px;
+			      padding-left: 10px;
+			      border-left: 1px solid rgba(220, 225, 255, 0.14);
+			    }
+			    .jsonTree .jsonRow { display: flex; gap: 6px; align-items: baseline; padding: 2px 0; }
+			    .jsonTree .jsonKey { color: rgba(220, 225, 255, 0.92); }
+			    .jsonTree .jsonPunct { color: rgba(154, 167, 214, 0.9); }
+			    .jsonTree .jsonType { color: rgba(154, 167, 214, 0.9); font-size: 11px; }
+			    .jsonTree .jsonScalar.str { color: rgba(187, 247, 208, 0.95); }
+			    .jsonTree .jsonScalar.num { color: rgba(191, 219, 254, 0.95); }
+			    .jsonTree .jsonScalar.bool { color: rgba(254, 243, 199, 0.95); }
+			    .jsonTree .jsonScalar.null { color: rgba(248, 113, 113, 0.95); }
+
+			    /* Back-compat for the existing tree renderer classes */
+			    .jsonTree .row { display: flex; gap: 6px; align-items: baseline; padding: 2px 0; }
+			    .jsonTree .k { color: rgba(220, 225, 255, 0.92); }
+			    .jsonTree .sep { color: rgba(154, 167, 214, 0.9); }
+			    .jsonTree .v { color: rgba(220, 225, 255, 0.92); }
+			    .jsonTree .v.str { color: rgba(187, 247, 208, 0.95); }
+			    .jsonTree .v.num { color: rgba(191, 219, 254, 0.95); }
+			    .jsonTree .v.bool { color: rgba(254, 243, 199, 0.95); }
+			    .jsonTree .v.null { color: rgba(248, 113, 113, 0.95); }
+			    .jsonTree .hint { color: rgba(154, 167, 214, 0.9); font-size: 11px; }
+
+    /* Action details modal (PDP-like) */
+    #actionModal {
+      position: fixed;
+      inset: 0;
+      z-index: 9999;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      background: rgba(15, 23, 42, 0.55);
+    }
+    #actionModal.open { display: flex; }
+    #actionModalCard {
+      width: min(1180px, 96vw);
+      height: min(880px, 90vh);
+      border-radius: 14px;
+      overflow: hidden;
+      box-shadow: 0 20px 50px rgba(15, 23, 42, 0.35);
+      display: grid;
+      grid-template-columns: 360px 1fr;
+      background: var(--card);
+    }
+    #actionModalLeft {
+      padding: 14px 14px 16px 14px;
+      border-right: 1px solid var(--border);
+      display: grid;
+      grid-template-rows: auto auto 1fr;
+      gap: 12px;
+      min-width: 0;
+    }
+    #actionModalHeader {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      min-width: 0;
+    }
+    #actionModalTitleWrap { min-width: 0; }
+    #actionModalTitle { font-weight: 650; font-size: 14px; line-height: 1.2; }
+    #actionModalSku { color: var(--muted); font-size: 12px; font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    #actionModalClose {
+      border: 1px solid var(--border);
+      background: var(--card);
+      color: var(--text);
+      border-radius: 10px;
+      padding: 6px 10px;
+      cursor: pointer;
+      flex: 0 0 auto;
+    }
+    #actionModalClose:hover { box-shadow: var(--shadow); }
+    #actionModalImage {
+      width: 100%;
+      aspect-ratio: 1 / 1;
+      border-radius: 12px;
+      background: #e5e7eb;
+      border: 1px solid var(--border);
+      object-fit: cover;
+    }
+    #actionModalImgLink {
+      font-size: 12px;
+      color: #2563eb;
+      text-decoration: none;
+      word-break: break-all;
+    }
+    #actionModalImgLink:hover { text-decoration: underline; }
+    #actionModalRight {
+      background: var(--dev-bg);
+      color: var(--dev-text);
+      overflow: hidden;
+      min-width: 0;
+      display: grid;
+      grid-template-rows: auto 1fr;
+    }
+    #actionModalRightHeader {
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--dev-border);
+      color: var(--dev-muted);
+      font-size: 12px;
+    }
+    #actionModalJson {
+      padding: 12px;
+      overflow: auto;
+      min-height: 0;
+    }
+    #actionModalJson.jsonTree .v,
+    #actionModalJson.jsonTree .k {
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+    }
+
+    .resizer { background: transparent; position: relative; touch-action: none; }
+    .resizer::before {
+      content: "";
+      position: absolute;
+      background: var(--split-line);
+      opacity: 1;
+    }
+    .resizer-x::before { top: 0; bottom: 0; left: 50%; width: 1px; transform: translateX(-0.5px); }
+    .resizer-y::before { left: 0; right: 0; top: 50%; height: 1px; transform: translateY(-0.5px); }
+    .resizer::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: rgba(220, 225, 255, 0.10);
+      opacity: 0;
+      transition: opacity 120ms ease;
+    }
+    .resizer:hover::after { opacity: 1; }
+    .resizer-x { cursor: col-resize; }
+    .resizer-y { cursor: row-resize; }
+    body.dragging { user-select: none; }
+  </style>
+</head>
+<body>
+	  <div id="topbar">
+	    <div id="appTitle">Algorithm Demo UI</div>
+	    <div id="appMeta">
+	      <span id="algoMeta"></span><span id="metaSep">|</span><span id="paramMeta"></span>
+	    </div>
+	  </div>
+
+		  <div id="app">
+		    <div id="sidebar">
+			      <div id="sidebarTop">
+			        <div class="sectionTitle">Select JSON path</div>
+			        <div class="sectionSubtitle">Pick a path for editing and search scoping.</div>
+			        <div class="row">
+			          <input id="pathQuery" placeholder="JSON path search (e.g. .foo.bar or .items[0])"/>
+			        </div>
+			        <div id="pathMatches"></div>
+		      </div>
+
+		      <div id="sidebarBottom">
+		        <div class="sectionTitle">Edit input JSON</div>
+	        <div class="sectionSubtitle">Edit the selected path value. Changes apply on Run.</div>
+	        <textarea id="overrideText" placeholder="Select a path above, then edit its value as JSON"></textarea>
+	        <div class="hint" id="pathHint"></div>
+	      </div>
+
+	      <div id="sidebarContentResizer" class="resizer resizer-y" role="separator" aria-label="Resize sidebar sections"></div>
+
+		      <div id="matchesWrap">
+		        <div id="matchesHeader">
+		          <div class="row">
+		            <button id="run" disabled>Run</button>
+		            <button id="clearOverride" title="Reset the current example JSON" disabled>Reset example</button>
+		            <span id="status"></span>
+		          </div>
+		          <div id="matchesTitle">Examples</div>
+		        </div>
+		        <div id="matches"></div>
+		      </div>
+	    </div>
+
+	    <div id="sidebarResizer" class="resizer resizer-x" role="separator" aria-label="Resize sidebar"></div>
+
+	    <div id="content">
+	      <div id="grids">
+	        <div class="gridPanel left">
+	          <div class="gridTitle">Algorithm output</div>
+	          <div id="grid" class="grid"></div>
+	        </div>
+		        <div id="gridsDivider" aria-hidden="true"></div>
+		        <div class="gridPanel right">
+		          <div class="gridTitle">
+		            <div class="gridTitleRow">
+		              <span>Customer saw</span>
+		              <label class="gridToggle" title="Hide candidates where impression_count is present and <= 0">
+		                <input type="checkbox" id="hideZeroImpressions"/>
+		                <span>Hide ≤0 impressions</span>
+		              </label>
+		            </div>
+		          </div>
+		          <div id="shownGrid" class="grid"></div>
+		        </div>
+		      </div>
+	      <div id="contentResizer" class="resizer resizer-y" role="separator" aria-label="Resize bottom panel"></div>
+			      <div id="io">
+			        <div class="panel" id="inputPanel">
+			          <div class="titleRow">
+			            <span class="label">Input JSON</span>
+			          </div>
+			          <div class="body jsonTree" id="inputJson"></div>
+			        </div>
+			        <div id="ioResizer" class="resizer resizer-x" role="separator" aria-label="Resize IO panels"></div>
+			        <div class="panel" id="outputPanel">
+			          <div class="titleRow">
+			            <span class="label">Output JSON</span>
+			          </div>
+			          <div class="body jsonTree" id="raw"></div>
+			        </div>
+			      </div>
+	    </div>
+	  </div>
+
+    <div id="actionModal" aria-hidden="true">
+      <div id="actionModalCard" role="dialog" aria-label="Action details">
+        <div id="actionModalLeft">
+          <div id="actionModalHeader">
+            <div id="actionModalTitleWrap">
+              <div id="actionModalTitle">Action</div>
+              <div id="actionModalSku"></div>
+            </div>
+            <button id="actionModalClose" type="button">Close</button>
+          </div>
+          <div>
+            <img id="actionModalImage" alt="Action image"/>
+            <div style="margin-top: 8px;">
+              <a id="actionModalImgLink" href="#" target="_blank" rel="noreferrer">open image</a>
+            </div>
+          </div>
+          <div style="color: var(--muted); font-size: 12px; line-height: 1.35;">
+            This view is driven entirely by action metadata keyed by <span style="font-family: var(--mono);">action_id</span>.
+          </div>
+        </div>
+        <div id="actionModalRight">
+          <div id="actionModalRightHeader">Action metadata (JSON)</div>
+          <div id="actionModalJson" class="jsonTree"></div>
+        </div>
+      </div>
+    </div>
+
+	  <script>
+		    let selectedExampleIndex = null;
+			    let originalExampleJson = null;
+			    let workingExampleJson = null;
+			    let selectedPath = null;
+			    let selectablePaths = [];
+			    let stickyPath = localStorage.getItem('hv.demoUi.stickyJsonPath') || '.';
+				    let hasEdits = false;
+				    let overrideDirty = false;
+				    let lastRunSignature = null; // { exampleIndex: number, exampleJson: string }
+				    let autoRunOnBoot = true;
+			    let examplesAbort = null;
+			    let lastShownCandidates = [];
+
+			    const matchesEl = document.getElementById('matches');
+			    const runEl = document.getElementById('run');
+		    const clearOverrideEl = document.getElementById('clearOverride');
+		    const overrideEl = document.getElementById('overrideText');
+			    const rawEl = document.getElementById('raw');
+			    const statusEl = document.getElementById('status');
+			    const gridEl = document.getElementById('grid');
+			    const shownGridEl = document.getElementById('shownGrid');
+			    const inputEl = document.getElementById('inputJson');
+			    const pathQueryEl = document.getElementById('pathQuery');
+			    const pathMatchesEl = document.getElementById('pathMatches');
+			    const pathHintEl = document.getElementById('pathHint');
+			    const hideZeroImpressionsEl = document.getElementById('hideZeroImpressions');
+    const matchesTitleEl = document.getElementById('matchesTitle');
+    const sidebarResizerEl = document.getElementById('sidebarResizer');
+    const sidebarContentResizerEl = document.getElementById('sidebarContentResizer');
+    const contentResizerEl = document.getElementById('contentResizer');
+	    const ioResizerEl = document.getElementById('ioResizer');
+	    const appMetaEl = document.getElementById('appMeta');
+	    const algoMetaEl = document.getElementById('algoMeta');
+	    const paramMetaEl = document.getElementById('paramMeta');
+	    const metaSepEl = document.getElementById('metaSep');
+    const actionModalEl = document.getElementById('actionModal');
+    const actionModalCloseEl = document.getElementById('actionModalClose');
+    const actionModalTitleEl = document.getElementById('actionModalTitle');
+    const actionModalSkuEl = document.getElementById('actionModalSku');
+    const actionModalImageEl = document.getElementById('actionModalImage');
+    const actionModalImgLinkEl = document.getElementById('actionModalImgLink');
+    const actionModalJsonEl = document.getElementById('actionModalJson');
+    let actionModalAbort = null;
+
+		    function setStatus(text, level) {
+		      statusEl.textContent = text || '';
+		      if (!text) {
+		        statusEl.removeAttribute('data-level');
+		        return;
+		      }
+		      if (!level) {
+		        statusEl.removeAttribute('data-level');
+		        return;
+		      }
+		      statusEl.setAttribute('data-level', level);
+		    }
+
+	    function loadBoolFromLocalStorage(key, defaultValue) {
+	      const v = localStorage.getItem(key);
+	      if (v === 'true') return true;
+	      if (v === 'false') return false;
+	      return defaultValue;
+	    }
+
+	    function initUiToggles() {
+	      if (!hideZeroImpressionsEl) return;
+	      const initial = loadBoolFromLocalStorage('hv.demoUi.hideZeroImpressions', true);
+	      hideZeroImpressionsEl.checked = initial;
+	      hideZeroImpressionsEl.addEventListener('change', () => {
+	        localStorage.setItem('hv.demoUi.hideZeroImpressions', String(hideZeroImpressionsEl.checked));
+	        renderShownCandidates(lastShownCandidates);
+	      });
+	    }
+
+	    function currentSignatureOrNull() {
+	      if (selectedExampleIndex === null) return null;
+	      if (!workingExampleJson) return null;
+	      try {
+	        return { exampleIndex: selectedExampleIndex, exampleJson: JSON.stringify(workingExampleJson) };
+	      } catch {
+	        return null;
+	      }
+	    }
+
+	    function computeNeedsRun() {
+	      if (selectedExampleIndex === null) return false;
+	      if (!workingExampleJson) return false;
+	      if (overrideDirty) return true; // pending edit to apply on Run
+	      const sig = currentSignatureOrNull();
+	      if (!sig) return true;
+	      if (!lastRunSignature) return true;
+	      return sig.exampleIndex !== lastRunSignature.exampleIndex || sig.exampleJson !== lastRunSignature.exampleJson;
+	    }
+
+			    function updateRunButtonState() {
+			      runEl.disabled = !computeNeedsRun();
+			    }
+
+		    async function loadAppMetadata() {
+		      try {
+		        const resp = await fetch('/api/metadata');
+		        const body = await resp.json();
+        if (!resp.ok) return;
+        renderAppMetadata(body);
+      } catch {
+        // Metadata is optional for rendering; ignore fetch errors.
+      }
+    }
+
+	    function fmtInstantMinute(iso) {
+	      if (!iso) return null;
+	      try {
+	        const s = new Date(iso).toISOString().replace('T', ' ');
+	        return s.slice(0, 16) + ' UTC';
+	      } catch {
+	        return String(iso);
+	      }
+	    }
+
+	    function fmtDate(iso) {
+	      if (!iso) return null;
+	      try {
+	        return new Date(iso).toISOString().slice(0, 10);
+	      } catch {
+	        return String(iso);
+	      }
+	    }
+
+	    function renderAppMetadata(meta) {
+	      const algo = meta && meta.algorithm ? meta.algorithm : {};
+	      const params = meta && meta.parameters ? meta.parameters : null;
+	      const allParts = [];
+
+	      const algoName = algo.name || null;
+	      const algoVersion = algo.version || null;
+	      const hpVersion = algo.hyperparameter_version || null;
+	      const gitDescribe = algo.git_describe || null;
+
+	      let algoLine = '';
+	      if (algoName && algoVersion) {
+	        document.title = `Algorithm Demo UI · ${algoName}@${algoVersion}`;
+	        algoLine = `Algo: ${algoName}@${algoVersion}${hpVersion ? `-${hpVersion}` : ''}`;
+	      } else if (algoName) {
+	        document.title = `Algorithm Demo UI · ${algoName}`;
+	        algoLine = `Algo: ${algoName}${hpVersion ? `-${hpVersion}` : ''}`;
+	      } else {
+	        document.title = 'Algorithm Demo UI';
+	      }
+
+	      if (gitDescribe) {
+	        algoLine = algoLine ? `${algoLine} · git: ${gitDescribe}` : `git: ${gitDescribe}`;
+	      }
+
+	      let paramLine = '';
+	      if (params) {
+	        const p = [];
+	        if (params.parameter_id) p.push(`Params: id: ${params.parameter_id}`);
+	        const lastTest = fmtDate(params.last_test_time);
+	        if (lastTest) p.push(`last_test: ${lastTest}`);
+	        const ran = fmtInstantMinute(params.ran_at);
+	        if (ran) p.push(`generated: ${ran}`);
+	        paramLine = p.join(' · ');
+	      }
+
+	      if (algoMetaEl) algoMetaEl.textContent = algoLine;
+	      if (paramMetaEl) paramMetaEl.textContent = paramLine;
+	      if (metaSepEl) metaSepEl.style.display = (algoLine && paramLine) ? 'inline' : 'none';
+
+	      if (algoLine) allParts.push(algoLine);
+	      if (paramLine) allParts.push(paramLine);
+	      appMetaEl.title = allParts.join(' | ');
+	    }
+
+			    async function loadExamples() {
+			      const url = new URL('/api/examples', window.location.origin);
+			      url.searchParams.set('limit', '100');
+			      setStatus('Loading examples...', 'warn');
+		      if (examplesAbort) {
+		        try { examplesAbort.abort(); } catch (_) {}
+		      }
+		      const controller = new AbortController();
+		      examplesAbort = controller;
+	      let resp;
+	      let body;
+	      try {
+	        resp = await fetch(url.toString(), { signal: controller.signal });
+	        body = await resp.json();
+	      } catch (e) {
+	        if (e && e.name === 'AbortError') {
+	          return;
+	        }
+		        renderJson(rawEl, { error: { message: 'Failed to load examples', details: String(e) } });
+	        setStatus('Error', 'error');
+	        return;
+		      } finally {
+		        if (examplesAbort === controller) {
+		          examplesAbort = null;
+		        }
+		      }
+		      if (!resp.ok) {
+		        rawEl.textContent = JSON.stringify(body, null, 2);
+		        setStatus('Error', 'error');
+		        return;
+		      }
+		      const list = body.examples || [];
+		      renderMatches(list);
+		      const total = Number.isFinite(body.count) ? body.count : list.length;
+		      setStatus(`Examples: ${total}`, 'ok');
+		      if (total > list.length) {
+		        matchesTitleEl.textContent = `Examples (${list.length}/${total})`;
+		      } else {
+		        matchesTitleEl.textContent = `Examples (${total})`;
+		      }
+		      await maybeAutoRunFirstExample();
+		    }
+
+			    function renderMatches(examples) {
+		      matchesEl.innerHTML = '';
+		      selectedExampleIndex = null;
+		      originalExampleJson = null;
+		      workingExampleJson = null;
+		      selectedPath = null;
+		      selectablePaths = [];
+		      hasEdits = false;
+		      overrideDirty = false;
+		      lastRunSignature = null;
+		      lastShownCandidates = [];
+		      runEl.disabled = true;
+		      clearOverrideEl.disabled = true;
+		      inputEl.textContent = '';
+			      gridEl.innerHTML = '';
+			      shownGridEl.innerHTML = '';
+				      pathQueryEl.value = '';
+				      pathMatchesEl.innerHTML = '';
+				      overrideEl.value = '';
+				      pathHintEl.textContent = '';
+
+	      for (const c of examples) {
+        const div = document.createElement('div');
+        div.className = 'match';
+        div.dataset.exampleIndex = String(c.example_index);
+        const label = c.example_id ? escapeHtml(c.example_id) : '(missing example_id)';
+        div.innerHTML = `<div class="primary">${label}</div>`;
+        div.onclick = () => { void selectExample(c.example_index, div); };
+        matchesEl.appendChild(div);
+      }
+    }
+
+	    async function selectExample(exampleIndex, selectedEl) {
+	      if (selectedExampleIndex === exampleIndex) return;
+	      for (const el of matchesEl.querySelectorAll('.match')) el.classList.remove('selected');
+	      if (selectedEl) selectedEl.classList.add('selected');
+		      selectedExampleIndex = exampleIndex;
+		      gridEl.innerHTML = '';
+		      shownGridEl.innerHTML = '';
+		      lastShownCandidates = [];
+		      rawEl.textContent = '';
+		      setStatus('Loading example...', 'warn');
+		      updateRunButtonState();
+		      await loadSelectedExample();
+		      await runSelected();
+	    }
+
+    async function maybeAutoRunFirstExample() {
+      if (!autoRunOnBoot) return;
+      autoRunOnBoot = false;
+      const first = matchesEl.querySelector('.match');
+      if (!first) return;
+      await selectExample(Number(first.dataset.exampleIndex), first);
+    }
+
+	    function escapeHtml(s) {
+	      return String(s).replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+	    }
+
+		    function renderJson(container, value) {
+		      renderJsonTree(container, value);
+		    }
+
+    function renderJsonTree(container, value) {
+      container.innerHTML = '';
+      container.__pathIndex = new Map();
+      container.appendChild(renderTreeNodeLazy(value, null, 0, '.', container.__pathIndex));
+    }
+
+    function treeTypeOf(x) {
+      if (x === null) return 'null';
+      if (Array.isArray(x)) return 'array';
+      if (typeof x === 'object') return 'object';
+      return typeof x;
+    }
+
+    function formatTreeScalar(x) {
+      const t = treeTypeOf(x);
+      if (t === 'string') return JSON.stringify(x);
+      if (t === 'number') return String(x);
+      if (t === 'boolean') return x ? 'true' : 'false';
+      if (t === 'null') return 'null';
+      return String(x);
+    }
+
+    function renderTreeScalarRow(displayKey, value, path, pathIndex) {
+      const row = document.createElement('div');
+      row.className = 'row';
+      row.dataset.path = path;
+      if (pathIndex) pathIndex.set(path, row);
+      if (displayKey != null) {
+        const k = document.createElement('span');
+        k.className = 'k';
+        k.textContent = displayKey;
+        row.appendChild(k);
+        const sep = document.createElement('span');
+        sep.className = 'sep';
+        sep.textContent = ':';
+        row.appendChild(sep);
+      }
+      const v = document.createElement('span');
+	      const t = treeTypeOf(value);
+	      v.className = `v ${t === 'string' ? 'str' : t === 'number' ? 'num' : t === 'boolean' ? 'bool' : t === 'null' ? 'null' : ''}`.trim();
+	      v.textContent = formatTreeScalar(value);
+	      row.appendChild(v);
+	      return row;
+	    }
+
+    function displayKeyForJsonInStringSibling(obj, actualKey) {
+      if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return actualKey;
+      if (!actualKey.endsWith('__json')) return actualKey;
+      const base = actualKey.substring(0, actualKey.length - '__json'.length);
+      if (!(base in obj)) return actualKey;
+      const baseVal = obj[base];
+      if (typeof baseVal !== 'string') return actualKey;
+      return base;
+    }
+
+    function shouldHideJsonStringField(obj, key) {
+      if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return false;
+      if (key.endsWith('__json')) return false;
+      return (`${key}__json` in obj);
+    }
+
+    function joinTreePath(parentPath, segment) {
+      if (segment == null || segment === '') return parentPath;
+      if (segment.startsWith('[')) return `${parentPath}${segment}`;
+      if (parentPath === '.' || !parentPath) return `.${segment}`;
+      return `${parentPath}.${segment}`;
+    }
+
+    function renderTreeNodeLazy(value, displayKey, depth, path, pathIndex) {
+      const t = treeTypeOf(value);
+      if (t !== 'object' && t !== 'array') {
+        return renderTreeScalarRow(displayKey, value, path, pathIndex);
+      }
+
+      const isArray = t === 'array';
+      const count = isArray ? value.length : Object.keys(value).length;
+      const details = document.createElement('details');
+	      details.dataset.path = path;
+	      if (pathIndex) pathIndex.set(path, details);
+      details.open = true;
+      details.dataset.rendered = '0';
+
+      const summary = document.createElement('summary');
+      const s = document.createElement('div');
+      s.className = 'summary';
+
+      if (displayKey != null) {
+        const k = document.createElement('span');
+        k.className = 'k';
+        k.textContent = displayKey;
+        s.appendChild(k);
+        const sep = document.createElement('span');
+        sep.className = 'sep';
+        sep.textContent = ':';
+        s.appendChild(sep);
+      }
+
+	      const hint = document.createElement('span');
+	      hint.className = 'hint';
+	      hint.textContent = `${isArray ? '[' : '{'} ${count} ${count === 1 ? 'item' : 'items'} ${isArray ? ']' : '}'}`;
+	      s.appendChild(hint);
+	      summary.appendChild(s);
+	      details.appendChild(summary);
+
+      const children = document.createElement('div');
+      children.className = 'children';
+      details.appendChild(children);
+
+      function buildChildren() {
+        if (details.dataset.rendered === '1') return;
+        details.dataset.rendered = '1';
+        if (isArray) {
+          for (let i = 0; i < value.length; i++) {
+            const seg = `[${i}]`;
+            children.appendChild(renderTreeNodeLazy(value[i], seg, depth + 1, joinTreePath(path, seg), pathIndex));
+          }
+        } else {
+          for (const k of Object.keys(value)) {
+            if (shouldHideJsonStringField(value, k)) continue;
+            const display = displayKeyForJsonInStringSibling(value, k);
+            children.appendChild(renderTreeNodeLazy(value[k], display, depth + 1, joinTreePath(path, k), pathIndex));
+          }
+        }
+      }
+
+      details.addEventListener('toggle', () => {
+        if (details.open) buildChildren();
+      });
+      if (details.open) buildChildren();
+	      return details;
+	    }
+
+		    async function runSelected() {
+		      if (selectedExampleIndex === null) return;
+		      if (!workingExampleJson) return;
+		      if (!applyPendingEditBeforeRun()) {
+	        setStatus('Error', 'error');
+	        return;
+	      }
+	      gridEl.innerHTML = '';
+	      rawEl.textContent = '';
+	      setStatus('Running...', 'warn');
+				      const resp = await fetch('/api/run', {
+				        method: 'POST',
+				        headers: { 'Content-Type': 'application/json' },
+				        body: JSON.stringify({ example_index: selectedExampleIndex, example_json: workingExampleJson })
+				      });
+				      const body = await resp.json();
+				      renderJson(rawEl, body);
+				      if (!resp.ok) {
+				        setStatus('Error', 'error');
+				        return;
+				      }
+	      setStatus('OK', 'ok');
+	      renderDecisions(body.decisions || []);
+	      const sig = currentSignatureOrNull();
+	      if (sig) lastRunSignature = sig;
+	      updateRunButtonState();
+	    }
+
+		    async function loadSelectedExample() {
+		      if (selectedExampleIndex === null) return;
+		      const resp = await fetch(`/api/examples/${selectedExampleIndex}`);
+			      const body = await resp.json();
+			      if (!resp.ok) {
+			        inputEl.textContent = '';
+		        renderJson(rawEl, body);
+		        setStatus('Error', 'error');
+		        return;
+		      }
+			      originalExampleJson = body.json;
+			      workingExampleJson = JSON.parse(JSON.stringify(body.json));
+				      hasEdits = false;
+				      overrideDirty = false;
+				      clearOverrideEl.disabled = false;
+					      renderJson(inputEl, workingExampleJson);
+					      selectablePaths = buildSelectablePaths(workingExampleJson);
+					      selectedPath = null;
+			      pathQueryEl.value = '';
+			      pathMatchesEl.innerHTML = '';
+			      overrideEl.value = '';
+			      pathHintEl.textContent = '';
+			      initSelectedPathFromSticky();
+			      updatePathMatches();
+				      lastShownCandidates = Array.isArray(body.shown_candidates) ? body.shown_candidates : [];
+				      renderShownCandidates(lastShownCandidates);
+				      updateRunButtonState();
+				      setStatus(runEl.disabled ? `Selected` : `Not run`, runEl.disabled ? null : 'warn');
+				    }
+
+				    function resetExample() {
+				      if (!originalExampleJson) return;
+				      workingExampleJson = JSON.parse(JSON.stringify(originalExampleJson));
+				      hasEdits = false;
+				      overrideDirty = false;
+			      selectedPath = null;
+			      pathQueryEl.value = '';
+					      pathMatchesEl.innerHTML = '';
+					      overrideEl.value = '';
+					      pathHintEl.textContent = '';
+					      renderJson(inputEl, workingExampleJson);
+					      selectablePaths = buildSelectablePaths(workingExampleJson);
+					      initSelectedPathFromSticky();
+				      updatePathMatches();
+				      lastRunSignature = null;
+			      updateRunButtonState();
+			      setStatus('Not run', 'warn');
+			    }
+
+    function renderDecisions(decisions) {
+      gridEl.innerHTML = '';
+      for (const d of decisions) {
+        const card = document.createElement('div');
+        card.className = 'card';
+        card.addEventListener('click', () => openActionDetails(d.action_id));
+        const thumb = document.createElement('div');
+        thumb.className = 'thumb';
+        if (d.action_image_url) {
+          thumb.style.backgroundImage = `url("${d.action_image_url}")`;
+        }
+        const meta = document.createElement('div');
+        meta.className = 'meta';
+        const name = d.action_name || d.action_id;
+        const score = Number.isFinite(d.score) ? d.score : null;
+        const scoreLine = score === null ? '' : `<div class="score">score=${escapeHtml(score.toFixed(6))}</div>`;
+        meta.innerHTML = `<div class="name">${escapeHtml(name)}</div><div class="id">${escapeHtml(d.action_id)}</div>${scoreLine}`;
+        card.appendChild(thumb);
+        card.appendChild(meta);
+        gridEl.appendChild(card);
+      }
+    }
+
+    function renderShownCandidates(shownCandidates) {
+      shownGridEl.innerHTML = '';
+      const hideZero = !!(hideZeroImpressionsEl && hideZeroImpressionsEl.checked);
+      for (const c of shownCandidates) {
+        const impressions = c && typeof c === 'object' ? c.impression_count : null;
+        if (hideZero && Number.isFinite(impressions) && impressions <= 0.0) {
+          continue;
+        }
+        const card = document.createElement('div');
+        card.className = 'card';
+        card.addEventListener('click', () => openActionDetails(c.action_id));
+        const thumb = document.createElement('div');
+        thumb.className = 'thumb';
+        if (c.action_image_url) {
+          thumb.style.backgroundImage = `url("${c.action_image_url}")`;
+        }
+        if (Number.isFinite(c.shown_position)) {
+          const badge = document.createElement('div');
+          badge.className = 'badge';
+          badge.textContent = `#${Math.round(c.shown_position)}`;
+          thumb.appendChild(badge);
+        }
+        const meta = document.createElement('div');
+        meta.className = 'meta';
+        const name = c.action_name || c.action_id;
+        const score = Number.isFinite(c.score) ? c.score : null;
+        const scoreLine = score === null ? '' : `<div class="score">score=${escapeHtml(score.toFixed(6))}</div>`;
+        meta.innerHTML = `<div class="name">${escapeHtml(name)}</div><div class="id">${escapeHtml(c.action_id)}</div>${scoreLine}`;
+        card.appendChild(thumb);
+        card.appendChild(meta);
+        shownGridEl.appendChild(card);
+      }
+    }
+
+    function closeActionDetails() {
+      if (actionModalAbort) {
+        try { actionModalAbort.abort(); } catch {}
+        actionModalAbort = null;
+      }
+      actionModalEl.classList.remove('open');
+      actionModalEl.setAttribute('aria-hidden', 'true');
+      actionModalTitleEl.textContent = 'Action';
+      actionModalSkuEl.textContent = '';
+      actionModalImageEl.removeAttribute('src');
+      actionModalImgLinkEl.setAttribute('href', '#');
+      actionModalJsonEl.innerHTML = '';
+    }
+
+    async function openActionDetails(actionId) {
+      const id = (actionId || '').trim();
+      if (!id) return;
+      if (actionModalAbort) {
+        try { actionModalAbort.abort(); } catch {}
+      }
+      actionModalAbort = new AbortController();
+
+      actionModalEl.classList.add('open');
+      actionModalEl.setAttribute('aria-hidden', 'false');
+      actionModalTitleEl.textContent = 'Loading...';
+      actionModalSkuEl.textContent = id;
+      actionModalImageEl.removeAttribute('src');
+      actionModalImgLinkEl.setAttribute('href', '#');
+      renderJson(actionModalJsonEl, { status: 'loading', action_id: id });
+
+      let resp;
+      let body;
+      try {
+        resp = await fetch(`/api/action-metadata/${encodeURIComponent(id)}`, { signal: actionModalAbort.signal });
+        body = await resp.json();
+      } catch (e) {
+        renderJson(actionModalJsonEl, { error: String(e) });
+        actionModalTitleEl.textContent = 'Error';
+        return;
+      }
+
+      if (!resp.ok) {
+        renderJson(actionModalJsonEl, body);
+        actionModalTitleEl.textContent = 'Error';
+        return;
+      }
+
+      if (!body || typeof body !== 'object') {
+        renderJson(actionModalJsonEl, { error: 'Invalid action metadata response', body });
+        actionModalTitleEl.textContent = 'Error';
+        return;
+      }
+      if (!body.action_id || !body.action_name || !body.action_image_url) {
+        renderJson(actionModalJsonEl, { error: 'Action metadata missing required fields', body });
+        actionModalTitleEl.textContent = 'Error';
+        return;
+      }
+
+      actionModalTitleEl.textContent = body.action_name;
+      actionModalSkuEl.textContent = body.action_id;
+      actionModalImageEl.src = body.action_image_url;
+      actionModalImgLinkEl.textContent = body.action_image_url;
+      actionModalImgLinkEl.setAttribute('href', body.action_image_url);
+      renderJson(actionModalJsonEl, body);
+    }
+
+    function buildSelectablePaths(root) {
+      const out = [];
+      function typeOf(x) {
+        if (x === null) return 'null';
+        if (Array.isArray(x)) return 'array';
+        if (typeof x === 'object') return 'object';
+        return typeof x;
+      }
+      function walk(node, path, depth) {
+        if (depth > 12) return;
+        const t = typeOf(node);
+        out.push({ path: path || '.', type: t });
+        if (t === 'object') {
+          for (const [k, v] of Object.entries(node)) {
+            if (!k) continue;
+            walk(v, (path ? `${path}.${k}` : `.${k}`), depth + 1);
+          }
+        } else if (t === 'array') {
+          // For strictness/no heuristics: we index the array itself, but we don't enumerate indices.
+        }
+      }
+      walk(root, '', 0);
+      return out;
+    }
+
+    function parsePath(pathText) {
+      const s = (pathText || '').trim();
+      if (!s) throw new Error('Path is empty');
+      let i = 0;
+      const tokens = [];
+      function isStop(ch) { return ch === '.' || ch === '[' || ch === ']' || /\\s/.test(ch); }
+      if (s[i] === '.') i++;
+      while (i < s.length) {
+        if (s[i] === '.') i++;
+        if (i >= s.length) break;
+        let key = '';
+        while (i < s.length && !isStop(s[i])) {
+          key += s[i++];
+        }
+        if (!key) throw new Error(`Invalid path at position ${i + 1}`);
+        tokens.push({ kind: 'key', key });
+        while (i < s.length && s[i] === '[') {
+          i++;
+          let num = '';
+          while (i < s.length && /[0-9]/.test(s[i])) num += s[i++];
+          if (s[i] !== ']') throw new Error(`Invalid array index at position ${i + 1}`);
+          i++;
+          if (num === '') throw new Error('Array index must be an integer');
+          tokens.push({ kind: 'index', index: Number(num) });
+        }
+        if (i < s.length && s[i] !== '.') {
+          throw new Error(`Invalid path at position ${i + 1}`);
+        }
+      }
+      return tokens;
+    }
+
+    function resolvePath(root, tokens) {
+      let cur = root;
+      for (const t of tokens) {
+        if (t.kind === 'key') {
+          if (cur === null || typeof cur !== 'object' || Array.isArray(cur)) {
+            throw new Error(`Path expects object at key "${t.key}"`);
+          }
+          if (!(t.key in cur)) {
+            throw new Error(`Path does not exist: missing key "${t.key}"`);
+          }
+          cur = cur[t.key];
+        } else {
+          if (!Array.isArray(cur)) {
+            throw new Error(`Path expects array at index [${t.index}]`);
+          }
+          if (t.index < 0 || t.index >= cur.length) {
+            throw new Error(`Array index out of bounds: [${t.index}]`);
+          }
+          cur = cur[t.index];
+        }
+      }
+      return cur;
+    }
+
+    function jsonType(x) {
+      if (x === null) return 'null';
+      if (Array.isArray(x)) return 'array';
+      if (typeof x === 'object') return 'object';
+      return typeof x;
+    }
+
+    function scalarCategory(t) {
+      if (t === 'object' || t === 'array') return t;
+      return 'scalar';
+    }
+
+	    function setValueAtPathStrict(root, tokens, newValue) {
+	      if (!tokens.length) throw new Error('Path is empty');
+	      let cur = root;
+      for (let idx = 0; idx < tokens.length; idx++) {
+        const t = tokens[idx];
+        const isLast = idx === tokens.length - 1;
+        if (t.kind === 'key') {
+          if (cur === null || typeof cur !== 'object' || Array.isArray(cur)) {
+            throw new Error(`Path expects object at key "${t.key}"`);
+          }
+          if (!(t.key in cur)) {
+            throw new Error(`Path does not exist: missing key "${t.key}"`);
+          }
+          if (isLast) {
+            cur[t.key] = newValue;
+            return;
+          }
+          cur = cur[t.key];
+        } else {
+          if (!Array.isArray(cur)) {
+            throw new Error(`Path expects array at index [${t.index}]`);
+          }
+          if (t.index < 0 || t.index >= cur.length) {
+            throw new Error(`Array index out of bounds: [${t.index}]`);
+          }
+          if (isLast) {
+            cur[t.index] = newValue;
+            return;
+          }
+          cur = cur[t.index];
+        }
+      }
+	      throw new Error('Failed to set value');
+	    }
+
+		    function initSelectedPathFromSticky() {
+		      if (!workingExampleJson) return;
+		      if (!selectablePaths.length) return;
+		      const wanted = stickyPath || '.';
+		      const exists = selectablePaths.some(p => p.path === wanted);
+		      const fallback = selectablePaths.some(p => p.path === '.') ? '.' : null;
+		      const initial = exists ? wanted : fallback;
+		      if (initial) selectPath(initial);
+		    }
+
+		    function selectPath(path) {
+		      selectedPath = path;
+		      stickyPath = selectedPath;
+		      localStorage.setItem('hv.demoUi.stickyJsonPath', stickyPath);
+		      try {
+		        if (selectedPath === '.') {
+		          overrideEl.value = '';
+		          overrideEl.disabled = true;
+		          overrideDirty = false;
+		          updateRunButtonState();
+		          pathHintEl.textContent = 'Selected . (root). Editing is disabled for the root; search will cover the whole JSON.';
+		          return;
+		        }
+		        overrideEl.disabled = false;
+		        const tokens = parsePath(selectedPath);
+		        const value = resolvePath(workingExampleJson, tokens);
+		        overrideDirty = false;
+		        overrideEl.value = JSON.stringify(value, null, 2);
+		        updateRunButtonState();
+		        pathHintEl.textContent = `Selected ${selectedPath} (${jsonType(value)}). Edit the value; it will be applied on Run.`;
+		      } catch (e) {
+		        pathHintEl.textContent = `Error: ${e.message || e}`;
+		      }
+		    }
+
+		    function updatePathMatches() {
+		      if (!workingExampleJson) return;
+		      const q = (pathQueryEl.value || '').trim().replace(/^\\./, '');
+		      const qLower = q.toLowerCase();
+		      const matches = selectablePaths
+		        .filter(p => p.path.toLowerCase().includes(qLower))
+		        .slice(0, 80);
+		      pathMatchesEl.innerHTML = '';
+
+		      const highlightPath = selectedPath || stickyPath || '.';
+		      for (const m of matches) {
+		        const div = document.createElement('div');
+		        div.className = 'pathMatch';
+		        div.dataset.path = m.path;
+		        div.textContent = `${m.path} (${m.type})`;
+		        if (m.path === highlightPath) div.classList.add('selected');
+		        div.onclick = () => {
+		          for (const el of pathMatchesEl.querySelectorAll('.pathMatch')) el.classList.remove('selected');
+		          div.classList.add('selected');
+		          selectPath(m.path);
+		        };
+		        pathMatchesEl.appendChild(div);
+		      }
+		    }
+
+	    function applyPendingEditBeforeRun() {
+	      if (!workingExampleJson) return true;
+	      if (!selectedPath) return true;
+	      if (selectedPath === '.') return true;
+	      if ((overrideEl.value || '').trim() === '') return true;
+	      let tokens;
+      let currentValue;
+      try {
+        tokens = parsePath(selectedPath);
+        currentValue = resolvePath(workingExampleJson, tokens);
+      } catch (e) {
+        pathHintEl.textContent = `Error: ${e.message || e}`;
+        return false;
+      }
+
+      let newValue;
+      try {
+        newValue = JSON.parse(overrideEl.value);
+      } catch (e) {
+        pathHintEl.textContent = `Value is not valid JSON: ${e.message || e}`;
+        return false;
+      }
+
+      const expectedCategory = scalarCategory(jsonType(currentValue));
+      const actualCategory = scalarCategory(jsonType(newValue));
+      if (expectedCategory !== actualCategory) {
+        pathHintEl.textContent = `Type mismatch at ${selectedPath}: expected ${expectedCategory}, got ${actualCategory}`;
+        return false;
+      }
+
+      try {
+        setValueAtPathStrict(workingExampleJson, tokens, newValue);
+      } catch (e) {
+        pathHintEl.textContent = `Error: ${e.message || e}`;
+        return false;
+      }
+
+				      renderJson(inputEl, workingExampleJson);
+				      selectablePaths = buildSelectablePaths(workingExampleJson);
+				      hasEdits = true;
+			      overrideDirty = false;
+			      pathHintEl.textContent = `Applied in-memory change at ${selectedPath}.`;
+		      updateRunButtonState();
+		      return true;
+		    }
+
+    function clamp(n, min, max) {
+      if (!Number.isFinite(n)) return min;
+      return Math.min(max, Math.max(min, n));
+    }
+
+    function getStoredNumber(key) {
+      const raw = localStorage.getItem(key);
+      if (raw == null) return null;
+      const n = Number(raw);
+      return Number.isFinite(n) ? n : null;
+    }
+
+    function setCssPxVar(name, valuePx) {
+      document.documentElement.style.setProperty(name, `${Math.round(valuePx)}px`);
+    }
+
+    function getResizerSizePx() {
+      const raw = getComputedStyle(document.documentElement).getPropertyValue('--resizer-size').trim();
+      const n = Number.parseFloat(raw.replace('px', ''));
+      return Number.isFinite(n) ? n : 10;
+    }
+
+	    function clampPaneSizesToViewport() {
+	      const sidebarEl = document.getElementById('sidebar');
+	      const sidebarTopEl = document.getElementById('sidebarTop');
+	      const sidebarExamplesEl = document.getElementById('matchesWrap');
+	      const sidebarEditEl = document.getElementById('sidebarBottom');
+	      const contentEl = document.getElementById('content');
+	      const ioEl = document.getElementById('io');
+	      const resizerPx = getResizerSizePx();
+
+      const minSidebar = 280;
+      const minContent = 360;
+      const maxSidebar = Math.max(minSidebar, window.innerWidth - resizerPx - minContent);
+      setCssPxVar('--sidebar-width', clamp(sidebarEl.getBoundingClientRect().width, minSidebar, maxSidebar));
+
+	      const sidebarHeight = sidebarEl.getBoundingClientRect().height;
+	      const sidebarTopHeight = sidebarTopEl.getBoundingClientRect().height;
+	      const minEdit = 220;
+	      const minExamplesBottom = 220;
+	      const maxExamplesBottom = Math.max(minExamplesBottom, sidebarHeight - sidebarTopHeight - resizerPx - minEdit);
+	      setCssPxVar('--sidebar-bottom-height', clamp(sidebarExamplesEl.getBoundingClientRect().height, minExamplesBottom, maxExamplesBottom));
+
+      const minIo = 220;
+      const minGrid = 220;
+      const maxIo = Math.max(minIo, contentEl.getBoundingClientRect().height - resizerPx - minGrid);
+      setCssPxVar('--io-height', clamp(ioEl.getBoundingClientRect().height, minIo, maxIo));
+
+      const ioWidth = ioEl.getBoundingClientRect().width;
+      const minIoLeft = 260;
+      const minIoRight = 260;
+      const maxIoLeft = Math.max(minIoLeft, ioWidth - resizerPx - minIoRight);
+      setCssPxVar('--io-left-width', clamp(document.getElementById('inputPanel').getBoundingClientRect().width, minIoLeft, maxIoLeft));
+    }
+
+    function applyInitialPaneSizes() {
+      const storedSidebar = getStoredNumber('hv.demoUi.sidebarWidthPx');
+      const storedSidebarBottom = getStoredNumber('hv.demoUi.sidebarBottomHeightPx');
+      const storedIoHeight = getStoredNumber('hv.demoUi.ioHeightPx');
+      const storedIoLeft = getStoredNumber('hv.demoUi.ioLeftWidthPx');
+
+      if (storedSidebar != null) setCssPxVar('--sidebar-width', storedSidebar);
+      if (storedSidebarBottom != null) setCssPxVar('--sidebar-bottom-height', storedSidebarBottom);
+      if (storedIoHeight != null) setCssPxVar('--io-height', storedIoHeight);
+      if (storedIoLeft != null) setCssPxVar('--io-left-width', storedIoLeft);
+
+      clampPaneSizesToViewport();
+    }
+
+    function initResizers() {
+      function startDrag(cursor) {
+        document.body.classList.add('dragging');
+        document.body.style.cursor = cursor;
+      }
+      function endDrag() {
+        document.body.classList.remove('dragging');
+        document.body.style.cursor = '';
+      }
+
+      sidebarResizerEl.addEventListener('pointerdown', (e) => {
+        e.preventDefault();
+        const sidebarEl = document.getElementById('sidebar');
+        const startX = e.clientX;
+        const startW = sidebarEl.getBoundingClientRect().width;
+        const resizerPx = getResizerSizePx();
+        startDrag('col-resize');
+        sidebarResizerEl.setPointerCapture(e.pointerId);
+
+        const onMove = (ev) => {
+          const minSidebar = 280;
+          const minContent = 360;
+          const maxSidebar = Math.max(minSidebar, window.innerWidth - resizerPx - minContent);
+          setCssPxVar('--sidebar-width', clamp(startW + (ev.clientX - startX), minSidebar, maxSidebar));
+        };
+
+        const onUp = () => {
+          window.removeEventListener('pointermove', onMove);
+          const w = sidebarEl.getBoundingClientRect().width;
+          localStorage.setItem('hv.demoUi.sidebarWidthPx', String(Math.round(w)));
+          endDrag();
+        };
+
+        window.addEventListener('pointermove', onMove);
+        window.addEventListener('pointerup', onUp, { once: true });
+      });
+
+	      sidebarContentResizerEl.addEventListener('pointerdown', (e) => {
+	        e.preventDefault();
+	        const sidebarEl = document.getElementById('sidebar');
+	        const sidebarTopEl = document.getElementById('sidebarTop');
+	        const sidebarExamplesEl = document.getElementById('matchesWrap');
+	        const startY = e.clientY;
+	        const startH = sidebarExamplesEl.getBoundingClientRect().height;
+	        const resizerPx = getResizerSizePx();
+	        startDrag('row-resize');
+	        sidebarContentResizerEl.setPointerCapture(e.pointerId);
+
+	        const onMove = (ev) => {
+	          const sidebarHeight = sidebarEl.getBoundingClientRect().height;
+	          const sidebarTopHeight = sidebarTopEl.getBoundingClientRect().height;
+	          const minEdit = 220;
+	          const minExamplesBottom = 220;
+	          const maxExamplesBottom = Math.max(minExamplesBottom, sidebarHeight - sidebarTopHeight - resizerPx - minEdit);
+	          setCssPxVar('--sidebar-bottom-height', clamp(startH - (ev.clientY - startY), minExamplesBottom, maxExamplesBottom));
+	        };
+
+	        const onUp = () => {
+	          window.removeEventListener('pointermove', onMove);
+	          const h = sidebarExamplesEl.getBoundingClientRect().height;
+	          localStorage.setItem('hv.demoUi.sidebarBottomHeightPx', String(Math.round(h)));
+	          endDrag();
+	        };
+
+        window.addEventListener('pointermove', onMove);
+        window.addEventListener('pointerup', onUp, { once: true });
+      });
+
+      contentResizerEl.addEventListener('pointerdown', (e) => {
+        e.preventDefault();
+        const ioEl = document.getElementById('io');
+        const contentEl = document.getElementById('content');
+        const startY = e.clientY;
+        const startH = ioEl.getBoundingClientRect().height;
+        const resizerPx = getResizerSizePx();
+        startDrag('row-resize');
+        contentResizerEl.setPointerCapture(e.pointerId);
+
+        const onMove = (ev) => {
+          const minIo = 220;
+          const minGrid = 220;
+          const maxIo = Math.max(minIo, contentEl.getBoundingClientRect().height - resizerPx - minGrid);
+          setCssPxVar('--io-height', clamp(startH - (ev.clientY - startY), minIo, maxIo));
+        };
+
+        const onUp = () => {
+          window.removeEventListener('pointermove', onMove);
+          const h = ioEl.getBoundingClientRect().height;
+          localStorage.setItem('hv.demoUi.ioHeightPx', String(Math.round(h)));
+          endDrag();
+        };
+
+        window.addEventListener('pointermove', onMove);
+        window.addEventListener('pointerup', onUp, { once: true });
+      });
+
+      ioResizerEl.addEventListener('pointerdown', (e) => {
+        e.preventDefault();
+        const ioEl = document.getElementById('io');
+        const inputPanelEl = document.getElementById('inputPanel');
+        const startX = e.clientX;
+        const startW = inputPanelEl.getBoundingClientRect().width;
+        const resizerPx = getResizerSizePx();
+        startDrag('col-resize');
+        ioResizerEl.setPointerCapture(e.pointerId);
+
+        const onMove = (ev) => {
+          const ioWidth = ioEl.getBoundingClientRect().width;
+          const minLeft = 260;
+          const minRight = 260;
+          const maxLeft = Math.max(minLeft, ioWidth - resizerPx - minRight);
+          setCssPxVar('--io-left-width', clamp(startW + (ev.clientX - startX), minLeft, maxLeft));
+        };
+
+        const onUp = () => {
+          window.removeEventListener('pointermove', onMove);
+          const w = inputPanelEl.getBoundingClientRect().width;
+          localStorage.setItem('hv.demoUi.ioLeftWidthPx', String(Math.round(w)));
+          endDrag();
+        };
+
+        window.addEventListener('pointermove', onMove);
+        window.addEventListener('pointerup', onUp, { once: true });
+      });
+
+      window.addEventListener('resize', () => clampPaneSizesToViewport());
+    }
+
+				    runEl.addEventListener('click', runSelected);
+		    clearOverrideEl.addEventListener('click', () => resetExample());
+			    overrideEl.addEventListener('input', () => {
+		      overrideDirty = true;
+		      updateRunButtonState();
+		      if (selectedExampleIndex !== null) {
+		        setStatus('Not run', 'warn');
+		      }
+		    });
+
+			    pathQueryEl.addEventListener('input', () => updatePathMatches());
+
+			    applyInitialPaneSizes();
+			    initUiToggles();
+			    initResizers();
+    actionModalCloseEl.addEventListener('click', () => closeActionDetails());
+    actionModalEl.addEventListener('click', (ev) => {
+      if (ev.target === actionModalEl) closeActionDetails();
+    });
+    window.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Escape' && actionModalEl.classList.contains('open')) closeActionDetails();
+    });
+			    loadAppMetadata();
+			    loadExamples().catch(err => {
+			      rawEl.textContent = String(err);
+			      setStatus('Error', 'error');
+			    });
+  </script>
+</body>
+</html>

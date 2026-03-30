@@ -15,11 +15,21 @@ import java.io.InputStream;
 import java.util.Map;
 import java.util.Optional;
 
+import static com.google.common.base.Preconditions.checkState;
+
 public class CatBoostGreedyRankerFactory<SHARED, ACTION> implements RankerFactory<ComputingRankingTransformer<SHARED, ACTION>, SHARED, ACTION> {
     private static final Logger log = LoggerFactory.getLogger(CatBoostGreedyRankerFactory.class);
+    private static final String MODEL_PARAMETER_KEY = "model_parameter/model.parameter";
     @Override
     public Ranker<SHARED, ACTION> apply(ComputingRankingTransformer<SHARED, ACTION> catBoostRankingTransformer, Map<String, InputStream> parameters, Optional<JsonNode> hyperparameter) {
-        HotvectCatBoostModel hotvectCatBoostModel = HotvectCatBoostModel.loadModel(parameters.get("model.parameter"));
+        InputStream modelStream = parameters.get(MODEL_PARAMETER_KEY);
+        checkState(
+                modelStream != null,
+                "Missing CatBoost model parameters. Expected key '%s'. Available keys: %s",
+                MODEL_PARAMETER_KEY,
+                parameters.keySet()
+        );
+        HotvectCatBoostModel hotvectCatBoostModel = HotvectCatBoostModel.loadModel(modelStream);
         int noforkThreshold = HyperparamUtils.getOrDefault(hyperparameter, JsonNode::asInt, 100, "catboost_scorer", "nofork_threshold");
         String taskType = HyperparamUtils.getOrDefault(hyperparameter, JsonNode::asText, "classification", "task_type");
         log.info("Using nofork threshold of {}", noforkThreshold);

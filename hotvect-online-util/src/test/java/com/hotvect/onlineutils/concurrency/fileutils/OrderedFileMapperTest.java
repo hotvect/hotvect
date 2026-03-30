@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Test;
 
 import java.io.*;
 import java.net.URISyntaxException;
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
@@ -23,8 +24,10 @@ import static org.junit.jupiter.api.Assertions.*;
 
 @SuppressWarnings("UnstableApiUsage")
 public class OrderedFileMapperTest {
-    private static final Function<String, List<String>> HASH_STRING = s ->
-            ImmutableList.of(String.valueOf(Hashing.sha512().hashString(s, StandardCharsets.UTF_8).asInt()));
+    private static final Function<String, List<ByteBuffer>> HASH_STRING = s -> {
+        byte[] bytes = new StringBuilder().append(Hashing.sha512().hashUnencodedChars(s).asInt()).append("\n").toString().getBytes(StandardCharsets.UTF_8);
+        return List.of(ByteBuffer.wrap(bytes));
+    };
 
     @Test
     void withSamplesDirectory() throws Exception {
@@ -50,7 +53,7 @@ public class OrderedFileMapperTest {
     }
 
     @Test
-    void gzippedFile() throws Exception {
+    void gzippedInputFile() throws Exception {
         File source = getAsFile("example.jsons.gz");
         test(source, HASH_STRING);
     }
@@ -69,12 +72,39 @@ public class OrderedFileMapperTest {
         }));
     }
 
-    private void test(File source, Function<String, List<String>> hashFun) throws Exception {
+    @Test
+    void writesFullByteBuffer() throws Exception {
+        SimpleMeterRegistry mr = new SimpleMeterRegistry();
+
+        File source = Files.createTempFile("ordered-file-mapper-largebuf-source", ".txt").toFile();
+        File dest = getTempFile();
+
+        // One input line, one output record with >8KiB payload.
+        Files.writeString(source.toPath(), "x\n", StandardCharsets.UTF_8);
+        byte[] payload = new byte[20_000];
+        for (int i = 0; i < payload.length - 1; i++) {
+            payload[i] = 'a';
+        }
+        payload[payload.length - 1] = '\n';
+
+        Function<String, List<ByteBuffer>> largeBuf = _s -> List.of(ByteBuffer.wrap(payload));
+
+        try {
+            OrderedFileMapper subject = OrderedFileMapper.mapper(mr, ImmutableList.of(source), dest, largeBuf, 1);
+            subject.call();
+            assertEquals(payload.length, dest.length(), "Expected full ByteBuffer to be written");
+        } finally {
+            dest.delete();
+            source.delete();
+        }
+    }
+
+    private void test(File source, Function<String, List<ByteBuffer>> hashFun) throws Exception {
         test(source, hashFun, -1);
     }
 
 
-    private void test(File source, Function<String, List<String>> hashFun, int sample) throws Exception {
+    private void test(File source, Function<String, List<ByteBuffer>> hashFun, int sample) throws Exception {
         SimpleMeterRegistry mr = new SimpleMeterRegistry();
 
         File dest = getTempFile();
@@ -85,10 +115,11 @@ public class OrderedFileMapperTest {
             assertTrue(metadata.containsKey("total_record_count"));
             try (BufferedReader original = getAsReader(); BufferedReader processed = getAsReader(dest)) {
                 StreamTestUtils.zip(original.lines(), processed.lines(), (original1, actual) -> {
-                    int expected = Hashing.sha512().hashString(original1, StandardCharsets.UTF_8).asInt();
+                    int expected = Hashing.sha512().hashUnencodedChars(original1).asInt();
                     Integer actualOut = Integer.valueOf(actual);
-                    return new Pair(expected, actualOut);
-                }).forEach(p -> Assertions.assertEquals(p.first(), p.second()));
+                    return Pair.of(expected, actualOut);
+                })
+                        .forEach(p -> Assertions.assertEquals(p.first(), p.second()));
             }
 
             if (sample > 0) {

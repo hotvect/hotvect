@@ -2,6 +2,10 @@ package com.hotvect.utils;
 
 import java.util.NoSuchElementException;
 
+/**
+ * @deprecated Use {@link com.hotvect.utils.functional.Result} instead (failure is always a {@link Throwable}).
+ */
+@Deprecated
 public sealed interface Result<VALUE, ERROR> permits Result.Failure, Result.Success {
     record Failure<VALUE, ERROR>(ERROR error) implements Result<VALUE, ERROR> {
         @Override
@@ -50,4 +54,3 @@ public sealed interface Result<VALUE, ERROR> permits Result.Failure, Result.Succ
 
     ERROR getError();
 }
-

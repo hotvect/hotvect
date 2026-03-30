@@ -32,9 +32,7 @@ class UnorderedMultiFileReader<X> {
     private final LongAdder lineCounter;
     private long startTime;
     private final ReadState<X> state;
-
-    // Theoretically we can ask the reader to perform conversion but for now this is unused
-    private final Function<String, X> parseFun = null;
+    private final FileFormat fileFormat;
 
     public ReadState<X> getReadState() {
         return this.state;
@@ -63,7 +61,19 @@ class UnorderedMultiFileReader<X> {
         }
 
         public void reportError(Throwable e){
-            this.error.compareAndSet(null, e);
+            Throwable root = Throwables.getRootCause(e);
+            this.error.updateAndGet(existing -> {
+                if (existing == null) {
+                    return e;
+                }
+                Throwable existingRoot = Throwables.getRootCause(existing);
+                boolean existingIsInterrupt = existingRoot instanceof InterruptedException;
+                boolean newIsInterrupt = root instanceof InterruptedException;
+                if (existingIsInterrupt && !newIsInterrupt) {
+                    return e;  // allow a real error to replace an interrupt placeholder
+                }
+                return existing;  // otherwise keep the first error we saw
+            });
         }
 
         public Throwable getError() {
@@ -89,6 +99,14 @@ class UnorderedMultiFileReader<X> {
 
 
         this.files = FileUtils.listFiles(files).collect(Collectors.toList());
+
+        // Validate that all files have the same format
+        if (!this.files.isEmpty()) {
+            this.fileFormat = FileFormat.validateUniformFormat(this.files);
+            log.info("Detected file format: {} for {} files", this.fileFormat, this.files.size());
+        } else {
+            this.fileFormat = null;
+        }
     }
 
     public void start(){
@@ -98,18 +116,19 @@ class UnorderedMultiFileReader<X> {
             handles.add(service.submit(new VerboseRunnable() {
                 @Override
                 protected void doRun() throws Exception {
-                    try(BufferedReader br = FileUtils.toBufferedReader(file)){
-                        for (;;) {
-                            String line = br.readLine();
-                            if (line == null){
-                                break;
-                            } else {
-                                lineCounter.increment();
-                                state.getReadQueue().put((X)line);
-                            }
+                    try(RecordReader<X> reader = RecordReader.create(file)){
+                        while (reader.hasNext()) {
+                            X record = reader.next();
+                            lineCounter.increment();
+                            state.getReadQueue().put(record);
                         }
                     }catch (Throwable e){
-                        log.error("Error encountered during reading, aborting", e);
+                        Throwable root = Throwables.getRootCause(e);
+                        if(root instanceof InterruptedException){
+                            log.warn("Reader was interrupted. Aborting.");
+                        } else {
+                            log.error("Error encountered during reading, aborting", e);
+                        }
                         state.reportError(e);
                         state.setReadDone();
                         service.shutdownNow();

@@ -36,6 +36,14 @@ public class AlgorithmDefinitionReader {
     }
 
     public AlgorithmDefinition parse(JsonNode json) throws IOException {
+        String generateStateFactoryName = optionalExtract(json, "generator_factory_classname").map(JsonNode::asText).orElse(null);
+        String algorithmFactoryName = optionalExtract(json, "algorithm_factory_classname").map(JsonNode::asText).orElse(null);
+
+        // Validate: algorithm_factory_classname is required unless this is a state algorithm
+        if (algorithmFactoryName == null && generateStateFactoryName == null) {
+            throw new IllegalArgumentException("You must specify:algorithm_factory_classname. Full input:" + json);
+        }
+
         return new AlgorithmDefinition(
                 json,
                 new AlgorithmId(
@@ -47,13 +55,13 @@ public class AlgorithmDefinitionReader {
                 // But we do not fully resolve the dependency algo def themselves yet
                 // Hence null is provided
                 null,
-                optionalExtract(json, "generate_state_factory_classname").map(JsonNode::asText).orElse(null),
+                generateStateFactoryName,
                 optionalExtract(json, "decoder_factory_classname").map(JsonNode::asText).orElse(null),
                 optionalExtract(json, "transformer_factory_classname").map(JsonNode::asText).orElse(null),
                 optionalExtract(json, "vectorizer_factory_classname").map(JsonNode::asText).orElse(null),
                 optionalExtract(json, "reward_function_factory_classname").map(JsonNode::asText).orElse(null),
                 optionalExtract(json, "encoder_factory_classname").map(JsonNode::asText).orElse(null),
-                ensureExtract(json, "algorithm_factory_classname").asText(),
+                algorithmFactoryName,
                 Optional.ofNullable(json.get("transformer_parameters")),
                 Optional.ofNullable(json.get("vectorizer_parameters")),
                 Optional.ofNullable(json.get("train_decoder_parameters")),

@@ -5,11 +5,12 @@ import com.hotvect.api.algodefinition.ranking.BulkScorerFactory;
 import com.hotvect.core.transform.ranking.StreamingRankingTransformer;
 import com.hotvect.api.algorithms.BulkScorer;
 import com.hotvect.onlineutils.nativelibraries.catboost.HotvectCatBoostModel;
-import com.hotvect.utils.HyperparamUtils;
 
 import java.io.InputStream;
 import java.util.Map;
 import java.util.Optional;
+
+import static com.google.common.base.Preconditions.checkState;
 
 public class CatBoostStreamingBulkScorerFactory<SHARED, ACTION>
         implements BulkScorerFactory<StreamingRankingTransformer<SHARED, ACTION>, SHARED, ACTION> {
@@ -19,8 +20,16 @@ public class CatBoostStreamingBulkScorerFactory<SHARED, ACTION>
             Map<String, InputStream> parameters,
             Optional<JsonNode> hyperparameter
     ) {
-        HotvectCatBoostModel hotvectCatBoostModel = HotvectCatBoostModel.loadModel(parameters.get("model.parameter"));
-        String taskType = HyperparamUtils.getOrDefault(hyperparameter, JsonNode::asText, "classification", "task_type");
+        InputStream modelStream = CatBoostFactoryUtils.getModelStream(parameters);
+        checkState(
+                modelStream != null,
+                "Missing CatBoost model parameters. Expected key '%s' (preferred) or '%s' (legacy). Available keys: %s",
+                CatBoostFactoryUtils.MODEL_PARAMETER_KEY_V10,
+                CatBoostFactoryUtils.MODEL_PARAMETER_KEY_V9,
+                parameters.keySet()
+        );
+        HotvectCatBoostModel hotvectCatBoostModel = HotvectCatBoostModel.loadModel(modelStream);
+        String taskType = CatBoostFactoryUtils.getTaskType(hyperparameter);
 
         return new CatBoostStreamingBulkScorer<>(
                 rankingTransformer,
@@ -29,4 +38,3 @@ public class CatBoostStreamingBulkScorerFactory<SHARED, ACTION>
         );
     }
 }
-

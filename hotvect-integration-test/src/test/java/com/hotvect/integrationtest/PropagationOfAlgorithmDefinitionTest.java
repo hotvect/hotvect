@@ -11,6 +11,9 @@ import com.hotvect.api.algodefinition.AlgorithmDefinition;
 import com.hotvect.api.algodefinition.AlgorithmInstance;
 import com.hotvect.api.algorithms.Ranker;
 import com.hotvect.api.data.ranking.RankingRequest;
+import com.hotvect.api.execution.ExecutionContext;
+import com.hotvect.api.execution.InputSemantic;
+import com.hotvect.api.execution.WorkloadMode;
 import com.hotvect.onlineutils.hotdeploy.AlgorithmInstanceFactory;
 import com.hotvect.utils.AlgorithmDefinitionReader;
 import org.junit.jupiter.api.Disabled;
@@ -36,6 +39,7 @@ public class PropagationOfAlgorithmDefinitionTest {
 
             AlgorithmInstanceFactory algoAlgorithmInstanceFactory = new AlgorithmInstanceFactory(
                     Thread.currentThread().getContextClassLoader(),
+                    ExecutionContext.of(WorkloadMode.BATCH, InputSemantic.OFFLINE),
                     false
 
             );
@@ -55,6 +59,7 @@ public class PropagationOfAlgorithmDefinitionTest {
 
             AlgorithmInstanceFactory innerAlgorithmInstanceFactory = new AlgorithmInstanceFactory(
                     Thread.currentThread().getContextClassLoader(),
+                    ExecutionContext.of(WorkloadMode.BATCH, InputSemantic.OFFLINE),
                     false
             );
 
@@ -87,6 +92,7 @@ public class PropagationOfAlgorithmDefinitionTest {
 
         AlgorithmInstanceFactory algoAlgorithmInstanceFactory = new AlgorithmInstanceFactory(
                 Thread.currentThread().getContextClassLoader(),
+                ExecutionContext.of(WorkloadMode.BATCH, InputSemantic.OFFLINE),
                 false
         );
 

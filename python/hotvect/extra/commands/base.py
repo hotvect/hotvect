@@ -1,10 +1,10 @@
-"""Base command class for hv-extra CLI commands."""
+"""Base command class for hv-ext CLI commands."""
 
 from abc import ABC, abstractmethod
 
 
 class BaseCommand(ABC):
-    """Abstract base class for hv-extra commands."""
+    """Abstract base class for hv-ext commands."""
 
     @classmethod
     @abstractmethod

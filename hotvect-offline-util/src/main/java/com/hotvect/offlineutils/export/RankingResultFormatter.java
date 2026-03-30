@@ -12,6 +12,7 @@ import com.hotvect.api.algorithms.Ranker;
 import com.hotvect.api.data.ranking.RankingDecision;
 import com.hotvect.api.data.ranking.RankingExample;
 
+import java.nio.ByteBuffer;
 import java.util.*;
 import java.util.function.BiFunction;
 import java.util.function.Function;
@@ -20,7 +21,7 @@ import static com.google.common.base.Preconditions.checkState;
 import static com.hotvect.utils.AdditionalProperties.getAdditionalProperties;
 import static com.hotvect.utils.AdditionalProperties.mergeAdditionalProperties;
 
-public class RankingResultFormatter<SHARED, ACTION, OUTCOME> implements BiFunction<RewardFunction<OUTCOME>, Ranker<SHARED, ACTION>, Function<RankingExample<SHARED, ACTION, OUTCOME>, String>> {
+public class RankingResultFormatter<SHARED, ACTION, OUTCOME> implements BiFunction<RewardFunction<OUTCOME>, Ranker<SHARED, ACTION>, Function<RankingExample<SHARED, ACTION, OUTCOME>, ByteBuffer>> {
     private static final String FEATURE_STORE_RESPONSES_KEY = "__feature_store_responses";
 
     private final ObjectMapper objectMapper = new ObjectMapper()
@@ -38,9 +39,9 @@ public class RankingResultFormatter<SHARED, ACTION, OUTCOME> implements BiFuncti
     }
 
     @Override
-    public Function<RankingExample<SHARED, ACTION, OUTCOME>, String> apply(RewardFunction<OUTCOME> rewardFunction, Ranker<SHARED, ACTION> ranker) {
+    public Function<RankingExample<SHARED, ACTION, OUTCOME>, ByteBuffer> apply(RewardFunction<OUTCOME> rewardFunction, Ranker<SHARED, ACTION> ranker) {
         return ex -> {
-            var rankResult = ranker.rank(ex.rankingRequest());
+            var rankResult = ranker.rank(ex.request());
             var decisions = new ArrayList<>(rankResult.decisions());
             Map<Integer, Integer> actionIdxToRank = toActionIdxToRank(decisions);
 
@@ -51,9 +52,13 @@ public class RankingResultFormatter<SHARED, ACTION, OUTCOME> implements BiFuncti
             root.put("example_id", ex.exampleId());
             Map<String, Object> sharedAdditionalProperties = new HashMap<>();
             sharedAdditionalProperties.putAll(rankResult.additionalProperties());
-            sharedAdditionalProperties.putAll(getAdditionalProperties(ex.rankingRequest().shared()));
+            sharedAdditionalProperties.putAll(getAdditionalProperties(ex.request().shared()));
             if (includeFeatureStoreResponses) {
-                sharedAdditionalProperties.put(FEATURE_STORE_RESPONSES_KEY, rankResult.featureStoreResponseContainer().featureStoreResponses());
+                sharedAdditionalProperties.put(
+                        FEATURE_STORE_RESPONSES_KEY,
+                        Objects.requireNonNull(rankResult.featureStoreResponseContainer(), "ranker returned null featureStoreResponseContainer")
+                                .featureStoreResponses()
+                );
             }
             if (!sharedAdditionalProperties.isEmpty()) {
                 root.putPOJO("additional_properties", sharedAdditionalProperties);
@@ -61,6 +66,7 @@ public class RankingResultFormatter<SHARED, ACTION, OUTCOME> implements BiFuncti
 
 
             ArrayNode rankToReward = objectMapper.createArrayNode();
+
             for (int i = 0; i < decisions.size(); i++) {
                 var decision = decisions.get(i);
                 var actionIdx = decision.getActionIndex();
@@ -83,6 +89,30 @@ public class RankingResultFormatter<SHARED, ACTION, OUTCOME> implements BiFuncti
                 Map<String, Object> outcomeAdditionalProperties = getAdditionalProperties(outcome.outcome());
                 Map<String, Object> actionAdditionalProperties = getAdditionalProperties(decision.action());
                 Map<String, Object> decisionAdditionalProperties = decision.additionalProperties();
+
+                // Extract and inline feature audit data if present
+                if (decisionAdditionalProperties.containsKey("features")) {
+                    Map<String, Object> featureAuditEntry = (Map<String, Object>) decisionAdditionalProperties.get("features");
+                    ObjectNode featureAudit = objectMapper.createObjectNode();
+
+                    for (Map.Entry<String, Object> algoEntry : featureAuditEntry.entrySet()) {
+                        String algorithmName = algoEntry.getKey();
+                        Map<String, Object> features = (Map<String, Object>) algoEntry.getValue();
+
+                        // Create algorithm node with features
+                        ObjectNode algorithmNode = objectMapper.createObjectNode();
+                        algorithmNode.putPOJO("features", features);
+                        featureAudit.set(algorithmName, algorithmNode);
+                    }
+
+                    // Inline feature_audit into this result object
+                    result.set("feature_audit", featureAudit);
+
+                    // Remove from additional properties so it doesn't appear there too
+                    decisionAdditionalProperties = new HashMap<>(decisionAdditionalProperties);
+                    decisionAdditionalProperties.remove("features");
+                }
+
                 Map<String, Object> merged = mergeAdditionalProperties(outcomeAdditionalProperties, actionAdditionalProperties, decisionAdditionalProperties);
                 if (!merged.isEmpty()) {
                     result.putPOJO("additional_properties", merged);
@@ -91,7 +121,11 @@ public class RankingResultFormatter<SHARED, ACTION, OUTCOME> implements BiFuncti
             }
             root.set("result", rankToReward);
             try {
-                return objectMapper.writeValueAsString(root);
+                byte[] jsonBytes = objectMapper.writeValueAsBytes(root);
+                byte[] withNewline = new byte[jsonBytes.length + 1];
+                System.arraycopy(jsonBytes, 0, withNewline, 0, jsonBytes.length);
+                withNewline[jsonBytes.length] = '\n';
+                return ByteBuffer.wrap(withNewline);
             } catch (JsonProcessingException e) {
                 throw new RuntimeException(e);
             }

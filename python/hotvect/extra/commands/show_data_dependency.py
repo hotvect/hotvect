@@ -1,18 +1,15 @@
-"""Show data dependency command for hv-extra CLI."""
+"""Show data dependency command for hv-ext CLI."""
 
-import glob
 import json
 import logging
-import os
-import re
 import sys
 import tempfile
 from datetime import date
 from pathlib import Path
-from xml.etree import ElementTree
 
+from hotvect.build_utils import clone_and_build_algorithm_jar
 from hotvect.pyhotvect import AlgorithmPipeline, AlgorithmPipelineContext
-from hotvect.utils import get_immediate_subdirectories, runshell
+from hotvect.utils import resolve_data_dependency_s3_uri, sanitize_path_component
 
 from .base import BaseCommand
 
@@ -103,8 +100,7 @@ class ShowDataDependencyCommand(BaseCommand):
         for git_ref, override in git_references:
             logger.info(f"Analyzing dependencies for {git_ref}...")
 
-            # Sanitize git ref for use in directory name (replace / with _)
-            safe_ref = git_ref.replace("/", "_").replace("\\", "_")
+            safe_ref = sanitize_path_component(git_ref)
 
             # Create temp directory under user-provided scratch dir
             scratch_base = Path(args.scratch_dir)
@@ -113,45 +109,17 @@ class ShowDataDependencyCommand(BaseCommand):
             with tempfile.TemporaryDirectory(prefix=f"show-dep-{safe_ref}-", dir=args.scratch_dir) as temp_dir:
                 temp_path = Path(temp_dir)
 
-                # Clone repository
-                algo_source_path = temp_path / "algo_source"
-                algo_source_path.mkdir()
-                logger.info(f"  Cloning {args.repo_url}...")
-                runshell(f"cd {algo_source_path} && git clone {args.repo_url}", shell=True)
-
-                # Find cloned directory
-                cloned_dirs = get_immediate_subdirectories(algo_source_path)
-                if len(cloned_dirs) != 1:
-                    raise ValueError(f"Expected one directory after clone, got: {cloned_dirs}")
-                cloned_path = next(iter(cloned_dirs))
-
-                # Checkout git reference
-                logger.info(f"  Checking out {git_ref}...")
-                runshell(
-                    f"cd {cloned_path} && git fetch --all --tags && git checkout {git_ref} && git clean -df",
-                    shell=True,
+                # Clone and build algorithm JAR
+                result = clone_and_build_algorithm_jar(
+                    repo_url=args.repo_url,
+                    git_reference=git_ref,
+                    work_dir=temp_path,
+                    copy_jar_to=None,  # Keep JAR in temp directory
                 )
 
-                # Build JAR
-                logger.info("  Building JAR...")
-                runshell(f"cd {cloned_path} && mvn clean package -DskipTests -B", shell=True)
-
-                # Extract algorithm metadata from pom.xml
-                pom_path = cloned_path / "pom.xml"
-                xml_root = ElementTree.parse(pom_path).getroot()
-                ns = re.match(r"{.*}", xml_root.tag).group(0)
-                algorithm_name = xml_root.find(ns + "artifactId").text.strip()
-                algorithm_version = xml_root.find(ns + "version").text.strip()
-
-                # Find JAR file
-                algorithm_jars = [
-                    file
-                    for file in glob.glob(str(cloned_path / "target" / f"{algorithm_name}-{algorithm_version}*.jar"))
-                    if os.path.isfile(file)
-                ]
-                if len(algorithm_jars) != 1:
-                    raise ValueError(f"Expected one JAR, found: {algorithm_jars}")
-                algorithm_jar = Path(algorithm_jars[0])
+                algorithm_name = result.algorithm_name
+                algorithm_version = result.algorithm_version
+                algorithm_jar = result.algorithm_jar_path
 
                 # Create AlgorithmPipeline to extract dependencies
                 context = AlgorithmPipelineContext(
@@ -160,7 +128,7 @@ class ShowDataDependencyCommand(BaseCommand):
                     data_base_path=temp_path,
                     metadata_base_path=temp_path / "metadata",
                     output_base_path=temp_path / "output",
-                    jvm_options=["-Xmx8g"],
+                    jvm_options=["-XX:MaxRAMPercentage=80"],
                     max_threads=1,
                 )
 
@@ -183,11 +151,20 @@ class ShowDataDependencyCommand(BaseCommand):
                 # Convert dependencies to JSON-serializable format
                 deps_list = []
                 for dep in dependencies:
+                    # Try to resolve S3 URI for production environment
+                    resolved_s3_uri = None
+                    try:
+                        resolved_s3_uri = resolve_data_dependency_s3_uri(dep, environment="production")
+                    except ValueError as e:
+                        # Resolution failed - capture error for output
+                        resolved_s3_uri = f"ERROR: {str(e)}"
+
                     dep_dict = {
                         "data_prefix": dep.data_prefix,
                         "data_dates": [d.isoformat() for d in dep.data_dates],
                         "data_type": dep.data_type,
                         "additional_properties": dep.additional_properties,
+                        "resolved_s3_uri_production": resolved_s3_uri,  # Show resolved URI for transparency
                     }
                     deps_list.append(dep_dict)
 

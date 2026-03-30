@@ -15,13 +15,14 @@ dependencies:
 shared_vars: &SHARED_ENV
   APPLICATION_ID: "example-service"
   TEAM_ID: "example-team"
+  DOCKER_BUILDKIT: "1"
   UV_DOWNLOAD_PYTHON: "never"
   UV_NATIVE_TLS: true
   UV_DEFAULT_INDEX: "https://example.com/pypi/simple"
   UV_PUBLISH_URL: "https://example.com/pypi/internal/"
   UV_PUBLISH_USERNAME: "root"
   UV_PUBLISH_PASSWORD: ""
-  HOTVECT_VERSION: "9.36.1"
+  HOTVECT_VERSION: "10.13.5"
   IMAGE_NAME: &IMAGE_NAME "#{CDP_ZAPPR_TEAM}/hotvect"
 
 pipeline:
@@ -42,12 +43,39 @@ pipeline:
     commands:
       - desc: "run-pre-commit"
         cmd: |
-          pre-commit install
-          pre-commit run --from-ref origin/HEAD --to-ref HEAD
+          git fetch origin "${CDP_TARGET_BRANCH}"
+          pre-commit run --from-ref "origin/${CDP_TARGET_BRANCH}" --to-ref HEAD
       - desc: "Run version upgrade checks"
         cmd: |
           # The script uses only builtin libraries so it can be run directly without uv
           cd python && python scripts/check_versions.py ${HOTVECT_VERSION} ${CDP_TARGET_COMMIT_ID}
+
+  - id: "check-linters-push"
+    depends_on: []
+    type: script
+    timeout: 15m
+    vm_config:
+      type: linux
+      image: cdp-runtime/python-3.11
+    when:
+      event: push
+    cache:
+      paths:
+        - ~/.cache
+    env:
+      <<: *SHARED_ENV
+    commands:
+      - desc: "run-pre-commit"
+        cmd: |
+          if git rev-parse --verify HEAD~1 >/dev/null 2>&1; then
+            pre-commit run --from-ref HEAD~1 --to-ref HEAD
+          else
+            pre-commit run --all-files
+          fi
+      - desc: "Run version consistency checks"
+        cmd: |
+          # On push we validate that versions match, but don't enforce a version bump.
+          cd python && python scripts/check_versions.py ${HOTVECT_VERSION}
 
   - id: build-snapshot
     type: script
@@ -64,6 +92,37 @@ pipeline:
       - desc: "Stash hotvect offline util jar so that python step can use it"
         cmd: |
           cdp-tool stash push snapshot-hotvect-offline-util-target hotvect-offline-util/target/*-jar-with-dependencies.jar
+      - desc: "Stash hotvect algorithm demo jar so that python step can use it"
+        cmd: |
+          cdp-tool stash push snapshot-hotvect-algorithm-demo-target hotvect-algorithm-demo/target/*-jar-with-dependencies.jar
+
+  - id: demo-ui-e2e-check
+    desc: Validates demo UI E2E project wiring (does not run browsers).
+    depends_on: []
+    type: script
+    timeout: 15m
+    vm_config:
+      type: linux
+      image: cdp-runtime/python-3.11
+    when:
+      event: pull_request
+    cache:
+      paths:
+        - ~/.cache
+        - demo-ui-e2e/node_modules
+    commands:
+      - desc: "Install Node.js + validate Playwright tests parse"
+        cmd: |
+          set -eux
+          apt-get update
+          apt-get install -y ca-certificates curl gnupg
+          curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+          apt-get install -y nodejs
+          node --version
+          npm --version
+          cd demo-ui-e2e
+          npm ci
+          node scripts/pw.cjs test --list
 
   - id: test-python
     desc: Runs pytests
@@ -79,12 +138,27 @@ pipeline:
       - desc: "Checks install requirements"
         cmd: |
           cd python 
-          uv sync --frozen --all-extras
+          uv sync --frozen
       - desc: "Copy hotvect offline util jar"
         cmd: |
           cdp-tool stash pop stashed
-          mv stashed/snapshot-hotvect-offline-util-target hotvect-offline-util/target
-          ls hotvect-offline-util/target/*
+          copy_stashed_jars_to_target() {
+            local stash_path="$1"
+            local target_dir="$2"
+            mkdir -p "$target_dir"
+
+            if [ -d "$stash_path" ]; then
+              cp "$stash_path"/*.jar "$target_dir/"
+            else
+              cp "$stash_path" "$target_dir/"
+            fi
+          }
+
+          copy_stashed_jars_to_target stashed/snapshot-hotvect-offline-util-target hotvect-offline-util/target
+          copy_stashed_jars_to_target stashed/snapshot-hotvect-algorithm-demo-target hotvect-algorithm-demo/target
+
+          ls -la hotvect-offline-util/target/
+          ls -la hotvect-algorithm-demo/target/
       - desc: "Runs unittests"
         cmd: |
           cd python
@@ -103,7 +177,7 @@ pipeline:
         cmd: build-docs
       - desc: notify PR
         cmd: |
-          DOCS_CHANGED=$(git diff --quiet  origin/"${CDP_TARGET_BRANCH}"..."${CDP_HEAD_COMMIT_ID}" -- docs || echo changed)
+          DOCS_CHANGED=$(git diff --quiet origin/"${CDP_TARGET_BRANCH}"..."${CDP_HEAD_COMMIT_ID}" -- mkdocs.yml python/hotvect/mcp/bundled_docs/docs || echo changed)
           if [ "$CDP_PULL_REQUEST_NUMBER" ] && [ "$DOCS_CHANGED" == "changed" ]; then
             comment="Docs have changed. Preview is available under: https://example.com/docs-preview/pr/#{CDP_PULL_REQUEST_NUMBER}/"
             git gh-comment "$comment"
@@ -122,26 +196,110 @@ pipeline:
     depends_on:
       - build-snapshot
     when:
-      event: pull_request
+      event: push
     env:
       <<: *SHARED_ENV
     commands:
       - desc: "Copy hotvect offline util jar"
         cmd: |
           cdp-tool stash pop stashed
-          mv stashed/snapshot-hotvect-offline-util-target hotvect-offline-util/target
-          ls hotvect-offline-util/target/*
+          copy_stashed_jars_to_target() {
+            local stash_path="$1"
+            local target_dir="$2"
+            mkdir -p "$target_dir"
+
+            if [ -d "$stash_path" ]; then
+              cp "$stash_path"/*.jar "$target_dir/"
+            else
+              cp "$stash_path" "$target_dir/"
+            fi
+          }
+
+          copy_stashed_jars_to_target stashed/snapshot-hotvect-offline-util-target hotvect-offline-util/target
+          copy_stashed_jars_to_target stashed/snapshot-hotvect-algorithm-demo-target hotvect-algorithm-demo/target
+
+          ls -la hotvect-offline-util/target/
+          ls -la hotvect-algorithm-demo/target/
       - desc: "Verifies that building the docker image works and pushes to staging"
         cmd: |
+          set -euxo pipefail
+
           # Need to copy the certificates so requests to internal pypi work from the container
           # https://example.com/docs/faq/#docker-build-is-unable-to-access-nexus-from-cdp
-          cp -r /usr/local/share/ca-certificates/cdp ./cdp-certs 
+          rm -rf ./cdp-certs
+          mkdir -p ./cdp-certs
+          if [ -d /usr/local/share/ca-certificates/cdp ]; then
+            cp -r /usr/local/share/ca-certificates/cdp/. ./cdp-certs/
+          else
+            echo "WARN: /usr/local/share/ca-certificates/cdp not found; continuing with empty ./cdp-certs"
+          fi
           
           EXTRA_VERSION=".dev${CDP_TARGET_REPOSITORY_COUNTER}"
-          TAG="${CDP_REGISTRY}/${IMAGE_NAME}:${HOTVECT_VERSION}${EXTRA_VERSION}"
-          uv run --project=python python/scripts/copy_jar.py
-          docker build --network=host -t ${TAG} --build-arg BASE_IMAGE=${DEP_PYTHON_BASE_IMAGE_REF} --build-arg BASE_IMAGE_VERSION=${DEP_PYTHON_BASE_IMAGE_VERSION} --build-arg BASE_JDK_IMAGE=${DEP_JDK_BASE_IMAGE_REF} --build-arg BASE_JDK_IMAGE_VERSION=${DEP_JDK_BASE_IMAGE_VERSION} .
-          docker push ${TAG}
+          BASE_TAG="${CDP_REGISTRY}/${IMAGE_NAME}:${HOTVECT_VERSION}${EXTRA_VERSION}"
+          python python/scripts/copy_jar.py
+          docker build --network=host -t ${BASE_TAG} --build-arg BASE_IMAGE=${DEP_PYTHON_BASE_IMAGE_REF} --build-arg BASE_IMAGE_VERSION=${DEP_PYTHON_BASE_IMAGE_VERSION} --build-arg BASE_JDK_IMAGE=${DEP_JDK_BASE_IMAGE_REF} --build-arg BASE_JDK_IMAGE_VERSION=${DEP_JDK_BASE_IMAGE_VERSION} --build-arg UV_DEFAULT_INDEX="${UV_DEFAULT_INDEX}" .
+          docker push ${BASE_TAG}
+
+          TF_TAG="${CDP_REGISTRY}/${IMAGE_NAME}:${HOTVECT_VERSION}${EXTRA_VERSION}-tensorflow"
+          TORCH_TAG="${CDP_REGISTRY}/${IMAGE_NAME}:${HOTVECT_VERSION}${EXTRA_VERSION}-torch-cpu"
+          TORCH_TF_TAG="${CDP_REGISTRY}/${IMAGE_NAME}:${HOTVECT_VERSION}${EXTRA_VERSION}-torch-cpu-tensorflow"
+
+          docker build --network=host -f Dockerfile.tensorflow -t ${TF_TAG} --build-arg HOTVECT_BASE_IMAGE=${BASE_TAG} .
+          docker push ${TF_TAG}
+
+          docker build --network=host -f Dockerfile.torch -t ${TORCH_TAG} --build-arg HOTVECT_BASE_IMAGE=${BASE_TAG} --build-arg HOTVECT_TORCH_BACKEND=cpu .
+          docker push ${TORCH_TAG}
+
+          docker build --network=host -f Dockerfile.torch-tensorflow -t ${TORCH_TF_TAG} --build-arg HOTVECT_BASE_IMAGE=${TORCH_TAG} .
+          docker push ${TORCH_TF_TAG}
+
+  - id: build-training-image-pr-check
+    desc: Validates that the base training docker image builds (no push).
+    type: script
+    vm_config:
+      type: linux
+      image: cdp-runtime/python-3.11
+    depends_on:
+      - build-snapshot
+    when:
+      event: pull_request
+    env:
+      <<: *SHARED_ENV
+    commands:
+      - desc: "Copy hotvect jars"
+        cmd: |
+          cdp-tool stash pop stashed
+          copy_stashed_jars_to_target() {
+            local stash_path="$1"
+            local target_dir="$2"
+            mkdir -p "$target_dir"
+
+            if [ -d "$stash_path" ]; then
+              cp "$stash_path"/*.jar "$target_dir/"
+            else
+              cp "$stash_path" "$target_dir/"
+            fi
+          }
+
+          copy_stashed_jars_to_target stashed/snapshot-hotvect-offline-util-target hotvect-offline-util/target
+          copy_stashed_jars_to_target stashed/snapshot-hotvect-algorithm-demo-target hotvect-algorithm-demo/target
+      - desc: "Verify docker build"
+        cmd: |
+          set -euxo pipefail
+
+          # Need to copy the certificates so requests to internal pypi work from the container
+          # https://example.com/docs/faq/#docker-build-is-unable-to-access-nexus-from-cdp
+          rm -rf ./cdp-certs
+          mkdir -p ./cdp-certs
+          if [ -d /usr/local/share/ca-certificates/cdp ]; then
+            cp -r /usr/local/share/ca-certificates/cdp/. ./cdp-certs/
+          else
+            echo "WARN: /usr/local/share/ca-certificates/cdp not found; continuing with empty ./cdp-certs"
+          fi
+
+          TAG="${IMAGE_NAME}:pr-check"
+          python python/scripts/copy_jar.py
+          docker build --network=host -t ${TAG} --build-arg BASE_IMAGE=${DEP_PYTHON_BASE_IMAGE_REF} --build-arg BASE_IMAGE_VERSION=${DEP_PYTHON_BASE_IMAGE_VERSION} --build-arg BASE_JDK_IMAGE=${DEP_JDK_BASE_IMAGE_REF} --build-arg BASE_JDK_IMAGE_VERSION=${DEP_JDK_BASE_IMAGE_VERSION} --build-arg UV_DEFAULT_INDEX="${UV_DEFAULT_INDEX}" .
 
   - id: build-release
     type: script
@@ -162,8 +320,13 @@ pipeline:
       - desc: "Stash hotvect offline util jar so that python step can use it"
         cmd: |
           cdp-tool stash push hotvect-offline-util-target hotvect-offline-util/target/*-jar-with-dependencies.jar
+      - desc: "Stash hotvect algorithm demo jar so that python step can use it"
+        cmd: |
+          cdp-tool stash push hotvect-algorithm-demo-target hotvect-algorithm-demo/target/*-jar-with-dependencies.jar
     when:
       event: push
+      CDP_TARGET_BRANCH:
+        regex_match: "^v[0-9]{2}$"
 
   - id: publish-python
     type: script
@@ -172,6 +335,8 @@ pipeline:
       image: cdp-runtime/python-3.11
     when:
       event: push
+      CDP_TARGET_BRANCH:
+        regex_match: "^v[0-9]{2}$"
     depends_on:
       - build-release
     env:
@@ -181,7 +346,9 @@ pipeline:
         cmd: |
           cdp-tool stash pop stashed
           mv stashed/hotvect-offline-util-target hotvect-offline-util/target
+          mv stashed/hotvect-algorithm-demo-target hotvect-algorithm-demo/target
           ls hotvect-offline-util/target/*
+          ls hotvect-algorithm-demo/target/*
       - desc: Publishes the package to internal PyPI
         cmd: |
           cd python
@@ -199,6 +366,8 @@ pipeline:
       - build-release
     when:
       event: push
+      CDP_TARGET_BRANCH:
+        regex_match: "^v[0-9]{2}$"
     env:
       <<: *SHARED_ENV
     commands:
@@ -209,8 +378,10 @@ pipeline:
         cmd: |
           cdp-tool stash pop stashed
           mv stashed/hotvect-offline-util-target hotvect-offline-util/target
+          mv stashed/hotvect-algorithm-demo-target hotvect-algorithm-demo/target
           ls hotvect-offline-util/target/*
-      - desc: "Verifies that building the docker image works and pushes to staging"
+          ls hotvect-algorithm-demo/target/*
+      - desc: "Build and push base training image"
         cmd: |
           # Need to copy the certificates so requests to internal pypi work from the container
           # https://example.com/docs/faq/#docker-build-is-unable-to-access-nexus-from-cdp
@@ -219,5 +390,74 @@ pipeline:
           TAG="${CDP_REGISTRY}/${IMAGE_NAME}:${HOTVECT_VERSION}"
           uv run --project=python python/scripts/copy_jar.py
           docker build --network=host -t ${TAG} --build-arg BASE_IMAGE=${DEP_PYTHON_BASE_IMAGE_REF} --build-arg BASE_IMAGE_VERSION=${DEP_PYTHON_BASE_IMAGE_VERSION} --build-arg BASE_JDK_IMAGE=${DEP_JDK_BASE_IMAGE_REF} --build-arg BASE_JDK_IMAGE_VERSION=${DEP_JDK_BASE_IMAGE_VERSION} .
+          docker push ${TAG}
+          cdp-promote-image ${TAG}
+
+  - id: build-training-image-tensorflow
+    desc: Builds TensorFlow training docker image (extends base image).
+    type: script
+    vm_config:
+      type: linux
+      image: cdp-runtime/python-3.11
+    depends_on:
+      - build-training-image
+    when:
+      event: push
+      CDP_TARGET_BRANCH:
+        regex_match: "^v[0-9]{2}$"
+    env:
+      <<: *SHARED_ENV
+    commands:
+      - desc: "Build and push TensorFlow image"
+        cmd: |
+          BASE_TAG="${CDP_REGISTRY}/${IMAGE_NAME}:${HOTVECT_VERSION}"
+          TAG="${CDP_REGISTRY}/${IMAGE_NAME}:${HOTVECT_VERSION}-tensorflow"
+          docker build --network=host -f Dockerfile.tensorflow -t ${TAG} --build-arg HOTVECT_BASE_IMAGE=${BASE_TAG} .
+          docker push ${TAG}
+          cdp-promote-image ${TAG}
+
+  - id: build-training-image-torch
+    desc: Builds PyTorch training docker image (extends base image).
+    type: script
+    vm_config:
+      type: linux
+      image: cdp-runtime/python-3.11
+    depends_on:
+      - build-training-image
+    when:
+      event: push
+      CDP_TARGET_BRANCH:
+        regex_match: "^v[0-9]{2}$"
+    env:
+      <<: *SHARED_ENV
+    commands:
+      - desc: "Build and push PyTorch image"
+        cmd: |
+          BASE_TAG="${CDP_REGISTRY}/${IMAGE_NAME}:${HOTVECT_VERSION}"
+          TAG="${CDP_REGISTRY}/${IMAGE_NAME}:${HOTVECT_VERSION}-torch"
+          docker build --network=host -f Dockerfile.torch -t ${TAG} --build-arg HOTVECT_BASE_IMAGE=${BASE_TAG} --build-arg HOTVECT_TORCH_BACKEND=cu121 .
+          docker push ${TAG}
+          cdp-promote-image ${TAG}
+
+  - id: build-training-image-torch-tensorflow
+    desc: Builds PyTorch+TensorFlow training docker image (extends torch image).
+    type: script
+    vm_config:
+      type: linux
+      image: cdp-runtime/python-3.11
+    depends_on:
+      - build-training-image-torch
+    when:
+      event: push
+      CDP_TARGET_BRANCH:
+        regex_match: "^v[0-9]{2}$"
+    env:
+      <<: *SHARED_ENV
+    commands:
+      - desc: "Build and push PyTorch+TensorFlow image"
+        cmd: |
+          BASE_TAG="${CDP_REGISTRY}/${IMAGE_NAME}:${HOTVECT_VERSION}-torch"
+          TAG="${CDP_REGISTRY}/${IMAGE_NAME}:${HOTVECT_VERSION}-torch-tensorflow"
+          docker build --network=host -f Dockerfile.torch-tensorflow -t ${TAG} --build-arg HOTVECT_BASE_IMAGE=${BASE_TAG} .
           docker push ${TAG}
           cdp-promote-image ${TAG}

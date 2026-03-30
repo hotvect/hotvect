@@ -23,16 +23,27 @@ public class FlatMapOptions {
     @CommandLine.Option(names = {"--flatmap-class"}, description = "The name of the class that contains the flat mapping function", required = true)
     public String flatmapFunFactoryClassname;
 
-    @CommandLine.Option(names = {"--source"}, paramLabel = "SOURCE_FILE", description = "The data source files", split = ",", required = true)
+    @CommandLine.Option(
+            names = {"--source"},
+            paramLabel = "SOURCE",
+            description = "Data source paths (files or directories). Directories are traversed recursively.",
+            split = ",",
+            required = true
+    )
     public List<File> sourceFile;
 
     @CommandLine.Option(names = {"--dest"}, paramLabel = "DESTINATION_FILE", description = "Destination file where the outputs will be written", required = true)
     public File destinationFile;
 
-    @CommandLine.Option(names = {"--meta-data"}, paramLabel = "Metadata location", description = "Location of the metadata file which includes logging data from the processing.", defaultValue = "metadata.json")
+    @CommandLine.Option(
+            names = {"--metadata-path"},
+            paramLabel = "METADATA_DIR",
+            description = "Directory where metadata.json will be written.",
+            defaultValue = "metadata"
+    )
     public File metadataLocation;
 
-    @CommandLine.Option(names = {"--samples"}, paramLabel = "Number of records to use", description = "Metadata location", defaultValue = "-1")
+    @CommandLine.Option(names = {"--samples"}, paramLabel = "Number of records to use", description = "Number of records to process (-1 for all)", defaultValue = "-1")
     public int samples;
     @CommandLine.Option(names = {"-h", "--help"}, usageHelp = true, description = "Display a help message")
     private boolean helpRequested = false;

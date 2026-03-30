@@ -1,4 +1,4 @@
-"""Tests for jsonl-compare command."""
+"""Tests for compare-jsonl command."""
 
 import argparse
 import json
@@ -274,6 +274,256 @@ class TestJsonlCompareCommand(unittest.TestCase):
         finally:
             os.unlink(invalid_file.name)
             os.unlink(file2_path)
+
+    @patch("builtins.print")
+    def test_execute_file1_longer_than_file2(self, mock_print):
+        """Test that file length mismatch is detected when file1 has extra lines."""
+        file1_data = [
+            {"id": 1, "name": "test1", "value": 10.5},
+            {"id": 2, "name": "test2", "value": 20.0},
+            {"id": 3, "name": "test3", "value": 30.0},
+            {"id": 4, "name": "test4", "value": 40.0},
+        ]
+        file2_data = [
+            {"id": 1, "name": "test1", "value": 10.5},
+            {"id": 2, "name": "test2", "value": 20.0},
+        ]
+
+        file1_path = self._create_jsonl_file(file1_data)
+        file2_path = self._create_jsonl_file(file2_data)
+        temp_output_dir = tempfile.mkdtemp()
+
+        try:
+            args = MagicMock()
+            args.file1 = file1_path
+            args.file2 = file2_path
+            args.output = temp_output_dir
+            args.config = None
+
+            self.command.execute(args)
+
+            mock_print.assert_called_once()
+            output = mock_print.call_args[0][0]
+            result = json.loads(output)
+            self.assertEqual(result["message"], "Differences found")
+            self.assertEqual(result["processed_lines"], 2)
+            self.assertEqual(result["file1_total_lines"], 4)
+            self.assertEqual(result["file2_total_lines"], 2)
+            self.assertIn("__file_length_mismatch__", result["fields_with_difference"])
+
+        finally:
+            os.unlink(file1_path)
+            os.unlink(file2_path)
+            shutil.rmtree(temp_output_dir, ignore_errors=True)
+
+    @patch("builtins.print")
+    def test_execute_file2_longer_than_file1(self, mock_print):
+        """Test that file length mismatch is detected when file2 has extra lines."""
+        file1_data = [
+            {"id": 1, "name": "test1", "value": 10.5},
+            {"id": 2, "name": "test2", "value": 20.0},
+        ]
+        file2_data = [
+            {"id": 1, "name": "test1", "value": 10.5},
+            {"id": 2, "name": "test2", "value": 20.0},
+            {"id": 3, "name": "test3", "value": 30.0},
+            {"id": 4, "name": "test4", "value": 40.0},
+            {"id": 5, "name": "test5", "value": 50.0},
+        ]
+
+        file1_path = self._create_jsonl_file(file1_data)
+        file2_path = self._create_jsonl_file(file2_data)
+        temp_output_dir = tempfile.mkdtemp()
+
+        try:
+            args = MagicMock()
+            args.file1 = file1_path
+            args.file2 = file2_path
+            args.output = temp_output_dir
+            args.config = None
+
+            self.command.execute(args)
+
+            mock_print.assert_called_once()
+            output = mock_print.call_args[0][0]
+            result = json.loads(output)
+            self.assertEqual(result["message"], "Differences found")
+            self.assertEqual(result["processed_lines"], 2)
+            self.assertEqual(result["file1_total_lines"], 2)
+            self.assertEqual(result["file2_total_lines"], 5)
+            self.assertIn("__file_length_mismatch__", result["fields_with_difference"])
+
+        finally:
+            os.unlink(file1_path)
+            os.unlink(file2_path)
+            shutil.rmtree(temp_output_dir, ignore_errors=True)
+
+    @patch("builtins.print")
+    def test_execute_empty_file_vs_nonempty(self, mock_print):
+        """Test that file length mismatch is detected when comparing empty to non-empty file."""
+        file1_data = []
+        file2_data = [
+            {"id": 1, "name": "test1", "value": 10.5},
+        ]
+
+        file1_path = self._create_jsonl_file(file1_data)
+        file2_path = self._create_jsonl_file(file2_data)
+        temp_output_dir = tempfile.mkdtemp()
+
+        try:
+            args = MagicMock()
+            args.file1 = file1_path
+            args.file2 = file2_path
+            args.output = temp_output_dir
+            args.config = None
+
+            self.command.execute(args)
+
+            mock_print.assert_called_once()
+            output = mock_print.call_args[0][0]
+            result = json.loads(output)
+            self.assertEqual(result["message"], "Differences found")
+            self.assertEqual(result["processed_lines"], 0)
+            self.assertEqual(result["file1_total_lines"], 0)
+            self.assertEqual(result["file2_total_lines"], 1)
+            self.assertIn("__file_length_mismatch__", result["fields_with_difference"])
+
+        finally:
+            os.unlink(file1_path)
+            os.unlink(file2_path)
+            shutil.rmtree(temp_output_dir, ignore_errors=True)
+
+    @patch("builtins.print")
+    def test_execute_length_mismatch_with_content_differences(self, mock_print):
+        """Test that file length mismatch is detected along with content differences."""
+        file1_data = [
+            {"id": 1, "name": "test1", "value": 10.5},
+            {"id": 2, "name": "test2", "value": 20.0},
+        ]
+        file2_data = [
+            {"id": 1, "name": "test1", "value": 10.5},
+            {"id": 2, "name": "changed", "value": 25.0},
+            {"id": 3, "name": "test3", "value": 30.0},
+        ]
+
+        file1_path = self._create_jsonl_file(file1_data)
+        file2_path = self._create_jsonl_file(file2_data)
+        temp_output_dir = tempfile.mkdtemp()
+
+        try:
+            args = MagicMock()
+            args.file1 = file1_path
+            args.file2 = file2_path
+            args.output = temp_output_dir
+            args.config = None
+
+            self.command.execute(args)
+
+            mock_print.assert_called_once()
+            output = mock_print.call_args[0][0]
+            result = json.loads(output)
+            self.assertEqual(result["message"], "Differences found")
+            self.assertEqual(result["processed_lines"], 2)
+            self.assertEqual(result["file1_total_lines"], 2)
+            self.assertEqual(result["file2_total_lines"], 3)
+            # Should have both content differences and file length mismatch
+            self.assertIn("__file_length_mismatch__", result["fields_with_difference"])
+            self.assertGreater(len(result["fields_with_difference"]), 1)
+
+        finally:
+            os.unlink(file1_path)
+            os.unlink(file2_path)
+            shutil.rmtree(temp_output_dir, ignore_errors=True)
+
+    @patch("builtins.print")
+    def test_execute_nested_array_length_mismatch_file1_longer(self, mock_print):
+        """Test that nested array length mismatches are detected when file1 has longer arrays."""
+        file1_data = [{"id": "x", "items": [{"a": 1}, {"b": 2}, {"c": 3}]}]
+        file2_data = [{"id": "x", "items": [{"a": 1}]}]
+
+        file1_path = self._create_jsonl_file(file1_data)
+        file2_path = self._create_jsonl_file(file2_data)
+        temp_output_dir = tempfile.mkdtemp()
+
+        try:
+            args = MagicMock()
+            args.file1 = file1_path
+            args.file2 = file2_path
+            args.output = temp_output_dir
+            args.config = None
+
+            self.command.execute(args)
+
+            mock_print.assert_called_once()
+            output = mock_print.call_args[0][0]
+            result = json.loads(output)
+            self.assertEqual(result["message"], "Differences found")
+            self.assertIn("items", result["fields_with_difference"])
+
+        finally:
+            os.unlink(file1_path)
+            os.unlink(file2_path)
+            shutil.rmtree(temp_output_dir, ignore_errors=True)
+
+    @patch("builtins.print")
+    def test_execute_nested_array_length_mismatch_file2_longer(self, mock_print):
+        """Test that nested array length mismatches are detected when file2 has longer arrays."""
+        file1_data = [{"id": "y", "results": [{"score": 0.5}]}]
+        file2_data = [{"id": "y", "results": [{"score": 0.5}, {"score": 0.8}, {"score": 0.9}]}]
+
+        file1_path = self._create_jsonl_file(file1_data)
+        file2_path = self._create_jsonl_file(file2_data)
+        temp_output_dir = tempfile.mkdtemp()
+
+        try:
+            args = MagicMock()
+            args.file1 = file1_path
+            args.file2 = file2_path
+            args.output = temp_output_dir
+            args.config = None
+
+            self.command.execute(args)
+
+            mock_print.assert_called_once()
+            output = mock_print.call_args[0][0]
+            result = json.loads(output)
+            self.assertEqual(result["message"], "Differences found")
+            self.assertIn("results", result["fields_with_difference"])
+
+        finally:
+            os.unlink(file1_path)
+            os.unlink(file2_path)
+            shutil.rmtree(temp_output_dir, ignore_errors=True)
+
+    @patch("builtins.print")
+    def test_execute_nested_empty_vs_nonempty_array(self, mock_print):
+        """Test that empty vs non-empty nested arrays are detected as different."""
+        file1_data = [{"id": "z", "tags": []}]
+        file2_data = [{"id": "z", "tags": [{"name": "tag1"}, {"name": "tag2"}]}]
+
+        file1_path = self._create_jsonl_file(file1_data)
+        file2_path = self._create_jsonl_file(file2_data)
+        temp_output_dir = tempfile.mkdtemp()
+
+        try:
+            args = MagicMock()
+            args.file1 = file1_path
+            args.file2 = file2_path
+            args.output = temp_output_dir
+            args.config = None
+
+            self.command.execute(args)
+
+            mock_print.assert_called_once()
+            output = mock_print.call_args[0][0]
+            result = json.loads(output)
+            self.assertEqual(result["message"], "Differences found")
+            self.assertIn("tags", result["fields_with_difference"])
+
+        finally:
+            os.unlink(file1_path)
+            os.unlink(file2_path)
+            shutil.rmtree(temp_output_dir, ignore_errors=True)
 
 
 if __name__ == "__main__":

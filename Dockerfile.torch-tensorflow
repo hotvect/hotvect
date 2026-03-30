@@ -1,0 +1,6 @@
+ARG HOTVECT_BASE_IMAGE=hotvect:latest
+
+FROM ${HOTVECT_BASE_IMAGE}
+
+# Install TensorFlow into the torch image (keeps torch deps intact).
+RUN uv pip install -p /opt/hotvect/.venv/bin/python "tensorflow==2.16.2"

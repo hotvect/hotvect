@@ -10,6 +10,9 @@ import com.hotvect.api.codec.common.ExampleDecoder;
 import com.hotvect.api.codec.common.ExampleEncoder;
 import com.hotvect.api.data.common.Example;
 import com.hotvect.api.data.OfflineRequest;
+import com.hotvect.api.execution.ExecutionContext;
+import com.hotvect.api.execution.InputSemantic;
+import com.hotvect.api.execution.WorkloadMode;
 import com.hotvect.onlineutils.hotdeploy.AlgorithmInstanceFactory;
 import com.hotvect.onlineutils.hotdeploy.util.MalformedAlgorithmException;
 
@@ -19,16 +22,18 @@ import java.util.Optional;
 import java.util.function.BiFunction;
 
 public class AlgorithmOfflineSupporterFactory extends AlgorithmInstanceFactory implements AlgorithmOfflineInstantiator {
+    private static final ExecutionContext EXECUTION_CONTEXT = ExecutionContext.of(WorkloadMode.BATCH, InputSemantic.OFFLINE);
+
     public AlgorithmOfflineSupporterFactory(File algorithmJar, ClassLoader parent) throws MalformedAlgorithmException {
-        super(algorithmJar, parent, false);
+        super(algorithmJar, parent, EXECUTION_CONTEXT, false);
     }
 
     public AlgorithmOfflineSupporterFactory(File algorithmJar) throws MalformedAlgorithmException {
-        super(algorithmJar, false);
+        super(algorithmJar, EXECUTION_CONTEXT, false);
     }
 
     public AlgorithmOfflineSupporterFactory(ClassLoader parent) throws MalformedAlgorithmException {
-        super(parent, false);
+        super(parent, EXECUTION_CONTEXT, false);
     }
 
     public <OUTCOME> RewardFunction<OUTCOME> getRewardFunction(AlgorithmDefinition algorithmDefinition) throws MalformedAlgorithmException {

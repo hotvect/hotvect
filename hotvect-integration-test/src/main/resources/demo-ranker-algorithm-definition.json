@@ -1,0 +1,8 @@
+{
+  "git_describe": "demo",
+  "algorithm_name": "demo-ranker",
+  "algorithm_version": "1.0.0",
+  "decoder_factory_classname": "com.hotvect.integrationtest.demoui.DemoUiRankingDecoderFactory",
+  "algorithm_factory_classname": "com.hotvect.integrationtest.demoui.DemoUiRankerFactory"
+}
+

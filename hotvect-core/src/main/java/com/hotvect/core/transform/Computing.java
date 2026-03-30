@@ -98,7 +98,7 @@ public class Computing<ARGUMENT> implements Computable<ARGUMENT> {
 
     public Iterable<Namespace> precalculatedNamespaces() {
         if (precalculated == null) {
-            return List.of();
+            return java.util.List.of();
         }
         return precalculated.asMap().keySet();
     }

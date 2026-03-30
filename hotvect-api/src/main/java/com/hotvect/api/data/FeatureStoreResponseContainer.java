@@ -26,5 +26,4 @@ public record FeatureStoreResponseContainer(Map<String, FeatureStoreResponse> fe
     public static FeatureStoreResponseContainer empty(){
         return EMPTY;
     }
-
 }

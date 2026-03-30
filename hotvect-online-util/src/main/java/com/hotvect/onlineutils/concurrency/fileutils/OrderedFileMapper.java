@@ -4,13 +4,15 @@ import com.hotvect.onlineutils.util.MetricUtils;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
+
+import java.nio.ByteBuffer;
+import java.nio.channels.Channels;
+import java.nio.channels.WritableByteChannel;
 import java.util.concurrent.atomic.LongAdder;
-import com.google.common.io.Files;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.hotvect.onlineutils.concurrency.CpuIntensiveMapper;
 import com.hotvect.onlineutils.concurrency.ConcurrentUtils;
 import com.hotvect.utils.VerboseCallable;
-import org.anarres.parallelgzip.ParallelGZIPOutputStream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -36,7 +38,7 @@ public class OrderedFileMapper extends VerboseCallable<Map<String, Object>> {
     private final int batchSize;
     private final List<File> source;
     private final File dest;
-    private final Function<String, List<String>> flatmapTransformation;
+    private final Function<String, List<ByteBuffer>> flatmapTransformation;
 
     private final int sample;
 
@@ -44,7 +46,7 @@ public class OrderedFileMapper extends VerboseCallable<Map<String, Object>> {
     public static OrderedFileMapper mapper(MeterRegistry meterRegistry,
                                            List<File> source,
                                            File dest,
-                                           Function<String, List<String>> flatmapFunction,
+                                           Function<String, List<ByteBuffer>> flatmapFunction,
                                            int nThreads,
                                            int queueLength,
                                            int batchSize) {
@@ -61,7 +63,7 @@ public class OrderedFileMapper extends VerboseCallable<Map<String, Object>> {
     public static OrderedFileMapper mapper(MeterRegistry meterRegistry,
                                            List<File> source,
                                            File dest,
-                                           Function<String, List<String>> flatmapFunction,
+                                           Function<String, List<ByteBuffer>> flatmapFunction,
                                            int nThreads,
                                            int queueLength,
                                            int batchSize,
@@ -76,15 +78,18 @@ public class OrderedFileMapper extends VerboseCallable<Map<String, Object>> {
                 sample);
     }
 
-    public static OrderedFileMapper mapper(MeterRegistry meterRegistry, List<File> source, File dest, Function<String, List<String>> flatmapFunction) {
+    public static OrderedFileMapper mapper(MeterRegistry meterRegistry, List<File> source, File dest, Function<String, List<ByteBuffer>> flatmapFunction) {
         return mapper(meterRegistry, source, dest, flatmapFunction, -1, -1, -1);
     }
 
-    public static OrderedFileMapper mapper(MeterRegistry meterRegistry, List<File> source, File dest, Function<String, List<String>> flatmapFunction, int sample) {
+
+
+
+    public static OrderedFileMapper mapper(MeterRegistry meterRegistry, List<File> source, File dest, Function<String, List<ByteBuffer>> flatmapFunction, int sample) {
         return mapper(meterRegistry, source, dest, flatmapFunction, -1, -1, -1, sample);
     }
 
-    private OrderedFileMapper(MeterRegistry meterRegistry, List<File> source, File dest, Function<String, List<String>> flatMapFunction, int numThreads, int queueSize, int batchSize, int sample) {
+    private OrderedFileMapper(MeterRegistry meterRegistry, List<File> source, File dest, Function<String, List<ByteBuffer>> flatMapFunction, int numThreads, int queueSize, int batchSize, int sample) {
         this.meterRegistry = meterRegistry;
         this.recordCounter = new LongAdder();
         this.recordTimer = Timer.builder("ordered.file.mapper.records")
@@ -104,33 +109,35 @@ public class OrderedFileMapper extends VerboseCallable<Map<String, Object>> {
         long startTime = System.nanoTime();
 
         AtomicInteger sampleCount =  this.sample <= 0 ? null : new AtomicInteger(sample);
-        CpuIntensiveMapper<String, List<String>> processor = new CpuIntensiveMapper<>(meterRegistry, flatmapTransformation, nThreads, queueSize, batchSize);
-
-        int gzipThreads = (int)Math.max(1, Math.round(this.nThreads * 0.2));
-
-        ThreadPoolExecutor gzipWriters = getGzipWriters(gzipThreads);
+        CpuIntensiveMapper<String, List<ByteBuffer>> processor = new CpuIntensiveMapper<>(meterRegistry, flatmapTransformation, nThreads, queueSize, batchSize);
 
 
         try (Stream<String> source = readData(this.source)) {
-            //noinspection UnstableApiUsage
-            String ext = Files.getFileExtension(dest.toPath().getFileName().toString());
-            boolean isDestGzip = "gz".equalsIgnoreCase(ext);
+            // Render %d pattern to 0 for ordered single-file mode
+            File actualDest = dest;
+            if (dest.getName().contains("%d")) {
+                String renderedName = String.format(Locale.ROOT, dest.getName(), 0);
+                actualDest = new File(dest.getParent(), renderedName);
+            }
 
-            try (FileOutputStream file = new FileOutputStream(dest);
-                 OutputStream sink = isDestGzip ? new ParallelGZIPOutputStream(file, gzipWriters) : file;
-                 BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(sink, StandardCharsets.UTF_8), 128 << 10)
-            ) {
-                process(source, processor, writer, sampleCount);
+            // Create parent directories if they don't exist (required for directory-based sharding)
+            File parentDir = actualDest.getParentFile();
+            if (parentDir != null && !parentDir.exists()) {
+                if (!parentDir.mkdirs()) {
+                    throw new IOException("Failed to create directory: " + parentDir);
+                }
+            }
+
+            try (OutputStream out = new BufferedOutputStream(new FileOutputStream(actualDest), 128 << 10)) {
+                process(source, processor, out, sampleCount);
             }
         } catch (Throwable e) {
             // Something bad happened
             LOGGER.error("Exception encountered", e);
             processor.shutdownNow();
-            gzipWriters.shutdownNow();
             throw e;
         } finally {
             processor.shutdown();
-            gzipWriters.shutdown();
         }
 
         processor.awaitTermination();
@@ -144,39 +151,27 @@ public class OrderedFileMapper extends VerboseCallable<Map<String, Object>> {
         return metadata;
     }
 
-    private ThreadPoolExecutor getGzipWriters(int nThreads) {
-        return new ThreadPoolExecutor(
-                nThreads,
-                nThreads,
-                1, TimeUnit.DAYS,
-                new ArrayBlockingQueue<>(20 * nThreads),
-                new ThreadFactoryBuilder().setNameFormat("gzip-writers-%s").build(),
-                new ThreadPoolExecutor.CallerRunsPolicy());
-    }
-
-    private void process(Stream<String> source, CpuIntensiveMapper<String, List<String>> processor, BufferedWriter writer, AtomicInteger sampleCount) throws InterruptedException, ExecutionException, IOException {
-        BlockingQueue<Future<Collection<List<String>>>> queue = processor.start(source);
+    private void process(Stream<String> source, CpuIntensiveMapper<String, List<ByteBuffer>> processor, OutputStream out, AtomicInteger sampleCount) throws InterruptedException, ExecutionException, IOException {
+        BlockingQueue<Future<Collection<List<ByteBuffer>>>> queue = processor.start(source);
         Gauge.builder("ordered.file.mapper.queue.size", queue, q -> (double) q.size())
                 .description("Queue size for ordered file mapper")
                 .register(meterRegistry);
 
+        WritableByteChannel channel = Channels.newChannel(out);
 
         while (true) {
             boolean hadFinished = processor.hasLoadingFinished();
-            Future<Collection<List<String>>> batch = queue.poll(1, TimeUnit.SECONDS);
+            Future<Collection<List<ByteBuffer>>> batch = queue.poll(1, TimeUnit.SECONDS);
             if (batch != null) {
                 // will throw if batch was a failure
-                for (List<String> result : batch.get()) {
+                for (List<ByteBuffer> result : batch.get()) {
                     if (result == null) {
                         throw new NullPointerException("result");
                     } else {
-                        //TODO Add test for this path
-                        // We had a flatmap function
-                        for (String s : result) {
+                        for (ByteBuffer serializedExample : result) {
                             if(sampleCount == null || sampleCount.getAndDecrement() > 0) {
                                 Timer.Sample sample = Timer.start();
-                                writer.append(s);
-                                writer.newLine();
+                                writeFully(channel, serializedExample);
                                 this.recordCounter.increment();
                                 sample.stop(this.recordTimer);
                             } else {
@@ -195,6 +190,12 @@ public class OrderedFileMapper extends VerboseCallable<Map<String, Object>> {
                 // Means we are done
                 break;
             }
+        }
+    }
+
+    private static void writeFully(WritableByteChannel channel, ByteBuffer buffer) throws IOException {
+        while (buffer.hasRemaining()) {
+            channel.write(buffer);
         }
     }
 

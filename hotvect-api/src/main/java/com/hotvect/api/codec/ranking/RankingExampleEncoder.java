@@ -3,6 +3,9 @@ package com.hotvect.api.codec.ranking;
 import com.hotvect.api.codec.common.ExampleEncoder;
 import com.hotvect.api.data.ranking.RankingExample;
 
+import java.nio.ByteBuffer;
+import java.util.List;
+
 /**
  * TODO
  */
@@ -12,5 +15,5 @@ public interface RankingExampleEncoder<SHARED, ACTION, OUTCOME> extends ExampleE
      * @return the encoded {@link String}
      */
     @Override
-    String apply(RankingExample<SHARED, ACTION, OUTCOME> toEncode);
+    ByteBuffer apply(RankingExample<SHARED, ACTION, OUTCOME> toEncode);
 }

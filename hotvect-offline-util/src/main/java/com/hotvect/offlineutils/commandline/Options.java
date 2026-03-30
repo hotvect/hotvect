@@ -1,150 +1,46 @@
 package com.hotvect.offlineutils.commandline;
 
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import picocli.CommandLine;
-import picocli.CommandLine.Model.ArgSpec;
-import picocli.CommandLine.Model.CommandSpec;
-import picocli.CommandLine.ParameterException;
-
 import java.io.File;
 import java.util.*;
-import java.util.stream.Collectors;
 
 public class Options {
-    @CommandLine.Option(names = {"--max-threads"}, description = "Number of threads to be used for processing", defaultValue = "-1")
-    public int maxThreads;
-    @CommandLine.Option(names = {"--additional-jars"}, description = "Additional jars that should be made available during processing", defaultValue = "-1", split = ",")
-    public List<File> additionalJarFiles;
+    public int maxThreads = -1;
+    public List<File> additionalJarFiles = new ArrayList<>();
 
-    @CommandLine.Option(names = {"--batch-size"}, description = "Size of the micro-batch used while processing", defaultValue = "-1")
-    public int batchSize;
+    public int batchSize = -1;
 
-    @CommandLine.Option(names = {"--queue-length"}, description = "Size of the queues used for file IO", defaultValue = "-1")
-    public int queueLength;
+    public int queueLength = -1;
 
-    @CommandLine.Option(names = {"--algorithm-jar"}, description = "The jar containing the algorithm")
     public File algorithmJar;
 
-    @CommandLine.Option(names = {"--algorithm-definition"}, description = "Either the algorithm name as string, or a path to a JSON file containing the custom algorithm definition.")
     public String algorithmDefinition;
 
 
-    @CommandLine.Option(names = {"--parameters"}, description = "Path to parameter package file to be used.")
     public File parameters;
 
-    @CommandLine.Option(names = {"--encode"}, description = "Extract features from source data files and encode it.")
-    public boolean encode;
-
-    @CommandLine.Option(names = {"--list-transformations"}, description = "List available transformations in the given algorithm jar.")
-    public boolean listAvailableTransformations;
-
-    @CommandLine.Option(names = {"--verbose"}, description = "Increase verbosity of the output", defaultValue = "false")
     public boolean verbose;
 
-    @CommandLine.Option(names = {"--predict"}, description = "Perform prediction (test) on the source file.")
-    public boolean predict;
+    public boolean logFeatures;
 
-    @CommandLine.Option(names = {"--audit"}, description = "Produce audit output from source file.")
-    public boolean audit;
-
-    @CommandLine.Option(
-            names = {"--include-feature-store-responses"},
-            description = "Include feature store responses in predict/audit output under additional_properties.__feature_store_responses"
-    )
     public boolean includeFeatureStoreResponses;
 
-    @CommandLine.Option(names = {"--ordered"}, description = "Whether the order in the output should strictly follow the order in the input")
     public boolean ordered;
 
-    @CommandLine.Option(names = {"--performance-test"}, description = "Perform a performance test")
-    public boolean performanceTest;
+    public int writerNumShards = -1;
 
-    @CommandLine.Option(names = {"--generate-state"}, description = "Generate state using this class name")
-    public String generateStateTask;
-
-    @CommandLine.Option(names = {"--source"}, description = "The data source files. Format: [type=]file1,file2,file3...",
-            parameterConsumer = SourceFileConsumer.class)
     public Map<String, List<File>> sourceFiles = new HashMap<>();
 
-    private static class SourceFileConsumer implements CommandLine.IParameterConsumer {
-        @Override
-        public void consumeParameters(Stack<String> args, ArgSpec argSpec, CommandSpec commandSpec) {
-            if (args.isEmpty()) {
-                throw new ParameterException(commandSpec.commandLine(), "No value provided for --source");
-            }
-
-            Map<String, List<File>> sourceFiles = argSpec.getValue();
-            if (sourceFiles != null && !sourceFiles.isEmpty()) {
-                throw new ParameterException(commandSpec.commandLine(), "--source option can only be specified once");
-            }
-
-            String arg = args.pop();
-
-            if (arg.startsWith("{") || arg.startsWith("[")) {
-                // JSON input
-                sourceFiles = parseJsonInput(arg, commandSpec);
-            } else {
-                // Comma-separated input
-                sourceFiles = parseCommaSeparatedInput(arg);
-            }
-
-            argSpec.setValue(sourceFiles);
-        }
-
-        private Map<String, List<File>> parseJsonInput(String json, CommandSpec commandSpec) {
-            ObjectMapper mapper = new ObjectMapper();
-            try {
-                if (json.startsWith("[")) {
-                    // JSON array input
-                    List<String> defaultFiles = mapper.readValue(json, new TypeReference<>() {
-                    });
-                    Map<String, List<File>> result = new HashMap<>();
-                    result.put("default", defaultFiles.stream().map(File::new).collect(Collectors.toList()));
-                    return result;
-                } else {
-                    // JSON object input
-                    Map<String, List<String>> typedInput = mapper.readValue(json, new TypeReference<>() {});
-                    Map<String, List<File>> result = new HashMap<>();
-
-                    for (Map.Entry<String, List<String>> entry : typedInput.entrySet()) {
-                        List<File> files = new ArrayList<>();
-                        for (String path : entry.getValue()) {
-                            files.add(new File(path.trim()));
-                        }
-                        result.put(entry.getKey(), files);
-                    }
-                    return result;
-                }
-            } catch (Exception e) {
-                throw new ParameterException(commandSpec.commandLine(), "Invalid JSON format for --source", e);
-            }
-        }
-
-        private Map<String, List<File>> parseCommaSeparatedInput(String input) {
-            List<File> files = new ArrayList<>();
-            for (String path : input.split(",")) {
-                files.add(new File(path.trim()));
-            }
-            return Collections.singletonMap("default", files);
-        }
-    }
-
-    @CommandLine.Option(names = {"--dest-schema-description"}, paramLabel = "DEST_SCHEMA_DESCRIPTION_FILE", description = "The file to which the schema description of the destination file will be written")
     public File schemaDescriptionFile;
 
-    @CommandLine.Option(names = {"--dest"}, paramLabel = "DESTINATION_FILE", description = "Destination file where the outputs will be written")
     public File destinationFile;
 
-    @CommandLine.Option(names = {"--meta-data"}, paramLabel = "Metadata location", description = "Location of the metadata file which includes logging data from the processing.", defaultValue = "metadata.json")
-    public File metadataLocation;
+    public File metadataLocation = new File("metadata");
 
-    @CommandLine.Option(names = {"--samples"}, paramLabel = "Number of records to use", description = "Metadata location", defaultValue = "-1")
-    public int samples;
+    public int samples = -1;
 
-
-    @CommandLine.Option(names = {"-h", "--help"}, usageHelp = true, description = "Display a help message")
-    private boolean helpRequested = false;
+    public double targetRps = -1.0;
+    public double targetThroughputFraction = 0.8;
+    public String performanceTestWorkloadMode;
 
     @Override
     public String toString() {
@@ -156,20 +52,19 @@ public class Options {
                 ", algorithmJar=" + algorithmJar +
                 ", algorithmDefinition='" + algorithmDefinition + '\'' +
                 ", parameters=" + parameters +
-                ", encode=" + encode +
-                ", listAvailableTransformations=" + listAvailableTransformations +
-                ", predict=" + predict +
-                ", audit=" + audit +
+                ", verbose=" + verbose +
+                ", logFeatures=" + logFeatures +
                 ", includeFeatureStoreResponses=" + includeFeatureStoreResponses +
                 ", ordered=" + ordered +
-                ", performanceTest=" + performanceTest +
-                ", generateStateTask='" + generateStateTask + '\'' +
+                ", writerNumShards=" + writerNumShards +
                 ", sourceFiles=" + sourceFiles +
                 ", schemaDescriptionFile=" + schemaDescriptionFile +
                 ", destinationFile=" + destinationFile +
                 ", metadataLocation=" + metadataLocation +
                 ", samples=" + samples +
-                ", helpRequested=" + helpRequested +
+                ", targetRps=" + targetRps +
+                ", targetThroughputFraction=" + targetThroughputFraction +
+                ", performanceTestWorkloadMode='" + performanceTestWorkloadMode + '\'' +
                 '}';
     }
 }

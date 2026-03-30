@@ -3,6 +3,7 @@ import json
 import math
 import os
 from collections import Counter
+from itertools import zip_longest
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
@@ -22,10 +23,19 @@ def compare_complex_lists(input1: Tuple[str, List], input2: Tuple[str, List], co
     name1, list1 = input1
     name2, list2 = input2
     differences = []
-    for item1, item2 in zip(list1, list2):
-        element_diff = compare_json((name1, item1), (name2, item2), config)
-        if element_diff:
-            differences.append(element_diff)
+    for item1, item2 in zip_longest(list1, list2):
+        # Detect length mismatch
+        if item1 is None:
+            # list1 ended first, list2 has extra items
+            differences.append({name1: None, name2: item2})
+        elif item2 is None:
+            # list2 ended first, list1 has extra items
+            differences.append({name1: item1, name2: None})
+        else:
+            # Both items present, compare them
+            element_diff = compare_json((name1, item1), (name2, item2), config)
+            if element_diff:
+                differences.append(element_diff)
     return differences
 
 
@@ -158,9 +168,33 @@ def find_difference_in_files(file1, file2, output_dir, config_file):
     processed_lines = 0
     identical_lines = 0
     different_lines = 0
+    total_lines_f1 = None
+    total_lines_f2 = None
 
     with open(file1, "r") as f1, open(file2, "r") as f2:
-        for line_number, (line1, line2) in enumerate(zip(f1, f2), start=1):
+        for line_number, (line1, line2) in enumerate(zip_longest(f1, f2), start=1):
+            # Check if either file has ended
+            if line1 is None or line2 is None:
+                differences_found = True
+                fields_with_diff.add("__file_length_mismatch__")
+                different_lines += 1
+                # Count remaining lines
+                if line1 is None:
+                    # File1 ended first, count remaining lines in file2
+                    remaining = 1  # Count current line2
+                    for _ in f2:
+                        remaining += 1
+                    total_lines_f1 = line_number - 1
+                    total_lines_f2 = line_number - 1 + remaining
+                else:
+                    # File2 ended first, count remaining lines in file1
+                    remaining = 1  # Count current line1
+                    for _ in f1:
+                        remaining += 1
+                    total_lines_f1 = line_number - 1 + remaining
+                    total_lines_f2 = line_number - 1
+                break
+
             processed_lines += 1
             json1 = json.loads(line1)
             json2 = json.loads(line2)
@@ -190,6 +224,9 @@ def find_difference_in_files(file1, file2, output_dir, config_file):
             "different_lines": different_lines,
             "fields_with_difference": sorted(fields_with_diff),
         }
+        if total_lines_f1 is not None and total_lines_f2 is not None:
+            stdout_output["file1_total_lines"] = total_lines_f1
+            stdout_output["file2_total_lines"] = total_lines_f2
         return json.dumps(stdout_output, indent=2)
     else:
         return '{ "message": "The two files are identical" }'

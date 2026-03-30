@@ -12,22 +12,27 @@ import com.hotvect.api.data.topk.TopKOutcome;
 import com.hotvect.api.data.topk.TopKResponse;
 
 import java.lang.reflect.Method;
+import java.nio.ByteBuffer;
 import java.util.*;
 import java.util.function.BiFunction;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
-public class TopKResultFormatter<SHARED, ACTION, OUTCOME> implements BiFunction<RewardFunction<OUTCOME>, TopK<SHARED, ACTION>, Function<TopKExample<SHARED, ACTION, OUTCOME>, String>> {
+public class TopKResultFormatter<SHARED, ACTION, OUTCOME> implements BiFunction<RewardFunction<OUTCOME>, TopK<SHARED, ACTION>, Function<TopKExample<SHARED, ACTION, OUTCOME>, ByteBuffer>> {
 
     protected final ObjectMapper objectMapper = new ObjectMapper();
 
     @Override
-    public Function<TopKExample<SHARED, ACTION, OUTCOME>, String> apply(RewardFunction<OUTCOME> rewardFunction, TopK<SHARED, ACTION> topK) {
+    public Function<TopKExample<SHARED, ACTION, OUTCOME>, ByteBuffer> apply(RewardFunction<OUTCOME> rewardFunction, TopK<SHARED, ACTION> topK) {
         return ex -> {
             TopKResponse<ACTION> topKResult = topK.apply(ex.request());
             ObjectNode root = createResultNode(ex, topKResult, rewardFunction);
             try {
-                return objectMapper.writeValueAsString(root);
+                byte[] jsonBytes = objectMapper.writeValueAsBytes(root);
+                byte[] withNewline = new byte[jsonBytes.length + 1];
+                System.arraycopy(jsonBytes, 0, withNewline, 0, jsonBytes.length);
+                withNewline[jsonBytes.length] = '\n';
+                return ByteBuffer.wrap(withNewline);
             } catch (JsonProcessingException e) {
                 throw new RuntimeException(e);
             }
@@ -85,6 +90,30 @@ public class TopKResultFormatter<SHARED, ACTION, OUTCOME> implements BiFunction<
             Map<String, Object> outcomeAdditionalProperties = getAdditionalProperties(outcome);
             Map<String, Object> actionAdditionalProperties = getAdditionalProperties(topKDecision.action());
             Map<String, Object> decisionAdditionalProperties = topKDecision.additionalProperties();
+
+            // Extract and inline feature audit data if present
+            if (decisionAdditionalProperties.containsKey("features")) {
+                Map<String, Object> featureAuditEntry = (Map<String, Object>) decisionAdditionalProperties.get("features");
+                ObjectNode featureAudit = objectMapper.createObjectNode();
+
+                for (Map.Entry<String, Object> algoEntry : featureAuditEntry.entrySet()) {
+                    String algorithmName = algoEntry.getKey();
+                    Map<String, Object> features = (Map<String, Object>) algoEntry.getValue();
+
+                    // Create algorithm node with features
+                    ObjectNode algorithmNode = objectMapper.createObjectNode();
+                    algorithmNode.putPOJO("features", features);
+                    featureAudit.set(algorithmName, algorithmNode);
+                }
+
+                // Inline feature_audit into this result object
+                result.set("feature_audit", featureAudit);
+
+                // Remove from additional properties so it doesn't appear there too
+                decisionAdditionalProperties = new HashMap<>(decisionAdditionalProperties);
+                decisionAdditionalProperties.remove("features");
+            }
+
             Map<String, Object> merged = mergeAdditionalProperties(
                     outcomeAdditionalProperties,
                     actionAdditionalProperties,
@@ -131,7 +160,8 @@ public class TopKResultFormatter<SHARED, ACTION, OUTCOME> implements BiFunction<
         try {
             Optional<Method> getter = getGetter(object);
             if (getter.isPresent()) {
-                return (Map<String, Object>) getter.get().invoke(object);
+                Map<String, Object> ret = (Map<String, Object>) getter.get().invoke(object);
+                return ret != null ? ret : Collections.emptyMap();
             } else {
                 // No additional properties
                 return Collections.emptyMap();
@@ -149,7 +179,15 @@ public class TopKResultFormatter<SHARED, ACTION, OUTCOME> implements BiFunction<
         }
         // We haven't looked yet if the method is available
         try {
-            ret = Optional.of(object.getClass().getMethod("additionalProperties"));
+            Method method;
+            try {
+                method = object.getClass().getMethod("additionalProperties");
+            } catch (NoSuchMethodException e) {
+                // Backwards-compatible getter used by many generated POJOs.
+                method = object.getClass().getMethod("getAdditionalProperties");
+            }
+            method.setAccessible(true);
+            ret = Optional.of(method);
         } catch (NoSuchMethodException e) {
             // Additional properties do not exist
             ret = Optional.empty();

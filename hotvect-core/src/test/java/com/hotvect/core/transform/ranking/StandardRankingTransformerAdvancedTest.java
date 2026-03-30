@@ -8,6 +8,7 @@ import com.hotvect.api.data.ranking.RankingRequest;
 import com.hotvect.api.data.ranking.TransformedAction;
 import com.hotvect.core.transform.*;
 import com.hotvect.utils.Result;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 import java.util.*;
@@ -25,14 +26,14 @@ class StandardRankingTransformerAdvancedTest {
     }
 
     enum TestNamespace implements Namespace {
-        SHARED_COMPUTATION,
-        ACTION_COMPUTATION,
-        INTERACTION_COMPUTATION,
-        SHARED_FEATURE,
-        ACTION_FEATURE,
-        INTERACTION_FEATURE,
-        BULK_SCORER_FEATURE,
-        UNKNOWN_COMPUTATION;
+        ADVANCED_SHARED_COMPUTATION,
+        ADVANCED_ACTION_COMPUTATION,
+        ADVANCED_INTERACTION_COMPUTATION,
+        ADVANCED_SHARED_FEATURE,
+        ADVANCED_ACTION_FEATURE,
+        ADVANCED_INTERACTION_FEATURE,
+        ADVANCED_BULK_SCORER_FEATURE,
+        ADVANCED_UNKNOWN_COMPUTATION;
 
         @Override
         public String getName() {
@@ -44,6 +45,12 @@ class StandardRankingTransformerAdvancedTest {
             // Just return some value type; it's not critical here.
             return RawValueType.SINGLE_STRING;
         }
+    }
+
+    @BeforeAll
+    static void registerNamespaces() {
+        // Register enum to make all constants canonical
+        Namespaces.register(TestNamespace.class);
     }
 
     @Test
@@ -63,12 +70,12 @@ class StandardRankingTransformerAdvancedTest {
             return "action";
         };
 
-        builder.withSharedComputation(TestNamespace.SHARED_COMPUTATION, sharedComputation)
-                .withActionComputation(TestNamespace.ACTION_COMPUTATION, actionComputation)
-                .withFeature(TestNamespace.SHARED_COMPUTATION.getName())
-                .withFeature(TestNamespace.ACTION_COMPUTATION.getName())
-                .setComputationSpec(TestNamespace.SHARED_COMPUTATION, ComputationSpec.LAZY_MEMOIZED)
-                .setComputationSpec(TestNamespace.ACTION_COMPUTATION, ComputationSpec.LAZY_ON_DEMAND);
+        builder.withSharedComputation(TestNamespace.ADVANCED_SHARED_COMPUTATION, sharedComputation)
+                .withActionComputation(TestNamespace.ADVANCED_ACTION_COMPUTATION, actionComputation)
+                .withFeature(TestNamespace.ADVANCED_SHARED_COMPUTATION.getName())
+                .withFeature(TestNamespace.ADVANCED_ACTION_COMPUTATION.getName())
+                .setComputationSpec(TestNamespace.ADVANCED_SHARED_COMPUTATION, ComputationSpec.LAZY_MEMOIZED)
+                .setComputationSpec(TestNamespace.ADVANCED_ACTION_COMPUTATION, ComputationSpec.LAZY_ON_DEMAND);
 
         StandardRankingTransformer<TestShared, TestAction> transformer = builder.build();
 
@@ -102,8 +109,8 @@ class StandardRankingTransformerAdvancedTest {
             throw new RuntimeException("Computation failed");
         };
 
-        builder.withSharedComputation(TestNamespace.SHARED_COMPUTATION, failingComputation)
-                .withFeature(TestNamespace.SHARED_COMPUTATION.getName());
+        builder.withSharedComputation(TestNamespace.ADVANCED_SHARED_COMPUTATION, failingComputation)
+                .withFeature(TestNamespace.ADVANCED_SHARED_COMPUTATION.getName());
 
         StandardRankingTransformer<TestShared, TestAction> transformer = builder.build();
 
@@ -125,8 +132,8 @@ class StandardRankingTransformerAdvancedTest {
         Computation<RankingRequest<TestShared, TestAction>, Result<String, String>> resultComputation = 
             memoized -> new Result.Success<>("success");
 
-        builder.withSharedComputation(TestNamespace.SHARED_COMPUTATION, resultComputation)
-                .withFeature(TestNamespace.SHARED_COMPUTATION.getName());
+        builder.withSharedComputation(TestNamespace.ADVANCED_SHARED_COMPUTATION, resultComputation)
+                .withFeature(TestNamespace.ADVANCED_SHARED_COMPUTATION.getName());
 
         StandardRankingTransformer<TestShared, TestAction> transformer = builder.build();
 
@@ -141,10 +148,10 @@ class StandardRankingTransformerAdvancedTest {
         assertEquals(1, result.size());
         
         NamespacedRecord<Namespace, Object> record = result.get(0).transformed();
-        assertTrue(record.asMap().containsKey(TestNamespace.SHARED_COMPUTATION));
+        assertTrue(record.asMap().containsKey(TestNamespace.ADVANCED_SHARED_COMPUTATION));
         
         @SuppressWarnings("unchecked")
-        Result<String, String> computationResult = (Result<String, String>) record.get(TestNamespace.SHARED_COMPUTATION);
+        Result<String, String> computationResult = (Result<String, String>) record.get(TestNamespace.ADVANCED_SHARED_COMPUTATION);
         assertTrue(computationResult instanceof Result.Success);
         if (computationResult instanceof Result.Success<String, String> success) {
             assertEquals("success", success.value());
@@ -157,18 +164,18 @@ class StandardRankingTransformerAdvancedTest {
                 StandardRankingTransformer.builder();
 
         // Add multiple computations and features
-        builder.withSharedComputation(TestNamespace.SHARED_COMPUTATION, memoized -> "shared1")
-                .withSharedComputation(TestNamespace.SHARED_FEATURE, memoized -> "shared2")
-                .withActionComputation(TestNamespace.ACTION_COMPUTATION, memoized -> "action1")
-                .withActionComputation(TestNamespace.ACTION_FEATURE, memoized -> "action2")
-                .withInteractionComputation(TestNamespace.INTERACTION_COMPUTATION, memoized -> "interaction1")
-                .withInteractionComputation(TestNamespace.INTERACTION_FEATURE, memoized -> "interaction2")
-                .withFeature(TestNamespace.SHARED_COMPUTATION.getName())
-                .withFeature(TestNamespace.SHARED_FEATURE.getName())
-                .withFeature(TestNamespace.ACTION_COMPUTATION.getName())
-                .withFeature(TestNamespace.ACTION_FEATURE.getName())
-                .withFeature(TestNamespace.INTERACTION_COMPUTATION.getName())
-                .withFeature(TestNamespace.INTERACTION_FEATURE.getName());
+        builder.withSharedComputation(TestNamespace.ADVANCED_SHARED_COMPUTATION, memoized -> "shared1")
+                .withSharedComputation(TestNamespace.ADVANCED_SHARED_FEATURE, memoized -> "shared2")
+                .withActionComputation(TestNamespace.ADVANCED_ACTION_COMPUTATION, memoized -> "action1")
+                .withActionComputation(TestNamespace.ADVANCED_ACTION_FEATURE, memoized -> "action2")
+                .withInteractionComputation(TestNamespace.ADVANCED_INTERACTION_COMPUTATION, memoized -> "interaction1")
+                .withInteractionComputation(TestNamespace.ADVANCED_INTERACTION_FEATURE, memoized -> "interaction2")
+                .withFeature(TestNamespace.ADVANCED_SHARED_COMPUTATION.getName())
+                .withFeature(TestNamespace.ADVANCED_SHARED_FEATURE.getName())
+                .withFeature(TestNamespace.ADVANCED_ACTION_COMPUTATION.getName())
+                .withFeature(TestNamespace.ADVANCED_ACTION_FEATURE.getName())
+                .withFeature(TestNamespace.ADVANCED_INTERACTION_COMPUTATION.getName())
+                .withFeature(TestNamespace.ADVANCED_INTERACTION_FEATURE.getName());
 
         StandardRankingTransformer<TestShared, TestAction> transformer = builder.build();
 
@@ -184,12 +191,12 @@ class StandardRankingTransformerAdvancedTest {
 
         NamespacedRecord<Namespace, Object> record = result.get(0).transformed();
         assertEquals(6, record.asMap().size());
-        assertEquals("shared1", record.get(TestNamespace.SHARED_COMPUTATION));
-        assertEquals("shared2", record.get(TestNamespace.SHARED_FEATURE));
-        assertEquals("action1", record.get(TestNamespace.ACTION_COMPUTATION));
-        assertEquals("action2", record.get(TestNamespace.ACTION_FEATURE));
-        assertEquals("interaction1", record.get(TestNamespace.INTERACTION_COMPUTATION));
-        assertEquals("interaction2", record.get(TestNamespace.INTERACTION_FEATURE));
+        assertEquals("shared1", record.get(TestNamespace.ADVANCED_SHARED_COMPUTATION));
+        assertEquals("shared2", record.get(TestNamespace.ADVANCED_SHARED_FEATURE));
+        assertEquals("action1", record.get(TestNamespace.ADVANCED_ACTION_COMPUTATION));
+        assertEquals("action2", record.get(TestNamespace.ADVANCED_ACTION_FEATURE));
+        assertEquals("interaction1", record.get(TestNamespace.ADVANCED_INTERACTION_COMPUTATION));
+        assertEquals("interaction2", record.get(TestNamespace.ADVANCED_INTERACTION_FEATURE));
     }
 
     @Test
@@ -197,8 +204,8 @@ class StandardRankingTransformerAdvancedTest {
         StandardRankingTransformer.Builder<TestShared, TestAction> builder =
                 StandardRankingTransformer.builder();
 
-        builder.withSharedComputation(TestNamespace.SHARED_COMPUTATION, memoized -> "shared")
-                .withFeature(TestNamespace.SHARED_COMPUTATION.getName());
+        builder.withSharedComputation(TestNamespace.ADVANCED_SHARED_COMPUTATION, memoized -> "shared")
+                .withFeature(TestNamespace.ADVANCED_SHARED_COMPUTATION.getName());
 
         StandardRankingTransformer<TestShared, TestAction> transformer = builder.build();
 
@@ -218,21 +225,21 @@ class StandardRankingTransformerAdvancedTest {
                 StandardRankingTransformer.builder();
 
         // Create a chain of computations that depend on each other
-        builder.withSharedComputation(TestNamespace.SHARED_COMPUTATION, 
+        builder.withSharedComputation(TestNamespace.ADVANCED_SHARED_COMPUTATION, 
                 memoized -> memoized.getOriginalInput().shared().sharedField)
-                .withSharedComputation(TestNamespace.SHARED_FEATURE,
-                        memoized -> memoized.compute(TestNamespace.SHARED_COMPUTATION) + "-processed")
-                .withActionComputation(TestNamespace.ACTION_COMPUTATION,
+                .withSharedComputation(TestNamespace.ADVANCED_SHARED_FEATURE,
+                        memoized -> memoized.compute(TestNamespace.ADVANCED_SHARED_COMPUTATION) + "-processed")
+                .withActionComputation(TestNamespace.ADVANCED_ACTION_COMPUTATION,
                         memoized -> memoized.getOriginalInput().actionField)
-                .withActionComputation(TestNamespace.ACTION_FEATURE,
-                        memoized -> memoized.compute(TestNamespace.ACTION_COMPUTATION) + "-processed")
-                .withInteractionComputation(TestNamespace.INTERACTION_FEATURE,
+                .withActionComputation(TestNamespace.ADVANCED_ACTION_FEATURE,
+                        memoized -> memoized.compute(TestNamespace.ADVANCED_ACTION_COMPUTATION) + "-processed")
+                .withInteractionComputation(TestNamespace.ADVANCED_INTERACTION_FEATURE,
                         memoized -> {
-                            String sharedValue = (String) memoized.getShared().compute(TestNamespace.SHARED_FEATURE);
-                            String actionValue = (String) memoized.getAction().compute(TestNamespace.ACTION_FEATURE);
+                            String sharedValue = (String) memoized.getShared().compute(TestNamespace.ADVANCED_SHARED_FEATURE);
+                            String actionValue = (String) memoized.getAction().compute(TestNamespace.ADVANCED_ACTION_FEATURE);
                             return sharedValue + ":" + actionValue;
                         })
-                .withFeature(TestNamespace.INTERACTION_FEATURE.getName());
+                .withFeature(TestNamespace.ADVANCED_INTERACTION_FEATURE.getName());
 
         StandardRankingTransformer<TestShared, TestAction> transformer = builder.build();
 
@@ -250,6 +257,6 @@ class StandardRankingTransformerAdvancedTest {
 
         NamespacedRecord<Namespace, Object> record = result.get(0).transformed();
         assertEquals("sharedData-processed:actionData-processed", 
-                record.get(TestNamespace.INTERACTION_FEATURE));
+                record.get(TestNamespace.ADVANCED_INTERACTION_FEATURE));
     }
 }

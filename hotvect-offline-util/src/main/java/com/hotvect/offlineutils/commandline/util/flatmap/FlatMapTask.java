@@ -12,6 +12,7 @@ import java.io.File;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLClassLoader;
+import java.nio.ByteBuffer;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -41,7 +42,7 @@ public class FlatMapTask extends VerboseCallable<Map<String, Object>> {
         Optional<JsonNode> hyperparameter = CommandlineUtility.parseStringOrFileToJsonNode(this.flatMapOptions.hyperParameter);
 
 
-        Function<String, List<String>> flatMap = flatMapFunFactory.apply(hyperparameter);
+        Function<String, List<ByteBuffer>> flatMap = flatMapFunFactory.apply(hyperparameter);
 
         OrderedFileMapper processor = OrderedFileMapper.mapper(
                 this.meterRegistry,

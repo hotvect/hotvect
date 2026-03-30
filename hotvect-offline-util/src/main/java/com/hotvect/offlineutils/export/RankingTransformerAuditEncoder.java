@@ -11,16 +11,16 @@ import com.hotvect.api.algodefinition.common.RewardFunction;
 import com.hotvect.api.algodefinition.ranking.RankingTransformer;
 import com.hotvect.api.codec.ranking.RankingExampleEncoder;
 import com.hotvect.api.data.Namespace;
-import com.hotvect.api.data.RawValue;
 import com.hotvect.api.data.ranking.RankingExample;
 import com.hotvect.api.data.ranking.TransformedAction;
-import it.unimi.dsi.fastutil.doubles.DoubleArrayList;
-import it.unimi.dsi.fastutil.ints.Int2DoubleArrayMap;
-import it.unimi.dsi.fastutil.objects.Object2DoubleArrayMap;
 
+import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 public class RankingTransformerAuditEncoder<SHARED, ACTION, OUTCOME> implements RankingExampleEncoder<SHARED, ACTION, OUTCOME> {
@@ -41,9 +41,14 @@ public class RankingTransformerAuditEncoder<SHARED, ACTION, OUTCOME> implements 
     }
 
     @Override
-    public String apply(RankingExample<SHARED, ACTION, OUTCOME> toEncode) {
+    public String encodedFileExtension() {
+        return ".jsonl";
+    }
 
-        List<TransformedAction<ACTION>> transformed = this.transformer.transform(toEncode.rankingRequest());
+    @Override
+    public ByteBuffer apply(RankingExample<SHARED, ACTION, OUTCOME> toEncode) {
+
+        List<TransformedAction<ACTION>> transformed = this.transformer.transform(toEncode.request());
         var root = objectMapper.createObjectNode();
         root.put("example_id", toEncode.exampleId());
 
@@ -51,13 +56,14 @@ public class RankingTransformerAuditEncoder<SHARED, ACTION, OUTCOME> implements 
             Map<String, Object> additionalProperties = new HashMap<>();
             additionalProperties.put(
                     FEATURE_STORE_RESPONSES_KEY,
-                    toEncode.request().featureStoreResponseContainer().featureStoreResponses()
+                    Objects.requireNonNull(toEncode.request().featureStoreResponseContainer(), "request.featureStoreResponseContainer is null")
+                            .featureStoreResponses()
             );
             root.putPOJO("additional_properties", additionalProperties);
         }
 
         ArrayNode results = objectMapper.createArrayNode();
-        var actions = toEncode.rankingRequest().availableActions();
+        var actions = toEncode.request().availableActions();
         var outcomes = toEncode.outcomes();
         Map<Integer, Double> actionIdxToReward = outcomes.stream().collect(Collectors.toMap(
                 x -> x.rankingDecision().actionIndex(),
@@ -74,9 +80,6 @@ public class RankingTransformerAuditEncoder<SHARED, ACTION, OUTCOME> implements 
 
             for (Namespace usedFeature : this.transformer.getUsedFeatures()) {
                 Object featureValue = transformedRecord.transformed().get(usedFeature);
-                if(featureValue instanceof RawValue rawValue){
-                    featureValue = jsonEncode(rawValue);
-                }
                 features.putPOJO(usedFeature.toString(), featureValue);
             }
             results.add(result);
@@ -85,30 +88,15 @@ public class RankingTransformerAuditEncoder<SHARED, ACTION, OUTCOME> implements 
 
         root.set("actions", results);
         try {
-            return objectMapper.writeValueAsString(root);
+            byte[] jsonBytes = objectMapper.writeValueAsBytes(root);
+            byte[] bytesWithNewline = new byte[jsonBytes.length + 1];
+            System.arraycopy(jsonBytes, 0, bytesWithNewline, 0, jsonBytes.length);
+            bytesWithNewline[jsonBytes.length] = '\n';
+            return ByteBuffer.wrap(bytesWithNewline);
         } catch (JsonProcessingException e) {
             throw new RuntimeException("unexpected error on serializing:" + root, e);
         }
 
     }
-
-    // TODO remove once RawValue is gone
-    @Deprecated(forRemoval = true)
-    private Object jsonEncode(RawValue rawValue) {
-        if(rawValue == null) return null;
-        return switch (rawValue.getValueType()) {
-            case SINGLE_NUMERICAL -> rawValue.getSingleNumerical();
-            case SINGLE_CATEGORICAL -> rawValue.getSingleCategorical();
-            case SINGLE_STRING -> rawValue.getSingleString();
-            case STRINGS -> rawValue.getStrings();
-            case STRINGS_TO_NUMERICALS ->
-                    new Object2DoubleArrayMap<String>(rawValue.getStrings(), rawValue.getNumericals());
-            case CATEGORICALS -> rawValue.getCategoricals();
-            case SPARSE_VECTOR, CATEGORICALS_TO_NUMERICALS ->
-                    new Int2DoubleArrayMap(rawValue.getCategoricals(), rawValue.getNumericals());
-            case DENSE_VECTOR -> new DoubleArrayList(rawValue.getNumericals());
-        };
-    }
-
 
 }

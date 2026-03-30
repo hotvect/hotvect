@@ -20,9 +20,9 @@ public class TopKResponse<ACTION> implements Response<ACTION> {
     private final FeatureStoreResponseContainer featureStoreResponseContainer;
 
     protected TopKResponse(List<TopKDecision<ACTION>> topKDecisions, FeatureStoreResponseContainer featureStoreResponseContainer, Map<String,Object> additionalProperties){
-        this.topKDecisions = topKDecisions;
-        this.additionalProperties = additionalProperties;
-        this.featureStoreResponseContainer = featureStoreResponseContainer;
+        this.topKDecisions = Objects.requireNonNull(topKDecisions, "topKDecisions cannot be null");
+        this.featureStoreResponseContainer = Objects.requireNonNull(featureStoreResponseContainer, "featureStoreResponseContainer cannot be null");
+        this.additionalProperties = Objects.requireNonNull(additionalProperties, "additionalProperties cannot be null");
     }
     
     @Override

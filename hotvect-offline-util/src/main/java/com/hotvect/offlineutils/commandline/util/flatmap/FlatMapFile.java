@@ -12,6 +12,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import picocli.CommandLine;
 
+import java.io.File;
 import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.concurrent.TimeUnit;
@@ -41,11 +42,16 @@ public class FlatMapFile {
             FlatMapOptions opts = new FlatMapOptions();
             new CommandLine(opts).parseArgs(args);
             CommandlineUtility.expandTildaOnFileFields(opts);
+            if (opts.metadataLocation.getName().endsWith(".json")) {
+                throw new IllegalArgumentException("--metadata-path now expects a directory, not a .json file. Example: --metadata-path myrun.metadata");
+            }
+            CommandlineUtility.ensureDirectoryExists(opts.metadataLocation, "--metadata-path");
 
             Callable<Map<String, Object>> task = new FlatMapTask(METER_REGISTRY, opts);
             Map<String, Object> metadata = task.call();
-            OM.writeValue(opts.metadataLocation, metadata);
-            LOGGER.info("Wrote metadata: location={}, metadata={}", opts.metadataLocation, metadata);
+            File metadataFile = CommandlineUtility.metadataJsonFile(opts.metadataLocation);
+            OM.writeValue(metadataFile, metadata);
+            LOGGER.info("Wrote metadata: location={}, metadata={}", metadataFile, metadata);
 
         }catch (Throwable e) {
             LOGGER.error("Exception encountered:", e);

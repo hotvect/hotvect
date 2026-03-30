@@ -8,7 +8,11 @@ import com.hotvect.api.algodefinition.ranking.RankingTransformer;
 import com.hotvect.api.codec.ranking.RankingExampleEncoder;
 import com.hotvect.api.data.ranking.RankingExample;
 
+import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import static java.util.stream.Collectors.toMap;
 
@@ -23,13 +27,18 @@ public class RankingExampleJsonEncoder<SHARED, ACTION, OUTCOME> implements Ranki
     }
 
     @Override
-    public String apply(RankingExample<SHARED, ACTION, OUTCOME> toEncode) {
+    public String encodedFileExtension() {
+        return ".jsonl";
+    }
+
+    @Override
+    public ByteBuffer apply(RankingExample<SHARED, ACTION, OUTCOME> toEncode) {
         var root = objectMapper.createObjectNode();
         root.put("example_id", toEncode.exampleId());
 
         ArrayNode actionToEncoded = objectMapper.createArrayNode();
-        var actions = toEncode.rankingRequest().availableActions();
-        var transformeds = rankingTransformer.apply(toEncode.rankingRequest());
+        var actions = toEncode.request().availableActions();
+        var transformeds = rankingTransformer.transform(toEncode.request());
         Map<Integer, Double> rewards = toEncode.outcomes().stream().collect(toMap(
                 outcomeRankingOutcome -> outcomeRankingOutcome.rankingDecision().getActionIndex(),
                 o -> rewardFunction.applyAsDouble(o.outcome())
@@ -52,7 +61,11 @@ public class RankingExampleJsonEncoder<SHARED, ACTION, OUTCOME> implements Ranki
         root.set("actions", actionToEncoded);
 
         try {
-            return objectMapper.writeValueAsString(root);
+            byte[] jsonBytes = objectMapper.writeValueAsBytes(root);
+            byte[] bytesWithNewline = new byte[jsonBytes.length + 1];
+            System.arraycopy(jsonBytes, 0, bytesWithNewline, 0, jsonBytes.length);
+            bytesWithNewline[jsonBytes.length] = '\n';
+            return ByteBuffer.wrap(bytesWithNewline);
         } catch (JsonProcessingException e) {
             throw new RuntimeException(e);
         }

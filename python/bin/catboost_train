@@ -28,6 +28,28 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+def resolve_shard_file(encoded_data_dir: str) -> str:
+    """
+    Resolves the encoded data directory to a single shard file for training.
+    Returns the path to shard_0.* file.
+    Fails if directory doesn't exist or contains no shard files.
+    """
+    if not os.path.isdir(encoded_data_dir):
+        raise ValueError(f"Encoded directory does not exist: {encoded_data_dir}")
+
+    shard_files = sorted(glob(os.path.join(encoded_data_dir, "shard_*")))
+
+    if not shard_files:
+        raise ValueError(f"No shard files found in encoded directory: {encoded_data_dir}")
+
+    if len(shard_files) > 1:
+        raise ValueError(
+            f"CatBoost training requires exactly one encoded shard, but found {len(shard_files)} in {encoded_data_dir}. "
+            "For CatBoost training you have to use one shard (set writer_num_shards=1)."
+        )
+
+    return shard_files[0]
+
 def run_catboost_train(
         algorithm_definition_path: str,
         algorithm_definition: Dict[str, Any],
@@ -36,18 +58,20 @@ def run_catboost_train(
         encoded_schema_description_file_path: str,
         scratch_dir: str,
         parameter_output_path: str) -> Dict[str, Any]:
+    # Resolve shard file from encoded directory
+    encoded_data_file = resolve_shard_file(encoded_data_file_path)
     logger.info(
-        f"Running catboost training encoded_data_file={encoded_data_file_path}, scratch_dir={scratch_dir}, parameter_location={parameter_output_path}")
+        f"Running catboost training encoded_data_file={encoded_data_file}, scratch_dir={scratch_dir}, parameter_location={parameter_output_path}")
     logger.info(f"Using column description: {encoded_schema_description_file_path}")
 
-    if encoded_data_file_path.endswith(".gz"):
+    if encoded_data_file.endswith(".gz"):
         logger.warning("Your encoded file is gzipped, but catboost cannot accept gzipped files. Turn off gzip feature to speed up training")
         # Catboost does not accept gzipped training file
-        expanded_encoded_data_file = os.path.join(scratch_dir, f"{Path(encoded_data_file_path).stem}-expanded.tsv")
-        runshell(f"gunzip -c {encoded_data_file_path} > {expanded_encoded_data_file}", shell=True)
-        encoded_data_file_path = expanded_encoded_data_file
+        expanded_encoded_data_file = os.path.join(scratch_dir, f"{Path(encoded_data_file).stem}-expanded.tsv")
+        runshell(f"gunzip -c {encoded_data_file} > {expanded_encoded_data_file}", shell=True)
+        encoded_data_file = expanded_encoded_data_file
 
-    training_data = Pool(encoded_data_file_path, column_description=encoded_schema_description_file_path)
+    training_data = Pool(encoded_data_file, column_description=encoded_schema_description_file_path)
     catboost_options = {
         "train_dir": scratch_dir
     }
@@ -69,11 +93,19 @@ def run_catboost_train(
     logger.info("Starting the training")
     model.fit(training_data)
     logger.info("Saving the model")
-    model.save_model(parameter_output_path)
+    parameter_output_dir = Path(parameter_output_path)
+    if parameter_output_dir.suffix:
+        raise ValueError(
+            f"Expected --parameter_output_path to be a directory (e.g. .../model_parameter), got: {parameter_output_path}"
+        )
+    parameter_output_dir.mkdir(parents=True, exist_ok=True)
+    model_path = str(parameter_output_dir / "model.parameter")
+    model.save_model(model_path)
 
     catboost_training_json = get_catboost_train_info(scratch_dir)
     result_json = {
         'parameter_output_path': parameter_output_path,
+        'model_path': model_path,
         'catboost_training': catboost_training_json
     }
     return result_json

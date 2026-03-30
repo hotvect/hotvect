@@ -7,6 +7,7 @@ import com.codahale.metrics.Timer;
 import com.codahale.metrics.UniformReservoir;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import com.google.common.util.concurrent.RateLimiter;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
@@ -17,23 +18,34 @@ import com.hotvect.api.data.common.Example;
 import com.hotvect.api.data.OfflineRequest;
 import com.hotvect.api.data.ranking.RankingExample;
 import com.hotvect.api.data.topk.TopKExample;
+import com.hotvect.api.execution.ExecutionContext;
+import com.hotvect.api.execution.InputSemantic;
+import com.hotvect.api.execution.WorkloadMode;
 import com.hotvect.offlineutils.hotdeploy.AlgorithmOfflineSupporterFactory;
 import com.hotvect.onlineutils.util.MathUtils;
 import com.hotvect.onlineutils.util.StreamUtils;
 import com.hotvect.onlineutils.hotdeploy.AlgorithmInstanceFactory;
+import com.hotvect.onlineutils.concurrency.fileutils.FileFormat;
+import com.hotvect.onlineutils.concurrency.fileutils.FileUtils;
+import com.hotvect.onlineutils.concurrency.fileutils.RecordReader;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.File;
+import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Random;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import static com.google.common.base.Preconditions.checkState;
-import static com.hotvect.onlineutils.concurrency.fileutils.FileUtils.readData;
 import static java.lang.Math.max;
 
 public class PerformanceTestTask<EXAMPLE extends Example<? extends OfflineRequest, ?>, ALGO extends Algorithm> extends Task {
@@ -47,57 +59,389 @@ public class PerformanceTestTask<EXAMPLE extends Example<? extends OfflineReques
 
     @Override
     protected Map<String, Object> perform() throws Exception {
+        WorkloadMode workloadMode = resolveWorkloadMode(offlineTaskContext.options().performanceTestWorkloadMode);
         AlgorithmOfflineSupporterFactory algorithmSupporterFactory = new AlgorithmOfflineSupporterFactory(this.offlineTaskContext.classLoader());
         AlgorithmInstanceFactory algoAlgorithmInstanceFactory = new AlgorithmInstanceFactory(
                 offlineTaskContext.classLoader(),
+                ExecutionContext.of(workloadMode, InputSemantic.OFFLINE),
                 false
         );
         ExampleDecoder<EXAMPLE> decoder = algorithmSupporterFactory.getTestDecoder(offlineTaskContext.algorithmDefinition());
 
 
-
-        AlgorithmInstance<ALGO> algoAlgorithmInstance = algoAlgorithmInstanceFactory.load(
+        try (AlgorithmInstance<ALGO> algoAlgorithmInstance = algoAlgorithmInstanceFactory.load(
                 this.offlineTaskContext.algorithmDefinition(),
                 this.offlineTaskContext.options().parameters,
                 Map.of()
-        );
+        )) {
+            LOGGER.info("Loaded AlgorithmInstance:{}", algoAlgorithmInstance);
+            Options options = offlineTaskContext.options();
 
-        LOGGER.info("Loaded AlgorithmInstance:{}", algoAlgorithmInstance);
+            checkState(
+                    this.offlineTaskContext.options().sourceFiles.size() == 1 &&
+                            this.offlineTaskContext.options().sourceFiles.keySet().iterator().next().equals("default")
+                    ,
+                    "Only one source file type is supported for performance test"
+            );
 
-        checkState(
-                this.offlineTaskContext.options().sourceFiles.size() == 1 &&
-                        this.offlineTaskContext.options().sourceFiles.keySet().iterator().next().equals("default")
-                ,
-                "Only one source file type is supported for performance test"
-        );
+            final int sampleSize = options.samples > 0 ? Math.min(options.samples, 10_000) : 10_000;
+            final int oversampleFactor = 3;
+            final long samplingSeed = 42L;
+            final int linesPerFile = 200;
+            final int minFilesToTouch = 20;
 
+            List<EXAMPLE> sampledData = sampleDecodedExamples(
+                    super.offlineTaskContext.options().sourceFiles.values().iterator().next(),
+                    decoder,
+                    sampleSize,
+                    oversampleFactor,
+                    samplingSeed,
+                    linesPerFile,
+                    minFilesToTouch
+            );
 
-        final int sampleSize = 5000;
-        com.hotvect.onlineutils.util.UniformReservoir<String> exampleReservoir = new com.hotvect.onlineutils.util.UniformReservoir<>(5000);
-        Stream<String> data = readData(super.offlineTaskContext.options().sourceFiles.values().iterator().next());
-        data.forEach(exampleReservoir::update);
-        List<EXAMPLE> sampledData = exampleReservoir.getSnapshot().stream()
-                .flatMap(x -> decoder.apply(x).stream())
-                .toList();
-        // Warm up
-        Map<String, Double> warmUpResult = performTestRun(sampledData.stream(), algoAlgorithmInstance.algorithm(), sampleSize);
-        double mean_throughput = warmUpResult.get("mean_throughput");
+            // Warm up
+            Map<String, Double> warmUpResult = performTestRun(sampledData.stream(), algoAlgorithmInstance.algorithm(), sampledData.size());
+            double meanThroughput = warmUpResult.get("mean_throughput");
 
-        int samplePerTest = pickSamplePerTest(offlineTaskContext.options(), mean_throughput);
-        logger.info("Using sample size {} for the performance test", samplePerTest);
+            checkState(Double.isFinite(meanThroughput) && meanThroughput > 0.0, "Warmup throughput must be positive, got: %s", meanThroughput);
+            checkState(
+                    Double.isFinite(options.targetThroughputFraction) && options.targetThroughputFraction >= 0.0 && options.targetThroughputFraction <= 1.0,
+                    "--target-throughput-fraction must be within [0, 1], got: %s",
+                    options.targetThroughputFraction
+            );
+            checkState(
+                    options.targetRps == -1.0 || (Double.isFinite(options.targetRps) && options.targetRps > 0.0),
+                    "--target-rps must be > 0 (or left unset), got: %s",
+                    options.targetRps
+            );
 
+            Double targetRps = null;
+            if (options.targetRps > 0.0) {
+                targetRps = options.targetRps;
+            } else if (options.targetThroughputFraction > 0.0) {
+                targetRps = meanThroughput * options.targetThroughputFraction;
+            }
+            if (targetRps != null) {
+                logger.info("Pacing performance test at {} rps (warmup mean_throughput={} targetThroughputFraction={})",
+                        targetRps, meanThroughput, options.targetThroughputFraction);
+            } else {
+                logger.info("No pacing configured for performance test (warmup mean_throughput={})", meanThroughput);
+            }
 
-        // Actual measurement
-        List<Map<String, Double>> results = new ArrayList<>();
-        for (int i = 0; i < 5; i++) {
-            results.add(performTestRun(StreamUtils.repeatToLength(sampledData, samplePerTest), algoAlgorithmInstance.algorithm(), samplePerTest));
+            double sampleSizingThroughput = targetRps == null ? meanThroughput : targetRps;
+            int samplePerTest = pickSamplePerTest(options, sampleSizingThroughput);
+            logger.info("Using sample size {} for the performance test", samplePerTest);
+
+            // Actual measurement
+            List<Map<String, Double>> results = new ArrayList<>();
+            for (int i = 0; i < 5; i++) {
+                RateLimiter rateLimiter = targetRps == null ? null : RateLimiter.create(targetRps);
+                results.add(performTestRun(
+                        StreamUtils.repeatToLength(sampledData, samplePerTest),
+                        algoAlgorithmInstance.algorithm(),
+                        samplePerTest,
+                        rateLimiter
+                ));
+            }
+
+            Map<String, Object> metadata = new HashMap<>();
+
+            Map<String, Object> aggregatedPerformanceTestResult = aggregate(results);
+            metadata.put("response_time_metrics", aggregatedPerformanceTestResult);
+            metadata.put("warmup_mean_throughput", meanThroughput);
+            metadata.put("target_rps", targetRps);
+            metadata.put("workload_mode", workloadMode.name().toLowerCase(Locale.ROOT));
+            return metadata;
+        }
+    }
+
+    static WorkloadMode resolveWorkloadMode(String configuredValue) {
+        if (configuredValue == null || configuredValue.isBlank()) {
+            return WorkloadMode.REALTIME;
+        }
+        return switch (configuredValue.trim().toLowerCase(Locale.ROOT)) {
+            case "realtime" -> WorkloadMode.REALTIME;
+            case "batch" -> WorkloadMode.BATCH;
+            default -> throw new IllegalArgumentException(
+                    "Unsupported performance-test workload mode: " + configuredValue + ". Expected one of: realtime, batch"
+            );
+        };
+    }
+
+    static <T> List<T> sampleDecodedExamples(
+            List<File> sources,
+            Function<String, List<T>> decoder,
+            int sampleSize,
+            int oversampleFactor,
+            long seed,
+            int linesPerFile,
+            int minFilesToTouch
+    ) throws Exception {
+        checkState(sampleSize > 0, "sampleSize must be positive");
+        checkState(oversampleFactor > 0, "oversampleFactor must be positive");
+        checkState(linesPerFile > 0, "linesPerFile must be positive");
+        checkState(minFilesToTouch >= 0, "minFilesToTouch must be non-negative");
+
+        List<File> files = new ArrayList<>(FileUtils.listFiles(sources).toList());
+        checkState(!files.isEmpty(), "No source files found for performance test sampling");
+
+        FileFormat format = FileFormat.validateUniformFormat(files);
+        checkState(format == FileFormat.TEXT, "Performance test sampling expects text inputs, found: %s", format);
+
+        List<Path> rootPaths = sources.stream().map(File::toPath).map(Path::toAbsolutePath).map(Path::normalize).toList();
+        Map<File, String> fileKeyByFile = new HashMap<>(files.size() * 2);
+        for (File file : files) {
+            fileKeyByFile.put(file, fileKey(file, rootPaths));
         }
 
-        Map<String, Object> metadata = new HashMap<>();
+        files.sort(Comparator.comparing(fileKeyByFile::get));
+        Collections.shuffle(files, new Random(seed));
 
-        Map<String, Object> aggregatedPerformanceTestResult = aggregate(results);
-        metadata.put("response_time_metrics", aggregatedPerformanceTestResult);
-        return metadata;
+        int targetDecoded = Math.max(sampleSize, sampleSize * oversampleFactor);
+            ReservoirSample<T> reservoirSample = reservoirSampleDecodedExamples(
+                    files,
+                    decoder,
+                    sampleSize,
+                    targetDecoded,
+                    seed,
+                    linesPerFile,
+                    minFilesToTouch
+            );
+            List<T> sampled = reservoirSample.sample();
+
+            checkState(!sampled.isEmpty(), "Performance test sampling did not decode any examples");
+
+            if (sampled.size() < sampleSize) {
+                logger.warn(
+                    "Only sampled {} examples (requested {}): candidates={} filesTouched={} sweeps={}",
+                    sampled.size(),
+                    sampleSize,
+                    reservoirSample.candidatesSeen(),
+                    reservoirSample.maxFilesTouched(),
+                    reservoirSample.sweeps()
+            );
+        } else {
+            logger.info(
+                    "Sampled {} examples from {} candidate examples across {} files (sweeps={})",
+                    sampled.size(),
+                    reservoirSample.candidatesSeen(),
+                    reservoirSample.maxFilesTouched(),
+                    reservoirSample.sweeps()
+            );
+        }
+        return sampled;
+    }
+
+    static <T> ReservoirSample<T> reservoirSampleDecodedExamples(
+            List<File> files,
+            Function<String, List<T>> decoder,
+            int sampleSize,
+            int targetDecoded,
+            long seed,
+            int linesPerFile,
+            int minFilesToTouch
+    ) throws Exception {
+        checkState(sampleSize > 0, "sampleSize must be positive");
+        checkState(targetDecoded > 0, "targetDecoded must be positive");
+        checkState(linesPerFile > 0, "linesPerFile must be positive");
+        checkState(minFilesToTouch >= 0, "minFilesToTouch must be non-negative");
+
+        int effectiveMinFilesToTouch = Math.min(minFilesToTouch, files.size());
+        List<T> sample = new ArrayList<>(sampleSize);
+        Random reservoirRandom = new Random(seed);
+        int candidatesSeen = 0;
+        int maxFilesTouched = 0;
+        int sweeps = 0;
+        List<RecordReader<String>> readers = new ArrayList<>(Collections.nCopies(files.size(), null));
+        boolean[] exhausted = new boolean[files.size()];
+
+        try {
+            while (true) {
+                boolean minFilesSatisfied = maxFilesTouched >= effectiveMinFilesToTouch;
+                if (minFilesSatisfied && candidatesSeen >= targetDecoded) {
+                    break;
+                }
+
+                int candidatesBeforeSweep = candidatesSeen;
+                for (int fileIndex = 0; fileIndex < files.size(); fileIndex++) {
+                    maxFilesTouched = Math.max(maxFilesTouched, fileIndex + 1);
+                    minFilesSatisfied = maxFilesTouched >= effectiveMinFilesToTouch;
+
+                    if (exhausted[fileIndex]) {
+                        if (minFilesSatisfied && candidatesSeen >= targetDecoded) {
+                            break;
+                        }
+                        continue;
+                    }
+
+                    RecordReader<String> reader = readers.get(fileIndex);
+                    if (reader == null) {
+                        reader = RecordReader.create(files.get(fileIndex));
+                        readers.set(fileIndex, reader);
+                    }
+
+                    for (int i = 0; i < linesPerFile && reader.hasNext() && candidatesSeen < targetDecoded; i++) {
+                        List<T> decoded = decoder.apply(reader.next());
+                        if (decoded == null || decoded.isEmpty()) {
+                            continue;
+                        }
+                        for (T decodedExample : decoded) {
+                            if (candidatesSeen >= targetDecoded) {
+                                break;
+                            }
+                            candidatesSeen++;
+                            if (sample.size() < sampleSize) {
+                                sample.add(decodedExample);
+                            } else {
+                                int replacementIndex = reservoirRandom.nextInt(candidatesSeen);
+                                if (replacementIndex < sampleSize) {
+                                    sample.set(replacementIndex, decodedExample);
+                                }
+                            }
+                        }
+                    }
+
+                    if (!reader.hasNext()) {
+                        reader.close();
+                        readers.set(fileIndex, null);
+                        exhausted[fileIndex] = true;
+                    }
+
+                    if (minFilesSatisfied && candidatesSeen >= targetDecoded) {
+                        break;
+                    }
+                }
+
+                if (candidatesSeen == candidatesBeforeSweep) {
+                    break;
+                }
+                sweeps++;
+            }
+        } finally {
+            closeReaders(readers);
+        }
+
+        Collections.shuffle(sample, new Random(seed));
+        return new ReservoirSample<>(sample, candidatesSeen, maxFilesTouched, sweeps);
+    }
+
+    static <T> SamplingCandidates<T> collectDecodedCandidates(
+            List<File> files,
+            Function<String, List<T>> decoder,
+            int targetDecoded,
+            int linesPerFile,
+            int minFilesToTouch
+    ) throws Exception {
+        checkState(targetDecoded > 0, "targetDecoded must be positive");
+        int effectiveMinFilesToTouch = Math.min(minFilesToTouch, files.size());
+
+        List<T> candidates = new ArrayList<>(Math.min(targetDecoded, 100_000));
+        int maxFilesTouched = 0;
+        int sweeps = 0;
+        List<RecordReader<String>> readers = new ArrayList<>(Collections.nCopies(files.size(), null));
+        boolean[] exhausted = new boolean[files.size()];
+
+        try {
+            while (true) {
+                boolean minFilesSatisfied = maxFilesTouched >= effectiveMinFilesToTouch;
+                if (minFilesSatisfied && candidates.size() >= targetDecoded) {
+                    break;
+                }
+
+                int candidatesBeforeSweep = candidates.size();
+                for (int fileIndex = 0; fileIndex < files.size(); fileIndex++) {
+                    maxFilesTouched = Math.max(maxFilesTouched, fileIndex + 1);
+                    minFilesSatisfied = maxFilesTouched >= effectiveMinFilesToTouch;
+
+                    if (exhausted[fileIndex]) {
+                        if (minFilesSatisfied && candidates.size() >= targetDecoded) {
+                            break;
+                        }
+                        continue;
+                    }
+
+                    RecordReader<String> reader = readers.get(fileIndex);
+                    if (reader == null) {
+                        reader = RecordReader.create(files.get(fileIndex));
+                        readers.set(fileIndex, reader);
+                    }
+
+                    for (int i = 0; i < linesPerFile && reader.hasNext() && candidates.size() < targetDecoded; i++) {
+                        List<T> decoded = decoder.apply(reader.next());
+                        if (decoded == null || decoded.isEmpty()) {
+                            continue;
+                        }
+                        int remaining = targetDecoded - candidates.size();
+                        if (decoded.size() <= remaining) {
+                            candidates.addAll(decoded);
+                        } else {
+                            candidates.addAll(decoded.subList(0, remaining));
+                        }
+                    }
+
+                    if (!reader.hasNext()) {
+                        reader.close();
+                        readers.set(fileIndex, null);
+                        exhausted[fileIndex] = true;
+                    }
+
+                    if (minFilesSatisfied && candidates.size() >= targetDecoded) {
+                        break;
+                    }
+                }
+
+                if (candidates.size() == candidatesBeforeSweep) {
+                    break;
+                }
+                sweeps++;
+            }
+        } finally {
+            closeReaders(readers);
+        }
+        return new SamplingCandidates<>(candidates, maxFilesTouched, sweeps);
+    }
+
+    record SamplingCandidates<T>(List<T> candidates, int maxFilesTouched, int sweeps) {}
+    record ReservoirSample<T>(List<T> sample, int candidatesSeen, int maxFilesTouched, int sweeps) {}
+
+    private static void closeReaders(List<RecordReader<String>> readers) throws Exception {
+        Exception firstException = null;
+        for (RecordReader<String> reader : readers) {
+            if (reader == null) {
+                continue;
+            }
+            try {
+                reader.close();
+            } catch (Exception e) {
+                if (firstException == null) {
+                    firstException = e;
+                } else {
+                    firstException.addSuppressed(e);
+                }
+            }
+        }
+        if (firstException != null) {
+            throw firstException;
+        }
+    }
+
+    private static String fileKey(File file, List<Path> rootPaths) {
+        Path filePath = file.toPath().toAbsolutePath().normalize();
+        for (int i = 0; i < rootPaths.size(); i++) {
+            Path root = rootPaths.get(i);
+            if (filePath.startsWith(root)) {
+                Path relative = root.relativize(filePath);
+                String relativeString = relative.toString();
+                if (relativeString.isEmpty() && filePath.getFileName() != null) {
+                    relativeString = filePath.getFileName().toString();
+                }
+                relativeString = relativeString.replace('\\', '/');
+                return i + ":" + relativeString;
+            }
+        }
+        return "?:"
+                + filePath.getFileName(); // fallback; should not happen if files come from the given sources
     }
 
     private int pickSamplePerTest(Options options, double meanThroughputPerSec) {
@@ -121,10 +465,14 @@ public class PerformanceTestTask<EXAMPLE extends Example<? extends OfflineReques
 
 
     private Map<String, Double> performTestRun(Stream<EXAMPLE> data, ALGO algo, int sampleSize) throws Exception {
+        return performTestRun(data, algo, sampleSize, null);
+    }
+
+    private Map<String, Double> performTestRun(Stream<EXAMPLE> data, ALGO algo, int sampleSize, RateLimiter rateLimiter) throws Exception {
         MeterRegistry meterRegistry = super.offlineTaskContext.meterRegistry();
         UniformReservoir uniformReservoir = new UniformReservoir(sampleSize);
         Timer timer = new Timer(uniformReservoir);
-        Function<EXAMPLE, Void> sink = getSink(algo, timer);
+        Function<EXAMPLE, Void> sink = getSink(algo, timer, rateLimiter);
 
         CpuIntensiveAggregator<Integer, EXAMPLE> processor = new CpuIntensiveAggregator<>(
                 meterRegistry,
@@ -152,11 +500,14 @@ public class PerformanceTestTask<EXAMPLE extends Example<? extends OfflineReques
         return result.build();
     }
 
-    private Function<EXAMPLE, Void> getSink(ALGO algo, Timer responseTimer) {
+    private Function<EXAMPLE, Void> getSink(ALGO algo, Timer responseTimer, RateLimiter rateLimiter) {
         if (algo instanceof Ranker<?, ?>) {
             Ranker ranker = (Ranker) algo;
             return example -> {
                 RankingExample<?, ?, ?> rankingExample = (RankingExample<?, ?, ?>) example;
+                if (rateLimiter != null) {
+                    rateLimiter.acquire();
+                }
                 try (var ignored = responseTimer.time()) {
                     var result = ranker.rank(rankingExample.rankingRequest());
                     consume(result);
@@ -166,8 +517,11 @@ public class PerformanceTestTask<EXAMPLE extends Example<? extends OfflineReques
         } else if (algo instanceof BulkScorer bulkScorer){
             return example -> {
                 RankingExample<?, ?, ?> rankingExample = (RankingExample<?, ?, ?>) example;
+                if (rateLimiter != null) {
+                    rateLimiter.acquire();
+                }
                 try (var ignored = responseTimer.time()) {
-                    var result = bulkScorer.bulkScore(rankingExample.rankingRequest());
+                    var result = bulkScorer.score(rankingExample.rankingRequest());
                     consume(result);
                     return null;
                 }
@@ -176,6 +530,9 @@ public class PerformanceTestTask<EXAMPLE extends Example<? extends OfflineReques
         } else if (algo instanceof TopK topK) {
             return example -> {
                 TopKExample<?, ?, ?> topKExample = (TopKExample<?, ?, ?>) example;
+                if (rateLimiter != null) {
+                    rateLimiter.acquire();
+                }
                 try (var ignored = responseTimer.time()) {
                     var result = topK.apply(topKExample.request());
                     consume(result);

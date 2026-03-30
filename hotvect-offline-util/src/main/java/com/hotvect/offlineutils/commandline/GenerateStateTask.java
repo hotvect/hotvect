@@ -13,19 +13,25 @@ public class GenerateStateTask extends Task  {
 
     @Override
     protected Map<String, Object> doCall() throws Exception {
-        LOGGER.info("Running {} from {} to {} using ", this.getClass().getSimpleName(), this.offlineTaskContext.options().sourceFiles, this.offlineTaskContext.options().destinationFile);
+        String generatorClassName = this.offlineTaskContext.algorithmDefinition().generateStateFactoryName();
+        LOGGER.info("Running {} from {} to {} using {}", this.getClass().getSimpleName(), this.offlineTaskContext.options().sourceFiles, this.offlineTaskContext.options().destinationFile, generatorClassName);
         Map<String, Object> metadata = perform();
         metadata.put("task_type", this.getClass().getSimpleName());
         metadata.put("metadata_location", this.offlineTaskContext.options().metadataLocation.toString());
         metadata.put("destination_file", this.offlineTaskContext.options().destinationFile.toString());
         metadata.put("source_file", this.offlineTaskContext.options().sourceFiles.toString());
-        metadata.put("state_generator", this.offlineTaskContext.options().generateStateTask);
+        metadata.put("state_generator", generatorClassName);
         return metadata;
     }
 
     protected Map<String, Object> perform() throws Exception {
+        String generatorClassName = this.offlineTaskContext.algorithmDefinition().generateStateFactoryName();
+        if (generatorClassName == null) {
+            throw new IllegalArgumentException("Algorithm definition must have generator_factory_classname for state generation");
+        }
+
         StateGeneratorFactory stateGeneratorFactory = (StateGeneratorFactory) Class.forName(
-                this.offlineTaskContext.options().generateStateTask, true, offlineTaskContext.classLoader()
+                generatorClassName, true, offlineTaskContext.classLoader()
         ).getDeclaredConstructor().newInstance();
 
         StateGenerator stateGenerator = stateGeneratorFactory.getGenerator(offlineTaskContext.algorithmDefinition(), offlineTaskContext.classLoader());

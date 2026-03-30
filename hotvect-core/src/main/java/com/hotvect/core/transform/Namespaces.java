@@ -214,8 +214,13 @@ public final class Namespaces {
                 Namespace previous =  NAME_REGISTER.computeIfAbsent(constant.name(),
                         n -> (Namespace) constant);
                 if (previous != constant) {
-                    throw new InvalidTransformationDefinitionException("Namespace name \"" + constant.name() + " of class " + constant.getDeclaringClass().getCanonicalName()
-                            + "\" already bound to a different namespace: " + previous + " of class " + previous.getClass().getCanonicalName());
+                    throw new InvalidTransformationDefinitionException(String.format(
+                            "Namespace name \"%s\" from enum %s already bound to a different namespace: %s of class %s. " +
+                            "Please register the enum with Namespaces.register(%s.class) during initialization, " +
+                            "BEFORE any string-based declarations like declareNamespace(\"%s\").",
+                            constant.name(), constant.getDeclaringClass().getCanonicalName(),
+                            previous, previous.getClass().getCanonicalName(),
+                            constant.getDeclaringClass().getSimpleName(), constant.name()));
                 }
                 return previous;
             } else {
@@ -337,6 +342,169 @@ public final class Namespaces {
         return featureValueType == null
                 ? declareNamespace(namespaceName)
                 : declareFeatureNamespace(featureValueType, namespaceName);
+    }
+
+    /* ───────────────────────────── canonicalization utilities ───────────────────────────── */
+
+    /**
+     * <p><b>Enum namespace registration</b></p>
+     *
+     * <p>Registers all constants of an {@code enum} that implements {@link Namespace} as
+     * canonical singletons. This method <em>must</em> be called during pipeline
+     * initialization before any namespace lookups, ensuring that subsequent string-based
+     * declarations reuse the enum singleton rather than creating new instances.</p>
+     *
+     * <p><b>When to use:</b> Call this method once during application startup for each
+     * enum type that implements {@link Namespace}. This guarantees identity-based
+     * lookups (used by {@link java.util.IdentityHashMap}) succeed throughout the
+     * pipeline.</p>
+     *
+     * <p><b>Example usage:</b></p>
+     * <pre>{@code
+     * enum RequestAttribute implements Namespace {
+     *     sales_channel_id, touchpoint, slot
+     * }
+     *
+     * // During startup:
+     * Namespaces.register(RequestAttribute.class);
+     *
+     * // Later, string-based declarations return the enum singleton:
+     * Namespace ns = Namespaces.declareNamespace("sales_channel_id");
+     * assert ns == RequestAttribute.sales_channel_id;  // true
+     * }</pre>
+     *
+     * @param enumType the enum class implementing {@link Namespace}
+     * @param <E> the enum type
+     * @throws IllegalArgumentException if any enum constant name conflicts with an
+     *         already-registered namespace that is not the same enum constant
+     */
+    public static <E extends Enum<E> & Namespace> void register(Class<E> enumType) {
+        Objects.requireNonNull(enumType, "Enum type cannot be null");
+        checkArgument(enumType.isEnum(), "Class must be an enum type");
+
+        E[] constants = enumType.getEnumConstants();
+        if (constants == null || constants.length == 0) {
+            return;
+        }
+
+        synchronized (LOCK) {
+            for (E constant : constants) {
+                String name = constant.name();
+                validateName(name);
+
+                NAME_REGISTER.compute(name, (k, existing) -> {
+                    if (existing == null) {
+                        return constant;
+                    }
+                    if (existing != constant) {
+                        throw new IllegalArgumentException(String.format(
+                                "Namespace name \"%s\" from enum %s already bound to a different namespace: %s of class %s. " +
+                                "Please register the enum with Namespaces.register(%s.class) during initialization, " +
+                                "BEFORE any string-based declarations like declareNamespace(\"%s\").",
+                                name, enumType.getCanonicalName(), existing, existing.getClass().getCanonicalName(),
+                                enumType.getSimpleName(), name));
+                    }
+                    return existing;
+                });
+            }
+        }
+
+        log.debug("Registered {} namespace constants from enum {}", constants.length, enumType.getCanonicalName());
+    }
+
+    /**
+     * <p><b>Canonical namespace validation</b></p>
+     *
+     * <p>Asserts that the supplied {@link Namespace} object is the canonical singleton
+     * registered in the internal registry. This method <em>always</em> throws
+     * {@link IllegalStateException} if:</p>
+     * <ul>
+     *   <li>The namespace name was never registered via
+     *       {@link #declareNamespace(String)}, {@link #register(Class)}, or similar, <em>or</em></li>
+     *   <li>The supplied object reference differs from the canonical singleton (indicating
+     *       a wiring bug where an unregistered enum or ad-hoc object is being used).</li>
+     * </ul>
+     *
+     * <p><b>When to use:</b> Call this method during pipeline construction or transformer
+     * wiring to fail fast if a namespace was not properly canonicalized. This prevents
+     * silent identity-lookup failures at runtime.</p>
+     *
+     * <p><b>Example usage:</b></p>
+     * <pre>{@code
+     * // During transformer construction:
+     * Namespaces.assertCanonical(RequestAttribute.sales_channel_id);
+     *
+     * // If the enum was never registered, this throws:
+     * // IllegalStateException: Namespace "sales_channel_id" is not canonical...
+     * }</pre>
+     *
+     * @param candidate the namespace instance to validate
+     * @throws IllegalStateException if the namespace is not the canonical singleton
+     */
+    public static void assertCanonical(Namespace candidate) {
+        Objects.requireNonNull(candidate, "Namespace cannot be null");
+
+        String name = candidate.toString();
+        Namespace canonical = peekCanonical(name);
+
+        // Backwards-compatibility: older algorithms may use enum constants that implement Namespace
+        // directly, without calling Namespaces.register(MyEnum.class) during wiring.
+        // If we see an unregistered enum namespace, auto-register the whole enum to establish
+        // canonical singletons and then continue validating identity.
+        if (canonical == null && candidate instanceof Enum) {
+            try {
+                @SuppressWarnings("unchecked")
+                Class<? extends Enum<?>> enumType = ((Enum<?>) candidate).getDeclaringClass();
+                // Candidate is already a Namespace; ensure we only attempt register on enum types.
+                @SuppressWarnings({"rawtypes", "unchecked"})
+                Class enumAsNamespace = enumType;
+                register(enumAsNamespace);
+                canonical = peekCanonical(name);
+            } catch (Exception ignored) {
+                // Fall through to the original error path for a clear diagnostic.
+            }
+        }
+
+        if (canonical == null) {
+            throw new IllegalStateException(String.format(
+                    "Namespace \"%s\" (class: %s) is not canonical: never registered. " +
+                    "Register it via Namespaces.declareNamespace(\"%s\") or Namespaces.register(%s.class) during wiring.",
+                    name, candidate.getClass().getCanonicalName(), name,
+                    candidate instanceof Enum ? ((Enum<?>) candidate).getDeclaringClass().getSimpleName() : "YourEnumClass"));
+        }
+
+        if (canonical != candidate) {
+            throw new IllegalStateException(String.format(
+                    "Namespace \"%s\" is not canonical: supplied object (class: %s, identity: %s) differs from registered singleton (class: %s, identity: %s). " +
+                    "Ensure you use the canonicalized instance returned by Namespaces.declareNamespace() or Namespaces.register().",
+                    name, candidate.getClass().getCanonicalName(), System.identityHashCode(candidate),
+                    canonical.getClass().getCanonicalName(), System.identityHashCode(canonical)));
+        }
+    }
+
+    /**
+     * <p><b>Enum-aware canonical validation</b></p>
+     *
+     * <p>Overload of {@link #assertCanonical(Namespace)} that provides clearer error
+     * messages when dealing with enum constants. Prefer this overload when validating
+     * enum-based namespaces for more actionable diagnostics.</p>
+     *
+     * @param candidate the enum constant to validate
+     * @param <E> the enum type
+     * @throws IllegalStateException if the enum constant is not the canonical singleton
+     */
+    public static <E extends Enum<E> & Namespace> void assertCanonical(E candidate) {
+        assertCanonical((Namespace) candidate);
+    }
+
+    /**
+     * <b>Internal helper</b> – inspects the registry without mutating it.
+     * Returns {@code null} if the name is unregistered.
+     */
+    private static Namespace peekCanonical(String name) {
+        synchronized (LOCK) {
+            return NAME_REGISTER.get(name);
+        }
     }
 
     /* ───────────────────────────── deprecated helpers ───────────────────────────── */

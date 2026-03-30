@@ -1,0 +1,383 @@
+/* Design tokens (clean, modern docs vibe; no external font assets). */
+:root {
+  /* Layout */
+  --hv-page-max: 72rem;
+  --hv-prose-max: 78ch;
+  --hv-radius: 12px;
+
+  /* Typography */
+  --hv-font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --hv-font-display: ui-serif, Georgia, "Times New Roman", Times, serif;
+  --hv-font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+
+  /* Type scale */
+  /* Claude uses 16px, but system-ui can read smaller; bump slightly for comfort. */
+  --hv-body-size: 1.0625rem; /* 17px at 16px root */
+  --hv-body-leading: 1.65;
+  --hv-h1-size: 1.875rem; /* ~30px at 16px root */
+  --hv-h2-size: 1.5rem; /* 24px */
+  --hv-h3-size: 1.25rem; /* 20px */
+
+  /* UI chrome (tabs/nav/TOC) */
+  --hv-ui-size: 1rem;
+  --hv-ui-title: 0.9rem;
+}
+
+/* Normalize base sizing (Material can end up with a non-16px root in some stacks). */
+html {
+  font-size: 16px;
+}
+body {
+  font-size: 16px;
+}
+
+/* Material typography hooks (no external font loading). */
+:root {
+  --md-text-font: var(--hv-font-sans);
+  --md-code-font: var(--hv-font-mono);
+}
+
+/* OpenAI-ish neutral light background + calm dark mode. */
+[data-md-color-scheme="default"] {
+  --hv-bg: #fdfdf7;
+  --hv-surface: #ffffff;
+  --hv-card-surface: #ffffff;
+  --hv-surface-hover: rgba(0, 0, 0, 0.03);
+  --hv-surface-active: rgba(0, 0, 0, 0.05);
+  --hv-border: rgba(10, 10, 10, 0.12);
+  --hv-border-subtle: rgba(112, 112, 112, 0.10);
+  --hv-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --hv-shadow-hover: 0 10px 24px rgba(0, 0, 0, 0.10);
+  --hv-accent: #c9732f;
+  /* Distinct link color (OpenAI Codex-like): underlined + slightly heavier weight. */
+  --hv-link: #2d4ee0;
+  --hv-link-hover: #243fc2;
+  --hv-btn-bg: var(--hv-bg);
+  --hv-btn-hover: rgba(10, 10, 10, 0.03);
+
+  --md-primary-fg-color: #111111;
+  --md-primary-fg-color--light: #111111;
+  --md-primary-fg-color--dark: #0b0b0d;
+  --md-typeset-a-color: var(--hv-link);
+
+  --md-default-bg-color: var(--hv-bg);
+  --md-default-fg-color: rgba(16, 16, 18, 0.92);
+  --md-default-fg-color--light: rgba(16, 16, 18, 0.66);
+  --md-default-fg-color--lighter: rgba(16, 16, 18, 0.40);
+  --md-default-fg-color--lightest: rgba(16, 16, 18, 0.12);
+
+  --md-code-bg-color: rgba(0, 0, 0, 0.035);
+  --md-code-fg-color: rgba(16, 16, 18, 0.90);
+  --md-code-hl-color: rgba(0, 0, 0, 0.06);
+
+  --md-admonition-bg-color: var(--hv-surface);
+  --md-admonition-fg-color: var(--md-default-fg-color);
+}
+
+[data-md-color-scheme="slate"] {
+  --hv-bg: #09090b;
+  --hv-surface: #101014;
+  --hv-card-surface: #121216;
+  --hv-surface-hover: rgba(255, 255, 255, 0.06);
+  --hv-surface-active: rgba(255, 255, 255, 0.09);
+  --hv-border: rgba(255, 255, 255, 0.12);
+  --hv-border-subtle: rgba(206, 206, 206, 0.08);
+  --hv-shadow: 0 1px 2px rgba(0, 0, 0, 0.55);
+  --hv-shadow-hover: 0 10px 24px rgba(0, 0, 0, 0.70);
+  --hv-accent: #e3a66a;
+  /* Distinct link color (OpenAI Codex-like): visible from body text in dark mode. */
+  --hv-link: #9bbcff;
+  --hv-link-hover: #c2d4ff;
+  --hv-btn-bg: var(--hv-bg);
+  --hv-btn-hover: rgba(255, 255, 255, 0.04);
+
+  --md-primary-fg-color: #fafafc;
+  --md-primary-fg-color--light: #fafafc;
+  --md-primary-fg-color--dark: #e5e7eb;
+  --md-typeset-a-color: var(--hv-link);
+
+  --md-default-bg-color: var(--hv-bg);
+  --md-default-fg-color: rgba(250, 250, 252, 0.92);
+  --md-default-fg-color--light: rgba(250, 250, 252, 0.70);
+  --md-default-fg-color--lighter: rgba(250, 250, 252, 0.46);
+  --md-default-fg-color--lightest: rgba(250, 250, 252, 0.14);
+
+  --md-code-bg-color: rgba(255, 255, 255, 0.07);
+  --md-code-fg-color: rgba(250, 250, 252, 0.92);
+  --md-code-hl-color: rgba(255, 255, 255, 0.12);
+
+  --md-admonition-bg-color: var(--hv-surface);
+  --md-admonition-fg-color: var(--md-default-fg-color);
+}
+
+/* Layout: a little wider grid, closer to Claude/OpenAI docs. */
+.md-grid {
+  max-width: var(--hv-page-max);
+}
+
+/* Header: calm chrome (avoid solid primary header). */
+.md-header {
+  background-color: var(--md-default-bg-color) !important;
+  box-shadow: none;
+  border-bottom: 1px solid var(--hv-border-subtle);
+}
+.md-tabs {
+  background-color: var(--md-default-bg-color);
+  box-shadow: none;
+  border-bottom: 1px solid var(--hv-border-subtle);
+}
+.md-tabs__link {
+  color: var(--md-default-fg-color--light);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  font-size: var(--hv-ui-size);
+  cursor: pointer;
+  border-radius: 999px;
+  padding: 0.35rem 0.65rem;
+}
+.md-tabs__link:hover {
+  color: var(--md-default-fg-color);
+  background-color: var(--hv-surface-hover);
+}
+.md-tabs__link--active {
+  color: var(--md-default-fg-color);
+  box-shadow: inset 0 -2px 0 var(--hv-accent);
+  background-color: var(--hv-surface-active);
+}
+.md-header__inner,
+.md-tabs__inner {
+  max-width: var(--hv-page-max);
+}
+.md-header__title,
+.md-header__button {
+  color: var(--md-default-fg-color);
+}
+
+/* Sidebars: light separators like OpenAI docs. */
+.md-sidebar--primary {
+  border-right: 1px solid var(--hv-border-subtle);
+}
+.md-sidebar--secondary {
+  border-left: 1px solid var(--hv-border-subtle);
+}
+
+/* Search: neutral, subtle border (closer to OpenAI docs). */
+.md-search__form {
+  background: var(--hv-surface);
+  border: 1px solid var(--hv-border-subtle);
+  border-radius: 12px;
+  box-shadow: none;
+}
+.md-search__input {
+  font-size: var(--hv-ui-size);
+}
+.md-search__input::placeholder {
+  color: var(--md-default-fg-color--lighter);
+}
+
+/* Sidebar + TOC separators (subtle). */
+.md-sidebar__scrollwrap {
+  scrollbar-gutter: stable;
+}
+.md-nav__title[for],
+.md-nav__title {
+  color: var(--md-default-fg-color--light);
+}
+
+/* Section titles: calm, readable. */
+.md-nav--primary .md-nav__title,
+.md-nav--secondary .md-nav__title {
+  font-size: var(--hv-ui-title);
+  font-weight: 650;
+  letter-spacing: 0.01em;
+  text-transform: none;
+}
+
+/* "Pill" nav links: subtle hover/active backgrounds. */
+.md-nav__link {
+  border-radius: 12px;
+  padding: 0.30rem 0.55rem;
+  margin: 0.06rem 0;
+  transition: background-color 0.15s ease, color 0.15s ease;
+  font-size: var(--hv-ui-size);
+  line-height: 1.35;
+}
+.md-nav__link:hover {
+  background-color: var(--hv-surface-hover);
+}
+.md-nav__link--active {
+  background-color: var(--hv-surface-active);
+  color: var(--md-default-fg-color);
+  font-weight: 600;
+}
+
+/* Typography: match OpenAI-style scale + rhythm. */
+.md-typeset {
+  font-size: var(--hv-body-size);
+  line-height: var(--hv-body-leading);
+  --md-typeset-a-color: var(--hv-link);
+}
+.md-typeset a:not(.hv-btn):not(.md-button) {
+  color: var(--hv-link);
+  text-decoration: underline;
+  text-decoration-color: currentColor;
+  text-underline-offset: 0.16em;
+  text-decoration-thickness: 1px;
+  font-weight: 500;
+}
+.md-typeset a:not(.hv-btn):not(.md-button):hover {
+  color: var(--hv-link-hover);
+  text-decoration-color: currentColor;
+  text-decoration-thickness: 2px;
+}
+.md-typeset a:not(.hv-btn):not(.md-button):visited {
+  color: var(--hv-link);
+}
+.md-typeset a:not(.hv-btn):not(.md-button):focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--hv-link) 55%, transparent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+.md-typeset h1 {
+  color: var(--md-default-fg-color);
+  font-family: var(--hv-font-display);
+  font-weight: 400;
+  letter-spacing: -0.025em; /* ~ -0.75px at 30px */
+  line-height: 1.2; /* 36px at 30px */
+  font-size: var(--hv-h1-size);
+  margin-bottom: 0.55em;
+}
+.md-typeset h2 {
+  font-family: var(--hv-font-display);
+  font-weight: 400;
+  letter-spacing: -0.025em; /* ~ -0.6px at 24px */
+  line-height: 1.33; /* 32px at 24px */
+  font-size: var(--hv-h2-size);
+  margin-top: 2em;
+}
+.md-typeset h3 {
+  font-family: var(--hv-font-display);
+  font-weight: 500;
+  letter-spacing: -0.015em;
+  line-height: 1.4;
+  font-size: var(--hv-h3-size);
+  margin-top: 1.5em;
+}
+.md-typeset p {
+  margin: 0.9em 0;
+}
+
+/* Keep line length readable without constraining code blocks/tables. */
+.md-typeset > :is(p, ul, ol, dl, blockquote) {
+  max-width: var(--hv-prose-max);
+}
+
+/* Subtle pill buttons (Claude-like). */
+.md-typeset a.hv-btn,
+.md-typeset .md-button,
+.md-typeset .md-button--primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  padding: 6px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--hv-border-subtle);
+  background-color: var(--hv-btn-bg);
+  color: var(--md-default-fg-color--light);
+  font-size: var(--hv-ui-size);
+  font-weight: 500;
+  letter-spacing: 0;
+  text-decoration: none;
+}
+.md-typeset a.hv-btn:hover,
+.md-typeset .md-button:hover,
+.md-typeset .md-button--primary:hover {
+  background-color: var(--hv-btn-hover);
+  border-color: var(--hv-border-subtle);
+  color: var(--md-default-fg-color);
+  text-decoration: none;
+}
+.md-typeset a.hv-btn:focus-visible,
+.md-typeset .md-button:focus-visible,
+.md-typeset .md-button--primary:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--hv-accent) 60%, transparent);
+  outline-offset: 2px;
+}
+
+/* CTA row on landing pages. */
+.hv-cta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin: 0.9rem 0 1.8rem;
+}
+.hv-cta-row a.hv-btn {
+  color: var(--md-default-fg-color);
+}
+
+/* Cards: softer, more premium. */
+.md-typeset .grid.cards > ul > li,
+.md-typeset .grid.cards > ol > li,
+.md-typeset .grid > .card {
+  background: var(--hv-card-surface);
+  border: 1px solid var(--hv-border-subtle);
+  border-radius: var(--hv-radius);
+  box-shadow: var(--hv-shadow);
+  transition: border 0.25s ease, box-shadow 0.25s ease, transform 0.25s ease;
+}
+.md-typeset .grid.cards > ul > li:hover,
+.md-typeset .grid.cards > ol > li:hover,
+.md-typeset .grid > .card:hover {
+  border-color: var(--hv-border);
+  box-shadow: var(--hv-shadow-hover);
+  transform: translateY(-1px);
+}
+
+/* Code blocks: subtle border + calmer background. */
+.md-typeset pre {
+  border-radius: var(--hv-radius);
+  border: 1px solid var(--hv-border-subtle);
+}
+.md-typeset .highlight,
+.md-typeset pre > code {
+  border-radius: var(--hv-radius);
+}
+
+/* Inline code: readable but quiet (exclude code blocks). */
+.md-typeset :not(pre) > code {
+  background-color: var(--md-code-bg-color);
+  border: 1px solid var(--hv-border-subtle);
+  border-radius: 0.45em;
+  padding: 0.08em 0.32em;
+  font-size: 0.92em;
+}
+
+/* Admonitions: gentle surfaces with a clear left accent. */
+.md-typeset .admonition,
+.md-typeset details {
+  border-radius: var(--hv-radius);
+  border: 1px solid var(--hv-border-subtle);
+  box-shadow: none;
+}
+.md-typeset .admonition-title,
+.md-typeset summary {
+  border-top-left-radius: var(--hv-radius);
+  border-top-right-radius: var(--hv-radius);
+}
+
+/* TOC: subtle left rule like OpenAI docs. */
+.md-nav--secondary .md-nav__list {
+  border-left: 2px solid var(--hv-border-subtle);
+  padding-left: 0.9rem;
+  margin-left: 0.1rem;
+}
+.md-nav--secondary .md-nav__link {
+  border-radius: 10px;
+  font-size: var(--hv-ui-size);
+}
+
+/* Header right-side repo label (GitHub). */
+.md-source {
+  font-size: var(--hv-ui-size);
+}
