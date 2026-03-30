@@ -13,11 +13,11 @@ class OptionsTest {
 
     @Test
     void testCommaSeparatedSource() {
-        Options options = new Options();
+        Main.SourceFilesOption options = new Main.SourceFilesOption();
         CommandLine cmd = new CommandLine(options);
 
         cmd.parseArgs("--source", "file1.txt,file2.txt,dir1");
-        Map<String, List<File>> sourceFiles = options.sourceFiles;
+        Map<String, List<File>> sourceFiles = options.sourceFiles.files;
 
         Assertions.assertEquals(1, sourceFiles.size());
         Assertions.assertTrue(sourceFiles.containsKey("default"));
@@ -28,12 +28,12 @@ class OptionsTest {
     }
 
     @Test
-    void testJsonSource() {
-        Options options = new Options();
+    void testJsonObjectSource() {
+        Main.SourceFilesOption options = new Main.SourceFilesOption();
         CommandLine cmd = new CommandLine(options);
 
         cmd.parseArgs("--source", "{\"json\":[\"file1.json\",\"file2.json\"],\"csv\":[\"data1.csv\",\"data2.csv\"]}");
-        Map<String, List<File>> sourceFiles = options.sourceFiles;
+        Map<String, List<File>> sourceFiles = options.sourceFiles.files;
 
         Assertions.assertEquals(2, sourceFiles.size());
         Assertions.assertTrue(sourceFiles.containsKey("json"));
@@ -48,21 +48,21 @@ class OptionsTest {
 
     @Test
     void testInvalidJsonFormat() {
-        Options options = new Options();
+        Main.SourceFilesOption options = new Main.SourceFilesOption();
         CommandLine cmd = new CommandLine(options);
 
         Assertions.assertThrows(ParameterException.class, () ->
-                cmd.parseArgs("--source", "{invalid_json}")
+                cmd.parseArgs("--source", "{\"invalid_json")
         );
     }
 
     @Test
-    void testDefaultTypeNameInJsonIsAllowed() {
-        Options options = new Options();
+    void testJsonArraySource() {
+        Main.SourceFilesOption options = new Main.SourceFilesOption();
         CommandLine cmd = new CommandLine(options);
 
-        cmd.parseArgs("--source", "{\"default\":[\"file1.txt\",\"file2.txt\"]}");
-        Map<String, List<File>> sourceFiles = options.sourceFiles;
+        cmd.parseArgs("--source", "[\"file1.txt\",\"file2.txt\"]");
+        Map<String, List<File>> sourceFiles = options.sourceFiles.files;
 
         Assertions.assertEquals(1, sourceFiles.size());
         Assertions.assertTrue(sourceFiles.containsKey("default"));
@@ -73,7 +73,7 @@ class OptionsTest {
 
     @Test
     void testMultipleSourceOptionsThrowsException() {
-        Options options = new Options();
+        Main.SourceFilesOption options = new Main.SourceFilesOption();
         CommandLine cmd = new CommandLine(options);
 
         Assertions.assertThrows(ParameterException.class, () ->
@@ -82,18 +82,81 @@ class OptionsTest {
     }
 
     @Test
-    void testJsonArraySource() {
-        Options options = new Options();
+    void testSingleKeyJsonSource() {
+        Main.SourceFilesOption options = new Main.SourceFilesOption();
         CommandLine cmd = new CommandLine(options);
 
-        cmd.parseArgs("--source", "[\"file1.txt\",\"file2.txt\",\"dir1\"]");
-        Map<String, List<File>> sourceFiles = options.sourceFiles;
+        cmd.parseArgs("--source", "{\"training\":[\"file1.txt\",\"file2.txt\",\"dir1\"]}");
+        Map<String, List<File>> sourceFiles = options.sourceFiles.files;
 
         Assertions.assertEquals(1, sourceFiles.size());
-        Assertions.assertTrue(sourceFiles.containsKey("default"));
-        Assertions.assertEquals(3, sourceFiles.get("default").size());
-        Assertions.assertEquals("file1.txt", sourceFiles.get("default").get(0).getName());
-        Assertions.assertEquals("file2.txt", sourceFiles.get("default").get(1).getName());
-        Assertions.assertEquals("dir1", sourceFiles.get("default").get(2).getName());
+        Assertions.assertTrue(sourceFiles.containsKey("training"));
+        Assertions.assertEquals(3, sourceFiles.get("training").size());
+        Assertions.assertEquals("file1.txt", sourceFiles.get("training").get(0).getName());
+        Assertions.assertEquals("file2.txt", sourceFiles.get("training").get(1).getName());
+        Assertions.assertEquals("dir1", sourceFiles.get("training").get(2).getName());
+    }
+
+    @Test
+    void testWriterNumShardsDefaultValue() {
+        Main.EncodeCommand encode = new Main.EncodeCommand();
+        CommandLine cmd = new CommandLine(encode);
+        cmd.parseArgs(
+                "--algorithm-jar", "algo.jar",
+                "--algorithm-definition", "algo",
+                "--parameters", "params.zip",
+                "--source", "file1.txt",
+                "--dest", "encoded"
+        );
+
+        Assertions.assertEquals(-1, encode.writerNumShards);
+    }
+
+    @Test
+    void testWriterNumShardsExplicitValue() {
+        Main.EncodeCommand encode = new Main.EncodeCommand();
+        CommandLine cmd = new CommandLine(encode);
+        cmd.parseArgs(
+                "--algorithm-jar", "algo.jar",
+                "--algorithm-definition", "algo",
+                "--parameters", "params.zip",
+                "--source", "file1.txt",
+                "--dest", "encoded",
+                "--writer-num-shards", "8"
+        );
+
+        Assertions.assertEquals(8, encode.writerNumShards);
+    }
+
+    @Test
+    void testWriterNumShardsZero() {
+        Main.EncodeCommand encode = new Main.EncodeCommand();
+        CommandLine cmd = new CommandLine(encode);
+        cmd.parseArgs(
+                "--algorithm-jar", "algo.jar",
+                "--algorithm-definition", "algo",
+                "--parameters", "params.zip",
+                "--source", "file1.txt",
+                "--dest", "encoded",
+                "--writer-num-shards", "0"
+        );
+
+        Assertions.assertEquals(0, encode.writerNumShards);
+    }
+
+    @Test
+    void testWriterNumShardsNegative() {
+        Main.EncodeCommand encode = new Main.EncodeCommand();
+        CommandLine cmd = new CommandLine(encode);
+        cmd.parseArgs(
+                "--algorithm-jar", "algo.jar",
+                "--algorithm-definition", "algo",
+                "--parameters", "params.zip",
+                "--source", "file1.txt",
+                "--dest", "encoded",
+                "--writer-num-shards", "-1"
+        );
+
+        Assertions.assertEquals(-1, encode.writerNumShards);
     }
 }

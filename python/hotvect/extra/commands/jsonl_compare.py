@@ -1,4 +1,4 @@
-"""JSONL comparison command for hv-extra CLI."""
+"""JSONL comparison command for hv-ext CLI."""
 
 import json
 import os

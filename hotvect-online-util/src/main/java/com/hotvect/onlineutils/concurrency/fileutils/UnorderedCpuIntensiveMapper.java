@@ -2,6 +2,8 @@ package com.hotvect.onlineutils.concurrency.fileutils;
 
 import com.hotvect.onlineutils.util.MetricUtils;
 import io.micrometer.core.instrument.Timer;
+
+import java.nio.ByteBuffer;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.LongAdder;
 import com.google.common.base.Throwables;
@@ -93,7 +95,6 @@ class UnorderedCpuIntensiveMapper<X, Y> {
                     UnorderedCpuIntensiveMapper.this.state.getReadQueue().drainTo(batch, UnorderedCpuIntensiveMapper.this.batchSize);
                     if (batch.isEmpty() && readDone) {
                         // No more data to process
-                        UnorderedCpuIntensiveMapper.this.state.setProcessingDone();
                         log.debug("Processor task has no more data to process. Terminating. Data processed so far:{}", UnorderedCpuIntensiveMapper.this.recordCount.sum());
                         return null;
                     } else if (batch.isEmpty()) {
@@ -102,9 +103,12 @@ class UnorderedCpuIntensiveMapper<X, Y> {
                         Timer.Sample sample = Timer.start();
                         List<Y> ys = flatMap(batch, mappingFun);
                         for (Y y : ys) {
-                            String s = y + "\n";
-                            UnorderedCpuIntensiveMapper.this.state.getWriteQueue().put(StandardCharsets.UTF_8.encode(s));
-                            UnorderedCpuIntensiveMapper.this.recordCount.increment();
+                            if(y instanceof ByteBuffer byteBuffer) {
+                                UnorderedCpuIntensiveMapper.this.state.getWriteQueue().put(byteBuffer);
+                                UnorderedCpuIntensiveMapper.this.recordCount.increment();
+                            } else {
+                                throw new IllegalStateException("Even though we have generic type Y, we actually need a ByteBuffer here. Got " + (y == null ? "null" : y.getClass()));
+                            }
                         }
                         sample.stop(UnorderedCpuIntensiveMapper.this.timer);
                     }

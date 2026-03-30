@@ -4,6 +4,7 @@ import com.google.common.collect.ImmutableMap;
 import com.hotvect.api.data.Decision;
 
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * A record representing a TopK decision, including an actionId,
@@ -18,6 +19,10 @@ public record TopKDecision<ACTION>(
         Double probability,
         Map<String, Object> additionalProperties
 ) implements Decision<ACTION> {
+
+    public TopKDecision {
+        Objects.requireNonNull(additionalProperties, "additionalProperties cannot be null");
+    }
 
     @Deprecated(forRemoval = true)
     public String getActionId() {

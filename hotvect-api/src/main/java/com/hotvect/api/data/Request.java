@@ -16,20 +16,18 @@ public interface Request<SHARED> {
     SHARED shared();
 
     /**
-     * Returns the ID of the example associated with this request.
-     *
-     * @return the example ID
      * @deprecated Use {@link #exampleId()} instead
      */
     @Deprecated(forRemoval = true)
-    String getExampleId();
+    default String getExampleId() {
+        return exampleId();
+    }
 
     /**
-     * Returns the shared data associated with this request.
-     *
-     * @return the shared data
      * @deprecated Use {@link #shared()} instead
      */
     @Deprecated(forRemoval = true)
-    SHARED getShared();
+    default SHARED getShared() {
+        return shared();
+    }
 }

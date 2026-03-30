@@ -15,10 +15,14 @@ import com.hotvect.api.algodefinition.common.SimpleAlgorithmFactory;
 import com.hotvect.api.algodefinition.ranking.CompositeRankingVectorizerFactory;
 import com.hotvect.api.algodefinition.state.NonCompositeStateFactory;
 import com.hotvect.api.algorithms.Algorithm;
+import com.hotvect.api.execution.ExecutionContext;
+import com.hotvect.api.transformation.AuditableTransformer;
 import com.hotvect.onlineutils.hotdeploy.util.AlgorithmUtils;
 import com.hotvect.onlineutils.hotdeploy.util.MalformedAlgorithmException;
 import com.hotvect.utils.AlgorithmDefinitionReader;
 import org.apache.commons.compress.archivers.zip.ZipFile;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.io.IOException;
@@ -35,21 +39,46 @@ import static com.hotvect.utils.JsonUtils.deepMergeJsonNodeWithArrayReplacement;
 import static java.util.stream.Collectors.toMap;
 
 public class AlgorithmInstanceFactory extends HotvectFactory implements AlgorithmInstantiator {
-    private final boolean onlineMode;
+    private static final Logger log = LoggerFactory.getLogger(AlgorithmInstanceFactory.class);
+    private final ExecutionContext executionContext;
+    private final boolean strictAlgorithmVersionCheck;
+    private final boolean enableFeatureLogging;
 
-    public AlgorithmInstanceFactory(File algorithmJar, boolean onlineMode) throws MalformedAlgorithmException {
+    private ExecutionContext executionContext() {
+        return executionContext;
+    }
+
+    public AlgorithmInstanceFactory(File algorithmJar, ExecutionContext executionContext, boolean strictAlgorithmVersionCheck) throws MalformedAlgorithmException {
+        this(algorithmJar, executionContext, strictAlgorithmVersionCheck, false);
+    }
+
+    public AlgorithmInstanceFactory(File algorithmJar, ExecutionContext executionContext, boolean strictAlgorithmVersionCheck, boolean enableFeatureLogging) throws MalformedAlgorithmException {
         super(algorithmJar);
-        this.onlineMode = onlineMode;
+        this.executionContext = executionContext;
+        this.strictAlgorithmVersionCheck = strictAlgorithmVersionCheck;
+        this.enableFeatureLogging = enableFeatureLogging;
     }
 
-    public AlgorithmInstanceFactory(ClassLoader classLoader, boolean onlineMode) throws MalformedAlgorithmException {
+    public AlgorithmInstanceFactory(ClassLoader classLoader, ExecutionContext executionContext, boolean strictAlgorithmVersionCheck) throws MalformedAlgorithmException {
+        this(classLoader, executionContext, strictAlgorithmVersionCheck, false);
+    }
+
+    public AlgorithmInstanceFactory(ClassLoader classLoader, ExecutionContext executionContext, boolean strictAlgorithmVersionCheck, boolean enableFeatureLogging) throws MalformedAlgorithmException {
         super(classLoader);
-        this.onlineMode = onlineMode;
+        this.executionContext = executionContext;
+        this.strictAlgorithmVersionCheck = strictAlgorithmVersionCheck;
+        this.enableFeatureLogging = enableFeatureLogging;
     }
 
-    public AlgorithmInstanceFactory(File algorithmJar, ClassLoader parent, boolean onlineMode) throws MalformedAlgorithmException {
+    public AlgorithmInstanceFactory(File algorithmJar, ClassLoader parent, ExecutionContext executionContext, boolean strictAlgorithmVersionCheck) throws MalformedAlgorithmException {
+        this(algorithmJar, parent, executionContext, strictAlgorithmVersionCheck, false);
+    }
+
+    public AlgorithmInstanceFactory(File algorithmJar, ClassLoader parent, ExecutionContext executionContext, boolean strictAlgorithmVersionCheck, boolean enableFeatureLogging) throws MalformedAlgorithmException {
         super(algorithmJar, parent);
-        this.onlineMode = onlineMode;
+        this.executionContext = executionContext;
+        this.strictAlgorithmVersionCheck = strictAlgorithmVersionCheck;
+        this.enableFeatureLogging = enableFeatureLogging;
     }
 
     @Override
@@ -60,8 +89,8 @@ public class AlgorithmInstanceFactory extends HotvectFactory implements Algorith
 
     @Override
     public <ALGO extends Algorithm> AlgorithmInstance<ALGO> load(AlgorithmDefinition algorithmDefinition, File parameterFile, Map<String, AlgorithmInstance<?>> dependencyOverrides) throws MalformedAlgorithmException {
-        AlgorithmParameterMetadata parameterMetadata = AlgorithmUtils.readAlgorithmParameterMetadata(algorithmDefinition.algorithmId(), parameterFile, onlineMode);
-        if (onlineMode) {
+        AlgorithmParameterMetadata parameterMetadata = AlgorithmUtils.readAlgorithmParameterMetadata(algorithmDefinition.algorithmId(), parameterFile, strictAlgorithmVersionCheck);
+        if (strictAlgorithmVersionCheck) {
             checkState(parameterMetadata.algorithmId().equals(algorithmDefinition.algorithmId()));
         } else {
             checkState(parameterMetadata.algorithmId().algorithmName().equals(algorithmDefinition.algorithmId().algorithmName()));
@@ -79,7 +108,7 @@ public class AlgorithmInstanceFactory extends HotvectFactory implements Algorith
             Map<String, AlgorithmInstance<?>> dependenciesWithOverrides = applyDependencyOverrides(withOnlyAlgorithmName(dependencies), dependencyOverrides);
             try (ZipFile file = new ZipFile.Builder().setFile(parameterFile).get()) {
                 Map<String, InputStream> parameters = AlgorithmUtils.extractParameters(algorithmDefinition.algorithmId(), file);
-                ALGO algo = algoFactory.apply(algorithmDefinition.algorithmParameter(), parameters, dependenciesWithOverrides);
+                ALGO algo = algoFactory.apply(executionContext(), algorithmDefinition.algorithmParameter(), parameters, dependenciesWithOverrides);
                 AlgorithmDefinition algoDefWithResolvedDeps = withResolvedDependencies(algorithmDefinition, dependenciesWithOverrides);
                 return new AlgorithmInstance<>(algoDefWithResolvedDeps, parameterMetadata, algo);
             } catch (Exception e) {
@@ -104,13 +133,13 @@ public class AlgorithmInstanceFactory extends HotvectFactory implements Algorith
     }
 
     protected AlgorithmInstance<?> loadAlgorithmInstance(AlgorithmDefinition algorithmDefinition, File parameterFile, Map<String, AlgorithmInstance<?>> dependencyOverrides) throws MalformedAlgorithmException {
-        AlgorithmParameterMetadata algorithmParameterMetadata = AlgorithmUtils.readAlgorithmParameterMetadata(algorithmDefinition.algorithmId(), parameterFile, onlineMode);
+        AlgorithmParameterMetadata algorithmParameterMetadata = AlgorithmUtils.readAlgorithmParameterMetadata(algorithmDefinition.algorithmId(), parameterFile, strictAlgorithmVersionCheck);
         return loadAlgorithmInstance(algorithmDefinition, algorithmParameterMetadata, parameterFile, dependencyOverrides);
     }
 
     protected AlgorithmInstance<?> loadAlgorithmInstance(String algorithmName, Optional<JsonNode> algorithmDefinitionOverride, File parameterFile, Map<String, AlgorithmInstance<?>> dependencyOverrides) throws MalformedAlgorithmException {
         AlgorithmDefinition baseAlgoDefinition = AlgorithmUtils.readAlgorithmDefinitionFromClassLoader(algorithmName, this.classLoader);
-        AlgorithmParameterMetadata algorithmParameterMetadata = AlgorithmUtils.readAlgorithmParameterMetadata(baseAlgoDefinition.algorithmId(), parameterFile, onlineMode);
+        AlgorithmParameterMetadata algorithmParameterMetadata = AlgorithmUtils.readAlgorithmParameterMetadata(baseAlgoDefinition.algorithmId(), parameterFile, strictAlgorithmVersionCheck);
         AlgorithmDefinition updatedAlgoDef = getUpdatedAlgoDef(algorithmDefinitionOverride, baseAlgoDefinition);
         return loadAlgorithmInstance(updatedAlgoDef, algorithmParameterMetadata, parameterFile, dependencyOverrides);
     }
@@ -130,13 +159,13 @@ public class AlgorithmInstanceFactory extends HotvectFactory implements Algorith
             Map<AlgorithmId, AlgorithmInstance<?>> dependencies = loadDependencies(algorithmDefinition, parameterFile, dependencyOverrides);
             Map<String, AlgorithmInstance<?>> dependenciesWithOverrides = applyDependencyOverrides(withOnlyAlgorithmName(dependencies), dependencyOverrides);
             // TODO parameter files for a composite algorithm are not supported yet
-            var algorithm = compositeAlgoFactory.apply(algorithmDefinition.algorithmParameter(), ImmutableMap.of(), dependenciesWithOverrides);
+            var algorithm = compositeAlgoFactory.apply(executionContext(), algorithmDefinition.algorithmParameter(), ImmutableMap.of(), dependenciesWithOverrides);
             AlgorithmDefinition withResolvedDependencies = withResolvedDependencies(algorithmDefinition, dependenciesWithOverrides);
             return new AlgorithmInstance<>(withResolvedDependencies, algorithmParameterMetadata, algorithm);
         } else if (algorithmFactory instanceof NonCompositeStateFactory nonCompositeStateFactory) {
             try (ZipFile file = new ZipFile.Builder().setFile(parameterFile).get()) {
                 Map<String, InputStream> parameters = AlgorithmUtils.extractParameters(algorithmDefinition.algorithmId(), file);
-                var algorithm = nonCompositeStateFactory.apply(parameters, algorithmDefinition.algorithmParameter());
+                var algorithm = nonCompositeStateFactory.apply(executionContext(), parameters, algorithmDefinition.algorithmParameter());
                 return new AlgorithmInstance<>(algorithmDefinition, algorithmParameterMetadata, algorithm);
             } catch (Exception e) {
                 throw new MalformedAlgorithmException(e);
@@ -152,7 +181,7 @@ public class AlgorithmInstanceFactory extends HotvectFactory implements Algorith
             Map<String, InputStream> parameters = AlgorithmUtils.extractParameters(algorithmDefinition.algorithmId(), file);
             try {
                 // Try non legacy first
-                return (ALGO) algorithmFactory.apply(dependency, parameters, algorithmDefinition.algorithmParameter());
+                return (ALGO) algorithmFactory.apply(executionContext(), dependency, parameters, algorithmDefinition.algorithmParameter());
             }catch (UnsupportedOperationException e){
                 // The algorithm must be legacy
                 checkState(algorithmDefinition.algorithmParameter().isEmpty(), "You cannot specify algorithm parameter on this legacy algorithm");
@@ -192,21 +221,40 @@ public class AlgorithmInstanceFactory extends HotvectFactory implements Algorith
     }
 
     protected <DEPENDENCY, DEPENDENCY_FACTORY> DEPENDENCY doLoadParameterizedDependency(AlgorithmDefinition algorithmDefinition, File parameterFile, DEPENDENCY_FACTORY dependencyFactory, Optional<JsonNode> hyperparameter, Map<String, InputStream> parameters, Map<String, AlgorithmInstance<?>> dependencyOverrides) {
+        DEPENDENCY dependency;
+
         if(dependencyFactory instanceof BiFunction){
             BiFunction<Optional<JsonNode>, Map<String, InputStream>, DEPENDENCY> factory = (BiFunction<Optional<JsonNode>, Map<String, InputStream>, DEPENDENCY>) dependencyFactory;
-            return factory.apply(hyperparameter, parameters);
+            dependency = factory.apply(hyperparameter, parameters);
         } else if (dependencyFactory instanceof com.hotvect.api.algodefinition.ranking.RankingTransformerFactory factory){
-            return (DEPENDENCY) factory.apply(hyperparameter,parameters);
+            dependency = (DEPENDENCY) factory.apply(hyperparameter,parameters);
         } else if (dependencyFactory instanceof com.hotvect.api.transformation.CompositeTransformerFactory factory){
             Map<AlgorithmId, AlgorithmInstance<?>> dependencies = loadDependencies(algorithmDefinition, parameterFile, dependencyOverrides);
             Map<String, AlgorithmInstance<?>> dependenciesWithOverrides = applyDependencyOverrides(withOnlyAlgorithmName(dependencies), dependencyOverrides);
-            return (DEPENDENCY) factory.apply(hyperparameter, parameters, dependenciesWithOverrides);
+            dependency = (DEPENDENCY) factory.apply(hyperparameter, parameters, dependenciesWithOverrides);
         } else if (dependencyFactory instanceof CompositeRankingVectorizerFactory factory){
             Map<AlgorithmId, AlgorithmInstance<?>> dependencies = loadDependencies(algorithmDefinition, parameterFile, dependencyOverrides);
             Map<String, AlgorithmInstance<?>> dependenciesWithOverrides = applyDependencyOverrides(withOnlyAlgorithmName(dependencies), dependencyOverrides);
-            return (DEPENDENCY) factory.apply(hyperparameter, parameters, dependenciesWithOverrides);
+            dependency = (DEPENDENCY) factory.apply(hyperparameter, parameters, dependenciesWithOverrides);
         } else {
             throw new MalformedAlgorithmException("Unknown dependency factory class type:" + dependencyFactory.getClass().getCanonicalName());
+        }
+
+        // Enable feature logging if requested (post-construction configuration)
+        if (this.enableFeatureLogging) {
+            enableFeatureLoggingOnTransformer(dependency, algorithmDefinition.algorithmId().algorithmName());
+        }
+
+        return dependency;
+    }
+
+    private void enableFeatureLoggingOnTransformer(Object transformer, String algorithmName) {
+        if (transformer instanceof AuditableTransformer) {
+            ((AuditableTransformer) transformer).setFeatureAuditEnabled(true, algorithmName);
+            log.info("Feature auditing enabled for algorithm: {}", algorithmName);
+        } else {
+            log.warn("Feature auditing requested but algorithm '{}' uses '{}' which does not support feature auditing. Skipping feature logging for this dependency.",
+                algorithmName, transformer.getClass().getName());
         }
     }
 

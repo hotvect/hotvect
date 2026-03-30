@@ -48,7 +48,7 @@ class UnorderedFileAggregatorTest {
             }
             throw new RuntimeException("Bad function");
         };
-        UnorderedFileAggregator<AtomicLong> testSubject = UnorderedFileAggregator.aggregator(mr, source, state, badUpdate);
+        UnorderedFileAggregator<String, AtomicLong> testSubject = UnorderedFileAggregator.aggregator(mr, source, state, badUpdate);
         assertThrows(RuntimeException.class, testSubject::call);
         source.forEach(File::delete);
     }
@@ -66,7 +66,7 @@ class UnorderedFileAggregatorTest {
         List<File> source = toTestFiles(testData);
         AtomicLong state = new AtomicLong(0);
         BiConsumer<AtomicLong, String> update = (s, str) -> s.addAndGet(Long.parseLong(str));
-        UnorderedFileAggregator<AtomicLong> testSubject = UnorderedFileAggregator.aggregator(mr, source, state, update, nThread, batchSize);
+        UnorderedFileAggregator<String, AtomicLong> testSubject = UnorderedFileAggregator.aggregator(mr, source, state, update, nThread, batchSize);
         Map<String, Object> metadata = testSubject.call();
         long actualSum = state.get();
         assertEquals(expectedSum, actualSum);

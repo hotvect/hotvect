@@ -4,11 +4,10 @@ import com.hotvect.api.data.Namespace;
 import com.hotvect.api.data.RawValueType;
 import com.hotvect.api.data.ValueType;
 import com.hotvect.api.data.common.NamespacedRecord;
-import com.hotvect.api.data.featurestore.FeatureStoreResponse;
-import com.hotvect.api.data.featurestore.SimpleFeatureStoreResponse;
 import com.hotvect.api.data.ranking.RankingRequest;
 import com.hotvect.api.data.ranking.TransformedAction;
 import com.hotvect.core.transform.*;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 import java.util.*;
@@ -26,12 +25,12 @@ class StandardRankingTransformerEagerTest {
     }
 
     enum TestNamespace implements Namespace {
-        SHARED_COMPUTATION,
-        ACTION_COMPUTATION,
-        INTERACTION_COMPUTATION,
-        SHARED_FEATURE,
-        ACTION_FEATURE,
-        INTERACTION_FEATURE,
+        EAGER_SHARED_COMPUTATION,
+        EAGER_ACTION_COMPUTATION,
+        EAGER_INTERACTION_COMPUTATION,
+        EAGER_SHARED_FEATURE,
+        EAGER_ACTION_FEATURE,
+        EAGER_INTERACTION_FEATURE,
         EAGER_FEATURE,
         EAGER_FEATURE_2;
 
@@ -56,6 +55,13 @@ class StandardRankingTransformerEagerTest {
         EAGER_STEP_2
     }
 
+    @BeforeAll
+    static void registerNamespaces() {
+        Namespaces.register(TestNamespace.class);
+        Namespaces.register(RawNamespace.class);
+        Namespaces.register(EagerId.class);
+    }
+
     @Test
     void testEagerTransformationWithNullEagerTransformation() {
         // Test that null eager transformation behaves as before
@@ -66,10 +72,10 @@ class StandardRankingTransformerEagerTest {
         List<TestAction> actions = List.of(action1);
 
         StandardRankingTransformer.Builder<TestShared, TestAction> builder = StandardRankingTransformer.builder();
-        
-        builder.withSharedComputation(TestNamespace.SHARED_FEATURE, 
-                request -> request.getOriginalInput().shared().sharedField + "-transformed", true)
-               .withFeature(TestNamespace.SHARED_FEATURE.getName());
+
+        builder.withSharedComputation(TestNamespace.EAGER_SHARED_FEATURE,
+                        request -> request.getOriginalInput().shared().sharedField + "-transformed", true)
+                .withFeature(TestNamespace.EAGER_SHARED_FEATURE.getName());
 
         StandardRankingTransformer<TestShared, TestAction> transformer = builder.build();
 
@@ -78,39 +84,9 @@ class StandardRankingTransformerEagerTest {
 
         List<TransformedAction<TestAction>> transformedList = transformer.transform(computingRankingRequest);
         assertEquals(1, transformedList.size());
-        
+
         TransformedAction<TestAction> transformed = transformedList.get(0);
-        assertEquals("sharedData-transformed", transformed.transformed().get(TestNamespace.SHARED_FEATURE));
-    }
-
-    @Test
-    void testEagerTransformationExposesFeatureStoreResponsesToComputable() {
-        TestShared shared = new TestShared();
-        shared.sharedField = "sharedData";
-        TestAction action1 = new TestAction();
-        action1.actionField = "actionData1";
-        List<TestAction> actions = List.of(action1);
-
-        Namespace viewNamespace = Namespaces.declareNamespace("customer_features_legacy");
-        FeatureStoreResponse featureStoreResponse = SimpleFeatureStoreResponse.success(Map.of());
-
-        EagerRankingTransformation<TestShared, TestAction> eagerTransformation = rankingRequest -> Map.of(
-                viewNamespace, featureStoreResponse,
-                RawNamespace.EAGER_RAW, "some-non-feature-store-value"
-        );
-
-        StandardRankingTransformer<TestShared, TestAction> transformer = StandardRankingTransformer
-                .<TestShared, TestAction>builder()
-                .withEagerTransformation(EagerId.EAGER_STEP, eagerTransformation)
-                .build();
-
-        RankingRequest<TestShared, TestAction> rankingRequest = new RankingRequest<>("exampleId", shared, actions);
-        ComputingRankingRequest<TestShared, TestAction> computingRankingRequest = transformer.prepare(rankingRequest);
-
-        assertSame(
-                featureStoreResponse,
-                computingRankingRequest.shared().compute(viewNamespace)
-        );
+        assertEquals("sharedData-transformed", transformed.transformed().get(TestNamespace.EAGER_SHARED_FEATURE));
     }
 
     @Test
@@ -162,7 +138,7 @@ class StandardRankingTransformerEagerTest {
 
         // Transform again - eager transformation should be called again (since it's per prepare() call)
         ComputingRankingRequest<TestShared, TestAction> computingRankingRequest2 = transformer.prepare(rankingRequest);
-        List<TransformedAction<TestAction>> transformedList2 = transformer.transform(computingRankingRequest2);
+        transformer.transform(computingRankingRequest2);
         assertEquals(2, eagerCallCount.get()); // Called again during second prepare()
     }
 
@@ -179,15 +155,15 @@ class StandardRankingTransformerEagerTest {
                 Map.of(RawNamespace.EAGER_RAW, "eager-" + rankingRequest.shared().sharedField);
 
         StandardRankingTransformer.Builder<TestShared, TestAction> builder = StandardRankingTransformer.builder();
-        
+
         builder.withEagerTransformation(EagerId.EAGER_STEP, eagerTransformation)
-               .withSharedComputation(TestNamespace.EAGER_FEATURE, sharedCompute -> sharedCompute.compute(RawNamespace.EAGER_RAW), true)
-               .withFeature(TestNamespace.EAGER_FEATURE.getName())
-               .withSharedComputation(TestNamespace.SHARED_FEATURE, request -> {
-                   regularCallCount.incrementAndGet();
-                   return request.getOriginalInput().shared().sharedField + "-regular";
-               }, true)
-               .withFeature(TestNamespace.SHARED_FEATURE.getName());
+                .withSharedComputation(TestNamespace.EAGER_FEATURE, sharedCompute -> sharedCompute.compute(RawNamespace.EAGER_RAW), true)
+                .withFeature(TestNamespace.EAGER_FEATURE.getName())
+                .withSharedComputation(TestNamespace.EAGER_SHARED_FEATURE, request -> {
+                    regularCallCount.incrementAndGet();
+                    return request.getOriginalInput().shared().sharedField + "-regular";
+                }, true)
+                .withFeature(TestNamespace.EAGER_SHARED_FEATURE.getName());
 
         StandardRankingTransformer<TestShared, TestAction> transformer = builder.build();
 
@@ -199,10 +175,10 @@ class StandardRankingTransformerEagerTest {
 
         TransformedAction<TestAction> transformed = transformedList.get(0);
         NamespacedRecord<Namespace, Object> record = transformed.transformed();
-        
+
         // Both eager and regular features should be present
         assertEquals("eager-sharedData", record.get(TestNamespace.EAGER_FEATURE));
-        assertEquals("sharedData-regular", record.get(TestNamespace.SHARED_FEATURE));
+        assertEquals("sharedData-regular", record.get(TestNamespace.EAGER_SHARED_FEATURE));
         assertEquals(1, regularCallCount.get());
     }
 

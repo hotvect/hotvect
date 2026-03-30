@@ -12,6 +12,7 @@ import com.hotvect.utils.ListTransform;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 
 /**
  * This class is a copy of the BulkScoreGreedyRanker class in the core module.
@@ -42,11 +43,11 @@ public class BulkScoreGreedyRanker<SHARED, ACTION> implements Ranker<SHARED, ACT
         List<IndexedScoredAction> processed = new ArrayList<>(numActions);
 
         for(int i = 0; i < numActions; ++i) {
-            processed.add(new IndexedScoredAction(i, request.availableActions().get(i), scoringDecisions.get(i).score()));
+            processed.add(new IndexedScoredAction(i, request.availableActions().get(i), scoringDecisions.get(i).score(), scoringDecisions.get(i).additionalProperties()));
         }
 
         processed.sort(this.COMPARATOR);
-        var decisions = ListTransform.map(processed, x -> RankingDecision.builder(x.index, x.action).withScore(x.score).build());
+        var decisions = ListTransform.map(processed, x -> RankingDecision.builder(x.index, x.action).withScore(x.score).withAdditionalProperties(x.additionalProperties).build());
         return RankingResponse.newResponse(
                 decisions,
                 scoringResponse.featureStoreResponseContainer(),
@@ -54,15 +55,22 @@ public class BulkScoreGreedyRanker<SHARED, ACTION> implements Ranker<SHARED, ACT
         );
     }
 
+    @Override
+    public void close() throws Exception {
+        bulkScorer.close();
+    }
+
     private class IndexedScoredAction {
         final int index;
         final ACTION action;
         final double score;
+        final Map<String, Object> additionalProperties;
 
-        private IndexedScoredAction(int index, ACTION action, double score) {
+        private IndexedScoredAction(int index, ACTION action, double score, Map<String, Object> additionalProperties) {
             this.index = index;
             this.action = action;
             this.score = score;
+            this.additionalProperties = additionalProperties;
         }
     }
 }

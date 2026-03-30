@@ -3,14 +3,15 @@ package com.hotvect.offlineutils.export;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.hotvect.api.data.featurestore.SimpleFeatureStoreResponse;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hotvect.api.algorithms.Ranker;
 import com.hotvect.api.data.ranking.*;
 import com.hotvect.api.data.FeatureStoreResponseContainer;
+import com.hotvect.api.data.featurestore.SimpleFeatureStoreResponse;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -43,10 +44,11 @@ class RankingResultFormatterTest {
         var actual = formatter.apply(
                 new RankingExample<Void, String, Double>(
                         "example_1",
-                        new RankingRequest<>(
+                        OfflineRankingRequest.newOfflineRankingRequest(
                                 "example_1",
                                 null,
-                                ImmutableList.of("a", "b", "c")
+                                ImmutableList.of("a", "b", "c"),
+                                FeatureStoreResponseContainer.empty()
                         ),
                         ImmutableList.of(
                                 new RankingOutcome<>(
@@ -65,23 +67,25 @@ class RankingResultFormatterTest {
                 )
         );
 
-        assertEquals("{\"example_id\":\"example_1\",\"additional_properties\":{\"log\":\"me\"},\"result\":[{\"rank\":2,\"reward\":1.0},{\"rank\":1,\"reward\":2.0},{\"rank\":0,\"reward\":3.0}]}", actual);
+        assertEquals("{\"example_id\":\"example_1\",\"additional_properties\":{\"log\":\"me\"},\"result\":[{\"rank\":2,\"reward\":1.0},{\"rank\":1,\"reward\":2.0},{\"rank\":0,\"reward\":3.0}]}\n", new String(actual.array(), StandardCharsets.UTF_8));
 
     }
 
     @Test
-    void given_include_feature_store_responses_writes_container_under_additional_properties() throws Exception {
+    void given_include_feature_store_responses_writes_under_additional_properties() throws Exception {
         var testSubject = new RankingResultFormatter<Void, String, Double>(true);
 
         FeatureStoreResponseContainer featureStoreResponseContainer = new FeatureStoreResponseContainer(
                 ImmutableMap.of(
                         "view_1",
-                        SimpleFeatureStoreResponse.success(
-                                ImmutableMap.of(
-                                        ImmutableMap.of("entity_id", "e_1"),
-                                        ImmutableMap.of("timestamp", Instant.parse("2026-02-06T00:00:00Z"))
+                        SimpleFeatureStoreResponse.builder()
+                                .allEntities(
+                                        ImmutableMap.of(
+                                                ImmutableMap.of("entity_id", "e_1"),
+                                                ImmutableMap.of("timestamp", Instant.parse("2026-02-06T00:00:00Z"))
+                                        )
                                 )
-                        )
+                                .build()
                 )
         );
 
@@ -98,10 +102,11 @@ class RankingResultFormatterTest {
         var actual = formatter.apply(
                 new RankingExample<>(
                         "example_1",
-                        new RankingRequest<>(
+                        OfflineRankingRequest.newOfflineRankingRequest(
                                 "example_1",
                                 null,
-                                ImmutableList.of("a")
+                                ImmutableList.of("a"),
+                                FeatureStoreResponseContainer.empty()
                         ),
                         ImmutableList.of(
                                 new RankingOutcome<>(
@@ -113,12 +118,11 @@ class RankingResultFormatterTest {
         );
 
         ObjectMapper mapper = new ObjectMapper();
-        JsonNode root = mapper.readTree(actual);
+        JsonNode root = mapper.readTree(new String(actual.array(), StandardCharsets.UTF_8));
         assertTrue(root.has("additional_properties"));
         JsonNode additionalProperties = root.get("additional_properties");
         assertTrue(additionalProperties.has("__feature_store_responses"));
-        JsonNode responsesNode = additionalProperties.get("__feature_store_responses");
-        assertTrue(responsesNode.has("view_1"));
+        assertTrue(additionalProperties.get("__feature_store_responses").has("view_1"));
     }
 
     private record ExampleOutcome(double outcome) {
@@ -150,7 +154,7 @@ class RankingResultFormatterTest {
         var actual = formatter.apply(
                 new RankingExample<Void, String, ExampleOutcome>(
                         "example_1",
-                        new RankingRequest<>(
+                        OfflineRankingRequest.newOfflineRankingRequest(
                                 "example_1",
                                 null,
                                 ImmutableList.of("a", "b", "c")
@@ -172,7 +176,7 @@ class RankingResultFormatterTest {
                 )
         );
 
-        assertEquals("{\"example_id\":\"example_1\",\"result\":[{\"rank\":2,\"reward\":1.0,\"additional_properties\":{\"outcome\":1.0}},{\"rank\":1,\"reward\":2.0,\"additional_properties\":{\"outcome\":2.0}},{\"rank\":0,\"reward\":3.0,\"additional_properties\":{\"outcome\":3.0}}]}", actual);
+        assertEquals("{\"example_id\":\"example_1\",\"result\":[{\"rank\":2,\"reward\":1.0,\"additional_properties\":{\"outcome\":1.0}},{\"rank\":1,\"reward\":2.0,\"additional_properties\":{\"outcome\":2.0}},{\"rank\":0,\"reward\":3.0,\"additional_properties\":{\"outcome\":3.0}}]}\n", new String(actual.array(), StandardCharsets.UTF_8));
 
     }
 

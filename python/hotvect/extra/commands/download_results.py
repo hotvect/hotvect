@@ -1,10 +1,8 @@
-"""Download results command for hv-extra CLI."""
+"""Download results command for hv-ext CLI."""
 
 import sys
 from datetime import date
 from pathlib import Path
-
-from hotvect.backtest import SageMakerBacktestResultsDownloader
 
 from .base import BaseCommand
 
@@ -49,6 +47,22 @@ class DownloadResultsCommand(BaseCommand):
             help="Re-download files even if they already exist locally (default: skip existing)",
         )
 
+        parser.add_argument(
+            "--training-job-id-regex",
+            default=".+?",
+            help="Regex to filter SageMaker training job IDs (default: match all)",
+        )
+        parser.add_argument(
+            "--algorithm-name-regex",
+            default=".+?",
+            help="Regex to filter algorithm name (default: match all)",
+        )
+        parser.add_argument(
+            "--algorithm-version-regex",
+            default=".+?",
+            help="Regex to filter algorithm version (default: match all)",
+        )
+
         return parser
 
     def execute(self, args):
@@ -81,15 +95,23 @@ class DownloadResultsCommand(BaseCommand):
             print(f"  Include metadata: {args.include_metadata}")
             print(f"  Include output data: {args.include_output_data}")
             print(f"  Skip existing: {not args.no_skip_existing}")
+            print(f"  Training job ID regex: {args.training_job_id_regex}")
+            print(f"  Algorithm name regex: {args.algorithm_name_regex}")
+            print(f"  Algorithm version regex: {args.algorithm_version_regex}")
             print()
 
             # Create downloader
+            from hotvect.backtest import SageMakerBacktestResultsDownloader
+
             downloader = SageMakerBacktestResultsDownloader(
                 s3_base_prefix=args.s3_base_prefix,
                 dest_base_dir=args.dest_base_dir,
                 include_metadata=args.include_metadata,
                 skip_data_if_already_present=not args.no_skip_existing,
                 include_output_data=args.include_output_data,
+                training_job_id_pattern=args.training_job_id_regex,
+                algorithm_name_pattern=args.algorithm_name_regex,
+                algorithm_version_pattern=args.algorithm_version_regex,
                 from_including_test_date=from_date,
                 to_including_test_date=to_date,
                 role_arn_to_assume=args.role_arn,

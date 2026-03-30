@@ -25,48 +25,58 @@ import java.util.function.BiConsumer;
 
 import static java.lang.Math.max;
 
-public class UnorderedFileAggregator<Z> extends VerboseCallable<Map<String, Object>> {
+public class UnorderedFileAggregator<S, Z> extends VerboseCallable<Map<String, Object>> {
 
     private static final Logger log = LoggerFactory.getLogger(UnorderedFileAggregator.class);
 
     private final MeterRegistry meterRegistry;
     private final int nComputationThreads;
     private final int batchSize;
+    private final int nReaderThreads;
     private final List<File> source;
     private final Z state;
-    private final BiConsumer<Z, String> update;
+    private final BiConsumer<Z, S> update;
 
-    public static <Z> UnorderedFileAggregator<Z> aggregator(MeterRegistry meterRegistry, List<File> source, Z state, BiConsumer<Z, String> update, int nThreads, int batchSize) {
-        return new UnorderedFileAggregator<>(meterRegistry, source, state, update, nThreads, batchSize);
+    public static <S, Z> UnorderedFileAggregator<S, Z> aggregator(MeterRegistry meterRegistry, List<File> source, Z state, BiConsumer<Z, S> update, int nThreads, int batchSize, int nReaderThreads) {
+        return new UnorderedFileAggregator<>(meterRegistry, source, state, update, nThreads, batchSize, nReaderThreads);
     }
 
-    public static <Z> UnorderedFileAggregator<Z> aggregator(MeterRegistry meterRegistry, List<File> source, Z state, BiConsumer<Z, String> update) {
-        return aggregator(meterRegistry, source, state, update, -1, -1);
+    public static <S, Z> UnorderedFileAggregator<S, Z> aggregator(MeterRegistry meterRegistry, List<File> source, Z state, BiConsumer<Z, S> update, int nThreads, int batchSize) {
+        return aggregator(meterRegistry, source, state, update, nThreads, batchSize, -1);
     }
 
-    private UnorderedFileAggregator(MeterRegistry meterRegistry, List<File> source, Z state, BiConsumer<Z, String> update, int nComputationThreads, int batchSize) {
+    public static <S, Z> UnorderedFileAggregator<S, Z> aggregator(MeterRegistry meterRegistry, List<File> source, Z state, BiConsumer<Z, S> update) {
+        return aggregator(meterRegistry, source, state, update, -1, -1, -1);
+    }
+
+    private UnorderedFileAggregator(MeterRegistry meterRegistry, List<File> source, Z state, BiConsumer<Z, S> update, int nComputationThreads, int batchSize, int nReaderThreads) {
         this.meterRegistry = meterRegistry;
         this.batchSize = ConcurrentUtils.getBatchSize(Optional.of(batchSize));
         this.source = source;
         this.state = state;
         this.update = update;
         this.nComputationThreads = ConcurrentUtils.getThreadNumForCpuBoundTasks(Optional.of(nComputationThreads));
+        this.nReaderThreads = nReaderThreads;
     }
 
     @Override
     protected Map<String, Object> doCall() throws Exception {
         int readQueueSize = this.nComputationThreads * batchSize * 4;
-        int nReaderThreads = max(1, (int)(this.nComputationThreads / 2.5));
+        int nReaderThreads = this.nReaderThreads;
+        if (nReaderThreads == -1) {
+            // Auto-calculate reader threads using default ratio
+            nReaderThreads = max(1, (int)(this.nComputationThreads / 2.5));
+        }
 
-        UnorderedMultiFileReader<String> reader = new UnorderedMultiFileReader<>(
+        UnorderedMultiFileReader<S> reader = new UnorderedMultiFileReader<>(
                 readQueueSize,
                 this.source,
                 nReaderThreads
         );
 
-        MultiFileState multiFileState = new MultiFileState(reader.getReadState());
+        MultiFileState<S> multiFileState = new MultiFileState<>(reader.getReadState());
 
-        UnorderedCpuIntensiveAggregator<Z> processor = new UnorderedCpuIntensiveAggregator<>(
+        UnorderedCpuIntensiveAggregator<S, Z> processor = new UnorderedCpuIntensiveAggregator<>(
                 multiFileState,
                 Timer.builder(UnorderedFileAggregator.class.getSimpleName() + ".processor")
                         .description("Record processing timing by UnorderedCpuIntensiveAggregator")
@@ -118,12 +128,12 @@ public class UnorderedFileAggregator<Z> extends VerboseCallable<Map<String, Obje
         return metadata;
     }
 
-    static class MultiFileState {
-        private final UnorderedMultiFileReader.ReadState<String> readState;
+    static class MultiFileState<S> {
+        private final UnorderedMultiFileReader.ReadState<S> readState;
         private volatile boolean processingDone;
         private final AtomicReference<Throwable> error = new AtomicReference<>();
 
-        MultiFileState(UnorderedMultiFileReader.ReadState<String> readState) {
+        MultiFileState(UnorderedMultiFileReader.ReadState<S> readState) {
             this.readState = readState;
         }
 
@@ -146,7 +156,7 @@ public class UnorderedFileAggregator<Z> extends VerboseCallable<Map<String, Obje
             return this.readState.isReadDone();
         }
 
-        public BlockingQueue<String> getReadQueue() {
+        public BlockingQueue<S> getReadQueue() {
             return this.readState.getReadQueue();
         }
 

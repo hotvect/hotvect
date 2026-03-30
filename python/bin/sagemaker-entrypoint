@@ -16,6 +16,14 @@ from sagemaker_training.environment import Environment
 
 import s3fs
 from hotvect.pyhotvect import AlgorithmPipeline
+from hotvect.experiment_management import (
+    AlgorithmName,
+    AlgorithmParameterSpec,
+    ExperimentManagementClient,
+    ExperimentManagementConnection,
+    SecretsManagerAuth,
+)
+from hotvect.experiment_management.hotvect_config import create_client_from_hotvect_config
 from hotvect.sagemaker import (
     WRITE_METADATA_ENV_VARIABLE,
     WRITE_OUTPUT_ENV_VARIABLE,
@@ -23,34 +31,16 @@ from hotvect.sagemaker import (
 )
 
 from hotvect.sagemaker_exp import SageMakerScriptExecutor
+from hotvect.sagemaker_tasks import run_one_shot_from_sagemaker_env
 
 
 logger = logging.getLogger(__name__)
 
 SHOULD_UPDATE_EMS_PARAMETER_VAR = "should_update_ems_parameter"
 EMS_S3_OUTPUT_PREFIX_VAR = "ems_s3_output_prefix"
-EMS_ENV_VAR = "ems_env"
+EMS_URI_VAR = "ems_uri"
 ZALANDO_TOKEN_SECRET_ID_VAR = "zalando_token_secret_id"
-REQUIRED_PARAMS_FOR_EMS_UPDATE = [
-    EMS_S3_OUTPUT_PREFIX_VAR,
-    EMS_ENV_VAR,
-    ZALANDO_TOKEN_SECRET_ID_VAR,
-]
-
-
-def load_emsclient():
-    try:
-        from emsclient.auth import SecretsManagerAuth
-        from emsclient.ems import Ems, EmsConnection
-        from emsclient.ems import Environment as EmsEnv
-        from emsclient.models import AlgorithmName, AlgorithmParameterSpec
-    except ImportError as exc:
-        raise RuntimeError(
-            "EMS parameter updates require the internal-only 'emsclient' package. "
-            "Disable should_update_ems_parameter when using OSS Hotvect."
-        ) from exc
-
-    return SecretsManagerAuth, Ems, EmsConnection, EmsEnv, AlgorithmName, AlgorithmParameterSpec
+REQUIRED_PARAMS_FOR_EMS_UPDATE = [EMS_S3_OUTPUT_PREFIX_VAR, EMS_URI_VAR]
 
 
 def train():
@@ -60,24 +50,24 @@ def train():
     should_update_ems_parameter = hyperparameters.get(SHOULD_UPDATE_EMS_PARAMETER_VAR, False)
     if should_update_ems_parameter:
         logger.info(
-            "Training for EMS update. output.tar.gz and model.tar.gz won't be uploaded to s3"
+            "Training for experiment-management (EMS) update. output.tar.gz and model.tar.gz won't be uploaded to s3"
         )
         disable_writing_sagemaker_tar_files()
         check_for_ems_update_required_params(hyperparameters)
     else:
-        logger.info("The results of this training won't be uploaded to EMS.")
+        logger.info("The results of this training won't be uploaded to experiment-management (EMS).")
 
     hotvect_rebuilder.rebuild_pipeline_and_run()
     logger.info("Hotvect pipeline finished.")
 
     if should_update_ems_parameter:
-        ems_env = hyperparameters.get(EMS_ENV_VAR)
+        ems_uri = hyperparameters.get(EMS_URI_VAR)
         ems_s3_output_prefix = hyperparameters.get(EMS_S3_OUTPUT_PREFIX_VAR)
         secret_id = hyperparameters.get(ZALANDO_TOKEN_SECRET_ID_VAR)
         training_result_updater = EmsUpdaterAgent(
             algorithm_pipeline=hotvect_rebuilder.algorithm_pipeline,
             output_s3_path=ems_s3_output_prefix,
-            ems_env=ems_env,
+            ems_uri=ems_uri,
             secret_id=secret_id,
         )
         training_result_updater.upload_result_and_update_ems()
@@ -94,6 +84,8 @@ def main():
     sagemaker_env = Environment()
     if "s3_uri_custom_jar" in sagemaker_env.hyperparameters.keys():
         script()
+    elif "hotvect_task" in sagemaker_env.hyperparameters.keys():
+        run_one_shot_from_sagemaker_env()
     else:
         train()
 
@@ -106,42 +98,47 @@ def setup_logging(log_level):
 
 
 def check_for_ems_update_required_params(hyperparameters):
-    missing_parameters = list(
-        filter(lambda x: x not in hyperparameters, REQUIRED_PARAMS_FOR_EMS_UPDATE)
-    )
-    if missing_parameters:
+    if EMS_S3_OUTPUT_PREFIX_VAR not in hyperparameters:
         raise KeyError(
-            f"The following mandatory parameters needed to update EMS are missing: {missing_parameters}"
+            f"The following mandatory parameters needed to update experiment-management (EMS) are missing: {[EMS_S3_OUTPUT_PREFIX_VAR]}"
         )
+
+    missing_parameters = list(filter(lambda x: x not in hyperparameters, REQUIRED_PARAMS_FOR_EMS_UPDATE))
+    if not missing_parameters:
+        return
+
+    raise KeyError(
+        f"The following mandatory parameters needed to update experiment-management (EMS) are missing: {missing_parameters}"
+    )
 
 
 def disable_writing_sagemaker_tar_files():
     os.environ.update({WRITE_METADATA_ENV_VARIABLE: "False", WRITE_OUTPUT_ENV_VARIABLE: "False"})
 
 
-class EmsUpdaterAgent:
+class ExperimentManagementUpdaterAgent:
     def __init__(
         self,
         algorithm_pipeline: AlgorithmPipeline,
         output_s3_path: str,
-        ems_env: str,
-        secret_id: str,
+        ems_uri: str | None,
+        secret_id: str | None,
     ):
         self._algorithm_pipeline: AlgorithmPipeline = algorithm_pipeline
         self._output_s3_path: str = output_s3_path
-        (
-            SecretsManagerAuth,
-            Ems,
-            EmsConnection,
-            EmsEnv,
-            AlgorithmName,
-            AlgorithmParameterSpec,
-        ) = load_emsclient()
-        self._algorithm_name_type = AlgorithmName
-        self._algorithm_parameter_spec_type = AlgorithmParameterSpec
-        self._ems_client = Ems(
-            EmsConnection(environment=EmsEnv[ems_env], bearer_auth=SecretsManagerAuth(secret_id))
-        )
+        if secret_id:
+            if not ems_uri:
+                raise ValueError("ems_uri is required when using zalando_token_secret_id")
+            self._experiment_management_client: ExperimentManagementClient = ExperimentManagementClient(
+                ExperimentManagementConnection(
+                    environment=str(ems_uri),
+                    bearer_auth=SecretsManagerAuth(secret_id),
+                )
+            )
+        else:
+            if not ems_uri:
+                raise ValueError("ems_uri is required when using ~/.hotvect/config.json auth")
+            self._experiment_management_client = create_client_from_hotvect_config(url_override=str(ems_uri))
 
     def upload_result_and_update_ems(self):
         self._upload_training_parameters_to_s3()
@@ -163,21 +160,21 @@ class EmsUpdaterAgent:
         fs.put(self._algorithm_pipeline.predict_parameter_file_path(), parameter_zip_s3_uri)
 
     def _update_parameter_in_ems(self):
-        logger.info("Updating EMS with the training parameters.")
-        algorithm = self._algorithm_name_type(
+        logger.info("Updating experiment-management (EMS) with the training parameters.")
+        algorithm = AlgorithmName(
             algorithm_name=self._algorithm_pipeline.algorithm_name,
             algorithm_version=self._algorithm_pipeline.algorithm_version,
         )
         parameter_zip_s3_uri = os.path.join(
             self._output_s3_path, f"{self._algorithm_pipeline.parameter_version}.parameters.zip"
         )
-        algorithm_parameter_spec = self._algorithm_parameter_spec_type(
+        algorithm_parameter_spec = AlgorithmParameterSpec(
             algorithm_parameter_id=self._algorithm_pipeline.parameter_version,
             algorithm=algorithm,
             evaluation_results="",
             absolute_s3_path=parameter_zip_s3_uri,
         )
-        self._ems_client.create_algorithm_parameter(algorithm_parameter_spec)
+        self._experiment_management_client.create_algorithm_parameter(algorithm_parameter_spec)
         logger.info(
             "Algorithm Parameter %s created successfully.",
             self._algorithm_pipeline.parameter_version,

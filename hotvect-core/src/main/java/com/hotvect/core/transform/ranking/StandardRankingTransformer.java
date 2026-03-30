@@ -11,6 +11,7 @@ import com.hotvect.api.data.common.NamespacedRecordImpl;
 import com.hotvect.api.data.ranking.RankingRequest;
 import com.hotvect.api.data.ranking.TransformedAction;
 import com.hotvect.api.data.scoring.ScoringDecision;
+import com.hotvect.api.transformation.AuditableTransformer;
 import com.hotvect.core.transform.*;
 import com.hotvect.core.util.Utils;
 import com.hotvect.utils.FuzzyMatch;
@@ -28,7 +29,7 @@ import java.util.*;
 import static com.google.common.base.Preconditions.*;
 
 @SuppressWarnings({"rawtypes"})
-public class StandardRankingTransformer<SHARED, ACTION> implements ComputingRankingTransformer<SHARED, ACTION> {
+public class StandardRankingTransformer<SHARED, ACTION> implements ComputingRankingTransformer<SHARED, ACTION>, AuditableTransformer {
     private static final Logger log = LoggerFactory.getLogger(StandardRankingTransformer.class);
 
     private final Mapping<Namespace, Computation<RankingRequest<SHARED, ACTION>, Object>> sharedMemoizedComputations;
@@ -50,6 +51,10 @@ public class StandardRankingTransformer<SHARED, ACTION> implements ComputingRank
     private final NamespacedRecord<Namespace, RankingFeatureComputationDependency> dependencyLookupMap;
     private final Namespace[] algorithmFeatures;
     private final SortedSet<Namespace> usedFeatures;
+
+    // Feature logging support (mutable for post-construction configuration)
+    private boolean logFeatures = false;
+    private String algorithmName = null;
 
     public static class Builder<SHARED, ACTION> {
         private final Map<String, Computation> sharedComputations = new HashMap<>();
@@ -175,6 +180,16 @@ public class StandardRankingTransformer<SHARED, ACTION> implements ComputingRank
             return setComputationSpec(namespace.toString(), computationSpec);
         }
 
+        /**
+         * Backward-compatible overload kept to support older algorithm JARs compiled against hotvect versions that did not
+         * require an explicit eager transformation id.
+         */
+        public Builder<SHARED, ACTION> withEagerTransformation(EagerRankingTransformation<SHARED, ACTION> eagerTransformation) {
+            checkNotNull(eagerTransformation, "eagerTransformation");
+            Namespace eagerId = Namespaces.declareNamespace("hotvect_internal_eager_transformation_" + this.eagerTransformations.size());
+            return withEagerTransformation(eagerId, eagerTransformation);
+        }
+
         public Builder<SHARED, ACTION> withEagerTransformation(Namespace eagerId, EagerRankingTransformation<SHARED, ACTION> eagerTransformation) {
             checkNotNull(eagerId, "eagerId");
             checkNotNull(eagerTransformation, "eagerTransformation");
@@ -277,6 +292,14 @@ public class StandardRankingTransformer<SHARED, ACTION> implements ComputingRank
     ) {
         Utils.checkCollectionIsEnumsOrNamespaceIdObjects(sharedComputations.keySet());
 
+        // Validate all namespaces are canonical before proceeding
+        validateNamespacesAreCanonical(sharedComputations.keySet(), "shared computations");
+        validateNamespacesAreCanonical(actionComputations.keySet(), "action computations");
+        validateNamespacesAreCanonical(interactionComputations.keySet(), "interaction computations");
+        validateNamespacesAreCanonical(bulkScorers.keySet(), "bulk scorers");
+        validateNamespacesAreCanonical(precomputedShared.keySet(), "precomputed shared");
+        validateNamespacesAreCanonical(usedFeatures, "used features");
+
         // Memoized / NonMemoized - Shared
         Map<Namespace, Computation<RankingRequest<SHARED, ACTION>, Object>> sharedMemoMap =
                 (Map<Namespace, Computation<RankingRequest<SHARED, ACTION>, Object>>) (Map<?, ?>) ImmutableMap.copyOf(
@@ -291,7 +314,7 @@ public class StandardRankingTransformer<SHARED, ACTION> implements ComputingRank
                                 computationSpec.get(x.getKey()) == ComputationSpec.LAZY_ON_DEMAND));
         this.sharedNonMemoizedComputations = new NamespacedRecordImpl<>(sharedNonMemoMap);
 
-        this.eagerTransformations = new LinkedHashMap<>(eagerTransformations != null ? eagerTransformations : Map.of());
+        this.eagerTransformations = new LinkedHashMap<>(checkNotNull(eagerTransformations, "eagerTransformations"));
 
         // Precomputed - Shared
         Map<Namespace, Object> sharedPrecomputedMap = Maps.filterEntries(precomputedShared,
@@ -460,7 +483,7 @@ public class StandardRankingTransformer<SHARED, ACTION> implements ComputingRank
             if(this.algorithmFeatures != null){
                 for (Namespace Namespace : this.algorithmFeatures) {
                     ComputingBulkScorer<SHARED, ACTION> bulkScorer = this.bulkScorers.get(Namespace);
-                    List<ScoringDecision<ACTION>> scores = bulkScorer.score(input).decisions();
+                    List<ScoringDecision<ACTION>> scores = bulkScorer.bulkScore(input);
                     for (ScoringDecision<ACTION> decision : scores) {
                         double score = decision.score();
                         if (!decision.additionalProperties().isEmpty()) {
@@ -473,6 +496,35 @@ public class StandardRankingTransformer<SHARED, ACTION> implements ComputingRank
                     }
                 }
             }
+
+            // Feature logging support for debugging composite algorithms
+            if (this.logFeatures && this.algorithmName != null) {
+                if (additionalProperties == null) {
+                    additionalProperties = new HashMap<>();
+                }
+                // Serialize computed features for audit/debugging
+                Map<String, Object> loggedFeatures = new HashMap<>();
+                for (Namespace usedFeature : this.usedFeatures) {
+                    Object featureValue = transformed.get(usedFeature);
+                    if (featureValue != null) {
+                        loggedFeatures.put(usedFeature.toString(), featureValue);
+                    }
+                }
+
+                // Merge with existing feature audit map if present (supports nested/composite algorithms)
+                Map<String, Object> featureAuditMap;
+                if (additionalProperties.containsKey("features")) {
+                    // Preserve existing nested algorithm features
+                    featureAuditMap = new HashMap<>((Map<String, Object>) additionalProperties.get("features"));
+                } else {
+                    featureAuditMap = new HashMap<>();
+                }
+
+                // Add current algorithm's features
+                featureAuditMap.put(this.algorithmName, loggedFeatures);
+                additionalProperties.put("features", featureAuditMap);
+            }
+
             ret.add(TransformedAction.of(candidate.getAction().getOriginalInput(), transformed, additionalProperties == null ? ImmutableMap.of() : additionalProperties));
         }
         return ret;
@@ -481,6 +533,22 @@ public class StandardRankingTransformer<SHARED, ACTION> implements ComputingRank
     @Override
     public SortedSet<Namespace> getUsedFeatures() {
         return usedFeatures;
+    }
+
+    /**
+     * Enable or disable feature auditing for debugging composite algorithms.
+     * When enabled, computed features are captured and added to TransformedAction
+     * additionalProperties for inspection during prediction.
+     *
+     * @param enabled true to enable feature auditing, false to disable
+     * @param algorithmName the name of the algorithm (used for namespacing features in output)
+     */
+    @Override
+    public void setFeatureAuditEnabled(boolean enabled, String algorithmName) {
+        this.logFeatures = enabled;
+        this.algorithmName = checkNotNull(algorithmName);
+        checkArgument(!algorithmName.isEmpty());
+        log.info("Feature auditing {} for algorithm: {}", enabled ? "enabled" : "disabled", algorithmName);
     }
 
     @Override
@@ -493,6 +561,7 @@ public class StandardRankingTransformer<SHARED, ACTION> implements ComputingRank
 
         NamespacedRecord<Namespace, Holder<Object>> precomputed;
         if (this.eagerTransformations.isEmpty()) {
+            // No eager transformation, so we can just use the precomputations
             precomputed = this.precomputedShared;
         } else {
             NamespacedRecord<Namespace, Holder<Object>> toPopulate = this.precomputedShared.shallowCopy();
@@ -650,7 +719,6 @@ public class StandardRankingTransformer<SHARED, ACTION> implements ComputingRank
             shared.putPrecalculatedAll(eagerResults);
             shared.putPrecalculated(eagerId, Boolean.TRUE);
         }
-
         shared.appendComputations((Mapping<Namespace, Computation<RankingRequest<SHARED, ACTION>, Object>>)(Mapping)this.sharedMemoizedComputations, (Mapping<Namespace,Computation<RankingRequest<SHARED, ACTION>, Object>>)(Mapping)this.sharedNonMemoizedMapping);
 
         List<ComputingCandidate<SHARED, ACTION>> candidates = computingRankingRequest.candidates();
@@ -814,6 +882,32 @@ public class StandardRankingTransformer<SHARED, ACTION> implements ComputingRank
             return (SerializedLambda) serializedForm;
         } else {
             throw new IllegalArgumentException("The provided lambda is not a SerializedLambda");
+        }
+    }
+
+    /**
+     * Validates that all namespaces in the collection are canonical singletons.
+     * This is called during transformer construction to fail fast if any namespace
+     * was not properly registered via {@link Namespaces#register(Class)} or
+     * {@link Namespaces#declareNamespace(String)}.
+     *
+     * @param namespaces the namespace collection to validate
+     * @param context descriptive context for error messages (e.g., "shared computations")
+     * @throws IllegalStateException if any namespace is not canonical
+     */
+    private static void validateNamespacesAreCanonical(Collection<Namespace> namespaces, String context) {
+        checkNotNull(namespaces);
+        if (namespaces.isEmpty()) {
+            return;
+        }
+
+        for (Namespace namespace : namespaces) {
+            try {
+                Namespaces.assertCanonical(namespace);
+            } catch (IllegalStateException e) {
+                throw new IllegalStateException(
+                        String.format("Non-canonical namespace detected in %s: %s", context, e.getMessage()), e);
+            }
         }
     }
 }

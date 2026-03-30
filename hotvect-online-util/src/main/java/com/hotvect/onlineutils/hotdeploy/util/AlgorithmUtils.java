@@ -75,12 +75,12 @@ public class AlgorithmUtils {
         try (ZipFile parameterFileIn = new ZipFile.Builder().setFile(parameterFile).get()) {
             String pattern = "^" + Pattern.quote(algorithmId.algorithmName()) + "\\/algorithm-parameters\\.json$";
             JsonNode parsed = new ObjectMapper().readTree(ZipFiles.readFromZipFirstMatching(parameterFileIn, pattern));
-            AlgorithmId algoId = new AlgorithmId(
+            AlgorithmId algorithmIdFromZip = new AlgorithmId(
                     checkNotNull(parsed.get("algorithm_name").asText(), "algorithm_name not found"),
                     checkNotNull(parsed.get("algorithm_version").asText(), "algorithm_version not found")
             );
             var ret = new AlgorithmParameterMetadata(
-                    algorithmId,
+                    algorithmIdFromZip,
                     checkNotNull(parsed.get("parameter_id").asText(), "parameter_id not found"),
                     checkNotNull(ZonedDateTime.parse(parsed.get("ran_at").asText()).toInstant(), "ran_at not found"),
                     Optional.ofNullable(parsed.get("last_test_time"))
@@ -94,8 +94,12 @@ public class AlgorithmUtils {
                             })
             );
             if (strictAlgorithmVersionCheck){
-                checkState(ret.algorithmId().equals(algorithmId),
-                        "AlgorithmID read from algorithm-parameters.json does not match. Specified:%s read:%s", algorithmId, ret.algorithmId());
+                checkState(
+                        algorithmIdFromZip.equals(algorithmId),
+                        "AlgorithmID read from algorithm-parameters.json does not match. Specified:%s read:%s",
+                        algorithmId,
+                        algorithmIdFromZip
+                );
             }
             return ret;
         } catch (IOException e) {

@@ -7,6 +7,7 @@ import com.hotvect.api.data.Response;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * A record representing a ranking response that contains a list of RankingDecisions
@@ -19,6 +20,12 @@ public record RankingResponse<ACTION>(
         FeatureStoreResponseContainer featureStoreResponseContainer,
         Map<String, Object> additionalProperties
 ) implements Response<ACTION> {
+
+    public RankingResponse {
+        Objects.requireNonNull(rankingDecisions, "rankingDecisions cannot be null");
+        Objects.requireNonNull(featureStoreResponseContainer, "featureStoreResponseContainer cannot be null");
+        Objects.requireNonNull(additionalProperties, "additionalProperties cannot be null");
+    }
     
     @Override
     public List<RankingDecision<ACTION>> decisions() {

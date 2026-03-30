@@ -12,6 +12,7 @@ public class AdditionalProperties {
     private static final ThreadLocal<IdentityHashMap<Class<?>, Optional<Method>>> ADDITIONAL_PROPERTIES_GETTER_CACHE = ThreadLocal.withInitial(IdentityHashMap::new);
     private AdditionalProperties(){}
 
+    @SafeVarargs
     public static Map<String, Object> mergeAdditionalProperties(Map<String, Object>... properties) {
         Map<String, Object> ret = new HashMap<>();
         for (Map<String, Object> ps : properties) {
@@ -31,7 +32,8 @@ public class AdditionalProperties {
             Optional<Method> getter = getGetter(object);
 
             if (getter.isPresent()) {
-                return (Map<String, Object>) getter.get().invoke(object);
+                Map<String, Object> ret = (Map<String, Object>) getter.get().invoke(object);
+                return ret != null ? ret : Collections.emptyMap();
             } else {
                 // No additional properties
                 return Collections.emptyMap();
@@ -50,13 +52,15 @@ public class AdditionalProperties {
         }
 
         // We haven't looked yet if the method is available
-        try {
-            Method method = object.getClass().getMethod("getAdditionalProperties");
-            method.setAccessible(true);
-            ret = Optional.of(method);
-        } catch (NoSuchMethodException e) {
-            // Additional properties do not exist
-            ret = Optional.empty();
+        ret = Optional.empty();
+        for (String name : List.of("getAdditionalProperties", "additionalProperties")) {
+            try {
+                Method method = object.getClass().getMethod(name);
+                method.setAccessible(true);
+                ret = Optional.of(method);
+                break;
+            } catch (NoSuchMethodException ignored) {
+            }
         }
         ADDITIONAL_PROPERTIES_GETTER_CACHE.get().put(object.getClass(), ret);
         return ret;

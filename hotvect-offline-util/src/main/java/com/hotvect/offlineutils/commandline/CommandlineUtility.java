@@ -50,4 +50,25 @@ public class CommandlineUtility {
             }
         }
     }
+
+    public static File ensureDirectoryExists(File dir, String argumentName) {
+        if (dir == null) {
+            throw new IllegalArgumentException(argumentName + " must not be null");
+        }
+        if (dir.exists() && !dir.isDirectory()) {
+            throw new IllegalArgumentException(argumentName + " must be a directory, got file: " + dir);
+        }
+        if (!dir.exists() && !dir.mkdirs()) {
+            throw new IllegalStateException("Failed to create directory for " + argumentName + ": " + dir);
+        }
+        return dir;
+    }
+
+    public static File metadataJsonFile(File metadataDir) {
+        return new File(metadataDir, "metadata.json");
+    }
+
+    public static File logFile(File metadataDir) {
+        return new File(metadataDir, "hotvect-offline-utils.log");
+    }
 }

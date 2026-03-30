@@ -1,4 +1,4 @@
-"""CatBoost TSV to JSON conversion command for hv-extra CLI."""
+"""CatBoost TSV to JSONL conversion command for hv-ext CLI."""
 
 import json
 import sys
@@ -8,22 +8,15 @@ from .base import BaseCommand
 
 
 class CatBoostConvertCommand(BaseCommand):
-    """Convert CatBoost encoded TSV data to JSON format."""
+    """Convert CatBoost encoded TSV data to JSONL format."""
 
     @classmethod
     def register_parser(cls, subparsers):
         """Register the catboost-convert command parser."""
-        parser = subparsers.add_parser("catboost-convert", help="Convert CatBoost encoded TSV data to JSON format")
+        parser = subparsers.add_parser("catboost-convert", help="Convert CatBoost encoded TSV data to JSONL format")
         parser.add_argument("--schema-file", "-s", required=True, help="Path to schema file defining column types")
         parser.add_argument("--encoded-file", "-e", required=True, help="Path to encoded TSV file")
-        parser.add_argument("--output", "-o", required=True, help="Output JSON file path")
-        parser.add_argument(
-            "--format",
-            choices=["json", "jsonl"],
-            default="json",
-            help="Output format: json (array) or jsonl (line-delimited) (default: json)",
-        )
-        parser.add_argument("--indent", type=int, default=4, help="JSON indentation spaces (default: 4)")
+        parser.add_argument("--output", "-o", required=True, help="Output JSONL file path")
         return parser
 
     def execute(self, args):
@@ -31,7 +24,7 @@ class CatBoostConvertCommand(BaseCommand):
         try:
             schema = self._parse_schema(args.schema_file)
             data = self._convert_to_json(schema, args.encoded_file)
-            self._write_output(data, args.output, args.format, args.indent)
+            self._write_output(data, args.output)
             print(f"Successfully converted {len(data)} records to {args.output}")
 
         except FileNotFoundError as e:
@@ -105,13 +98,8 @@ class CatBoostConvertCommand(BaseCommand):
 
         return data
 
-    def _write_output(self, data: List[Dict[str, Any]], output_file: str, output_format: str, indent: int):
-        """Write data to output file in specified format."""
+    def _write_output(self, data: List[Dict[str, Any]], output_file: str):
+        """Write data to output file as JSONL."""
         with open(output_file, "w") as f:
-            if output_format == "jsonl":
-                # Write one JSON object per line
-                for item in data:
-                    f.write(json.dumps(item) + "\n")
-            else:
-                # Write as JSON array
-                json.dump(data, f, indent=indent)
+            for item in data:
+                f.write(json.dumps(item) + "\n")

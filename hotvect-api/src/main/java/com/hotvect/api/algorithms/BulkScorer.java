@@ -10,6 +10,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Function;
 
+import static com.hotvect.utils.AdditionalProperties.getAdditionalProperties;
+
 public interface BulkScorer<SHARED, ACTION> extends Function<RankingRequest<SHARED, ACTION>, DoubleList>, Algorithm {
 
     @Deprecated(forRemoval = true)
@@ -33,7 +35,8 @@ public interface BulkScorer<SHARED, ACTION> extends Function<RankingRequest<SHAR
         List<ACTION> actions = rankingRequest.availableActions();
         
         for (int i = 0; i < scores.size() && i < actions.size(); i++) {
-            decisions.add(ScoringDecision.of(actions.get(i), scores.getDouble(i)));
+            ACTION action = actions.get(i);
+            decisions.add(ScoringDecision.of(action, scores.getDouble(i), getAdditionalProperties(action)));
         }
         return decisions;
     }

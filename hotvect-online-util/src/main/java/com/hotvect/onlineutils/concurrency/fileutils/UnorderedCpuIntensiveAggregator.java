@@ -22,19 +22,19 @@ import java.util.function.BiConsumer;
 
 import static com.google.common.base.Preconditions.checkState;
 
-class UnorderedCpuIntensiveAggregator<Z> {
+class UnorderedCpuIntensiveAggregator<S, Z> {
     private static final Logger log = LoggerFactory.getLogger(UnorderedCpuIntensiveAggregator.class);
-    private final UnorderedFileAggregator.MultiFileState multiFileState;
+    private final UnorderedFileAggregator.MultiFileState<S> multiFileState;
     private final LongAdder counter;
     private final Timer timer;
-    private final BiConsumer<Z, String> update;
+    private final BiConsumer<Z, S> update;
     private final Z sharedState;
     private final ThreadPoolExecutor cpuIntensiveExecutor;
     private long startTime;
     private final int batchSize;
     private final List<Future<Void>> computationTickets = new ArrayList<>();
 
-    public UnorderedCpuIntensiveAggregator(UnorderedFileAggregator.MultiFileState multiFileState, Timer timer, BiConsumer<Z, String> update, int numThreads, int batchSize, Z sharedState) {
+    public UnorderedCpuIntensiveAggregator(UnorderedFileAggregator.MultiFileState<S> multiFileState, Timer timer, BiConsumer<Z, S> update, int numThreads, int batchSize, Z sharedState) {
         this.multiFileState = multiFileState;
         this.counter = new LongAdder();
         this.timer = timer;
@@ -90,7 +90,7 @@ class UnorderedCpuIntensiveAggregator<Z> {
             while (true) {
                 try {
                     boolean readDone = multiFileState.isReadDone();
-                    List<String> batch = new ArrayList<>(batchSize);
+                    List<S> batch = new ArrayList<>(batchSize);
                     multiFileState.getReadQueue().drainTo(batch, batchSize);
                     if (batch.isEmpty() && readDone) {
                         log.debug("Processor task has no more data to process. Terminating. Data processed so far:{}", counter.sum());
@@ -100,7 +100,7 @@ class UnorderedCpuIntensiveAggregator<Z> {
                         Thread.sleep(1);
                     } else {
                         Timer.Sample sample = Timer.start();
-                        for (String s : batch) {
+                        for (S s : batch) {
                             update.accept(sharedState, s);
                             counter.increment();
                         }

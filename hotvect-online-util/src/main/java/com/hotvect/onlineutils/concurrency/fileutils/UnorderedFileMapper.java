@@ -25,12 +25,15 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 
 import static java.lang.Math.max;
+import static java.lang.Math.min;
 
 /**
  * UnorderedFileMapper processes input files using a flatmap transformation function,
  * utilizing multiple threads for reading, processing, and writing data.
+ *
+ * @param <T> the type of records read from the input files
  */
-public class UnorderedFileMapper extends VerboseCallable<Map<String, Object>> {
+public class UnorderedFileMapper<T> extends VerboseCallable<Map<String, Object>> {
     private static final Logger log = LoggerFactory.getLogger(UnorderedFileMapper.class);
 
     private final MeterRegistry meterRegistry;
@@ -38,10 +41,12 @@ public class UnorderedFileMapper extends VerboseCallable<Map<String, Object>> {
     private final int batchSize;
     private final List<File> source;
     private final File dest;
-    private final Function<String, List<String>> flatmapTransformation;
+    private final String extension;
+    private final Function<T, List<ByteBuffer>> flatmapTransformation;
     private final Integer readQueueSize;
     private final Integer writeQueueSize;
     private final Integer nReaderThreads;
+    private final Integer numberOfShards;
 
     /**
      * Creates an UnorderedFileMapper using provided parameters from the Builder.
@@ -53,16 +58,19 @@ public class UnorderedFileMapper extends VerboseCallable<Map<String, Object>> {
         this.batchSize = ConcurrentUtils.getBatchSize(Optional.of(builder.batchSize));
         this.source = builder.source;
         this.dest = builder.dest;
+        this.extension = builder.extension;
         this.flatmapTransformation = builder.flatmapTransformation;
         this.nComputationThreads = ConcurrentUtils.getThreadNumForCpuBoundTasks(Optional.of(builder.nComputationThreads));
         this.readQueueSize = builder.readQueueSize;
         this.writeQueueSize = builder.writeQueueSize;
         this.nReaderThreads = builder.nReaderThreads;
+        this.numberOfShards = builder.numberOfShards;
     }
 
     /**
      * Static factory method to create an UnorderedFileMapper with specified parameters.
      *
+     * @param <T>                the type of records read from the input files
      * @param meterRegistry     the meter registry
      * @param source             the list of source files
      * @param dest               the destination file
@@ -70,23 +78,29 @@ public class UnorderedFileMapper extends VerboseCallable<Map<String, Object>> {
      * @param nThreads           the number of computation threads
      * @param batchSize          the batch size
      * @return an UnorderedFileMapper instance
+     * @deprecated Use {@link #builder(List, File, Function)} instead. Legacy single-file mode is deprecated.
      */
-    public static UnorderedFileMapper mapper(MeterRegistry meterRegistry, List<File> source, File dest, Function<String, List<String>> flatmapFunction, int nThreads, int batchSize) {
-        return new UnorderedFileMapper(meterRegistry, source, dest, flatmapFunction, nThreads, batchSize);
+    @Deprecated(forRemoval = true)
+    public static <T> UnorderedFileMapper<T> mapper(MeterRegistry meterRegistry, List<File> source, File dest, Function<T, List<ByteBuffer>> flatmapFunction, int nThreads, int batchSize) {
+        return new UnorderedFileMapper<>(meterRegistry, source, dest, flatmapFunction, nThreads, batchSize);
     }
 
     /**
      * Static factory method to create an UnorderedFileMapper with default thread and batch configurations.
      *
+     * @param <T>                the type of records read from the input files
      * @param meterRegistry     the meter registry
      * @param source             the list of source files
      * @param dest               the destination file
      * @param flatmapFunction    the flatmap transformation function
      * @return an UnorderedFileMapper instance
+     * @deprecated Use {@link #builder(List, File, Function)} instead. Legacy single-file mode is deprecated.
      */
-    public static UnorderedFileMapper mapper(MeterRegistry meterRegistry, List<File> source, File dest, Function<String, List<String>> flatmapFunction) {
+    @Deprecated(forRemoval = true)
+    public static <T> UnorderedFileMapper<T> mapper(MeterRegistry meterRegistry, List<File> source, File dest, Function<T, List<ByteBuffer>> flatmapFunction) {
         return mapper(meterRegistry, source, dest, flatmapFunction, -1, -1);
     }
+
 
     /**
      * Private constructor used by static factory methods.
@@ -97,46 +111,51 @@ public class UnorderedFileMapper extends VerboseCallable<Map<String, Object>> {
      * @param flatMapFunction    the flatmap transformation function
      * @param nComputationThreads the number of computation threads
      * @param batchSize          the batch size
+     * @deprecated Use {@link Builder} instead. Legacy single-file mode is deprecated.
      */
-    private UnorderedFileMapper(MeterRegistry meterRegistry, List<File> source, File dest, Function<String, List<String>> flatMapFunction, int nComputationThreads, int batchSize) {
+    @Deprecated(forRemoval = true)
+    private UnorderedFileMapper(MeterRegistry meterRegistry, List<File> source, File dest, Function<T, List<ByteBuffer>> flatMapFunction, int nComputationThreads, int batchSize) {
         this.meterRegistry = meterRegistry;
         this.batchSize = ConcurrentUtils.getBatchSize(Optional.of(batchSize));
         this.source = source;
         this.dest = dest;
+        this.extension = null;
         this.flatmapTransformation = flatMapFunction;
         this.nComputationThreads = ConcurrentUtils.getThreadNumForCpuBoundTasks(Optional.of(nComputationThreads));
         this.readQueueSize = null;
         this.writeQueueSize = null;
         this.nReaderThreads = null;
+        this.numberOfShards = null;
     }
 
     /**
      * Creates a Builder for UnorderedFileMapper with required parameters.
      *
+     * @param <T>                the type of records read from the input files
      * @param source             the list of source files
      * @param dest               the destination file
      * @param flatmapFunction    the flatmap transformation function
      * @return a Builder instance
      */
-    public static Builder builder(List<File> source, File dest, Function<String, List<String>> flatmapFunction) {
-        return new Builder(source, dest, flatmapFunction);
+    public static <T> Builder<T> builder(List<File> source, File dest, Function<T, List<ByteBuffer>> flatmapFunction) {
+        return new Builder<>(source, dest, flatmapFunction);
     }
 
     @Override
     protected Map<String, Object> doCall() throws Exception {
         int actualReadQueueSize = (this.readQueueSize != null) ? this.readQueueSize : this.nComputationThreads * this.batchSize * 4;
         int actualWriteQueueSize = (this.writeQueueSize != null) ? this.writeQueueSize : actualReadQueueSize;
-        int actualNReaderThreads = (this.nReaderThreads != null) ? this.nReaderThreads : max(1, (int) (this.nComputationThreads / 2.5));
+        int actualNReaderThreads = (this.nReaderThreads != null) ? this.nReaderThreads : max(1, min(32, (int) (this.nComputationThreads / 1.5)));
 
-        UnorderedMultiFileReader reader = new UnorderedMultiFileReader(
+        UnorderedMultiFileReader<T> reader = new UnorderedMultiFileReader<>(
                 actualReadQueueSize,
                 this.source,
                 actualNReaderThreads
         );
 
-        MultiFileState<String, String> state = new MultiFileState<>(reader.getReadState(), actualWriteQueueSize);
+        MultiFileState<T, ByteBuffer> state = new MultiFileState<>(reader.getReadState(), actualWriteQueueSize);
 
-        UnorderedCpuIntensiveMapper<String, String> processor = new UnorderedCpuIntensiveMapper<>(
+        UnorderedCpuIntensiveMapper<T, ByteBuffer> processor = new UnorderedCpuIntensiveMapper<>(
                 state,
                 Timer.builder("unordered.file.mapper.processor")
                         .description("Records processed by UnorderedFileMapper")
@@ -148,7 +167,9 @@ public class UnorderedFileMapper extends VerboseCallable<Map<String, Object>> {
 
         UnorderedFileWriter writer = new UnorderedFileWriter(
                 state,
-                this.dest
+                this.dest,
+                resolveExtension(this.dest, this.extension),
+                this.numberOfShards != null ? this.numberOfShards : -1
         );
 
         long start = System.nanoTime();
@@ -169,7 +190,12 @@ public class UnorderedFileMapper extends VerboseCallable<Map<String, Object>> {
             protected void doRun() throws Exception {
                 Throwable err = state.getError();
                 if (err != null) {
-                    log.error("Fail fast error checker detected an error. Aborting.", Throwables.getRootCause(err));
+                    Throwable root = Throwables.getRootCause(err);
+                    if(root instanceof InterruptedException){
+                        log.info("Fail fast error checker detected interruptee exception");
+                    } else {
+                        log.error("Fail fast error checker detected an error. Aborting.", err);
+                    }
                     reader.abort();
                     processor.abort();
                     writer.abort();
@@ -207,7 +233,19 @@ public class UnorderedFileMapper extends VerboseCallable<Map<String, Object>> {
         }
 
         public void setError(Throwable e) {
-            this.error.set(e);
+            Throwable root = Throwables.getRootCause(e);
+            this.error.updateAndGet(existing -> {
+                if (existing == null) {
+                    return e;
+                }
+                Throwable existingRoot = Throwables.getRootCause(existing);
+                boolean existingIsInterrupt = existingRoot instanceof InterruptedException;
+                boolean newIsInterrupt = root instanceof InterruptedException;
+                if (existingIsInterrupt && !newIsInterrupt) {
+                    return e;  // allow a real error to replace an interrupt placeholder
+                }
+                return existing;  // otherwise keep the first error we saw
+            });
         }
 
         public Throwable getError() {
@@ -245,13 +283,28 @@ public class UnorderedFileMapper extends VerboseCallable<Map<String, Object>> {
         }
     }
 
+    private static String resolveExtension(File dest, String providedExtension) {
+        if (providedExtension != null) {
+            return providedExtension;
+        }
+        String name = dest.getName();
+        int idx = name.lastIndexOf('.');
+        if (idx >= 0) {
+            return name.substring(idx);
+        }
+        return "";
+    }
+
     /**
      * Builder class for UnorderedFileMapper.
+     *
+     * @param <T> the type of records read from the input files
      */
-    public static class Builder {
+    public static class Builder<T> {
         private final List<File> source;
         private final File dest;
-        private final Function<String, List<String>> flatmapTransformation;
+        private String extension = null;
+        private final Function<T, List<ByteBuffer>> flatmapTransformation;
         private MeterRegistry meterRegistry = LoggingMeterRegistry.builder(new LoggingRegistryConfig() {
             @Override
             public Duration step() {
@@ -267,6 +320,7 @@ public class UnorderedFileMapper extends VerboseCallable<Map<String, Object>> {
         private Integer readQueueSize = null;
         private Integer writeQueueSize = null;
         private Integer nReaderThreads = null;
+        private Integer numberOfShards = null;
 
         /**
          * Builder constructor with required parameters.
@@ -275,7 +329,7 @@ public class UnorderedFileMapper extends VerboseCallable<Map<String, Object>> {
          * @param dest                  the destination file
          * @param flatmapTransformation the flatmap transformation function
          */
-        public Builder(List<File> source, File dest, Function<String, List<String>> flatmapTransformation) {
+        public Builder(List<File> source, File dest, Function<T, List<ByteBuffer>> flatmapTransformation) {
             this.source = source;
             this.dest = dest;
             this.flatmapTransformation = flatmapTransformation;
@@ -287,7 +341,7 @@ public class UnorderedFileMapper extends VerboseCallable<Map<String, Object>> {
          * @param meterRegistry the meter registry
          * @return the Builder instance
          */
-        public Builder meterRegistry(MeterRegistry meterRegistry) {
+        public Builder<T> meterRegistry(MeterRegistry meterRegistry) {
             this.meterRegistry = meterRegistry;
             return this;
         }
@@ -298,7 +352,7 @@ public class UnorderedFileMapper extends VerboseCallable<Map<String, Object>> {
          * @param nThreads the number of computation threads
          * @return the Builder instance
          */
-        public Builder nThreads(int nThreads) {
+        public Builder<T> nThreads(int nThreads) {
             this.nComputationThreads = nThreads;
             return this;
         }
@@ -309,7 +363,7 @@ public class UnorderedFileMapper extends VerboseCallable<Map<String, Object>> {
          * @param batchSize the batch size
          * @return the Builder instance
          */
-        public Builder batchSize(int batchSize) {
+        public Builder<T> batchSize(int batchSize) {
             this.batchSize = batchSize;
             return this;
         }
@@ -320,7 +374,7 @@ public class UnorderedFileMapper extends VerboseCallable<Map<String, Object>> {
          * @param readQueueSize the read queue size
          * @return the Builder instance
          */
-        public Builder readQueueSize(int readQueueSize) {
+        public Builder<T> readQueueSize(int readQueueSize) {
             this.readQueueSize = readQueueSize;
             return this;
         }
@@ -331,7 +385,7 @@ public class UnorderedFileMapper extends VerboseCallable<Map<String, Object>> {
          * @param writeQueueSize the write queue size
          * @return the Builder instance
          */
-        public Builder writeQueueSize(int writeQueueSize) {
+        public Builder<T> writeQueueSize(int writeQueueSize) {
             this.writeQueueSize = writeQueueSize;
             return this;
         }
@@ -342,8 +396,33 @@ public class UnorderedFileMapper extends VerboseCallable<Map<String, Object>> {
          * @param readerThreads the number of reader threads
          * @return the Builder instance
          */
-        public Builder readerThreads(int readerThreads) {
+        public Builder<T> readerThreads(int readerThreads) {
             this.nReaderThreads = readerThreads;
+            return this;
+        }
+
+        /**
+         * Sets the file extension for shard naming (e.g., ".tfrecord", ".tsv", ".jsonl").
+         * When provided, UnorderedFileWriter will generate files as {@code shard_%d<extension>} inside the dest directory.
+         */
+        public Builder<T> extension(String extension) {
+            this.extension = extension;
+            return this;
+        }
+
+        /**
+         * Sets the number of writer shards.
+         * The destination filename must include a %d placeholder (e.g., "shard_%d.tfrecord").
+         * <ul>
+         *   <li>numberOfShards &lt;= 0: Auto-determine shard count (minimum 1)</li>
+         *   <li>numberOfShards &gt;= 1: Explicit shard count</li>
+         * </ul>
+         *
+         * @param numberOfShards the number of writer shards
+         * @return the Builder instance
+         */
+        public Builder<T> numberOfShards(int numberOfShards) {
+            this.numberOfShards = numberOfShards;
             return this;
         }
 
@@ -352,8 +431,8 @@ public class UnorderedFileMapper extends VerboseCallable<Map<String, Object>> {
          *
          * @return an UnorderedFileMapper instance
          */
-        public UnorderedFileMapper build() {
-            return new UnorderedFileMapper(this);
+        public UnorderedFileMapper<T> build() {
+            return new UnorderedFileMapper<>(this);
         }
     }
 }

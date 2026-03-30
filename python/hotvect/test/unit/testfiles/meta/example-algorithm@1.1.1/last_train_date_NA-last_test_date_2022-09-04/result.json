@@ -35,8 +35,8 @@
           "include_negative_per_million": 10000
         },
         "number_of_training_days": 7,
-        "training_container": "hotvect-vw-training-container:latest",
-        "training_command": "vw {{ encoded_file }} --readable_model {{ parameter_output_path }} --noconstant --loss_function logistic --ftrl -b 26",
+        "training_container": "hotvect-catboost-training-container:latest",
+        "training_command": "catboost fit --learn-set {{ encoded_file }} --model-file {{ parameter_output_path }}",
         "vectorizer_parameters": {
           "hash_bits": 26,
           "features": [

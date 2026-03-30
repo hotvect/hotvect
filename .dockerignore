@@ -1,0 +1,15 @@
+.git
+.gitignore
+.idea
+.pytest_cache
+.hypothesis
+**/__pycache__
+**/*.pyc
+
+python/.venv
+python/.mypy_cache
+python/.pytest_cache
+python/.ruff_cache
+
+**/target
+site

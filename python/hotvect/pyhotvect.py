@@ -1,10 +1,13 @@
+import glob
 import json
 import logging
 import os
+import re
 import shutil
 import sys
 import time
 import zipfile
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, tzinfo
 from functools import reduce
@@ -12,11 +15,9 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, NamedTuple, Optional, Set, Tuple, Union
 
 import psutil
-import six
 from jinja2 import Template
 
 import hotvect.hotvectjar
-from hotvect import mlutils
 from hotvect.utils import (
     as_locally_available_content,
     clean_dir,
@@ -24,8 +25,9 @@ from hotvect.utils import (
     read_algorithm_definition_from_jar,
     read_json,
     recursive_dict_update,
-    runshell,
+    resolve_path_within_base,
     store_file,
+    stream_output,
     to_local_paths,
     to_zip_archive,
     trydelete,
@@ -36,9 +38,29 @@ from hotvect.utils import (
 
 logger = logging.getLogger(__name__)
 
+_HV_LOG_FILENAME = "hv.log"
+_HV_ALL_LOG_FILENAME = "hv.all.log"
+_HV_LOG_FORMAT = "%(asctime)s:%(levelname)s:%(name)s:%(funcName)s:%(message)s"
+_HV_LOG_HANDLER_KIND_ATTR = "_hotvect_log_kind"
+_HV_LOG_HANDLER_KIND_PIPELINE = "pipeline"
+_HV_LOG_HANDLER_KIND_COMBINED = "combined"
+
+
+def _standard_evaluation(*args, **kwargs):
+    from hotvect import mlutils
+
+    return mlutils.standard_evaluation(*args, **kwargs)
+
+
+def _real_numbers_reward_evaluation(*args, **kwargs):
+    from hotvect import mlutils
+
+    return mlutils.real_numbers_reward_evaluation(*args, **kwargs)
+
+
 EVALUATION_FUNCTIONS = {
-    "standard_evaluation": mlutils.standard_evaluation,
-    "real_numbers_reward_evaluation": mlutils.real_numbers_reward_evaluation,
+    "standard_evaluation": _standard_evaluation,
+    "real_numbers_reward_evaluation": _real_numbers_reward_evaluation,
 }
 
 
@@ -56,16 +78,16 @@ class AlgorithmPipelineContext(NamedTuple):
     # Algorithm jar
     algorithm_jar_path: Path
 
-    # Parameter sources
-    state_source_base_path: Path
-    data_base_path: Path
-
     # Output locations
+    data_base_path: Path
     metadata_base_path: Path
     output_base_path: Path
 
+    # Parameter sources
+    # Optional for backward compatibility with older `hv` entrypoints; when omitted, state sources are read from `data_base_path`.
+    state_source_base_path: Optional[Path] = None
+
     # Execution parameters
-    enable_gzip: Optional[bool] = None
     jvm_options: Optional[List[str]] = None
     max_threads: Optional[int] = None
     queue_length: Optional[int] = None
@@ -95,16 +117,18 @@ class AlgorithmPipeline:
         clean_output_after_run: bool = False,
         encode_test_data: bool = False,
         execute_audit: bool = False,
+        execute_performance_test: bool = True,
     ):
         self.clean_output_after_run = clean_output_after_run
         self.encode_test_data = encode_test_data
         self.execute_audit = execute_audit
+        self.execute_performance_test = execute_performance_test
 
         # Context
         self.algorithm_pipeline_context = algorithm_pipeline_context
 
         # Algorithm definition
-        if isinstance(algorithm_definition, six.string_types):
+        if isinstance(algorithm_definition, str):
             self.algorithm_name = verify_algorithm_name(algorithm_definition)
             self.algorithm_definition: Dict[str, Any] = read_algorithm_definition_from_jar(
                 algorithm_name=self.algorithm_name,
@@ -204,8 +228,15 @@ class AlgorithmPipeline:
                     "Algorithm definition evaluation_function is a dict but has no 'name'. "
                     "Expected {'name': <string>, 'arguments': <dict>}."
                 )
-        else:
+        elif maybe_evaluation_function is None:
+            algo_def_evaluation_function = None
+        elif isinstance(maybe_evaluation_function, str):
             algo_def_evaluation_function = maybe_evaluation_function
+        else:
+            raise ValueError(
+                "Algorithm definition evaluation_function must be a string, a dict, or omitted. "
+                f"Got: {type(maybe_evaluation_function)}"
+            )
         if algo_def_evaluation_function:
             # Fetch the callable from the dictionary based on the string key
             if algo_def_evaluation_function in EVALUATION_FUNCTIONS:
@@ -219,8 +250,16 @@ class AlgorithmPipeline:
             self.evaluation_function = evaluation_func
 
         # Prepare dependency pipelines
-        # Extract cache_base_dir from the top-level algorithm definition
+        cache_inherited_parameters: Dict[str, Any] = {}
         cache_base_dir = _recursive_get(self.algorithm_definition, ["hotvect_execution_parameters", "cache_base_dir"])
+        if cache_base_dir:
+            cache_inherited_parameters["cache_base_dir"] = cache_base_dir
+        cache_scope = _recursive_get(self.algorithm_definition, ["hotvect_execution_parameters", "cache_scope"])
+        if cache_scope is not None:
+            cache_inherited_parameters["cache_scope"] = cache_scope
+        cache_refresh = _recursive_get(self.algorithm_definition, ["hotvect_execution_parameters", "cache_refresh"])
+        if cache_refresh is not None:
+            cache_inherited_parameters["cache_refresh"] = cache_refresh
 
         self.dependency_pipelines: Dict[str, AlgorithmPipeline] = {}
         if self.algorithm_definition.get("dependencies"):
@@ -230,9 +269,13 @@ class AlgorithmPipeline:
                 # Dependencies are specified as names, so no algorithm definition overrides
                 for algorithm_name in dependencies:
                     assert isinstance(algorithm_name, str)
+                    if algorithm_name == self.algorithm_name:
+                        raise ValueError(
+                            f"Invalid algorithm definition: '{self.algorithm_name}' cannot list itself in 'dependencies'."
+                        )
                     algo_def_override = {}
-                    if cache_base_dir:
-                        inherited_def = {"hotvect_execution_parameters": {"cache_base_dir": cache_base_dir}}
+                    if cache_inherited_parameters:
+                        inherited_def = {"hotvect_execution_parameters": cache_inherited_parameters}
                         algo_def_override = recursive_dict_update(algo_def_override, inherited_def)
                     pipeline = AlgorithmPipeline(
                         algorithm_pipeline_context=self.algorithm_pipeline_context,
@@ -246,13 +289,20 @@ class AlgorithmPipeline:
                     )
                     self.dependency_pipelines[algorithm_name] = pipeline
             elif isinstance(dependencies, dict):
+                if self.algorithm_name in dependencies:
+                    raise ValueError(
+                        f"Invalid algorithm definition/override: 'dependencies' contains '{self.algorithm_name}'. "
+                        "Self-dependency overrides are not supported. "
+                        "Move those fields to the top-level override, or apply the override file to the parent "
+                        "algorithm (where this algorithm is a true dependency)."
+                    )
                 # Dependencies are specified as dict, so there are algorithm definition overrides
                 for algorithm_name, algo_def_override in dependencies.items():
                     assert isinstance(algorithm_name, str)
                     verify_algorithm_name(algorithm_name)
                     assert isinstance(algo_def_override, dict)
-                    if cache_base_dir:
-                        inherited_def = {"hotvect_execution_parameters": {"cache_base_dir": cache_base_dir}}
+                    if cache_inherited_parameters:
+                        inherited_def = {"hotvect_execution_parameters": cache_inherited_parameters}
                         algo_def_override = recursive_dict_update(algo_def_override, inherited_def)
                     pipeline = AlgorithmPipeline(
                         algorithm_pipeline_context=self.algorithm_pipeline_context,
@@ -276,6 +326,58 @@ class AlgorithmPipeline:
             return f"{ret}-{self.hyper_parameter_version}"
         else:
             return ret
+
+    def _cache_refresh_enabled(self) -> bool:
+        value = _recursive_get(self.algorithm_definition, ["hotvect_execution_parameters", "cache_refresh"], False)
+        return bool(value)
+
+    def _cache_scope(self) -> str:
+        value = _recursive_get(self.algorithm_definition, ["hotvect_execution_parameters", "cache_scope"], "hyperparam")
+        if value is None:
+            return "hyperparam"
+        value = str(value)
+        allowed = {"major", "minor", "patch", "hyperparam"}
+        if value not in allowed:
+            raise ValueError(f"Invalid cache_scope: {value}. Allowed: {sorted(allowed)}")
+        return value
+
+    @staticmethod
+    def _semver_from_algorithm_version(version: str) -> Optional[Tuple[int, int, int]]:
+        matches = list(re.finditer(r"(\d+)\.(\d+)\.(\d+)", version))
+        if not matches:
+            return None
+        m = matches[-1]
+        return int(m.group(1)), int(m.group(2)), int(m.group(3))
+
+    def _cache_algorithm_version(self) -> str:
+        scope = self._cache_scope()
+        if scope == "hyperparam":
+            # Hyperparam scope keeps the original algorithm version string. The hyperparameter version (if any)
+            # is appended separately via _cache_algorithm_key().
+            return self.algorithm_version
+
+        parsed = self._semver_from_algorithm_version(self.algorithm_version)
+        if not parsed:
+            if scope == "patch":
+                return self.algorithm_version
+            raise ValueError(
+                f"cache_scope={scope} requires a semver-like algorithm_version (X.Y.Z); got {self.algorithm_version}"
+            )
+        major, minor, patch = parsed
+        if scope == "major":
+            return str(major)
+        if scope == "minor":
+            return f"{major}.{minor}"
+        if scope == "patch":
+            return f"{major}.{minor}.{patch}"
+        raise ValueError(f"Unexpected cache_scope: {scope}")
+
+    def _cache_algorithm_key(self) -> str:
+        base = f"{self.algorithm_name}@{self._cache_algorithm_version()}"
+        scope = self._cache_scope()
+        if scope == "hyperparam" and self.hyper_parameter_version:
+            return f"{base}-{self.hyper_parameter_version}"
+        return base
 
     def algorithm_id_slug(self) -> str:
         return f"{self.algorithm_name}@{self.algorithm_version}"
@@ -369,26 +471,44 @@ class AlgorithmPipeline:
                 )
             )
 
-        # Add state data dependencies
-        source_data = self.algorithm_definition.get("source_data", {})
-        for source_prefix_name, per_source_config in source_data.items():
-            data_prefix = per_source_config.get("data_prefix")
-            number_of_days = per_source_config.get("number_of_days", 1)
-            lag_days = per_source_config.get("lag_days", 1)
+        # When a prebuilt parameter package is pinned, state generation is skipped and raw source_data
+        # channels should not be auto-attached for SageMaker submission.
+        uses_prebuilt_parameters = bool(
+            self.algorithm_definition.get("hotvect_execution_parameters", {}).get("with_parameter")
+        )
+        if not uses_prebuilt_parameters:
+            # Add state data dependencies
+            source_data = self.algorithm_definition.get("source_data", {})
+            for source_prefix_name, per_source_config in source_data.items():
+                data_prefix = per_source_config.get("data_prefix")
+                number_of_days = per_source_config.get("number_of_days", None)
+                lag_days = per_source_config.get("lag_days", None)
 
-            start_date = self.last_test_time - timedelta(days=lag_days)
-            dates = {start_date - timedelta(days=n) for n in range(number_of_days)}
+                # Validate: both must be present or both must be absent
+                if (number_of_days is None) != (lag_days is None):
+                    raise ValueError(
+                        f"Invalid source data config for '{data_prefix}': "
+                        f"number_of_days and lag_days must both be present or both be absent. "
+                        f"Got number_of_days={number_of_days}, lag_days={lag_days}"
+                    )
 
-            ret.append(
-                DataDependency(
-                    algorithm_name=self.algorithm_name,
-                    algorithm_version=self.algorithm_version,
-                    data_prefix=data_prefix,
-                    data_dates=dates,
-                    data_type="state",
-                    additional_properties=extract_additional_properties(per_source_config),
+                # For non-partitioned data, use empty set for dates
+                if number_of_days is None and lag_days is None:
+                    dates = set()
+                else:
+                    start_date = self.last_test_time - timedelta(days=lag_days)
+                    dates = {start_date - timedelta(days=n) for n in range(number_of_days)}
+
+                ret.append(
+                    DataDependency(
+                        algorithm_name=self.algorithm_name,
+                        algorithm_version=self.algorithm_version,
+                        data_prefix=data_prefix,
+                        data_dates=dates,
+                        data_type="state",
+                        additional_properties=extract_additional_properties(per_source_config),
+                    )
                 )
-            )
 
         # Include dependencies from dependency pipelines
         for dependency in self.dependency_pipelines.values():
@@ -397,24 +517,37 @@ class AlgorithmPipeline:
 
     def state_source_path(self, source_config: Dict[str, Any]):
         data_prefix = source_config["data_prefix"]
-        number_of_days = source_config.get("number_of_days", 1)
-        lag_days = source_config.get("lag_days", 1)
+        number_of_days = source_config.get("number_of_days", None)
+        lag_days = source_config.get("lag_days", None)
 
-        start_date = self.last_test_time - timedelta(days=lag_days)
-        dates = [start_date - timedelta(days=n) for n in range(number_of_days)]
+        # Validate: both must be present or both must be absent
+        if (number_of_days is None) != (lag_days is None):
+            raise ValueError(
+                f"Invalid source data config for '{data_prefix}': "
+                f"number_of_days and lag_days must both be present or both be absent. "
+                f"Got number_of_days={number_of_days}, lag_days={lag_days}"
+            )
 
-        root_dir = os.path.join(
-            self.algorithm_pipeline_context.data_base_path,
-            data_prefix,
+        base_dir = (
+            self.algorithm_pipeline_context.state_source_base_path or self.algorithm_pipeline_context.data_base_path
         )
+        root_dir = os.path.join(base_dir, data_prefix)
 
         if not os.path.isdir(root_dir):
             raise ValueError(
-                (
-                    f"State source data {data_prefix} does not exist: {os.path.abspath(root_dir)}.",
-                    "State source data cannot be absent",
-                )
+                f"State source data {data_prefix} does not exist: {os.path.abspath(root_dir)}. "
+                "State source data cannot be absent"
             )
+
+        # If both are None, treat as non-partitioned static data
+        if number_of_days is None and lag_days is None:
+            # Return directory path for non-partitioned data
+            # Java will scan the directory itself
+            return [root_dir]
+
+        # Date-partitioned data
+        start_date = self.last_test_time - timedelta(days=lag_days)
+        dates = [start_date - timedelta(days=n) for n in range(number_of_days)]
 
         # Fail if asked dates are not available
         return to_local_paths(
@@ -424,8 +557,13 @@ class AlgorithmPipeline:
         )
 
     def state_output_path(self) -> str:
-        state_output_filename = self.algorithm_definition.get("state_output_filename", "state_output")
-        return os.path.join(self.output_path(), state_output_filename)
+        state_output_filename = self.algorithm_definition.get("state_output_filename", None)
+        if state_output_filename is None:
+            # Return directory path when filename is omitted
+            return self.output_path()
+        else:
+            # Return file path when filename is specified
+            return os.path.join(self.output_path(), state_output_filename)
 
     def metadata_path(self) -> str:
         return os.path.join(
@@ -445,26 +583,23 @@ class AlgorithmPipeline:
         return os.path.join(self.output_path(), "cache")
 
     def encoded_data_file_path(self) -> str:
-        encode_suffix = "encoded.gz" if self.algorithm_pipeline_context.enable_gzip else "encoded"
-        return os.path.join(self.output_path(), encode_suffix)
+        """Returns the encoded data directory path."""
+        return os.path.join(self.output_path(), "encoded")
 
     def encoded_schema_description_file_path(self) -> str:
         return os.path.join(self.output_path(), "encoded-schema-description")
 
     def encoded_test_data_file_path(self) -> str:
-        encode_suffix = "test-encoded.gz" if self.algorithm_pipeline_context.enable_gzip else "test-encoded"
-        return os.path.join(self.output_path(), encode_suffix)
+        return os.path.join(self.output_path(), "test-encoded")
 
     def parameter_file_path(self) -> str:
-        return os.path.join(self.output_path(), "model.parameter")
+        return os.path.join(self.output_path(), "model_parameter")
 
     def test_result_file_path(self) -> str:
-        predict_suffix = "prediction.jsonl.gz" if self.algorithm_pipeline_context.enable_gzip else "prediction.jsonl"
-        return os.path.join(self.output_path(), predict_suffix)
+        return os.path.join(self.output_path(), "prediction.jsonl")
 
     def audit_data_file_path(self) -> str:
-        encode_suffix = "audit.jsonl.gz" if self.algorithm_pipeline_context.enable_gzip else "audit.jsonl"
-        return os.path.join(self.output_path(), encode_suffix)
+        return os.path.join(self.output_path(), "audit.jsonl")
 
     def predict_parameter_file_path(self) -> str:
         return os.path.join(
@@ -488,7 +623,8 @@ class AlgorithmPipeline:
 
     def _write_data(self, data: Dict, dest_file_name: str) -> str:
         """Write algorithm definition so that Java can read it"""
-        dest = os.path.join(self.output_path(), dest_file_name)
+        dest = dest_file_name  # Use path as-is (callers provide full path)
+        os.makedirs(os.path.dirname(dest), exist_ok=True)  # Ensure parent dirs exist
         trydelete(dest)
         with open(dest, "w") as fp:
             json.dump(data, fp)
@@ -507,6 +643,96 @@ class AlgorithmPipeline:
         ]:
             clean_dir(directory)
         logger.info("Cleaned output and metadata")
+
+    @contextmanager
+    def _pipe_python_logs_to_metadata_dir(self):
+        """
+        Pipe Python logs to files under this pipeline's metadata directory.
+
+        Spec:
+        - Always write logs for this pipeline run to `metadata_path()/hv.log`.
+        - Dependency runs must not mix/duplicate into parent `hv.log` (only the active pipeline's `hv.log` handler is
+          attached at a time).
+        - The outermost pipeline run also writes a live combined log to `metadata_path()/hv.all.log`.
+        """
+        metadata_dir = Path(self.metadata_path())
+        metadata_dir.mkdir(parents=True, exist_ok=True)
+        log_path = metadata_dir / _HV_LOG_FILENAME
+
+        root_logger = logging.getLogger()
+        formatter = logging.Formatter(_HV_LOG_FORMAT)
+
+        suspended_pipeline_handlers = []
+        for existing_handler in list(root_logger.handlers):
+            if getattr(existing_handler, _HV_LOG_HANDLER_KIND_ATTR, None) == _HV_LOG_HANDLER_KIND_PIPELINE:
+                root_logger.removeHandler(existing_handler)
+                suspended_pipeline_handlers.append(existing_handler)
+
+        combined_handler = None
+        combined_log_path = None
+        owns_combined_handler = False
+        for existing_handler in root_logger.handlers:
+            if getattr(existing_handler, _HV_LOG_HANDLER_KIND_ATTR, None) == _HV_LOG_HANDLER_KIND_COMBINED:
+                combined_handler = existing_handler
+                break
+        if combined_handler is None:
+            combined_log_path = metadata_dir / _HV_ALL_LOG_FILENAME
+            combined_handler = logging.FileHandler(combined_log_path, mode="a", encoding="utf-8")
+            combined_handler.setLevel(logging.INFO)
+            combined_handler.setFormatter(formatter)
+            setattr(combined_handler, _HV_LOG_HANDLER_KIND_ATTR, _HV_LOG_HANDLER_KIND_COMBINED)
+            root_logger.addHandler(combined_handler)
+            owns_combined_handler = True
+
+        pipeline_handler = logging.FileHandler(log_path, mode="a", encoding="utf-8")
+        pipeline_handler.setLevel(logging.INFO)
+        pipeline_handler.setFormatter(formatter)
+        setattr(pipeline_handler, _HV_LOG_HANDLER_KIND_ATTR, _HV_LOG_HANDLER_KIND_PIPELINE)
+        root_logger.addHandler(pipeline_handler)
+        try:
+            logger.info("Python logs: %s", log_path)
+            if owns_combined_handler:
+                logger.info("Combined Python logs: %s", combined_log_path)
+            logger.info("======== BEGIN PIPELINE (%s) ========", self.hyperparameter_slug())
+            logger.info("parameter_version=%s", self.parameter_version)
+            logger.info("metadata_path=%s", metadata_dir)
+            logger.info("=====================================")
+            yield log_path
+        finally:
+            try:
+                logger.info("========= END PIPELINE (%s) =========", self.hyperparameter_slug())
+                logger.info("=====================================")
+            except Exception:
+                # Logging should not prevent handler cleanup.
+                pass
+
+            try:
+                root_logger.removeHandler(pipeline_handler)
+            finally:
+                pipeline_handler.close()
+
+            for suspended_handler in suspended_pipeline_handlers:
+                root_logger.addHandler(suspended_handler)
+
+            if owns_combined_handler:
+                try:
+                    root_logger.removeHandler(combined_handler)
+                finally:
+                    combined_handler.close()
+
+    def _stream_output_to_stage_log(self, *, stage: str, cmd: List[str]) -> None:
+        metadata_dir = self._stage_metadata_dir(stage)
+        stdout_stderr_log_path = os.path.join(metadata_dir, "stdout-stderr.log")
+        with open(stdout_stderr_log_path, "a", encoding="utf-8") as fp:
+
+            def _display(chunk: str) -> None:
+                sys.stdout.write(chunk)
+                fp.write(chunk)
+                fp.flush()
+
+            env = os.environ.copy()
+            env.setdefault("HOTVECT_PYTHON_EXECUTABLE", sys.executable)
+            stream_output(cmd, _display, env=env)
 
     def run_all(
         self,
@@ -529,79 +755,111 @@ class AlgorithmPipeline:
         clean_dir(self.cache_path())
         logger.info(f"Cleaned output files for: {self.algorithm_name}")
 
-        # Write algorithm definition so that training scripts etc. can read it
-        self._write_algorithm_definition()
+        with self._pipe_python_logs_to_metadata_dir():
+            # Write algorithm definition so that training scripts etc. can read it
+            self._write_algorithm_definition()
 
-        # Prepare dependencies
-        deps_time = time.time()
-        if self.dependency_pipelines:
-            result["dependencies"] = {}
-            logger.info(f"Preparing dependencies for: {self.algorithm_name}")
-            for algorithm_name, pipeline in self.dependency_pipelines.items():
-                logger.info(f"Preparing dependency: {algorithm_name} for {self.algorithm_name}")
-                dependency_result = pipeline.run_all(
-                    clean=self.clean_output_after_run,
-                    # When it's run as a dependency, we do not evaluate by default
-                    evaluate=False,
-                )
-                result["dependencies"][algorithm_name] = dependency_result
-            logger.info(f"Prepared all dependencies: {self.dependency_pipelines.keys()} for {self.algorithm_name}")
-        result["timing_info_sec"]["prepare_dependencies"] = time.time() - deps_time
-
-        if not self.available_predict_parameter_cache_path():
-            # If we don't have available predict parameters, we might need encoding parameters
-            self._step_encode_parameter(result)
-            if self.should_train():
-                # If additionally we should train, we need these steps
-                self._step_encode(result)
-                self._step_train(result)
-            else:
-                logger.info(f"Algorithm {self.algorithm_name} does not have a training step")
-        else:
-            logger.info(
-                f"Predict parameters available for {self.algorithm_name} ({self.available_predict_parameter_cache_path()}), skipping encode and train"
+            # Prepare dependencies
+            deps_time = time.time()
+            with_parameter_cache_path = _recursive_get(
+                self.algorithm_definition, ["hotvect_execution_parameters", "with_parameter"]
             )
-
-        self._step_predict_parameter(result)
-
-        tasks_to_skip = ["predict", "evaluate", "performance_test", "encode_test"]
-        if self.algorithm_is_state:
-            logger.info(f"Algorithm {self.algorithm_name} is a state. There are no evaluation steps")
-            reason_for_skipping = {"skipped": "This algorithm is a state"}
-            for task_id in tasks_to_skip:
-                result[task_id] = reason_for_skipping
-        else:
-            if len(self.test_data_paths()) > 0:
-                logger.info(f"We have valid test data for {self.algorithm_name}")
-                if _recursive_get(self.algorithm_definition, ["hotvect_execution_parameters", "with_parameter"]):
-                    reason_for_skipping = {"skipped": "Because with_parameter was specified"}
-                    tasks_to_skip = ["predict", "evaluate", "performance_test", "encode_test"]
-                    logger.info(
-                        f'"with_parameter" is specified for {self.algorithm_name}, skipping all steps {tasks_to_skip}'
+            if with_parameter_cache_path and self.dependency_pipelines:
+                logger.info(
+                    f'"with_parameter" is specified for {self.algorithm_name}; skipping dependency preparation for: '
+                    f"{sorted(self.dependency_pipelines.keys())}. "
+                    f"Assuming dependency artifacts are bundled in the provided parameters ZIP: {with_parameter_cache_path}"
+                )
+                result["dependencies"] = {"skipped": "Because with_parameter was specified"}
+            elif self.dependency_pipelines:
+                result["dependencies"] = {}
+                logger.info(f"Preparing dependencies for: {self.algorithm_name}")
+                for algorithm_name, pipeline in self.dependency_pipelines.items():
+                    logger.info(f"Preparing dependency: {algorithm_name} for {self.algorithm_name}")
+                    dependency_result = pipeline.run_all(
+                        clean=self.clean_output_after_run,
+                        # When it's run as a dependency, we do not evaluate by default
+                        evaluate=False,
                     )
-                    for task_id in tasks_to_skip:
-                        result[task_id] = reason_for_skipping
+                    result["dependencies"][algorithm_name] = dependency_result
+                logger.info(f"Prepared all dependencies: {self.dependency_pipelines.keys()} for {self.algorithm_name}")
+            result["timing_info_sec"]["prepare_dependencies"] = time.time() - deps_time
+
+            if not self.available_predict_parameter_cache_path():
+                if self.algorithm_is_state:
+                    # State algorithms: generate state but skip encode parameter packaging
+                    logger.info(f"Algorithm {self.algorithm_name} is a state. Generating it")
+                    encode_parameter_times = time.time()
+                    self.generate_states()
+                    result["package_encode_params"] = {"skipped": "State algorithms don't need encode parameters"}
+                    result["timing_info_sec"]["encode_parameter"] = time.time() - encode_parameter_times
+                elif self.should_train():
+                    # Algorithms with training: full pipeline
+                    self._step_encode_parameter(result)
+                    self._step_encode(result)
+                    self._step_train(result)
                 else:
-                    self._step_predict(result, evaluate)
-                    self._step_evaluate(result, evaluate)
-                    self._step_performance_test(result, evaluate)
-                    self._step_encode_test_data(result)
-                    self._step_execute_audit(result)
+                    # Algorithms without training and not state: skip encode parameters
+                    logger.info(f"Algorithm {self.algorithm_name} does not have a training step")
+                    result["package_encode_params"] = {"skipped": "No training step"}
             else:
-                reason_for_skipping = {"skipped": "Because no test data was available"}
-                logger.info(f"No test data available, skipping tasks {tasks_to_skip} for: {self.algorithm_name}")
+                logger.info(
+                    f"Predict parameters available for {self.algorithm_name} ({self.available_predict_parameter_cache_path()}), skipping encode and train"
+                )
+
+            self._step_predict_parameter(result)
+
+            tasks_to_skip = ["predict", "evaluate", "performance_test", "encode_test"]
+            if self.algorithm_is_state:
+                logger.info(f"Algorithm {self.algorithm_name} is a state. There are no evaluation steps")
+                reason_for_skipping = {"skipped": "This algorithm is a state"}
                 for task_id in tasks_to_skip:
                     result[task_id] = reason_for_skipping
+            else:
+                if len(self.test_data_paths()) > 0:
+                    logger.info(f"We have valid test data for {self.algorithm_name}")
+                    if (
+                        _recursive_get(self.algorithm_definition, ["hotvect_execution_parameters", "with_parameter"])
+                        and not evaluate
+                    ):
+                        reason_for_skipping = {"skipped": "Because with_parameter was specified"}
+                        tasks_to_skip = ["predict", "evaluate", "performance_test", "encode_test"]
+                        logger.info(
+                            f'"with_parameter" is specified for {self.algorithm_name}, skipping all steps {tasks_to_skip}'
+                        )
+                        for task_id in tasks_to_skip:
+                            result[task_id] = reason_for_skipping
+                    else:
+                        self._step_predict(result, evaluate)
+                        self._step_evaluate(result, evaluate)
+                        if self.execute_performance_test:
+                            self._step_performance_test(result, evaluate)
+                        else:
+                            result["performance_test"] = {
+                                "skipped": "Because execute_performance_test=False was specified"
+                            }
+                            result["timing_info_sec"]["performance_test"] = 0.0
+                            logger.info(
+                                "Performance-test skipped: %s because execute_performance_test=False was specified",
+                                self.algorithm_name,
+                            )
+                        self._step_encode_test_data(result)
+                        self._step_execute_audit(result)
+                else:
+                    reason_for_skipping = {"skipped": "Because no test data was available"}
+                    logger.info(f"No test data available, skipping tasks {tasks_to_skip} for: {self.algorithm_name}")
+                    for task_id in tasks_to_skip:
+                        result[task_id] = reason_for_skipping
 
-        if clean:
-            logger.info(f"Cleaning output dir for {self.algorithm_name}")
-            self.clean_output()
-            logger.info(f"Cleaned output dir for {self.algorithm_name}")
+            if clean:
+                logger.info(f"Cleaning output dir for {self.algorithm_name}")
+                self.clean_output()
+                logger.info(f"Cleaned output dir for {self.algorithm_name}")
 
-        self._write_data(result, os.path.join(self.metadata_path(), "result.json"))
-        logger.info(f"Completed {self.algorithm_name}: {self.__dict__}")
-        result["timing_info_sec"]["total_time"] = time.time() - start_time
-        return result
+            self._write_data(result, os.path.join(self.metadata_path(), "result.json"))
+            logger.info(f"Completed {self.algorithm_name}: {self.__dict__}")
+            result["timing_info_sec"]["total_time"] = time.time() - start_time
+            return result
 
     def _step_execute_audit(self, result):
         if self.execute_audit:
@@ -662,9 +920,28 @@ class AlgorithmPipeline:
         if self.algorithm_is_state:
             logger.info(f"Algorithm {self.algorithm_name} is a state. Generating it")
             self.generate_states()
-        # TODO not sure if we need to package encode parameter when the algorithm is a state
         result["package_encode_params"] = self.package_encode_parameters()
         result["timing_info_sec"]["encode_parameter"] = time.time() - encode_parameter_times
+
+    def _stage_metadata_dir(self, stage: str) -> str:
+        return os.path.join(self.metadata_path(), stage)
+
+    def _stage_metadata_file(self, stage: str) -> str:
+        return os.path.join(self._stage_metadata_dir(stage), "metadata.json")
+
+    @staticmethod
+    def _task_name_to_offline_util_subcommand(task_name: str) -> Optional[str]:
+        # hotvect-offline-util uses picocli subcommands (encode, predict, audit, generate-state, performance-test, ...).
+        # Keep task_name as-is for JVM arg lookup (it is used to read hotvect_execution_parameters.<task>.jvm_args),
+        # and translate only for CLI invocation.
+        return {
+            "encode": "encode",
+            "predict": "predict",
+            "audit": "audit",
+            "generate_state": "generate-state",
+            "performance-test": "performance-test",
+            "generate-state": "generate-state",
+        }.get(task_name)
 
     def _base_command(self, task_name: str, metadata_location: str, max_threads: int = -1) -> List[str]:
         ret = [
@@ -672,19 +949,22 @@ class AlgorithmPipeline:
             "-cp",
             f"{hotvect.hotvectjar.HOTVECT_JAR_PATH}",
         ]
-        jvm_args = _get_jvm_args(self.algorithm_definition, task_name, self.algorithm_pipeline_context.jvm_options)
-        if jvm_args:
-            ret.extend(jvm_args)
-        if "-XX:+ExitOnOutOfMemoryError" not in self.algorithm_pipeline_context.jvm_options:
+        resolved_jvm_args = (
+            _get_jvm_args(self.algorithm_definition, task_name, self.algorithm_pipeline_context.jvm_options) or []
+        )
+        ret.extend(resolved_jvm_args)
+        if "-XX:+ExitOnOutOfMemoryError" not in resolved_jvm_args:
             ret.append("-XX:+ExitOnOutOfMemoryError")
+        subcommand = self._task_name_to_offline_util_subcommand(task_name)
         ret.extend(
             [
                 "com.hotvect.offlineutils.commandline.Main",
+                *([subcommand] if subcommand else []),
                 "--algorithm-jar",
                 f"{self.algorithm_jar_path()}",
                 "--algorithm-definition",
                 self._write_algorithm_definition(),
-                "--meta-data",
+                "--metadata-path",
                 metadata_location,
             ]
         )
@@ -692,20 +972,23 @@ class AlgorithmPipeline:
             ret.extend(
                 ["--additional-jars", ",".join(str(x) for x in self.algorithm_pipeline_context.additional_jar_files)]
             )
-        if max_threads >= 1:
-            # Caller wants to override max threads parameter
-            ret.extend(["--max-threads", str(max_threads)])
-        elif self.algorithm_pipeline_context.max_threads:
-            # No overrides at method level, but we have a base level config
-            ret.extend(["--max-threads", str(self.algorithm_pipeline_context.max_threads)])
-        # Using base config even if max threads was overriden isn't ideal, but use case for method
-        # level override is performance test, in which case there should be no changes needed to
-        # batch size, and queue length should merely be bigger than necessary which shouldn't be a
-        # problem
-        if self.algorithm_pipeline_context.queue_length:
-            ret.extend(["--queue-length", str(self.algorithm_pipeline_context.queue_length)])
-        if self.algorithm_pipeline_context.batch_size:
-            ret.extend(["--batch-size", str(self.algorithm_pipeline_context.batch_size)])
+        # Execution options are subcommand-specific in picocli. (E.g., generate-state does not accept max-threads.)
+        supports_execution_options = subcommand in {"encode", "predict", "audit", "performance-test"}
+        if supports_execution_options:
+            if max_threads >= 1:
+                # Caller wants to override max threads parameter
+                ret.extend(["--max-threads", str(max_threads)])
+            elif self.algorithm_pipeline_context.max_threads:
+                # No overrides at method level, but we have a base level config
+                ret.extend(["--max-threads", str(self.algorithm_pipeline_context.max_threads)])
+            # Using base config even if max threads was overriden isn't ideal, but use case for method
+            # level override is performance test, in which case there should be no changes needed to
+            # batch size, and queue length should merely be bigger than necessary which shouldn't be a
+            # problem
+            if self.algorithm_pipeline_context.queue_length:
+                ret.extend(["--queue-length", str(self.algorithm_pipeline_context.queue_length)])
+            if self.algorithm_pipeline_context.batch_size:
+                ret.extend(["--batch-size", str(self.algorithm_pipeline_context.batch_size)])
         return ret
 
     def _resolve_cache_path(self, task_paths: List[str], cache_file_name=None) -> Optional[str]:
@@ -739,7 +1022,7 @@ class AlgorithmPipeline:
                 raise ValueError(
                     "Caching is enabled but 'cache_base_dir' is not specified under 'hotvect_execution_parameters.cache_base_dir'."
                 )
-            template = os.path.join(cache_base_dir, self.hyperparameter_slug(), self.parameter_version, *task_paths)
+            template = os.path.join(cache_base_dir, self._cache_algorithm_key(), self.parameter_version, *task_paths)
         elif isinstance(cache_override, str):
             # Use the specific cache path provided in 'cache' override
             template = cache_override
@@ -755,62 +1038,83 @@ class AlgorithmPipeline:
 
         # Append the cache file name if provided
         if cache_file_name:
+            # If the user explicitly provided a cache path string override, it may already point to the final
+            # file/directory. For example, docs show:
+            #   hotvect_execution_parameters.train.cache = ".../predict-parameters.zip"
+            # In that case, we should not append the file name again.
+            normalized = cache_path[:-1] if cache_path.endswith("/") else cache_path
+            if isinstance(cache_override, str) and os.path.basename(normalized) == cache_file_name:
+                return cache_path
             return os.path.join(cache_path, cache_file_name)
         else:
             return cache_path
 
     def generate_states(self) -> Dict:
-        metadata = {}
-        encoding_parameter_cache_path = self._resolve_cache_path(["generate-state"], "encoding-parameters.zip")
-        available_encoding_parameter_cache_path = as_locally_available_content(
-            encoding_parameter_cache_path, self.cache_path()
-        )
-        if available_encoding_parameter_cache_path:
-            # We have cache
-            logger.info(
-                f"Skipping generate-state for {self.algorithm_name} because encoding parameter cache was used at {encoding_parameter_cache_path}"
-            )
-            metadata["skipped"] = f"Because cache was used at {encoding_parameter_cache_path}"
-            return metadata
-
-        metadata_path = os.path.join(self.metadata_path(), "generate-state.json")
-        trydelete(metadata_path)
+        """Generate state files with directory-based caching"""
         output_path = self.state_output_path()
+        state_dir_name = os.path.basename(output_path)
+        state_cache_path = self._resolve_cache_path(["generate-state"], state_dir_name)
+
+        # Handle S3 cache separately from local cache
+        if state_cache_path and state_cache_path.startswith("s3://") and not self._cache_refresh_enabled():
+            # S3 cache: download directly to output_path (no symlink needed)
+            logger.info(f"Skipping state generation for {self.algorithm_name}, using S3 cache at {state_cache_path}")
+            trydelete(output_path)
+            available_cache_path = as_locally_available_content(state_cache_path, os.path.dirname(output_path))
+            if available_cache_path:
+                return {
+                    "source": state_cache_path,
+                    "skipped": f"Used cache at: {state_cache_path}",
+                }
+        elif state_cache_path and not self._cache_refresh_enabled():
+            # Local cache: check if exists and symlink to avoid copying
+            available_cache_path = as_locally_available_content(state_cache_path, self.cache_path())
+            if available_cache_path:
+                logger.info(
+                    f"Skipping state generation for {self.algorithm_name}, using local cache at {state_cache_path}"
+                )
+                trydelete(output_path)
+                copy_or_link(available_cache_path, output_path)
+                return {
+                    "source": state_cache_path,
+                    "skipped": f"Used cache at: {state_cache_path}",
+                }
+
+        # Cache miss - generate state
+        stage = "generate-state"
+        metadata_dir = self._stage_metadata_dir(stage)
+        clean_dir(metadata_dir)
         trydelete(output_path)
-        generator_factory_classname = self.algorithm_definition["generator_factory_classname"]
         logger.info(f"Generating state for {self.algorithm_name} at {output_path}")
-        cmd = self._base_command("generate_state", metadata_path)
-        cmd.extend(
-            [
-                "--generate-state",
-                generator_factory_classname,
-            ]
-        )
+        cmd = self._base_command("generate_state", metadata_dir)
 
         # Handle multiple source data and format as JSON
         source_data_dict = self.algorithm_definition["source_data"]
         source_json = {}
         for prefix_name, per_source_config in source_data_dict.items():
-            source_path = self.state_source_path(per_source_config)
-            source_json[prefix_name] = source_path
+            source_paths = self.state_source_path(per_source_config)  # Returns List[str]
+            source_json[prefix_name] = source_paths
 
         cmd.extend(["--source", json.dumps(source_json)])
+        cmd.extend(["--dest", output_path])
 
-        cmd.extend(
-            [
-                "--dest",
-                output_path,
-            ]
-        )
-        runshell(cmd)
+        self._stream_output_to_stage_log(stage=stage, cmd=cmd)
         logger.info(f"Generated state for {self.algorithm_name} at {output_path}")
-        metadata = read_json(metadata_path)
+        metadata = read_json(self._stage_metadata_file(stage))
+
+        if state_cache_path and "skipped" not in metadata.keys():
+            # Store generated directory tree in cache
+            logger.info(f"Storing state cache for {self.algorithm_name} at {state_cache_path}")
+            store_file(output_path, state_cache_path)
+
         return metadata
 
     def package_encode_parameters(self) -> Dict:
         encoding_parameter_cache_path = self._resolve_cache_path(["generate-state"], "encoding-parameters.zip")
-        available_encoding_parameter_cache_path = as_locally_available_content(
-            encoding_parameter_cache_path, self.cache_path()
+        available_encoding_parameter_cache_path = (
+            None
+            if self._cache_refresh_enabled()
+            else as_locally_available_content(encoding_parameter_cache_path, self.cache_path())
         )
         if available_encoding_parameter_cache_path:
             # We have cache
@@ -825,20 +1129,28 @@ class AlgorithmPipeline:
                     if member.startswith(self.algorithm_name + "/"):
                         # Remove the directory name from the member name
                         new_member_name = member[len(self.algorithm_name) + 1 :]
+                        # Skip directory entries (end with / or result in empty name)
+                        if not new_member_name or member.endswith("/"):
+                            continue
                         # Extract the member to the output path with the new member name
-                        with zip_ref.open(member) as source, open(
-                            os.path.join(self.output_path(), new_member_name), "wb"
-                        ) as target:
+                        target_path = resolve_path_within_base(self.output_path(), new_member_name)
+                        target_dir = target_path.parent
+                        if target_dir:
+                            os.makedirs(target_dir, exist_ok=True)
+                        with zip_ref.open(member) as source, open(target_path, "wb") as target:
                             shutil.copyfileobj(source, target)
             return {"sources": [available_encoding_parameter_cache_path], "skipped": "Because cache was available"}
-        metadata = self._do_package_parameters(is_encode=True)
-        if encoding_parameter_cache_path:
+
+        skip_zip = self.algorithm_is_state
+        metadata = self._do_package_parameters(is_encode=True, skip_zip=skip_zip)
+        if encoding_parameter_cache_path and metadata.get("package"):
             # Cache was not available, but there is a cache dir specified so we have to store our results there
+            # Only cache if a ZIP was actually created
             logger.info(f"Caching encoding parameters for {self.algorithm_name} at {encoding_parameter_cache_path}")
             store_file(self.encode_parameter_file_path(), encoding_parameter_cache_path)
         return metadata
 
-    def _do_package_parameters(self, is_encode: bool) -> Dict[str, Any]:
+    def _do_package_parameters(self, is_encode: bool, skip_zip: bool = False) -> Dict[str, Any]:
         parameter_package_location = (
             self.encode_parameter_file_path() if is_encode else self.predict_parameter_file_path()
         )
@@ -862,33 +1174,114 @@ class AlgorithmPipeline:
 
             if pipeline.algorithm_is_state:
                 # If the algorithm is a state, it should have a state output
-                state_output_path = pipeline.state_output_path()
-                to_package_acc.append(
-                    (
-                        state_output_path,
-                        to_arc_name(algorithm_name, os.path.basename(state_output_path)),
-                    )
-                )
+                state_output_base = pipeline.state_output_path()
+                base_path = Path(state_output_base)
+
+                # Check if state_output_base is a directory
+                if os.path.isdir(state_output_base):
+                    # Directory mode: recursively package all files in the directory tree
+                    logger.info(f"Packaging state directory for {algorithm_name}: {state_output_base}")
+                    files_to_package = []
+                    for root, dirs, files in os.walk(state_output_base):
+                        for file in files:
+                            if file != parameter_metadata_filename:
+                                full_path = os.path.join(root, file)
+                                # Preserve directory structure relative to state_output_base
+                                rel_path = os.path.relpath(full_path, state_output_base)
+                                files_to_package.append((full_path, rel_path))
+
+                    # Sort by relative path for deterministic ordering
+                    files_to_package.sort(key=lambda x: x[1])
+
+                    if not files_to_package:
+                        raise FileNotFoundError(
+                            f"No files found in state directory for {algorithm_name}: {state_output_base}"
+                        )
+
+                    for state_file, rel_path in files_to_package:
+                        to_package_acc.append(
+                            (
+                                state_file,
+                                os.path.join(algorithm_name, rel_path),  # Preserve directory structure in archive
+                            )
+                        )
+                else:
+                    # File mode: Handle both single file and sharded state files (e.g., state-0.ext, state-1.ext, ...)
+                    # Look for sharded files with pattern: basename-*.ext
+                    shard_pattern = str(base_path.parent / f"{base_path.stem}-*{base_path.suffix}")
+                    shard_files = sorted(glob.glob(shard_pattern))
+
+                    if shard_files:
+                        # Multiple shards found - package all of them
+                        logger.info(f"Packaging {len(shard_files)} sharded state files for {algorithm_name}")
+                        for shard_file in shard_files:
+                            to_package_acc.append(
+                                (
+                                    shard_file,
+                                    to_arc_name(algorithm_name, os.path.basename(shard_file)),
+                                )
+                            )
+                    elif os.path.exists(state_output_base):
+                        # Single file (backward compatibility)
+                        logger.info(f"Packaging single state file for {algorithm_name}")
+                        to_package_acc.append(
+                            (
+                                state_output_base,
+                                to_arc_name(algorithm_name, os.path.basename(state_output_base)),
+                            )
+                        )
+                    else:
+                        raise FileNotFoundError(
+                            f"No state files found for {algorithm_name}. "
+                            f"Expected either single file at {state_output_base} or sharded files matching {shard_pattern}"
+                        )
 
             if "training_command" in pipeline.algorithm_definition:
                 parameter_file = pipeline.parameter_file_path()
-                if is_encode:
-                    # Include parameter files from dependencies only during encode parameter packaging
-                    if pipeline is not self:
+                should_package = (not is_encode) or (pipeline is not self)
+
+                if should_package:
+                    if os.path.isdir(parameter_file):
+                        # Directory mode: recursively package all files
+                        logger.info(f"Packaging parameter directory for {algorithm_name}: {parameter_file}")
+                        files_to_package = []
+                        for root, dirs, files in os.walk(parameter_file):
+                            for file in files:
+                                full_path = os.path.join(root, file)
+                                rel_path = os.path.relpath(full_path, parameter_file)
+                                files_to_package.append((full_path, rel_path))
+
+                        files_to_package.sort(key=lambda x: x[1])
+
+                        for param_file, rel_path in files_to_package:
+                            to_package_acc.append(
+                                (
+                                    param_file,
+                                    os.path.join(algorithm_name, os.path.basename(parameter_file), rel_path),
+                                )
+                            )
+                    else:
                         to_package_acc.append(
                             (
                                 parameter_file,
                                 to_arc_name(algorithm_name, os.path.basename(parameter_file)),
                             )
                         )
-                else:
-                    # Include parameter files from all algorithms during predict parameter packaging
-                    to_package_acc.append(
-                        (
-                            parameter_file,
-                            to_arc_name(algorithm_name, os.path.basename(parameter_file)),
+
+                    # Bundle encoding schema + algorithm definition for strict inference.
+                    # (Only if present; older/non-TF pipelines may not emit these artifacts.)
+                    schema_path = pipeline.encoded_schema_description_file_path()
+                    if os.path.exists(schema_path):
+                        to_package_acc.append((schema_path, to_arc_name(algorithm_name, os.path.basename(schema_path))))
+
+                    algorithm_definition_path = os.path.join(pipeline.metadata_path(), "algorithm_definition.json")
+                    if os.path.exists(algorithm_definition_path):
+                        to_package_acc.append(
+                            (
+                                algorithm_definition_path,
+                                to_arc_name(algorithm_name, os.path.basename(algorithm_definition_path)),
+                            )
                         )
-                    )
 
             for sub_algorithm_name, sub_pipeline in pipeline.dependency_pipelines.items():
                 process_pipeline(sub_pipeline, sub_algorithm_name, to_package_acc)
@@ -912,7 +1305,13 @@ class AlgorithmPipeline:
             algorithm_parameters,
             os.path.join(self.output_path(), parameter_metadata_filename),
         )
-        to_zip_archive(to_package, parameter_package_location)
+
+        if not skip_zip:
+            to_zip_archive(to_package, parameter_package_location)
+        else:
+            logger.info(f"Skipping ZIP creation for {self.algorithm_name}")
+            algorithm_parameters["package"] = None  # No ZIP created
+
         return algorithm_parameters
 
     def _do_encode(self, is_test: bool) -> Dict[str, Any]:
@@ -921,12 +1320,12 @@ class AlgorithmPipeline:
                 f"Skipping {'test' if is_test else 'train'} encoding for {self.algorithm_name} because no training command exists"
             )
             return {"skipped": "Skipped because there is no training command in the algorithm definition"}
-        metadata_location = os.path.join(self.metadata_path(), f"{'test-' if is_test else ''}encode_metadata.json")
-        trydelete(metadata_location)
+        stage = "encode-test" if is_test else "encode"
+        metadata_dir = self._stage_metadata_dir(stage)
+        clean_dir(metadata_dir)
         encoded_data_location = self.encoded_test_data_file_path() if is_test else self.encoded_data_file_path()
         trydelete(encoded_data_location)
-        cmd = self._base_command("encode", metadata_location)
-        cmd.append("--encode")
+        cmd = self._base_command("encode", metadata_dir)
         if is_test:
             # If it's test encoding, use ordered so that it's easier to figure out which encoded row
             # corresponds to which source data
@@ -938,11 +1337,11 @@ class AlgorithmPipeline:
         logger.info(
             f"Encoding {'test' if is_test else 'train'} data for {self.algorithm_name} to {encoded_data_location}"
         )
-        runshell(cmd)
+        self._stream_output_to_stage_log(stage=stage, cmd=cmd)
         logger.info(
             f"Encoded {'test' if is_test else 'train'} data for {self.algorithm_name} at {encoded_data_location}"
         )
-        return read_json(metadata_location)
+        return read_json(self._stage_metadata_file(stage))
 
     def should_train(self) -> bool:
         return "training_command" in self.algorithm_definition
@@ -954,10 +1353,14 @@ class AlgorithmPipeline:
         encoded_schema_description_cache_path = self._resolve_cache_path(
             ["encode"], encoded_schema_description_filename
         )
-        available_encoded_cache_path = as_locally_available_content(encoded_cache_path, self.cache_path())
-        available_encoded_schema_description_cache_path = as_locally_available_content(
-            encoded_schema_description_cache_path, self.cache_path()
-        )
+        if self._cache_refresh_enabled():
+            available_encoded_cache_path = None
+            available_encoded_schema_description_cache_path = None
+        else:
+            available_encoded_cache_path = as_locally_available_content(encoded_cache_path, self.cache_path())
+            available_encoded_schema_description_cache_path = as_locally_available_content(
+                encoded_schema_description_cache_path, self.cache_path()
+            )
 
         if available_encoded_cache_path and available_encoded_schema_description_cache_path:
             # We have cache for both encoded data and schema description
@@ -987,7 +1390,11 @@ class AlgorithmPipeline:
             logger.info(f"Skipping training for {self.algorithm_name} because no training command exists")
             return {"skipped": "Because no training command exists for this algorithm"}
         parameter_cache_path = self._resolve_cache_path(["train"], "predict-parameters.zip")
-        available_parameter_cache_path = as_locally_available_content(parameter_cache_path, self.cache_path())
+        available_parameter_cache_path = (
+            None
+            if self._cache_refresh_enabled()
+            else as_locally_available_content(parameter_cache_path, self.cache_path())
+        )
         if available_parameter_cache_path:
             # We have cache, no need to train
             logger.info(
@@ -995,31 +1402,35 @@ class AlgorithmPipeline:
             )
             return {"skipped": f"Because cache was available in {available_parameter_cache_path}"}
         logger.info(f"Training: {self.algorithm_name}")
-        metadata_location = os.path.join(self.metadata_path(), "train_metadata.json")
-        trydelete(metadata_location)
+        stage = "train"
+        metadata_dir = self._stage_metadata_dir(stage)
+        clean_dir(metadata_dir)
         parameter_location = self.parameter_file_path()
         trydelete(parameter_location)
         scratch_dir = os.path.join(self.output_path(), "train_scratch_dir")
         clean_dir(scratch_dir)
-        if not os.path.isfile(self.encoded_data_file_path()):
+        if not os.path.isdir(self.encoded_data_file_path()):
             raise ValueError(
-                f"Encoded file does not exist! Expected file here: {os.path.abspath(self.encoded_data_file_path())}"
+                f"Encoded directory does not exist! Expected directory here: {os.path.abspath(self.encoded_data_file_path())}"
             )
         train_command_template = Template(self.algorithm_definition["training_command"])
         python_executable = sys.executable
         train_command = train_command_template.render(
             algorithm_definition_path=os.path.join(self.metadata_path(), "algorithm_definition.json"),
             algorithm_jar_path=self.algorithm_jar_path(),
-            encoded_data_file_path=self.encoded_data_file_path(),
+            encoded_data_file_path=self.encoded_data_file_path(),  # Pass directory, trainer resolves shard files
             encoded_schema_description_file_path=self.encoded_schema_description_file_path(),
             parameter_output_path=parameter_location,
             scratch_dir=scratch_dir,
             python_executable=python_executable,
+            encode_parameter_path=self.encode_parameter_file_path(),
         )
-        train_log = runshell([train_command], shell=True)
+        # Note: Training uses shell=True to support complex command strings with pipes, redirects, etc.
+        # We convert to list form for stream_output which requires list format
+        self._stream_output_to_stage_log(stage=stage, cmd=["/bin/bash", "-c", train_command])
         logger.info(f"Training completed for {self.algorithm_name}")
-        metadata = {"training_command": train_command, "train_log": train_log}
-        with open(metadata_location, "w") as f:
+        metadata = {"training_command": train_command}
+        with open(self._stage_metadata_file(stage), "w") as f:
             json.dump(metadata, f)
         return metadata
 
@@ -1036,23 +1447,48 @@ class AlgorithmPipeline:
                     if member.startswith(self.algorithm_name + "/"):
                         # Remove the directory name from the member name
                         new_member_name = member[len(self.algorithm_name) + 1 :]
-                        # Extract the member to the output path with the new member name
-                        with zip_ref.open(member) as source, open(
-                            os.path.join(self.output_path(), new_member_name), "wb"
-                        ) as target:
+                        if not new_member_name:
+                            # This is the directory entry (e.g. "<algorithm_name>/"); nothing to extract.
+                            continue
+
+                        # Extract the member to the output path with the new member name.
+                        target_path = resolve_path_within_base(self.output_path(), new_member_name)
+
+                        zip_info = zip_ref.getinfo(member)
+                        if zip_info.is_dir():
+                            os.makedirs(target_path, exist_ok=True)
+                            continue
+
+                        target_dir = target_path.parent
+                        if target_dir:
+                            os.makedirs(target_dir, exist_ok=True)
+                        with zip_ref.open(member) as source, open(target_path, "wb") as target:
                             shutil.copyfileobj(source, target)
             logger.info(
                 f"Using cached predict parameters for {self.algorithm_name} at {available_parameter_cache_path}"
             )
             return {"sources": [original_parameter_cache_path], "skipped": "Because cache was available"}
         logger.info(f"No predict parameters cache available for {self.algorithm_name}, creating package")
-        metadata = self._do_package_parameters(is_encode=False)
-        logger.info(f"Predict parameters packaged for: {self.algorithm_name} at {metadata['package']}")
-        if original_parameter_cache_path:
+        skip_zip = self.algorithm_is_state and not self._package_state_as_predict_parameters_enabled()
+        metadata = self._do_package_parameters(is_encode=False, skip_zip=skip_zip)
+        if metadata.get("package"):
+            logger.info(f"Predict parameters packaged for: {self.algorithm_name} at {metadata['package']}")
+        else:
+            logger.info(f"Predict parameter metadata created for {self.algorithm_name} (ZIP skipped)")
+        if original_parameter_cache_path and metadata.get("package"):
             # Cache was not available, but there is a cache dir specified so we have to store our results there
+            # Only cache if a ZIP was actually created
             logger.info(f"Caching predict parameters at {original_parameter_cache_path} for {self.algorithm_name}")
             store_file(self.predict_parameter_file_path(), original_parameter_cache_path)
         return metadata
+
+    def _package_state_as_predict_parameters_enabled(self) -> bool:
+        value = _recursive_get(
+            self.algorithm_definition,
+            ["hotvect_execution_parameters", "package_state_as_predict_parameters"],
+            False,
+        )
+        return bool(value)
 
     def _should_predict(self, evaluate: bool) -> bool:
         """Determine if prediction should run.
@@ -1085,18 +1521,18 @@ class AlgorithmPipeline:
             return {"skipped": "Because prediction is disabled"}
 
         logger.info(f"Generating predictions: {self.algorithm_name}")
-        metadata_location = os.path.join(self.metadata_path(), "predict_metadata.json")
-        trydelete(metadata_location)
+        stage = "predict"
+        metadata_dir = self._stage_metadata_dir(stage)
+        clean_dir(metadata_dir)
         score_location = self.test_result_file_path()
         trydelete(score_location)
-        cmd = self._base_command("predict", metadata_location)
-        cmd.append("--predict")
+        cmd = self._base_command("predict", metadata_dir)
         cmd.extend(["--source", ",".join(self.test_data_paths())])
         cmd.extend(["--dest", score_location])
         cmd.extend(["--parameters", self.predict_parameter_file_path()])
-        runshell(cmd)
+        self._stream_output_to_stage_log(stage=stage, cmd=cmd)
         logger.info(f"Generated predictions for {self.algorithm_name}")
-        return read_json(metadata_location)
+        return read_json(self._stage_metadata_file(stage))
 
     def _should_evaluate(self, evaluate: bool) -> bool:
         """Determine if evaluation should run."""
@@ -1114,8 +1550,9 @@ class AlgorithmPipeline:
         if not self._should_evaluate(evaluate):
             logger.info(f"Evaluation is disabled for {self.algorithm_name}")
             return {"skipped": "Because evaluation is disabled"}
-        metadata_location = os.path.join(self.metadata_path(), "evaluate_metadata.json")
-        trydelete(metadata_location)
+        stage = "evaluate"
+        metadata_dir = self._stage_metadata_dir(stage)
+        clean_dir(metadata_dir)
         logger.info(
             f"Evaluating {self.algorithm_name} with {self.evaluation_function.__name__} using {self.test_result_file_path()}"
         )
@@ -1123,13 +1560,18 @@ class AlgorithmPipeline:
             _recursive_get(
                 self.algorithm_definition, ["hotvect_execution_parameters", "evaluation_function", "arguments"]
             )
-            or dict()
+            or {}
         )
+        if not isinstance(kwargs, dict):
+            raise ValueError(
+                "Algorithm definition evaluation_function.arguments must be a dict when provided. "
+                f"Got: {type(kwargs)}"
+            )
         meta_data = self.evaluation_function(self.test_result_file_path(), **kwargs)
         logger.info(
-            f"Evaluated {self.algorithm_name} with {self.evaluation_function.__name__}, results at {metadata_location}"
+            f"Evaluated {self.algorithm_name} with {self.evaluation_function.__name__}, results at {self._stage_metadata_file(stage)}"
         )
-        with open(metadata_location, "w") as f:
+        with open(self._stage_metadata_file(stage), "w") as f:
             json.dump(meta_data, f)
         return meta_data
 
@@ -1139,9 +1581,26 @@ class AlgorithmPipeline:
         ):
             logger.info(f"Performance test is disabled for {self.algorithm_name}")
             return {"skipped": "Because performance test is disabled"}
-        metadata_location = os.path.join(self.metadata_path(), "performance_test_metadata.json")
-        trydelete(metadata_location)
+        stage = "performance-test"
+        metadata_dir = self._stage_metadata_dir(stage)
+        clean_dir(metadata_dir)
+        samples = _recursive_get(
+            self.algorithm_definition, ["hotvect_execution_parameters", "performance-test", "samples"]
+        )
+        target_rps = _recursive_get(
+            self.algorithm_definition, ["hotvect_execution_parameters", "performance-test", "target_rps"]
+        )
+        target_throughput_fraction = _recursive_get(
+            self.algorithm_definition,
+            ["hotvect_execution_parameters", "performance-test", "target_throughput_fraction"],
+        )
+        workload_mode = _recursive_get(
+            self.algorithm_definition,
+            ["hotvect_execution_parameters", "performance-test", "workload_mode"],
+        )
         available_number_of_cores = psutil.cpu_count(logical=False)
+        if available_number_of_cores is None:
+            available_number_of_cores = psutil.cpu_count(logical=True) or 1
         if available_number_of_cores >= 4:
             appropriate_thread_num_for_performance_test = 2
         else:
@@ -1150,14 +1609,30 @@ class AlgorithmPipeline:
             f"Performance testing {self.algorithm_name} with {appropriate_thread_num_for_performance_test} threads"
         )
         cmd = self._base_command(
-            "performance-test", metadata_location, max_threads=appropriate_thread_num_for_performance_test
+            "performance-test", metadata_dir, max_threads=appropriate_thread_num_for_performance_test
         )
-        cmd.append("--performance-test")
         cmd.extend(["--source", ",".join(self.test_data_paths())])
         cmd.extend(["--parameters", self.predict_parameter_file_path()])
-        runshell(cmd)
+        if samples is not None:
+            cmd.extend(["--samples", str(int(samples))])
+        if target_rps is not None:
+            cmd.extend(["--target-rps", str(float(target_rps))])
+        if target_throughput_fraction is not None:
+            cmd.extend(["--target-throughput-fraction", str(float(target_throughput_fraction))])
+        if workload_mode is not None:
+            cmd.extend(["--workload-mode", str(workload_mode)])
+        self._stream_output_to_stage_log(stage=stage, cmd=cmd)
         logger.info(f"Performance tested {self.algorithm_name}")
-        return read_json(metadata_location)
+        ret = read_json(self._stage_metadata_file(stage))
+        if samples is not None and isinstance(ret, dict):
+            ret.setdefault("requested_samples", int(samples))
+        if target_rps is not None and isinstance(ret, dict):
+            ret.setdefault("requested_target_rps", float(target_rps))
+        if target_throughput_fraction is not None and isinstance(ret, dict):
+            ret.setdefault("requested_target_throughput_fraction", float(target_throughput_fraction))
+        if workload_mode is not None and isinstance(ret, dict):
+            ret.setdefault("requested_workload_mode", str(workload_mode))
+        return ret
 
     def clean_output(self) -> None:
         # TODO decide what to do here
@@ -1171,12 +1646,12 @@ class AlgorithmPipeline:
             return {"skipped": "Because prediction is disabled"}
         if "training_command" not in self.algorithm_definition:
             return {"skipped": "Because you cannot audit algorithms that do not encode (train)"}
-        metadata_location = os.path.join(self.metadata_path(), "audit_metadata.json")
-        trydelete(metadata_location)
+        stage = "audit"
+        metadata_dir = self._stage_metadata_dir(stage)
+        clean_dir(metadata_dir)
         audit_data_location = self.audit_data_file_path()
         trydelete(audit_data_location)
-        cmd = self._base_command("audit", metadata_location)
-        cmd.append("--audit")
+        cmd = self._base_command("audit", metadata_dir)
         parameters = []
         if os.path.exists(self.encode_parameter_file_path()):
             # We have encode parameters
@@ -1185,8 +1660,8 @@ class AlgorithmPipeline:
         cmd.extend(["--parameters", ",".join(parameters)])
         cmd.extend(["--source", ",".join(self.test_data_paths())])
         cmd.extend(["--dest", audit_data_location])
-        runshell(cmd)
-        return read_json(metadata_location)
+        self._stream_output_to_stage_log(stage=stage, cmd=cmd)
+        return read_json(self._stage_metadata_file(stage))
 
     def predict_parameter_cache_original_path(self) -> str:
         parameter_cache_path = _recursive_get(
@@ -1196,7 +1671,7 @@ class AlgorithmPipeline:
             parameter_cache_path = self._resolve_cache_path(["train"], "predict-parameters.zip")
         return parameter_cache_path
 
-    def available_predict_parameter_cache_path(self) -> str:
+    def available_predict_parameter_cache_path(self) -> Optional[str]:
         if self.available_parameter_cache_path:
             return self.available_parameter_cache_path
         parameter_cache_path = _recursive_get(
@@ -1211,18 +1686,33 @@ class AlgorithmPipeline:
                 )
         else:
             parameter_cache_path = self._resolve_cache_path(["train"], "predict-parameters.zip")
-            available_parameter_cache_path = as_locally_available_content(parameter_cache_path, self.cache_path())
+            if self._cache_refresh_enabled():
+                available_parameter_cache_path = None
+            else:
+                available_parameter_cache_path = as_locally_available_content(parameter_cache_path, self.cache_path())
         self.available_parameter_cache_path = available_parameter_cache_path
         return available_parameter_cache_path
 
 
-def _get_jvm_args(algorithm_definition: Dict[str, Any], task_name: str, jvm_args: List[str]):
+def _get_jvm_args(
+    algorithm_definition: Dict[str, Any], task_name: str, jvm_args: Optional[List[str]]
+) -> Optional[List[str]]:
+    execution_parameters = algorithm_definition.get("hotvect_execution_parameters", {})
+    task_names = [task_name]
+    if task_name in {"generate-state", "generate_state"}:
+        task_names = ["generate-state", "generate_state"]
+
     # See if there is a task specific override
-    task_specific_jvm_args = (
-        algorithm_definition.get("hotvect_execution_parameters", {}).get(task_name, {}).get("jvm_args", None)
-    )
+    task_specific_jvm_args = None
+    if isinstance(execution_parameters, dict):
+        for candidate_task_name in task_names:
+            task_parameters = execution_parameters.get(candidate_task_name)
+            if isinstance(task_parameters, dict) and task_parameters.get("jvm_args", None):
+                task_specific_jvm_args = task_parameters["jvm_args"]
+                break
+
     # Try to get the value without the task name
-    global_jvm_args = algorithm_definition.get("hotvect_execution_parameters", {}).get("jvm_args", None)
+    global_jvm_args = execution_parameters.get("jvm_args", None) if isinstance(execution_parameters, dict) else None
     # Store the JVM arguments in a list
     jvm_args_list = [task_specific_jvm_args, global_jvm_args, jvm_args]
     # Iterate over the list and return the first non-falsy value

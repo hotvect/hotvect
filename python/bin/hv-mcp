@@ -1,0 +1,24 @@
+#!/usr/bin/env python3
+import sys
+from pathlib import Path
+
+
+def _add_repo_python_to_syspath() -> None:
+    """
+    Allow running `python bin/hv-mcp` from a source checkout without installation.
+    """
+    here = Path(__file__).resolve()
+    python_dir = here.parent.parent
+    sys.path.insert(0, str(python_dir))
+
+
+def main() -> None:
+    _add_repo_python_to_syspath()
+
+    from hotvect.mcp.server import main as server_main  # noqa: E402
+
+    server_main(sys.argv[1:])
+
+
+if __name__ == "__main__":
+    main()

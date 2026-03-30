@@ -1,6 +1,6 @@
 [project]
 name = "hotvect"
-version = "9.36.1"
+version = "10.13.5"
 description = "Hotvect python interface"
 readme = "README.rst"
 license = "Apache-2.0"
@@ -8,26 +8,61 @@ authors = [
     { name = "Hotvect Team", email = "team@example.com" },
     { name = "Hotvect Team", email = "team@example.com"}
 ]
-requires-python = ">=3.11"
+requires-python = ">=3.11,<3.14"
 dependencies = [
-    "boto3",
-    "boto3-stubs[essential,sagemaker]",
+    "boto3>=1.42",
+    "boto3-stubs[essential,sagemaker]>=1.42",
+    "botocore-stubs>=1.42",
     "catboost~=1.2",
     "jinja2",
-    "numpy~=1.22",
-    "pandas",
+    "litserve>=0.2.0",
+    "mcp>=1.26,<2",
+    "numpy~=1.26",
+    "opentelemetry-api~=1.27.0",
+    "opentelemetry-exporter-otlp~=1.27.0",
+    "opentelemetry-sdk~=1.27.0",
+    "packaging",
+    "pandas~=2.3.3",
     "pebble",
     "psutil",
-    "scikit-learn",
+    "requests",
+    "scikit-learn~=1.8",
+    "scipy~=1.16",
 ]
 
 [project.urls]
 Homepage = "https://github.com/zalando/hotvect"
 
 [project.optional-dependencies]
+# "Marker" extras to make install intent clearer. These may be empty today, but keep them
+# stable so docs/examples can recommend `pip install 'hotvect[ext]'` etc.
+ext = []
+ext-viz = [
+    "matplotlib",
+    "seaborn",
+]
+
 sagemaker = [
     "s3fs",
-    "sagemaker-training",
+    "sagemaker-training; sys_platform == 'linux'",
+]
+stats = [
+    "scipy>=1.10",
+]
+
+# Optional: PyTorch + OpenCLIP runtime for text embedding workers.
+pytorch = [
+    "torch>=2.2,<3",
+    "open-clip-torch>=2.0,<3",
+    "transformers>=4.40,<5",
+    "sentencepiece",
+]
+
+# Optional: TensorFlow runtime for training/serving. Used by dedicated Docker images.
+tensorflow = [
+    "tensorflow>=2.15,<3; sys_platform != 'darwin'",
+    "tensorflow-macos>=2.15,<3; sys_platform == 'darwin'",
+    "tensorflow-metal>=1.1; sys_platform == 'darwin'",
 ]
 
 [tool.black]
@@ -37,20 +72,15 @@ line-length = 120
 profile = "black"
 line_length = 120
 
-[tool.uv.sources]
-# Currently installing this from the github page because they haven't released the version
-# that contains the fix so it campiles on M1 macs. After they release v5.0.1 we can change this
-sagemaker-training = { git = "https://github.com/aws/sagemaker-training-toolkit/", rev = "fc6f6c0f491a188f4df5e35a794685078b078657" }
-
 [build-system]
 requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
 [dependency-groups]
 dev = [
-    "hypothesis>=6.135.29",
+    "hypothesis>=6.148.7",
     "pytest>=8.4.1",
-    "pre-commit>=4.0.0",
+    "pre-commit>=4.5.1",
 ]
 
 [tool.uv]

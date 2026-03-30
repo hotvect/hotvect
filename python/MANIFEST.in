@@ -1,3 +1,4 @@
 include LICENSE
 include NOTICE
+recursive-include hotvect/mcp/bundled_docs/docs *
 recursive-include hotvect/hotvectjar *.jar

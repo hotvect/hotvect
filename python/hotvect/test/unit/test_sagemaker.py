@@ -2,7 +2,14 @@ import json
 
 import pytest
 
-from hotvect.sagemaker import _parse_key, _ParsedKey, flatten_dict, unflatten_dict
+from hotvect.sagemaker import (
+    ALGO_DEF_S3_URI_HYPERPARAMETER,
+    ALGORITHM_DEFINITION_S3_URI_HYPERPARAMETER,
+    _parse_key,
+    _ParsedKey,
+    flatten_dict,
+    unflatten_dict,
+)
 
 
 def _try_to_parse_as_json(value):
@@ -14,6 +21,10 @@ def _try_to_parse_as_json(value):
         return json.loads(value)
     except (ValueError, TypeError):
         return value
+
+
+def test_algorithm_definition_s3_uri_hyperparameter_backcompat_alias():
+    assert ALGORITHM_DEFINITION_S3_URI_HYPERPARAMETER == ALGO_DEF_S3_URI_HYPERPARAMETER
 
 
 def test_flatten_dict():

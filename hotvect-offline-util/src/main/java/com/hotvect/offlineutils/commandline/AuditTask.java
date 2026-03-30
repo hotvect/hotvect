@@ -2,17 +2,16 @@ package com.hotvect.offlineutils.commandline;
 
 import com.hotvect.api.algodefinition.AlgorithmDefinition;
 import com.hotvect.api.algodefinition.ranking.RankingVectorizer;
-import com.hotvect.api.audit.AuditableRankingVectorizer;
 import com.hotvect.api.codec.common.ExampleDecoder;
 import com.hotvect.api.codec.common.ExampleEncoder;
 import com.hotvect.api.data.OfflineRequest;
 import com.hotvect.api.data.common.Example;
-import com.hotvect.offlineutils.export.RankingAuditEncoder;
 import com.hotvect.offlineutils.hotdeploy.AlgorithmOfflineSupporterFactory;
 import com.hotvect.onlineutils.concurrency.fileutils.OrderedFileMapper;
 import com.hotvect.utils.ListTransform;
 
 import java.io.File;
+import java.nio.ByteBuffer;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
@@ -36,7 +35,8 @@ public class AuditTask<EXAMPLE extends Example<? extends OfflineRequest, ?>, SUB
 
         ExampleEncoder<EXAMPLE> exampleEncoder = instantiateAuditEncoder(algorithmSupporterFactory, subject, offlineTaskContext.options().includeFeatureStoreResponses);
 
-        Function<String, List<String>> transformation = scoringExampleDecoder.andThen(s -> ListTransform.map(s, exampleEncoder));
+        // List of ByteBuffers belonging to a single Example, and there can be multiple Examples
+        Function<String, List<ByteBuffer>> transformation = scoringExampleDecoder.andThen(s -> ListTransform.map(s, exampleEncoder));
 
         checkState(
                 this.offlineTaskContext.options().sourceFiles.size() == 1 &&
@@ -71,8 +71,7 @@ public class AuditTask<EXAMPLE extends Example<? extends OfflineRequest, ?>, SUB
     @SuppressWarnings("removal")
     private ExampleEncoder<EXAMPLE> instantiateAuditEncoder(AlgorithmOfflineSupporterFactory algorithmSupporterFactory, SUBJECT subject, boolean includeFeatureStoreResponses) throws Exception {
         if(subject instanceof RankingVectorizer){
-            AuditableRankingVectorizer<?, ?> vec = (AuditableRankingVectorizer<?, ?>) subject;
-            return new RankingAuditEncoder(vec, algorithmSupporterFactory.getRewardFunction(offlineTaskContext.algorithmDefinition()), includeFeatureStoreResponses);
+            throw new UnsupportedOperationException("Vectorizers are no longer supported");
         } else if (subject instanceof com.hotvect.api.algodefinition.ranking.RankingTransformer){
             return new com.hotvect.offlineutils.export.RankingTransformerAuditEncoder(
                     (com.hotvect.api.algodefinition.ranking.RankingTransformer) subject,

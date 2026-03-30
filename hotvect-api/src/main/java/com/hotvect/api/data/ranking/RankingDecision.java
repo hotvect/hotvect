@@ -4,6 +4,7 @@ import com.google.common.collect.ImmutableMap;
 import com.hotvect.api.data.Decision;
 
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * A record representing a ranking decision, which includes an action index, a probability, a score,
@@ -19,6 +20,10 @@ public record RankingDecision<ACTION>(
         Double probability,
         Map<String, Object> additionalProperties
 ) implements Decision<ACTION> {
+
+    public RankingDecision {
+        Objects.requireNonNull(additionalProperties, "additionalProperties cannot be null");
+    }
 
     public int getActionIndex() {
         return actionIndex;

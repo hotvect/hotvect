@@ -1,1 +1,1 @@
-"""Utility functions for hv-extra commands."""
+"""Utility functions for hv-ext commands."""

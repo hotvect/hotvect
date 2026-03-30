@@ -17,6 +17,8 @@ import com.hotvect.api.data.ranking.RankingExample;
 import com.hotvect.api.data.ranking.RankingOutcome;
 import org.junit.jupiter.api.Test;
 
+import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.List;
 import java.util.SortedSet;
@@ -36,7 +38,6 @@ class RankingTransformerAuditEncoderTest {
     @Test
     void given_include_feature_store_responses_writes_under_additional_properties() throws Exception {
         Namespace feature = new TestNamespace("f_1");
-
         RankingTransformer<String, String> transformer = new RankingTransformer<>() {
             @Override
             public List<NamespacedRecord<Namespace, Object>> apply(com.hotvect.api.data.ranking.RankingRequest<String, String> rankingRequest) {
@@ -56,12 +57,14 @@ class RankingTransformerAuditEncoderTest {
         FeatureStoreResponseContainer featureStoreResponseContainer = new FeatureStoreResponseContainer(
                 ImmutableMap.of(
                         "view_1",
-                        SimpleFeatureStoreResponse.success(
-                                ImmutableMap.of(
-                                        ImmutableMap.of("entity_id", "e_1"),
-                                        ImmutableMap.of("timestamp", Instant.parse("2026-02-06T00:00:00Z"))
+                        SimpleFeatureStoreResponse.builder()
+                                .allEntities(
+                                        ImmutableMap.of(
+                                                ImmutableMap.of("entity_id", "e_1"),
+                                                ImmutableMap.of("timestamp", Instant.parse("2026-02-06T00:00:00Z"))
+                                        )
                                 )
-                        )
+                                .build()
                 )
         );
 
@@ -90,7 +93,8 @@ class RankingTransformerAuditEncoderTest {
                 true
         );
 
-        String json = encoder.apply(example);
+        ByteBuffer buffer = encoder.apply(example);
+        String json = new String(buffer.array(), StandardCharsets.UTF_8);
         ObjectMapper mapper = new ObjectMapper();
         JsonNode root = mapper.readTree(json);
         assertTrue(root.has("additional_properties"));
@@ -101,7 +105,6 @@ class RankingTransformerAuditEncoderTest {
     @Test
     void given_flag_disabled_does_not_write_additional_properties() throws Exception {
         Namespace feature = new TestNamespace("f_1");
-
         RankingTransformer<String, String> transformer = new RankingTransformer<>() {
             @Override
             public List<NamespacedRecord<Namespace, Object>> apply(com.hotvect.api.data.ranking.RankingRequest<String, String> rankingRequest) {
@@ -142,7 +145,8 @@ class RankingTransformerAuditEncoderTest {
                 false
         );
 
-        String json = encoder.apply(example);
+        ByteBuffer buffer = encoder.apply(example);
+        String json = new String(buffer.array(), StandardCharsets.UTF_8);
         ObjectMapper mapper = new ObjectMapper();
         JsonNode root = mapper.readTree(json);
         assertFalse(root.has("additional_properties"));

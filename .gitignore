@@ -24,9 +24,11 @@ hs_err_pid*
 target
 python/hotvect.egg-info
 .jqwik-database
+__pycache__
 python/hotvect/__pycache__
 python/hotvect/test/unit/__pycache__
 python/build
+python/hotvect/sagemaker_payloads/
 
 # Configuration files
 .idea
@@ -43,3 +45,4 @@ site
 .DS_Store
 CLAUDE.md
 .claude
+.m2repo/

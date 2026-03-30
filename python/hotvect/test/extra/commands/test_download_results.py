@@ -47,6 +47,9 @@ class TestDownloadResultsCommand(unittest.TestCase):
         self.assertFalse(args.include_metadata)  # default
         self.assertFalse(args.include_output_data)  # default
         self.assertFalse(args.no_skip_existing)  # default
+        self.assertEqual(args.training_job_id_regex, ".+?")  # default
+        self.assertEqual(args.algorithm_name_regex, ".+?")  # default
+        self.assertEqual(args.algorithm_version_regex, ".+?")  # default
 
         # Test optional arguments
         args = main_parser.parse_args(
@@ -65,6 +68,12 @@ class TestDownloadResultsCommand(unittest.TestCase):
                 "--include-metadata",
                 "--include-output-data",
                 "--no-skip-existing",
+                "--training-job-id-regex",
+                "ml-exp-exampleuser-.*",
+                "--algorithm-name-regex",
+                "example-algorithm",
+                "--algorithm-version-regex",
+                "74\\.4\\..*",
             ]
         )
 
@@ -72,8 +81,11 @@ class TestDownloadResultsCommand(unittest.TestCase):
         self.assertTrue(args.include_metadata)
         self.assertTrue(args.include_output_data)
         self.assertTrue(args.no_skip_existing)
+        self.assertEqual(args.training_job_id_regex, "ml-exp-exampleuser-.*")
+        self.assertEqual(args.algorithm_name_regex, "example-algorithm")
+        self.assertEqual(args.algorithm_version_regex, "74\\.4\\..*")
 
-    @patch("hotvect.extra.commands.download_results.SageMakerBacktestResultsDownloader")
+    @patch("hotvect.backtest.SageMakerBacktestResultsDownloader")
     @patch("builtins.print")
     def test_execute_success(self, mock_print, mock_downloader_class):
         """Test successful execution of download command."""
@@ -92,6 +104,9 @@ class TestDownloadResultsCommand(unittest.TestCase):
             args.include_metadata = True
             args.include_output_data = False
             args.no_skip_existing = False
+            args.training_job_id_regex = ".+?"
+            args.algorithm_name_regex = ".+?"
+            args.algorithm_version_regex = ".+?"
 
             self.command.execute(args)
 
@@ -102,6 +117,9 @@ class TestDownloadResultsCommand(unittest.TestCase):
                 include_metadata=True,
                 skip_data_if_already_present=True,  # not args.no_skip_existing
                 include_output_data=False,
+                training_job_id_pattern=".+?",
+                algorithm_name_pattern=".+?",
+                algorithm_version_pattern=".+?",
                 from_including_test_date=date(2025, 6, 1),
                 to_including_test_date=date(2025, 6, 15),
                 role_arn_to_assume="arn:aws:iam::123456789012:role/example-role",
@@ -114,7 +132,7 @@ class TestDownloadResultsCommand(unittest.TestCase):
             success_calls = [call for call in mock_print.call_args_list if "completed successfully" in str(call)]
             self.assertTrue(len(success_calls) > 0)
 
-    @patch("hotvect.extra.commands.download_results.SageMakerBacktestResultsDownloader")
+    @patch("hotvect.backtest.SageMakerBacktestResultsDownloader")
     @patch("builtins.print")
     def test_execute_no_role_arn(self, mock_print, mock_downloader_class):
         """Test execution without role ARN."""
@@ -131,6 +149,9 @@ class TestDownloadResultsCommand(unittest.TestCase):
             args.include_metadata = False
             args.include_output_data = True
             args.no_skip_existing = True
+            args.training_job_id_regex = ".+?"
+            args.algorithm_name_regex = ".+?"
+            args.algorithm_version_regex = ".+?"
 
             self.command.execute(args)
 
@@ -141,6 +162,9 @@ class TestDownloadResultsCommand(unittest.TestCase):
                 include_metadata=False,
                 skip_data_if_already_present=False,  # not args.no_skip_existing
                 include_output_data=True,
+                training_job_id_pattern=".+?",
+                algorithm_name_pattern=".+?",
+                algorithm_version_pattern=".+?",
                 from_including_test_date=date(2025, 6, 1),
                 to_including_test_date=date(2025, 6, 15),
                 role_arn_to_assume=None,
@@ -159,6 +183,9 @@ class TestDownloadResultsCommand(unittest.TestCase):
         args.include_metadata = False
         args.include_output_data = False
         args.no_skip_existing = False
+        args.training_job_id_regex = ".+?"
+        args.algorithm_name_regex = ".+?"
+        args.algorithm_version_regex = ".+?"
 
         self.command.execute(args)
 
@@ -180,6 +207,9 @@ class TestDownloadResultsCommand(unittest.TestCase):
         args.include_metadata = False
         args.include_output_data = False
         args.no_skip_existing = False
+        args.training_job_id_regex = ".+?"
+        args.algorithm_name_regex = ".+?"
+        args.algorithm_version_regex = ".+?"
 
         self.command.execute(args)
 
@@ -201,6 +231,9 @@ class TestDownloadResultsCommand(unittest.TestCase):
         args.include_metadata = False
         args.include_output_data = False
         args.no_skip_existing = False
+        args.training_job_id_regex = ".+?"
+        args.algorithm_name_regex = ".+?"
+        args.algorithm_version_regex = ".+?"
 
         self.command.execute(args)
 
@@ -211,7 +244,7 @@ class TestDownloadResultsCommand(unittest.TestCase):
         self.assertTrue(len(error_calls) > 0)
         mock_exit.assert_called_with(1)
 
-    @patch("hotvect.extra.commands.download_results.SageMakerBacktestResultsDownloader")
+    @patch("hotvect.backtest.SageMakerBacktestResultsDownloader")
     @patch("sys.exit")
     @patch("builtins.print")
     def test_execute_downloader_exception(self, mock_print, mock_exit, mock_downloader_class):
@@ -231,6 +264,9 @@ class TestDownloadResultsCommand(unittest.TestCase):
             args.include_metadata = False
             args.include_output_data = False
             args.no_skip_existing = False
+            args.training_job_id_regex = ".+?"
+            args.algorithm_name_regex = ".+?"
+            args.algorithm_version_regex = ".+?"
 
             self.command.execute(args)
 
@@ -239,7 +275,7 @@ class TestDownloadResultsCommand(unittest.TestCase):
             self.assertTrue(len(error_calls) > 0)
             mock_exit.assert_called_with(1)
 
-    @patch("hotvect.extra.commands.download_results.SageMakerBacktestResultsDownloader")
+    @patch("hotvect.backtest.SageMakerBacktestResultsDownloader")
     @patch("hotvect.extra.commands.download_results.Path")
     @patch("builtins.print")
     def test_execute_creates_directory(self, mock_print, mock_path_class, mock_downloader_class):
@@ -259,6 +295,9 @@ class TestDownloadResultsCommand(unittest.TestCase):
         args.include_metadata = False
         args.include_output_data = False
         args.no_skip_existing = False
+        args.training_job_id_regex = ".+?"
+        args.algorithm_name_regex = ".+?"
+        args.algorithm_version_regex = ".+?"
 
         self.command.execute(args)
 
@@ -279,13 +318,14 @@ class TestDownloadResultsCommand(unittest.TestCase):
         args.include_metadata = False
         args.include_output_data = False
         args.no_skip_existing = False
+        args.training_job_id_regex = ".+?"
+        args.algorithm_name_regex = ".+?"
+        args.algorithm_version_regex = ".+?"
 
         with tempfile.TemporaryDirectory() as temp_dir:
             args.dest_base_dir = temp_dir
 
-            with patch(
-                "hotvect.extra.commands.download_results.SageMakerBacktestResultsDownloader"
-            ) as mock_downloader_class:
+            with patch("hotvect.backtest.SageMakerBacktestResultsDownloader") as mock_downloader_class:
                 mock_downloader = MagicMock()
                 mock_downloader_class.return_value = mock_downloader
 

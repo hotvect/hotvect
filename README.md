@@ -4,7 +4,7 @@ A feature engineering and ML serving library for machine learning applications, 
 
 Hotvect allows you to:
 1. Develop feature engineering code that can be shared across offline and online environments.
-2. Integrate machine learning libraries like Vowpal Wabbit, CatBoost, etc. into ML applications.
+2. Integrate machine learning libraries like CatBoost and TensorFlow into ML applications.
 3. Define ML-enabled models and policies, packaging them into reusable, modular forms that can easily be shared, combined, and deployed into production.
 4. Perform offline testing and hyperparameter optimization of models and policies, with built-in bookkeeping of test results.
 5. Integrate with Amazon SageMaker for running offline tests and hyperparameter optimization at scale.
@@ -20,95 +20,89 @@ Feature interaction is natively supported, although exploring interaction featur
 
 ## Getting Started
 
-**Note:** This installation method using Claude Code is experimental. The setup agent automates environment configuration and source-based installation.
+### 1. Install dependencies
 
-### 1. Install Claude Code
+- Java 21
+- Maven
+- Python 3.11+
+- `uv`
 
-Claude Code is an AI-powered development assistant.
+### 2. Build and install Hotvect (source checkout)
 
-Install Claude Code from: [https://claude.ai/code](https://claude.ai/code)
-
-### 2. Install Hotvect Claude Plugin
-
-The Hotvect plugin provides specialized agents, skills, and commands for ML algorithm development and backtesting.
-
-**Important:** Do NOT run Claude Code from the hotvect repository directory, as it will create logs and artifacts inside the repo.
-
-**Installation steps:**
 ```bash
-# Navigate to your workspace directory (or create one)
-cd ~/workspace  # or wherever you keep your projects
-# NOT the hotvect repo directory!
-
-# In Claude Code, add the marketplace from the hotvect repo path:
-/plugin add-marketplace /path/to/hotvect
-
-# Then install the plugin:
-/plugin install hv
+cd python
+make init
+source .venv/bin/activate
 ```
 
-The plugin provides:
+For faster iteration while developing locally (skips Java tests):
 
-**4 Specialized Agents:**
-- `hotvect-setup` - Automated environment setup with central config management
-- `backtest` - Multi-version algorithm comparison with evaluation
-- `audit` - Feature audit generation and cross-version comparison
-- `performance-test` - Algorithm performance benchmarking
-
-**4 Autonomous Skills:**
-- `documentation` - Search hotvect docs and source code
-- `training-setup` - Configure and validate training runs
-- `data-dependency-download` - Smart data dependency management
-- `download-results` - SageMaker result retrieval
-
-**13 Slash Commands:**
-- `/hv:train` - Train ML model using complete hotvect pipeline
-- `/hv:backtest` - Run backtest to compare algorithm versions
-- `/hv:audit` - Generate human-readable feature audit
-- `/hv:audit-compare` - Compare feature audits between versions
-- `/hv:predict` - Generate model predictions on test data
-- `/hv:encode` - Transform raw data into ML library format
-- `/hv:evaluate` - Calculate performance metrics from predictions
-- `/hv:generate-state` - Generate state files for algorithms
-- `/hv:performance-test` - Benchmark algorithm throughput and latency
-- `/hv:perf-compare` - Compare performance test results
-- `/hv:download-data-dependency` - Download required training/test data
-- `/hv:download-backtest-results` - Download SageMaker results from S3
-- `/hv:compare-evaluations` - Compare ML evaluation metrics
-
-### 3. Set Up Hotvect Environment
-
-After installing the Claude plugin, use the setup agent to configure your development environment:
-
-**In Claude Code, ask:**
-```
-Use the hotvect-setup agent to set up my environment
+```bash
+cd python
+make quick
 ```
 
-Or simply:
+### 3. Configure local paths (optional, but recommended)
+
+Hotvect uses `~/.hotvect/config.json` to find default base directories.
+
+```bash
+hv-ext config init
 ```
-Set up hotvect
+
+### 4. Use the CLIs
+
+```bash
+hv --help
+hv-ext --help
 ```
 
-Claude will automatically invoke the setup agent when it recognizes the task.
+Two local HTTP debugging surfaces are available:
 
-The setup agent will:
-1. Verify and install required tools (Java 17-21 for v9, Java 21 for v10, Maven, Python 3.11, uv)
-2. Clone the Hotvect repository (asks for location)
-3. Build Hotvect from source:
-   - Navigates to `python/` directory
-   - Runs `make quick` to build Java JARs and prepare Python package
-   - Creates Python virtual environment with uv
-   - Installs Hotvect in editable mode (`uv pip install -e .`)
-4. Create central configuration at `~/.hotvect/config.json`
-5. Set up directory structure for training data, outputs, and scratch space
-6. Configure AWS credentials for S3 access
-7. Validate the installation
+```bash
+# Full algorithm HTTP server (Java runtime, including feature extraction)
+hv serve --algorithm-jar /path/to/algo.jar --algorithm-name my-algo --parameter-path /path/to/params.zip --port 8080
 
-**After setup, you'll have access to:**
-- `hv` command - Main CLI for ML algorithm operations (audit, train, predict, backtest)
-- `hv-ext` command - Extended utilities for data management and analysis
-- Centralized configuration shared by all Claude agents and skills
+# Same server, with browser UI enabled
+hv serve --ui --algorithm-jar /path/to/algo.jar --algorithm-name my-algo --parameter-path /path/to/params.zip --source-path /path/to/examples --port 8080
+
+# Worker-only HTTP server (LitServe-backed worker runtime, expects worker-ready feature rows)
+# Native LitServe `/predict` and compatibility `/v2/...` endpoints are both exposed.
+# Use --algorithm-override when the algorithm definition does not already declare backend
+# and a scoped litserve block.
+hv worker serve --algorithm-jar /path/to/algo.jar --algorithm-name my-model --parameter-path /path/to/params.zip --port 8081 --algorithm-override worker-http-override.json
+```
+
+Example: download a specific algorithm version's SageMaker backtest results (regex filters):
+
+```bash
+hv-ext results download \
+  "s3://example-bucket/temp/<user>/sagemaker_output/" \
+  --dest-base-dir "./results" \
+  --from-date "2026-02-15" --to-date "2026-02-15" \
+  --algorithm-name-regex "example-algorithm" \
+  --algorithm-version-regex "74\\.4\\..*" \
+  --job-name-regex "ml-exp-.*" \
+  --include-metadata
+```
+
+### 5. (Optional) Use the docs MCP server
+
+Hotvect ships a **read-only** MCP server for documentation search and retrieval over stdio (NDJSON JSON-RPC).
+
+If you installed Hotvect, run:
+
+```bash
+hv-mcp --help
+```
+
+From a source checkout, run it using the repo venv Python:
+
+```bash
+"$(pwd)/python/.venv/bin/python" "$(pwd)/python/bin/hv-mcp" --help
+```
+
+See `python/hotvect/mcp/bundled_docs/docs/guides/docs-mcp/index.md` for details and Codex integration.
 
 ## What does it not provide?
 
@@ -122,7 +116,9 @@ Hotvect does not include:
 
 ## Notes
 
-Hotvect is designed to be library-agnostic, allowing integration with any ML library. Currently, the library must be accessible from a JVM process (via JNI or Java-compatible implementations like [H2O.ai's xgboost-predictor](https://github.com/h2oai/xgboost-predictor)). Future versions will support inter-process integrations.
+Hotvect is designed to be library-agnostic:
+
+- Feature engineering runs in the **JVM** (Java/Kotlin/Scala), so offline and online feature computation can share the same code.
+- Model inference can run in the JVM (e.g. JNI, or pure-Java implementations like [H2O.ai's xgboost-predictor](https://github.com/h2oai/xgboost-predictor)), **or** in a separate Python process via direct workers (v10+).
 
 Feature engineering should be implemented in a JVM language (e.g., Java, Kotlin, Scala), while APIs for triggering tasks like offline testing are provided as a Python library.
-

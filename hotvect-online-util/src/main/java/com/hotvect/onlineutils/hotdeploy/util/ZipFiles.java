@@ -11,6 +11,8 @@ import java.util.Collections;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.function.Predicate;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 public class ZipFiles {
@@ -43,6 +45,7 @@ public class ZipFiles {
     public static Map<String, InputStream> readFromZip(ZipFile zipFile, Predicate<ZipArchiveEntry> filter) {
         return Collections.list(zipFile.getEntries()).stream()
                 .filter(filter)
+                .filter(x -> !x.isDirectory())
                 .collect(Collectors.toMap(
                         // Name
                         k -> Path.of(k.getName()).getFileName().toString(),
@@ -62,7 +65,33 @@ public class ZipFiles {
     }
 
     public static Map<String, InputStream> readFromZipMatching(ZipFile zipFile, String pattern) {
-        return readFromZip(zipFile, x -> x.getName().matches(pattern));
+        // Add capturing group to extract relative path after algorithm prefix
+        String capturePattern = pattern.replace("\\/.+", "/(.+)");
+        Pattern p = Pattern.compile(capturePattern);
+
+        return Collections.list(zipFile.getEntries()).stream()
+                .filter(x -> x.getName().matches(pattern))
+                .filter(x -> !x.isDirectory())
+                .collect(Collectors.toMap(
+                        // Name - extract relative path from capturing group
+                        k -> {
+                            Matcher m = p.matcher(k.getName());
+                            if (m.matches()) {
+                                int groupCount = m.groupCount();
+                                if (groupCount > 0) {
+                                    return m.group(groupCount);
+                                }
+                            }
+                            return Path.of(k.getName()).getFileName().toString();
+                        },
+                        // InputStream
+                        v -> {
+                            try {
+                                return zipFile.getInputStream(v);
+                            } catch (IOException e) {
+                                throw new RuntimeException(e);
+                            }
+                        }));
     }
 
 }

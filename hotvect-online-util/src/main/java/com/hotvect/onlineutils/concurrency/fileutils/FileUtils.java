@@ -7,6 +7,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.*;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.StandardOpenOption;
 import java.util.Arrays;
 import java.util.List;
@@ -22,24 +23,11 @@ public class FileUtils {
     public static final ImmutableSet<String> ALLOWED_LOWERCASE_EXTENSIONS = defineAllowedExtensions();
 
     private static ImmutableSet<String> defineAllowedExtensions() {
-        Set<String> allowedExtensions = ImmutableSet.of(
-                "txt",
-                "json",
-                "jsonl",
-                "csv",
-                "tsv"
-        );
-
-        Set<String> allowedCompressionExtensions = ImmutableSet.of(
-                "gz"
-        );
-
         ImmutableSet.Builder<String> ret = ImmutableSet.builder();
-        // Extensions without compression
-        ret.addAll(allowedExtensions.stream().map(x -> "." + x).collect(Collectors.toSet()));
-        // Extensions with compression
-        for (String allowedCompressionExtension : allowedCompressionExtensions) {
-            ret.addAll(allowedExtensions.stream().map(x -> "." + x + "." + allowedCompressionExtension).collect(Collectors.toSet()));
+
+        // Add all extensions from all FileFormat enums
+        for (FileFormat format : FileFormat.values()) {
+            ret.addAll(format.getExtensions());
         }
 
         return ret.build();
@@ -51,7 +39,7 @@ public class FileUtils {
             String ext = Files.getFileExtension(source.toPath().getFileName().toString());
             InputStream file = java.nio.file.Files.newInputStream(source.toPath(), StandardOpenOption.READ);
             InputStream spout = "gz".equalsIgnoreCase(ext) ? new GZIPInputStream(file, 128 << 10) : file;
-            return new BufferedReader(new InputStreamReader(spout, Charsets.UTF_8));
+            return new BufferedReader(new InputStreamReader(spout, StandardCharsets.UTF_8), 128 * 1024);
         } catch (IOException e) {
             throw new RuntimeException(e);
         }

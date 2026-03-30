@@ -1,46 +1,135 @@
-site_name: hotvect
+site_name: Hotvect
 site_url: https://hotvect.docs.example.com
-docs_dir: docs/
+docs_dir: python/hotvect/mcp/bundled_docs/docs
 
 repo_url: https://github.com/zalando/hotvect
-repo_name: GHE
-edit_uri: edit/main/docs/
+repo_name: GitHub
+edit_uri: edit/v10-2026Jan/python/hotvect/mcp/bundled_docs/docs/
 
 nav:
-  - Getting Started: index.md
-  - Quick Start: quickstart.md
-  - Concepts and Terminology:
-      - Overview: ./highlevel/concepts.md
-      - Key differences with other frameworks: ./highlevel/motivation.md
-      - Namespaces: ./highlevel/namespaces.md
-      - Tutorials: ./highlevel/tutorials.md
-  - How to:
-      - Develop algorithms with hotvect: ./howto/develop-a-re-ranker-with-hotvect.md
-      - Debug feature engineering code: ./howto/debug-feature-engineering.md
-      - Run and compare feature audits: ./howto/run-and-compare-feature-audits.md
-      - Use previously generated parameters and other outputs: ./howto/use-previous-outputs.md
-      - Run User Defined Functions on sagemaker: ./howto/run-udf-on-sagemaker.md
-      - Dump available transformation metadata: ./howto/dump-available-feature-transformations.md
-  - Patterns:
-      - Data Dependencies: ./patterns/data-dependencies.md
-      - Override Files: ./patterns/override-files.md
-      - Parent-Child Algorithms: ./patterns/parent-child-algorithms.md
-  - Command Line Interface:
-      - Usage: ./cli/usage.md
-  - FAQ: faq.md
-  - Troubleshooting: troubleshooting.md
-  - Migration Guide:
-      - Migration from v7 to v8: ./migration-guides/migration-from-v7-to-v8.md
-      - Migration from v6 to v7: ./migration-guides/migration-from-v6-to-v7.md
-      - Migration from v4 to v6: ./migration-guides/migration-from-v4-to-v6.md
-  - Blog articles:
-      - What is hotvect?: ./blog/what-is-hotvect.md
-      - Why Java?: ./blog/why-java.md
+  - Home: index.md
+  - "What's New":
+      - Overview: whats-new/index.md
+      - Hotvect v10: whats-new/v10/index.md
+  - Agents:
+      - Overview: agents/index.md
+      - Contracts:
+          - Overview: agents/contracts/index.md
+          - Documentation sanitization: agents/contracts/documentation-sanitization/index.md
+      - Runbooks:
+          - Local backtest: agents/runbooks/local-backtest/index.md
+          - Local train: agents/runbooks/local-train/index.md
+          - SageMaker backtest: agents/runbooks/sagemaker-backtest/index.md
+          - Docs build & preview: agents/runbooks/docs-build/index.md
+          - Debugging & logs: agents/runbooks/debugging/index.md
+  - Guides:
+      - Overview: guides/index.md
+      - Getting started:
+          - Quickstart: guides/quickstart/index.md
+          - Pipeline stages: guides/pipeline-stages/index.md
+          - Develop algorithms: guides/develop-algorithms/index.md
+          - Simple ranking transformer: guides/simple-ranking-transformer/index.md
+      - Workflows:
+          - Caching: guides/caching/index.md
+          - Performance and optimization: guides/performance-optimization/index.md
+          - Reuse previous outputs: guides/reuse-outputs/index.md
+          - Predict with feature logging: guides/feature-logging/index.md
+          - Dump transformations metadata: guides/dump-transformations/index.md
+      - Debugging:
+          - Debug feature engineering: guides/debug-feature-engineering/index.md
+          - Feature audits: guides/feature-audits/index.md
+          - Score equivalence testing: guides/score-equivalence/index.md
+          - Online/offline parity gaps: guides/online-offline-parity/index.md
+      - SageMaker:
+          - SageMaker backtests: guides/sagemaker-backtests/index.md
+          - Run UDF on SageMaker: guides/sagemaker-udf/index.md
+          - Upgrade Hotvect on SageMaker (custom.py): guides/sagemaker-upgrade-custom-py/index.md
+      - Tools:
+          - Use Hotvect Docs MCP (Codex): guides/docs-mcp/index.md
+      - Patterns:
+          - Data dependencies: guides/patterns/data-dependencies/index.md
+          - Branching and versioning: guides/patterns/branching-and-versioning/index.md
+          - Override files: guides/patterns/override-files/index.md
+          - Parent-child algorithms: guides/patterns/parent-child/index.md
+  - Reference:
+      - CLI: reference/cli/index.md
+      - Configuration: reference/config/index.md
+      - Version compatibility: reference/version-compatibility/index.md
+      - Algorithm definition (contract): reference/algorithm-definition/index.md
+      - FAQ: reference/faq/index.md
+      - Troubleshooting: reference/troubleshooting/index.md
+  - Concepts:
+      - Overview: concepts/index.md
+      - Motivation: concepts/motivation/index.md
+      - Namespaces: concepts/namespaces/index.md
+      - JAR loading: concepts/jar-loading/index.md
+  - Design:
+      - Overview: design/index.md
+      - Automatic SageMaker Configuration: design/sagemaker-configuration/index.md
+      - Script-mode standardization: design/script-mode-standardization/index.md
+      - SageMaker InputDataConfig Solution: design/sagemaker-inputdataconfig/index.md
+      - Encoding Output Layout: design/encoding-output-layout/index.md
+      - GZIP Support: design/gzip-support/index.md
+      - Algorithm Demo UI: design/algorithm-demo-ui/index.md
+      - Direct Python Workers (UDS IPC): design/direct-python-workers/index.md
+  - Archive:
+      - Overview: archive/index.md
+      - Design (archived):
+          - Legacy auto-attach data: archive/design/legacy-auto-attach-data/index.md
+          - Backport plan (v10-2025Oct → v9): archive/design/backport-plan/index.md
+      - Legacy tutorials: archive/tutorials/index.md
+      - Migrations:
+          - v9 → v10: archive/migrations/v9-to-v10/index.md
+          - v7 → v8: archive/migrations/v7-to-v8/index.md
+      - Blog:
+          - What is hotvect?: archive/blog/what-is-hotvect/index.md
+          - Why Java?: archive/blog/why-java/index.md
 
 theme:
   name: material
+  font: false
   favicon: hot_pepper.png
   logo: hot_pepper.png
+  icon:
+    repo: fontawesome/brands/github
+  features:
+    - navigation.instant
+    - navigation.instant.progress
+    - navigation.tracking
+    - navigation.tabs
+    - navigation.indexes
+    - navigation.sections
+    - navigation.top
+    - toc.follow
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: black
+      accent: deep orange
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: black
+      accent: deep orange
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+
+plugins:
+  - search:
+      lang: en
+      separator: '[\s\-\.]+'
+
+extra:
+  generator: false
+
+extra_css:
+  - stylesheets/extra.css
 
 markdown_extensions:
   - toc:

@@ -5,6 +5,7 @@ It also checks that the version has changed in comparison to a previous revision
 Useful to run from the CI/CD. It only uses built-in libraries to make easy to run it.
 It assumes that git is installed in the system.
 """
+import re
 import subprocess
 import sys
 import tomllib
@@ -12,6 +13,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 MAIN_POM_PATH = Path("pom.xml")
+DELIVERY_YAML_PATH = Path("delivery.yaml")
 
 
 def get_pyproject_version(pyproject_path: Path) -> str:
@@ -68,7 +70,17 @@ def get_pom_version(pom_path: Path) -> str:
 
 
 def find_pom_files(start_dir: Path) -> list[Path]:
-    return list(start_dir.rglob("pom.xml"))
+    # Ignore local scratch dirs that may contain cloned algorithm repos, etc.
+    return [p for p in start_dir.rglob("pom.xml") if ".sagemaker" not in p.parts]
+
+
+def get_delivery_yaml_version(delivery_yaml_path: Path) -> str:
+    """Extract HOTVECT_VERSION from delivery.yaml."""
+    content = delivery_yaml_path.read_text()
+    match = re.search(r'^\s*HOTVECT_VERSION:\s*"([^"]+)"', content, re.MULTILINE)
+    if not match:
+        raise ValueError(f"HOTVECT_VERSION not found in {delivery_yaml_path}")
+    return match.group(1)
 
 
 def main():
@@ -94,6 +106,18 @@ def main():
             sys.exit(1)
     except Exception as e:
         print(f"❌ Failed to read pyproject.toml: {e}")
+        sys.exit(1)
+
+    #  Check delivery.yaml
+    delivery_yaml_path = base_dir / DELIVERY_YAML_PATH
+    try:
+        delivery_version = get_delivery_yaml_version(delivery_yaml_path)
+        print(f"🚀 delivery.yaml => {delivery_version}")
+        if delivery_version != target_version:
+            print(f"\n❌ delivery.yaml version mismatch: {delivery_version} != {target_version}")
+            sys.exit(1)
+    except Exception as e:
+        print(f"❌ Failed to read delivery.yaml: {e}")
         sys.exit(1)
 
     #  Check all pom.xml files
