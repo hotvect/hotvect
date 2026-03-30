@@ -6,6 +6,7 @@ import com.hotvect.api.data.ValueType;
 import com.hotvect.api.data.common.NamespacedRecord;
 import com.hotvect.api.data.ranking.RankingRequest;
 import com.hotvect.api.data.ranking.TransformedAction;
+import com.hotvect.api.data.scoring.BulkScoreResponse;
 import com.hotvect.api.data.scoring.ScoringDecision;
 import com.hotvect.core.transform.*;
 import org.junit.jupiter.api.Test;
@@ -217,21 +218,21 @@ class StandardRankingTransformerBasicTest {
 
         ComputingBulkScorer<TestShared, TestAction> bulkScorer = new ComputingBulkScorer<TestShared, TestAction>() {
             @Override
-            public List<ScoringDecision<TestAction>> bulkScore(ComputingRankingRequest<TestShared, TestAction> rankingRequest) {
+            public BulkScoreResponse<TestAction> score(ComputingRankingRequest<TestShared, TestAction> rankingRequest) {
                 List<ScoringDecision<TestAction>> ret = new ArrayList<>();
                 for (TestAction action : rankingRequest.rankingRequest().availableActions()) {
                     ret.add(ScoringDecision.of(action, 42.0));
                 }
-                return ret;
+                return BulkScoreResponse.of(ret, com.hotvect.api.data.FeatureStoreResponseContainer.empty());
             }
 
             @Override
-            public List<ScoringDecision<TestAction>> bulkScore(RankingRequest<TestShared, TestAction> rankingRequest) {
+            public BulkScoreResponse<TestAction> score(RankingRequest<TestShared, TestAction> rankingRequest) {
                 List<ScoringDecision<TestAction>> ret = new ArrayList<>();
                 for (TestAction action : rankingRequest.availableActions()) {
                     ret.add(ScoringDecision.of(action, 42.0));
                 }
-                return ret;
+                return BulkScoreResponse.of(ret, com.hotvect.api.data.FeatureStoreResponseContainer.empty());
             }
         };
 

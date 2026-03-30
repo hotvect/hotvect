@@ -21,7 +21,7 @@ Quick answers to common questions. For detailed guides, see [How-To Guides](howt
 **A**: **No.** Hotvect is backward compatible across versions - you can use any hotvect CLI version with algorithms built on older (or even newer) hotvect versions.
 
 **Examples that work fine:**
-- hotvect 9.31.2 CLI with algorithm built on hotvect 9.29.1 ✅
+- hotvect 9.33.0 CLI with algorithm built on hotvect 9.29.1 ✅
 - hotvect 10.0.0 CLI with algorithm built on hotvect 9.28.0 ✅
 - Even across major versions ✅
 

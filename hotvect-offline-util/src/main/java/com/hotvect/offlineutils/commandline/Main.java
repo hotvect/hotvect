@@ -48,21 +48,21 @@ public class Main {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(Main.class);
     private static final MetricRegistry METRIC_REGISTRY = new MetricRegistry();
-
+    
     private static DropwizardConfig createDropwizardConfig() {
         return new DropwizardConfig() {
             @Override
             public String get(String key) {
                 return null;
             }
-
+            
             @Override
             public String prefix() {
                 return "";
             }
         };
     }
-
+    
     private static final MeterRegistry METER_REGISTRY = new DropwizardMeterRegistry(
             createDropwizardConfig(),
             METRIC_REGISTRY,
@@ -119,13 +119,13 @@ public class Main {
             Callable<Map<String, Object>> task = getTask(opts);
             Map<String, Object> metadata = task.call();
             metadata.put("logfile", logFileLocation.getAbsolutePath());
-
-
+            
+            
             OM.writeValue(opts.metadataLocation, metadata);
             LOGGER.info("Wrote metadata: location={}, metadata={}", opts.metadataLocation, metadata);
 
         }catch (Throwable e) {
-
+            
             LOGGER.error("Exception encountered:", e);
             System.err.println(Throwables.getStackTraceAsString(e));
             System.exit(1);

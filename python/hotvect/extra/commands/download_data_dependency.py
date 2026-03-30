@@ -256,7 +256,7 @@ class DownloadDataDependencyCommand(BaseCommand):
                 # Create algorithm pipeline context
                 context = AlgorithmPipelineContext(
                     algorithm_jar_path=algorithm_jar,
-                    state_soruce_base_path=Path(scratch_dir),
+                    state_source_base_path=Path(scratch_dir),
                     data_base_path=Path(scratch_dir),
                     metadata_base_path=Path(scratch_dir) / "metadata",
                     output_base_path=Path(scratch_dir) / "output",

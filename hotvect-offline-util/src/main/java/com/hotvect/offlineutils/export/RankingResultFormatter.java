@@ -1,9 +1,12 @@
 package com.hotvect.offlineutils.export;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.hotvect.api.algodefinition.common.RewardFunction;
 import com.hotvect.api.algorithms.Ranker;
 import com.hotvect.api.data.ranking.RankingDecision;
@@ -18,7 +21,21 @@ import static com.hotvect.utils.AdditionalProperties.getAdditionalProperties;
 import static com.hotvect.utils.AdditionalProperties.mergeAdditionalProperties;
 
 public class RankingResultFormatter<SHARED, ACTION, OUTCOME> implements BiFunction<RewardFunction<OUTCOME>, Ranker<SHARED, ACTION>, Function<RankingExample<SHARED, ACTION, OUTCOME>, String>> {
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private static final String FEATURE_STORE_RESPONSES_KEY = "__feature_store_responses";
+
+    private final ObjectMapper objectMapper = new ObjectMapper()
+            .registerModule(new Jdk8Module())
+            .registerModule(new JavaTimeModule())
+            .setSerializationInclusion(JsonInclude.Include.NON_NULL);
+    private final boolean includeFeatureStoreResponses;
+
+    public RankingResultFormatter() {
+        this(false);
+    }
+
+    public RankingResultFormatter(boolean includeFeatureStoreResponses) {
+        this.includeFeatureStoreResponses = includeFeatureStoreResponses;
+    }
 
     @Override
     public Function<RankingExample<SHARED, ACTION, OUTCOME>, String> apply(RewardFunction<OUTCOME> rewardFunction, Ranker<SHARED, ACTION> ranker) {
@@ -35,6 +52,9 @@ public class RankingResultFormatter<SHARED, ACTION, OUTCOME> implements BiFuncti
             Map<String, Object> sharedAdditionalProperties = new HashMap<>();
             sharedAdditionalProperties.putAll(rankResult.additionalProperties());
             sharedAdditionalProperties.putAll(getAdditionalProperties(ex.rankingRequest().shared()));
+            if (includeFeatureStoreResponses) {
+                sharedAdditionalProperties.put(FEATURE_STORE_RESPONSES_KEY, rankResult.featureStoreResponseContainer().featureStoreResponses());
+            }
             if (!sharedAdditionalProperties.isEmpty()) {
                 root.putPOJO("additional_properties", sharedAdditionalProperties);
             }

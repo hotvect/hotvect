@@ -24,7 +24,7 @@ public class TopKResponse<ACTION> implements Response<ACTION> {
         this.additionalProperties = additionalProperties;
         this.featureStoreResponseContainer = featureStoreResponseContainer;
     }
-
+    
     @Override
     public Map<String, Object> additionalProperties() {
         return additionalProperties;

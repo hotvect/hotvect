@@ -4,13 +4,13 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.hash.Hashing;
+import java.util.Random;
+import java.util.concurrent.ThreadLocalRandom;
+import java.util.stream.Stream;
 import net.jqwik.api.Arbitraries;
 import net.jqwik.api.Arbitrary;
 import net.jqwik.api.Tuple;
 import net.jqwik.api.Tuple.Tuple2;
-
-import java.util.Random;
-import java.util.concurrent.ThreadLocalRandom;
 
 public enum TestUtils {
     ;
@@ -45,6 +45,25 @@ public enum TestUtils {
 
     public static Arbitrary<String> defaultStrings() {
         return Arbitraries.strings().ofMinLength(0).ofMaxLength(3);
+    }
+
+    /**
+     * Returns a stream of blank strings commonly used for validation testing.
+     * <p>
+     * Includes various whitespace-only strings that should be rejected by validation:
+     * <ul>
+     *   <li>Empty string ({@code ""})</li>
+     *   <li>Spaces ({@code "   "})</li>
+     *   <li>Tab ({@code "\t"})</li>
+     *   <li>Newline ({@code "\n"})</li>
+     *   <li>Carriage return ({@code "\r"})</li>
+     *   <li>Mixed whitespace ({@code " \t\n "})</li>
+     * </ul>
+     *
+     * @return a stream of blank strings for testing validation
+     */
+    public static Stream<String> blankStrings() {
+        return Stream.of("", "   ", "\t", "\n", "\r", " \t\n ");
     }
 
     public static Arbitrary<int[]> categoricalVectors() {

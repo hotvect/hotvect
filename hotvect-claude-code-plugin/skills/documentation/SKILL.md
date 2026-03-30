@@ -38,7 +38,7 @@ Invoke this skill when:
 
 **When this skill activates:**
 1. Read config: `cat ~/.hotvect/config.json`
-2. Extract `hotvect_source_dir` field (e.g., `/path/to/hotvect`)
+2. Extract `hotvect_source_dir` field (e.g., `/Users/exampleuser/workspace/example/hotvect`)
 3. Use this path as base for all documentation and source code searches
 4. **Fail fast** if config doesn't exist or `hotvect_source_dir` is not set
 5. Tell user to run `/agent hotvect-setup-agent` if config is missing

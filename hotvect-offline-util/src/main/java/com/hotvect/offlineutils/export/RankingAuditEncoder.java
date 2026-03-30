@@ -1,8 +1,11 @@
 package com.hotvect.offlineutils.export;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.hotvect.api.algodefinition.common.RewardFunction;
 import com.hotvect.api.audit.AuditableRankingVectorizer;
 import com.hotvect.api.audit.RawFeatureName;
@@ -10,6 +13,7 @@ import com.hotvect.api.codec.ranking.RankingExampleEncoder;
 import com.hotvect.api.data.SparseVector;
 import com.hotvect.api.data.ranking.RankingExample;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -18,14 +22,21 @@ import static com.hotvect.offlineutils.export.Utils.addFeatures;
 
 @Deprecated(forRemoval = true)
 public class RankingAuditEncoder<SHARED, ACTION, OUTCOME> implements RankingExampleEncoder<SHARED, ACTION, OUTCOME> {
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private static final String FEATURE_STORE_RESPONSES_KEY = "__feature_store_responses";
+
+    private final ObjectMapper objectMapper = new ObjectMapper()
+            .registerModule(new Jdk8Module())
+            .registerModule(new JavaTimeModule())
+            .setSerializationInclusion(JsonInclude.Include.NON_NULL);
     private final ThreadLocal<Map<Integer, List<RawFeatureName>>> names;
     private final AuditableRankingVectorizer<SHARED, ACTION> vectorizer;
     private final RewardFunction<OUTCOME> rewardFunction;
+    private final boolean includeFeatureStoreResponses;
 
-    public RankingAuditEncoder(AuditableRankingVectorizer<SHARED, ACTION> vectorizer, RewardFunction<OUTCOME> rewardFunction) {
+    public RankingAuditEncoder(AuditableRankingVectorizer<SHARED, ACTION> vectorizer, RewardFunction<OUTCOME> rewardFunction, boolean includeFeatureStoreResponses) {
         this.vectorizer = vectorizer;
         this.rewardFunction = rewardFunction;
+        this.includeFeatureStoreResponses = includeFeatureStoreResponses;
         this.names = vectorizer.enableAudit();
     }
 
@@ -40,6 +51,15 @@ public class RankingAuditEncoder<SHARED, ACTION, OUTCOME> implements RankingExam
     private String jsonEncode(RankingExample<SHARED, ACTION, OUTCOME> toEncode, List<SparseVector> vector, Map<Integer, List<RawFeatureName>> names) {
         var root = objectMapper.createObjectNode();
         root.put("example_id", toEncode.exampleId());
+
+        if (includeFeatureStoreResponses) {
+            Map<String, Object> additionalProperties = new HashMap<>();
+            additionalProperties.put(
+                    FEATURE_STORE_RESPONSES_KEY,
+                    toEncode.request().featureStoreResponseContainer().featureStoreResponses()
+            );
+            root.putPOJO("additional_properties", additionalProperties);
+        }
 
         ArrayNode results = objectMapper.createArrayNode();
         var actions = toEncode.rankingRequest().availableActions();

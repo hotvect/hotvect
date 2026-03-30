@@ -34,7 +34,7 @@ The easiest way to do this is to use the `hotvect_execution_parameters.with_para
   "dependencies": {
     "my-algorithm-ctr-model": {
       "hotvect_execution_parameters": {
-        "with_parameter": "s3://mybucket/my-algorithm-ctr-model@my-algorithm-1.2.3-abc/last_train_date_2024-06-01/predict-parameters.zip"
+        "with_parameter": "s3://example-bucket/my-algorithm-ctr-model@my-algorithm-1.2.3-abc/last_train_date_2024-06-01/predict-parameters.zip"
       }
     }
   }
@@ -50,7 +50,7 @@ What if you don't have a dependency algorithm, but you still want to reuse exist
 {
   "hotvect_execution_parameters": {
     "train": {
-      "cache": "s3://mybucket/my-algorithm-ctr-model@my-algorithm-1.2.3-abc/last_train_date_2024-06-01/predict-parameters.zip"
+      "cache": "s3://example-bucket/my-algorithm-ctr-model@my-algorithm-1.2.3-abc/last_train_date_2024-06-01/predict-parameters.zip"
     }
   }
 }
@@ -73,18 +73,18 @@ Since it's a caching mechanism, if the output is not available in the specified 
 {
     "hotvect_execution_parameters": {
         # This location will be used to derive the cache location if `cache` is set to `true`. If none of your cache locations are set to `true`, you can omit this.
-        "cache_base_dir": "s3://mybucket/cache/",
+        "cache_base_dir": "s3://example-bucket/cache/",
         "generate-state": {
             # This will store the cache to the default location
             "cache": True
         },
     },
     "dependencies": {
-        "my-algorithm-model": {
+        "example-algorithm-model": {
             "hotvect_execution_parameters": {
                 "train": {
                     # This will store the cache to the specified location
-                    "cache": "s3://mybucket/my-algorithm-ctr-model@my-algorithm-1.2.3-abc/last_train_date_2024-06-01/predict-parameters.zip"
+                    "cache": "s3://example-bucket/my-algorithm-ctr-model@my-algorithm-1.2.3-abc/last_train_date_2024-06-01/predict-parameters.zip"
                 },
                 "predict": {
                     # Unlike "with_parameter", even if cache is specified, the pipeline will still execute prediction and performance-test by default
@@ -106,3 +106,4 @@ Since it's a caching mechanism, if the output is not available in the specified 
 }
 ```
 Unlike "with_parameter", even if cache is specified, the pipeline will still execute subsequent steps (`prediction`, and `performance-test`), step by default. If you want to skip these steps, you can set "enabled" to false for these steps. Or, you can use `with_parameter` to achieve the same behavior.
+

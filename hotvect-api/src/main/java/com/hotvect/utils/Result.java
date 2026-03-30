@@ -50,3 +50,4 @@ public sealed interface Result<VALUE, ERROR> permits Result.Failure, Result.Succ
 
     ERROR getError();
 }
+

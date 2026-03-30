@@ -43,7 +43,7 @@ public class StandardRankingTransformer<SHARED, ACTION> implements ComputingRank
     private final Mapping<Namespace, InteractingComputation<SHARED, ACTION, Object>> interactionNonMemoizedMapping;
     private final Mapping<Namespace, RankingFeatureComputationDependency> dependencyLookupMapping;
 
-    private final EagerRankingTransformation<SHARED, ACTION> eagerTransformation;
+    private final LinkedHashMap<Namespace, EagerRankingTransformation<SHARED, ACTION>> eagerTransformations;
     private final NamespacedRecord<Namespace, Holder<Object>> precomputedShared;
     private final NamespacedRecord<Namespace, ComputingBulkScorer<SHARED, ACTION>> bulkScorers;
     private final EnumMap<RankingFeatureComputationDependency, Namespace[]> computationFeatures;
@@ -60,7 +60,7 @@ public class StandardRankingTransformer<SHARED, ACTION> implements ComputingRank
         private final Map<String, Namespace> namespaceDictionary = new HashMap<>();
         private final Set<String> usedFeatures = new HashSet<>();
         private final Map<String, Object> sharedPrecomputations = new HashMap<>();
-        private EagerRankingTransformation<SHARED, ACTION> eagerTransformation;
+        private final LinkedHashMap<Namespace, EagerRankingTransformation<SHARED, ACTION>> eagerTransformations = new LinkedHashMap<>();
 
         private Builder() {
         }
@@ -175,8 +175,15 @@ public class StandardRankingTransformer<SHARED, ACTION> implements ComputingRank
             return setComputationSpec(namespace.toString(), computationSpec);
         }
 
-        public Builder<SHARED, ACTION> withEagerTransformation(EagerRankingTransformation<SHARED, ACTION> eagerTransformation) {
-            this.eagerTransformation = eagerTransformation;
+        public Builder<SHARED, ACTION> withEagerTransformation(Namespace eagerId, EagerRankingTransformation<SHARED, ACTION> eagerTransformation) {
+            checkNotNull(eagerId, "eagerId");
+            checkNotNull(eagerTransformation, "eagerTransformation");
+            if (eagerId.getFeatureValueType() != null) {
+                throw new IllegalArgumentException("Eager transformation id must not be a feature namespace: " + eagerId);
+            }
+            if (this.eagerTransformations.putIfAbsent(eagerId, eagerTransformation) != null) {
+                throw new IllegalArgumentException("Duplicate eager transformation id: " + eagerId);
+            }
             return this;
         }
 
@@ -213,7 +220,7 @@ public class StandardRankingTransformer<SHARED, ACTION> implements ComputingRank
                     asNamespaceMap(namespeceComputationSpec),
                     asNamespaceMap(sharedPrecomputations),
                     sortedUsedFeatures,
-                    eagerTransformation
+                    eagerTransformations
             );
         }
 
@@ -266,7 +273,7 @@ public class StandardRankingTransformer<SHARED, ACTION> implements ComputingRank
             Map<Namespace, ComputationSpec> computationSpec,
             Map<Namespace, Object> precomputedShared,
             SortedSet<Namespace> usedFeatures,
-            EagerRankingTransformation<SHARED, ACTION> eagerTransformation
+            LinkedHashMap<Namespace, EagerRankingTransformation<SHARED, ACTION>> eagerTransformations
     ) {
         Utils.checkCollectionIsEnumsOrNamespaceIdObjects(sharedComputations.keySet());
 
@@ -284,7 +291,7 @@ public class StandardRankingTransformer<SHARED, ACTION> implements ComputingRank
                                 computationSpec.get(x.getKey()) == ComputationSpec.LAZY_ON_DEMAND));
         this.sharedNonMemoizedComputations = new NamespacedRecordImpl<>(sharedNonMemoMap);
 
-        this.eagerTransformation = eagerTransformation;
+        this.eagerTransformations = new LinkedHashMap<>(eagerTransformations != null ? eagerTransformations : Map.of());
 
         // Precomputed - Shared
         Map<Namespace, Object> sharedPrecomputedMap = Maps.filterEntries(precomputedShared,
@@ -453,7 +460,7 @@ public class StandardRankingTransformer<SHARED, ACTION> implements ComputingRank
             if(this.algorithmFeatures != null){
                 for (Namespace Namespace : this.algorithmFeatures) {
                     ComputingBulkScorer<SHARED, ACTION> bulkScorer = this.bulkScorers.get(Namespace);
-                    List<ScoringDecision<ACTION>> scores = bulkScorer.bulkScore(input);
+                    List<ScoringDecision<ACTION>> scores = bulkScorer.score(input).decisions();
                     for (ScoringDecision<ACTION> decision : scores) {
                         double score = decision.score();
                         if (!decision.additionalProperties().isEmpty()) {
@@ -485,23 +492,40 @@ public class StandardRankingTransformer<SHARED, ACTION> implements ComputingRank
         );
 
         NamespacedRecord<Namespace, Holder<Object>> precomputed;
-        if(this.eagerTransformation == null){
-            // No eager transformation, so we can just use the precomputations
+        if (this.eagerTransformations.isEmpty()) {
             precomputed = this.precomputedShared;
         } else {
-            // We have a eager transformation, perform that and put it into precomputation map
-            Map<Namespace, Object> eagerTransformed = this.eagerTransformation.apply(rankingRequest);
-            for (Namespace namespace : eagerTransformed.keySet()) {
-                if(namespace.getFeatureValueType() != null){
-                    throw new UnsupportedOperationException(
-                            "Due to technical limitation, eager transformations cannot produce feature values directly. " +
-                                    " please register lazy computation that uses it to define the feature:" + namespace
-                            );
-                }
-            }
             NamespacedRecord<Namespace, Holder<Object>> toPopulate = this.precomputedShared.shallowCopy();
-            for (Map.Entry<Namespace, Object> e : eagerTransformed.entrySet()) {
-                toPopulate.put(e.getKey(), new Holder<>(e.getValue()));
+            for (Map.Entry<Namespace, EagerRankingTransformation<SHARED, ACTION>> eager : this.eagerTransformations.entrySet()) {
+                Namespace eagerId = eager.getKey();
+                if (toPopulate.get(eagerId) != null) {
+                    throw new IllegalStateException("Eager id collides with existing precalculated value: " + eagerId);
+                }
+
+                Map<Namespace, Object> eagerTransformed = eager.getValue().apply(rankingRequest);
+                if (eagerTransformed == null) {
+                    throw new IllegalStateException("Eager transformation returned null result map for id: " + eagerId);
+                }
+                for (Map.Entry<Namespace, Object> e : eagerTransformed.entrySet()) {
+                    Namespace namespace = e.getKey();
+                    if (namespace == null) {
+                        throw new IllegalArgumentException("Eager transformation returned a null namespace for id: " + eagerId);
+                    }
+                    if (namespace.equals(eagerId)) {
+                        throw new IllegalStateException("Eager transformation attempted to write its own id namespace: " + eagerId);
+                    }
+                    if (namespace.getFeatureValueType() != null) {
+                        throw new UnsupportedOperationException(
+                                "Due to technical limitation, eager transformations cannot produce feature values directly. " +
+                                        " please register lazy computation that uses it to define the feature:" + namespace
+                        );
+                    }
+                    if (toPopulate.get(namespace) != null) {
+                        throw new IllegalStateException("Eager transformation output namespace collision: " + namespace);
+                    }
+                    toPopulate.put(namespace, new Holder<>(e.getValue()));
+                }
+                toPopulate.put(eagerId, new Holder<>(Boolean.TRUE));
             }
             precomputed = toPopulate;
         }
@@ -525,15 +549,40 @@ public class StandardRankingTransformer<SHARED, ACTION> implements ComputingRank
     @Override
     public ComputingRankingRequest<SHARED, ACTION> prepare(RankingRequest<SHARED, ACTION> rankingRequest) {
         NamespacedRecord<Namespace, Holder<Object>> precomputed;
-        if(this.eagerTransformation == null){
-            // No eager transformation, so we can just use the precomputations
+        if (this.eagerTransformations.isEmpty()) {
             precomputed = this.precomputedShared;
         } else {
-            // We have a eager transformation, perform that and put it into precomputation map
-            Map<Namespace, Object> eagerTransformed = this.eagerTransformation.apply(rankingRequest);
             NamespacedRecord<Namespace, Holder<Object>> toPopulate = this.precomputedShared.shallowCopy();
-            for (Map.Entry<Namespace, Object> e : eagerTransformed.entrySet()) {
-                toPopulate.put(e.getKey(), new Holder<>(e.getValue()));
+            for (Map.Entry<Namespace, EagerRankingTransformation<SHARED, ACTION>> eager : this.eagerTransformations.entrySet()) {
+                Namespace eagerId = eager.getKey();
+                if (toPopulate.get(eagerId) != null) {
+                    throw new IllegalStateException("Eager id collides with existing precalculated value: " + eagerId);
+                }
+
+                Map<Namespace, Object> eagerTransformed = eager.getValue().apply(rankingRequest);
+                if (eagerTransformed == null) {
+                    throw new IllegalStateException("Eager transformation returned null result map for id: " + eagerId);
+                }
+                for (Map.Entry<Namespace, Object> e : eagerTransformed.entrySet()) {
+                    Namespace namespace = e.getKey();
+                    if (namespace == null) {
+                        throw new IllegalArgumentException("Eager transformation returned a null namespace for id: " + eagerId);
+                    }
+                    if (namespace.equals(eagerId)) {
+                        throw new IllegalStateException("Eager transformation attempted to write its own id namespace: " + eagerId);
+                    }
+                    if (namespace.getFeatureValueType() != null) {
+                        throw new UnsupportedOperationException(
+                                "Due to technical limitation, eager transformations cannot produce feature values directly. " +
+                                        " please register lazy computation that uses it to define the feature:" + namespace
+                        );
+                    }
+                    if (toPopulate.get(namespace) != null) {
+                        throw new IllegalStateException("Eager transformation output namespace collision: " + namespace);
+                    }
+                    toPopulate.put(namespace, new Holder<>(e.getValue()));
+                }
+                toPopulate.put(eagerId, new Holder<>(Boolean.TRUE));
             }
             precomputed = toPopulate;
         }
@@ -568,11 +617,40 @@ public class StandardRankingTransformer<SHARED, ACTION> implements ComputingRank
      */
     @Override
     public ComputingRankingRequest<SHARED, ACTION> prepare(ComputingRankingRequest<SHARED, ACTION> computingRankingRequest) {
-        if(this.eagerTransformation != null){
-            throw new UnsupportedOperationException("Eager transformation within a dependency algorithm is not implemented yet");
+        Computing<RankingRequest<SHARED, ACTION>> shared = (Computing<RankingRequest<SHARED, ACTION>>)computingRankingRequest.shared();
+
+        for (Map.Entry<Namespace, EagerRankingTransformation<SHARED, ACTION>> eager : this.eagerTransformations.entrySet()) {
+            Namespace eagerId = eager.getKey();
+            boolean shouldRun = !shared.hasPrecalculated(eagerId);
+            if (!shouldRun) {
+                continue;
+            }
+            Map<Namespace, Object> eagerResults = eager.getValue().apply(computingRankingRequest.rankingRequest());
+            if (eagerResults == null) {
+                throw new IllegalStateException("Eager transformation returned null result map for id: " + eagerId);
+            }
+            for (Map.Entry<Namespace, Object> e : eagerResults.entrySet()) {
+                Namespace namespace = e.getKey();
+                if (namespace == null) {
+                    throw new IllegalArgumentException("Eager transformation returned a null namespace for id: " + eagerId);
+                }
+                if (namespace.equals(eagerId)) {
+                    throw new IllegalStateException("Eager transformation attempted to write its own id namespace: " + eagerId);
+                }
+                if (namespace.getFeatureValueType() != null) {
+                    throw new UnsupportedOperationException(
+                            "Due to technical limitation, eager transformations cannot produce feature values directly. " +
+                                    " please register lazy computation that uses it to define the feature:" + namespace
+                    );
+                }
+                if (shared.hasPrecalculated(namespace)) {
+                    throw new IllegalStateException("Eager transformation output namespace collision: " + namespace);
+                }
+            }
+            shared.putPrecalculatedAll(eagerResults);
+            shared.putPrecalculated(eagerId, Boolean.TRUE);
         }
 
-        Computing<RankingRequest<SHARED, ACTION>> shared = (Computing<RankingRequest<SHARED, ACTION>>)computingRankingRequest.shared();
         shared.appendComputations((Mapping<Namespace, Computation<RankingRequest<SHARED, ACTION>, Object>>)(Mapping)this.sharedMemoizedComputations, (Mapping<Namespace,Computation<RankingRequest<SHARED, ACTION>, Object>>)(Mapping)this.sharedNonMemoizedMapping);
 
         List<ComputingCandidate<SHARED, ACTION>> candidates = computingRankingRequest.candidates();
@@ -588,6 +666,9 @@ public class StandardRankingTransformer<SHARED, ACTION> implements ComputingRank
                 Namespace[] keys = this.dependencyLookupMapping.keys();
                 RankingFeatureComputationDependency[] values = this.dependencyLookupMapping.values();
                 updated.putAllIfAbsent(keys, values);
+                for (Namespace namespace : shared.precalculatedNamespaces()) {
+                    updated.putIfAbsent(namespace, RankingFeatureComputationDependency.SHARED);
+                }
                 updatedDependencyMap = updated;
             }
 

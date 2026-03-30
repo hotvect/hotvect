@@ -19,7 +19,7 @@ When a user invokes `/download-data-dependency`, you (Claude) should:
    - `directories.data_base_dir` → `--local-data-dir` argument
    - `directories.scratch_dir` → `--scratch-dir` argument
    - `sagemaker.default_s3_data_base_dir` → `--s3-base-dir` argument
-   - `aws.credential_helper` → Command to run for AWS credential refresh
+   - `aws.login_command` → Command to run for AWS credential refresh
 4. User-provided arguments override config defaults
 5. Construct the complete `hv-ext download-data-dependency` command with ALL arguments explicitly specified
 
@@ -32,7 +32,7 @@ If config doesn't exist and user didn't provide required arguments, tell them to
 Parse from user or ask:
 - `--repo-url`: Git URL of the algorithm repository
 - `--git-reference`: Git reference (branch, tag, commit) to analyze
-- `--s3-base-dir`: S3 base directory for data (e.g., `s3://bucket/tables`)
+- `--s3-base-dir`: S3 base directory for data (e.g., `s3://example-bucket/tables`)
 - `--local-data-dir`: Local directory to download data to
 - `--scratch-dir`: Temporary workspace for git operations
 - `--last-test-time`: Test date in YYYY-MM-DD format
@@ -48,10 +48,10 @@ Parse from user or ask:
 **Full data download:**
 ```bash
 hv-ext download-data-dependency \
-  --repo-url https://github.com/company/algorithm.git \
+  --repo-url https://github.com/zalando-example/example-algorithm.git \
   --git-reference v77.0.0 \
-  --s3-base-dir s3://bucket/tables \
-  --local-data-dir /path/to/data \
+  --s3-base-dir s3://example-bucket/tables \
+  --local-data-dir /Users/exampleuser/workspace/example/example-algorithm-data/2025Aug \
   --scratch-dir /tmp/data-download-scratch \
   --last-test-time 2025-08-09
 ```
@@ -59,9 +59,9 @@ hv-ext download-data-dependency \
 **With sampling (for testing):**
 ```bash
 hv-ext download-data-dependency \
-  --repo-url https://github.com/company/algorithm.git \
+  --repo-url https://github.com/zalando-example/example-algorithm.git \
   --git-reference v77.0.0 \
-  --s3-base-dir s3://bucket/tables \
+  --s3-base-dir s3://example-bucket/tables \
   --local-data-dir ./local-training-data \
   --scratch-dir ./temp-build \
   --last-test-time 2025-08-09 \
@@ -121,7 +121,7 @@ aws sts get-caller-identity
 
 If expired, refresh:
 ```bash
-zalando-aws-cli login my-team-data ReadOnly
+aws sso login
 ```
 
 ## Use Cases

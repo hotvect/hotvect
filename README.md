@@ -125,3 +125,4 @@ Hotvect does not include:
 Hotvect is designed to be library-agnostic, allowing integration with any ML library. Currently, the library must be accessible from a JVM process (via JNI or Java-compatible implementations like [H2O.ai's xgboost-predictor](https://github.com/h2oai/xgboost-predictor)). Future versions will support inter-process integrations.
 
 Feature engineering should be implemented in a JVM language (e.g., Java, Kotlin, Scala), while APIs for triggering tasks like offline testing are provided as a Python library.
+

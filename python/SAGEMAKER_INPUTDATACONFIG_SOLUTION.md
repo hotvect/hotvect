@@ -56,7 +56,7 @@ All three flags are documented in `hotvect-claude-code-plugin/HV_COMMAND_REFEREN
 For each newly created channel we emit:
 
 ```
-Auto-attach InputDataConfig channel 'my_data_w_fs' with S3 URI 's3://prod/.../my_data_w_fs/'
+Auto-attach InputDataConfig channel 'example_test_data_with_features' with S3 URI 's3://example-bucket/.../example_test_data_with_features/'
 ```
 
 If a dependency’s channel is already present in the template, we skip it without logging an addition (ensuring templates with hand-crafted channels remain intact).
@@ -67,7 +67,7 @@ The `hv-ext show-data-dependency` command remains available as an **optional dia
 
 ```bash
 hv-ext show-data-dependency \
-  --repo-url https://github.com/my-org/my-algorithm.git \
+  --repo-url https://github.com/zalando-example/example-algorithm.git \
   --git-reference v77.0.0 \
   --scratch-dir ./temp \
   --last-test-time 2025-08-09 \
@@ -91,7 +91,7 @@ hv backtest \
   --last-test-time ${test_date} \
   --sagemaker-config ${scratch_dir}/sagemaker-config.json \
   --auto-attach-data \
-  --auto-attach-data-default-s3-base s3://my-bucket/tables/
+  --auto-attach-data-default-s3-base s3://example-bucket/tables/
 ```
 
 3. The framework augments the config before each job submission. There is no longer any need to edit JSON files manually.

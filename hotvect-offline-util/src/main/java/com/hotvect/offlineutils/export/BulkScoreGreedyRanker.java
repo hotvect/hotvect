@@ -5,6 +5,7 @@ import com.hotvect.api.algorithms.Ranker;
 import com.hotvect.api.data.ranking.RankingDecision;
 import com.hotvect.api.data.ranking.RankingRequest;
 import com.hotvect.api.data.ranking.RankingResponse;
+import com.hotvect.api.data.scoring.BulkScoreResponse;
 import com.hotvect.api.data.scoring.ScoringDecision;
 import com.hotvect.utils.ListTransform;
 
@@ -34,7 +35,8 @@ public class BulkScoreGreedyRanker<SHARED, ACTION> implements Ranker<SHARED, ACT
     @Override
     public RankingResponse<ACTION> rank(RankingRequest<SHARED, ACTION> request) {
         int numActions = request.availableActions().size();
-        List<ScoringDecision<ACTION>> scoringDecisions = this.bulkScorer.bulkScore(request);
+        BulkScoreResponse<ACTION> scoringResponse = this.bulkScorer.score(request);
+        List<ScoringDecision<ACTION>> scoringDecisions = scoringResponse.decisions();
 
 
         List<IndexedScoredAction> processed = new ArrayList<>(numActions);
@@ -45,7 +47,11 @@ public class BulkScoreGreedyRanker<SHARED, ACTION> implements Ranker<SHARED, ACT
 
         processed.sort(this.COMPARATOR);
         var decisions = ListTransform.map(processed, x -> RankingDecision.builder(x.index, x.action).withScore(x.score).build());
-        return RankingResponse.newResponse(decisions);
+        return RankingResponse.newResponse(
+                decisions,
+                scoringResponse.featureStoreResponseContainer(),
+                scoringResponse.additionalProperties()
+        );
     }
 
     private class IndexedScoredAction {

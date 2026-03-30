@@ -29,7 +29,7 @@ Automatically download SageMaker backtest results from S3 when user needs to ana
 1. Read config: `cat ~/.hotvect/config.json`
 2. Parse the JSON to extract values (you can understand JSON directly)
 3. Use config values for AWS operations:
-   - `aws.credential_helper` → Command to run when refreshing credentials
+   - `aws.login_command` → Command to run when refreshing credentials
    - `directories.output_base_dir` → Default for `--dest-base-dir` argument
 
 4. **Fail fast** if config doesn't exist and AWS operations are needed
@@ -75,14 +75,14 @@ aws sts get-caller-identity
 
 If expired or missing, guide user to refresh:
 ```bash
-zalando-aws-cli login my-team-data ReadOnly
+aws sso login
 ```
 
 ### 3. Determine S3 Location
 
 Standard location for SageMaker backtest results:
 ```
-s3://my-experiment-bucket/temp/username/sagemaker_output/
+s3://example-bucket/temp/exampleuser/sagemaker_output/
 ```
 
 Or user-specific path if mentioned.
@@ -92,7 +92,7 @@ Or user-specific path if mentioned.
 Build `hv-ext download-results` command:
 ```bash
 hv-ext download-results \
-  --s3-base-prefix s3://my-experiment-bucket/temp/username/sagemaker_output/ \
+  --s3-base-prefix s3://example-bucket/temp/exampleuser/sagemaker_output/ \
   --dest-base-dir ./backtest-results \
   --from-date ${start_date} \
   --to-date ${end_date} \
@@ -150,7 +150,7 @@ Results available in: ./backtest-results
 ## Error Handling
 
 **AWS credentials expired:**
-- Run `zalando-aws-cli login my-team-data ReadOnly`
+- Run `aws sso login`
 - Retry download
 
 **S3 path not found:**

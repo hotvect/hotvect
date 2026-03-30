@@ -11,7 +11,7 @@ cat ~/.hotvect/config.json
 ```
 
 Extract and use:
-- `directories.data_base_dir` - Where test data lives
+- `directories.data_base_dir` - Where test data lives  
 - `hotvect_source_dir` - Where hotvect Python venv is
 - Then activate: `source ${hotvect_source_dir}/python/.venv/bin/activate`
 

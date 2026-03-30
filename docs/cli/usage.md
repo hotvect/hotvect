@@ -280,7 +280,7 @@ hv backtest --git-reference main \
            --scratch-dir /tmp/backtest \
            --last-test-time 2025-08-05 \
            --sagemaker-config sagemaker-config.json \
-           --role-arn arn:aws:iam::123456789012:role/sagemaker-execution-role
+           --role-arn arn:aws:iam::123456789012:role/example-role
 ```
 
 **Config File Approach**:
@@ -342,7 +342,7 @@ hv backtest --backtest-config backtest-refs.json \
         "InstanceCount": 1,
         "VolumeSizeInGB": 30
     },
-    "RoleArn": "arn:aws:iam::123456789012:role/sagemaker-execution-role",
+    "RoleArn": "arn:aws:iam::123456789012:role/example-role",
     "StoppingCondition": {
         "MaxRuntimeInSeconds": 86400
     }
@@ -429,7 +429,7 @@ The `hv-extra` tool provides extended utility commands for data analysis, format
 The `hv-extra` tool supports the following utility operations:
 
 - **perf-compare**: Compare performance test results between two JSON files
-- **catboost-convert**: Convert CatBoost encoded TSV data to JSON/JSONL format
+- **catboost-convert**: Convert CatBoost encoded TSV data to JSON/JSONL format  
 - **jsonl-compare**: Compare two JSONL files and identify differences between them
 - **download-results**: Download SageMaker backtest results from S3 to local directory
 - **compare-evaluations**: Compare ML evaluation results between two JSON files (supports backtest result.json format)
@@ -582,7 +582,7 @@ hv-extra download-results --s3-base-prefix <s3_prefix> --dest-base-dir <local_di
 
 **Optional Options**:
 - `--role-arn`: AWS role ARN to assume for S3 access
-- `--include-metadata`: Include metadata files in download (default: False)
+- `--include-metadata`: Include metadata files in download (default: False)  
 - `--include-output-data`: Include output data files in download (default: False)
 - `--no-skip-existing`: Re-download files even if they already exist locally (default: skip existing)
 
@@ -591,24 +591,24 @@ hv-extra download-results --s3-base-prefix <s3_prefix> --dest-base-dir <local_di
 ```bash
 # Basic download for a date range
 hv-extra download-results \
-  --s3-base-prefix "s3://ml-exp-bucket/backtest-results/" \
+  --s3-base-prefix "s3://example-bucket/backtest-results/" \
   --dest-base-dir "./results" \
   --from-date "2025-06-01" \
   --to-date "2025-06-15"
 
 # Download with AWS role assumption and metadata
 hv-extra download-results \
-  --s3-base-prefix "s3://ml-exp-bucket/backtest-results/" \
+  --s3-base-prefix "s3://example-bucket/backtest-results/" \
   --dest-base-dir "/nfs/shared/results" \
   --from-date "2025-06-01" \
   --to-date "2025-06-15" \
-  --role-arn "arn:aws:iam::123456789012:role/sagemaker-access-role" \
+  --role-arn "arn:aws:iam::123456789012:role/example-role" \
   --include-metadata \
   --include-output-data
 
 # Force re-download of existing files
 hv-extra download-results \
-  --s3-base-prefix "s3://ml-exp-bucket/results/" \
+  --s3-base-prefix "s3://example-bucket/results/" \
   --dest-base-dir "./fresh-results" \
   --from-date "2025-06-10" \
   --to-date "2025-06-10" \
@@ -622,7 +622,7 @@ hv-extra download-results \
 ```bash
 # 1. Download backtest results for comparison
 hv-extra download-results \
-  --s3-base-prefix "s3://ml-exp-bucket/performance-tests/" \
+  --s3-base-prefix "s3://example-bucket/performance-tests/" \
   --dest-base-dir "./perf-data" \
   --from-date "2025-06-01" \
   --to-date "2025-06-01"
@@ -694,7 +694,7 @@ hv-extra download-data-dependency --repo-url <git_repo_url> --git-reference <git
 ```bash
 # Basic download for single algorithm with sampling
 hv-extra download-data-dependency \
-  --repo-url https://github.com/company/algorithm.git \
+  --repo-url https://github.com/company/example-algorithm.git \
   --git-reference v77.0.0 \
   --s3-base-dir s3://bucket/tables \
   --local-data-dir ./training-data \
@@ -704,7 +704,7 @@ hv-extra download-data-dependency \
 
 # Download for multiple algorithm versions
 hv-extra download-data-dependency \
-  --repo-url https://github.com/company/algorithm.git \
+  --repo-url https://github.com/company/example-algorithm.git \
   --git-reference v77.0.0 \
   --git-reference v64.4.0 \
   --s3-base-dir s3://bucket/tables \
@@ -720,7 +720,7 @@ hv-extra download-data-dependency \
   --local-data-dir ./data \
   --scratch-dir ./temp \
   --last-test-time 2025-08-09 \
-  --role-arn arn:aws:iam::123456789012:role/s3-access-role \
+  --role-arn arn:aws:iam::123456789012:role/example-role \
   --no-skip-if-present
 
 # Download with algorithm overrides

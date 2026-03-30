@@ -5,6 +5,7 @@ import com.hotvect.api.data.Namespace;
 import com.hotvect.api.data.RawValueType;
 import com.hotvect.api.data.ValueType;
 import com.hotvect.api.data.ranking.RankingRequest;
+import com.hotvect.api.data.scoring.BulkScoreResponse;
 import com.hotvect.core.transform.*;
 import org.junit.jupiter.api.Test;
 
@@ -115,21 +116,21 @@ class StandardRankingTransformerMetadataTest {
 
         ComputingBulkScorer<TestShared, TestAction> bulkScorer = new ComputingBulkScorer<TestShared, TestAction>() {
             @Override
-            public List<com.hotvect.api.data.scoring.ScoringDecision<TestAction>> bulkScore(ComputingRankingRequest<TestShared, TestAction> rankingRequest) {
+            public BulkScoreResponse<TestAction> score(ComputingRankingRequest<TestShared, TestAction> rankingRequest) {
                 List<com.hotvect.api.data.scoring.ScoringDecision<TestAction>> ret = new ArrayList<>();
                 for (TestAction action : rankingRequest.rankingRequest().availableActions()) {
                     ret.add(com.hotvect.api.data.scoring.ScoringDecision.of(action, 1.0));
                 }
-                return ret;
+                return BulkScoreResponse.of(ret, com.hotvect.api.data.FeatureStoreResponseContainer.empty());
             }
 
             @Override
-            public List<com.hotvect.api.data.scoring.ScoringDecision<TestAction>> bulkScore(RankingRequest<TestShared, TestAction> rankingRequest) {
+            public BulkScoreResponse<TestAction> score(RankingRequest<TestShared, TestAction> rankingRequest) {
                 List<com.hotvect.api.data.scoring.ScoringDecision<TestAction>> ret = new ArrayList<>();
                 for (TestAction action : rankingRequest.availableActions()) {
                     ret.add(com.hotvect.api.data.scoring.ScoringDecision.of(action, 1.0));
                 }
-                return ret;
+                return BulkScoreResponse.of(ret, com.hotvect.api.data.FeatureStoreResponseContainer.empty());
             }
         };
         builder.withBulkScorer(TestNamespace.BULK_SCORER_FEATURE, bulkScorer)

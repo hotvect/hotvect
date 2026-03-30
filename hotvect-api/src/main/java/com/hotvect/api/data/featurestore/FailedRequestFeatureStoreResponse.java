@@ -4,7 +4,12 @@ import java.util.*;
 
 /**
  * A response representing a failed feature store request, with all maps empty and only requestFailure set.
+ * <p>
+ * <b>Deprecated:</b> This class is deprecated. Use {@link SimpleFeatureStoreResponse#failure(String)} instead.
+ *
+ * @deprecated Use {@link SimpleFeatureStoreResponse#failure(String)} instead
  */
+@Deprecated
 public final class FailedRequestFeatureStoreResponse implements FeatureStoreResponse {
     private final Map<Map<String, Object>, Map<String, Object>> allEntities = Collections.emptyMap();
     private final String requestFailure;
@@ -18,7 +23,9 @@ public final class FailedRequestFeatureStoreResponse implements FeatureStoreResp
      *
      * @param failureReason the reason for the request failure
      * @return a new FailedRequestFeatureStoreResponse
+     * @deprecated Use {@link SimpleFeatureStoreResponse#failure(String)} instead
      */
+    @Deprecated
     public static FailedRequestFeatureStoreResponse withFailure(String failureReason) {
         return new FailedRequestFeatureStoreResponse(failureReason);
     }

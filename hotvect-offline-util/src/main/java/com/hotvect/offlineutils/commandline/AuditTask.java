@@ -34,7 +34,7 @@ public class AuditTask<EXAMPLE extends Example<? extends OfflineRequest, ?>, SUB
 
         SUBJECT subject = instantiateSubject(algorithmSupporterFactory, offlineTaskContext.algorithmDefinition(), this.offlineTaskContext.options().parameters);
 
-        ExampleEncoder<EXAMPLE> exampleEncoder = instantiateAuditEncoder(algorithmSupporterFactory, subject);
+        ExampleEncoder<EXAMPLE> exampleEncoder = instantiateAuditEncoder(algorithmSupporterFactory, subject, offlineTaskContext.options().includeFeatureStoreResponses);
 
         Function<String, List<String>> transformation = scoringExampleDecoder.andThen(s -> ListTransform.map(s, exampleEncoder));
 
@@ -69,12 +69,16 @@ public class AuditTask<EXAMPLE extends Example<? extends OfflineRequest, ?>, SUB
 
 
     @SuppressWarnings("removal")
-    private ExampleEncoder<EXAMPLE> instantiateAuditEncoder(AlgorithmOfflineSupporterFactory algorithmSupporterFactory, SUBJECT subject) throws Exception {
+    private ExampleEncoder<EXAMPLE> instantiateAuditEncoder(AlgorithmOfflineSupporterFactory algorithmSupporterFactory, SUBJECT subject, boolean includeFeatureStoreResponses) throws Exception {
         if(subject instanceof RankingVectorizer){
             AuditableRankingVectorizer<?, ?> vec = (AuditableRankingVectorizer<?, ?>) subject;
-            return new RankingAuditEncoder(vec, algorithmSupporterFactory.getRewardFunction(offlineTaskContext.algorithmDefinition()));
+            return new RankingAuditEncoder(vec, algorithmSupporterFactory.getRewardFunction(offlineTaskContext.algorithmDefinition()), includeFeatureStoreResponses);
         } else if (subject instanceof com.hotvect.api.algodefinition.ranking.RankingTransformer){
-            return new com.hotvect.offlineutils.export.RankingTransformerAuditEncoder((com.hotvect.api.algodefinition.ranking.RankingTransformer) subject, algorithmSupporterFactory.getRewardFunction(offlineTaskContext.algorithmDefinition()));
+            return new com.hotvect.offlineutils.export.RankingTransformerAuditEncoder(
+                    (com.hotvect.api.algodefinition.ranking.RankingTransformer) subject,
+                    algorithmSupporterFactory.getRewardFunction(offlineTaskContext.algorithmDefinition()),
+                    includeFeatureStoreResponses
+            );
         } else {
             throw new UnsupportedOperationException("Unknown audit subject of type:" + subject.getClass().getCanonicalName());
         }

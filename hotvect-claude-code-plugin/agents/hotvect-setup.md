@@ -220,7 +220,7 @@ Propose defaults and ask user to confirm:
 **WARN USER:** "The Data Directory is used for heavy, read-only datasets (10GB+). Please ensure the selected volume has sufficient space."
 
 **3. AWS Credentials:**
-Ask: "What AWS credential helper command do you use? (e.g., 'zalando-aws-cli login my-team-data ReadOnly')"
+Ask: "What AWS credential helper command do you use? (e.g., 'aws sso login --profile myprofile')"
 
 **4. SageMaker Configuration:**
 
@@ -235,7 +235,7 @@ Ask: "What AWS credential helper command do you use? (e.g., 'zalando-aws-cli log
    # Example inputs to handle:
    # 1. Python dict syntax:
    {
-       "RoleArn": "arn:aws:iam::...",
+       "RoleArn": "arn:aws:iam::123456789012:role/example-role",
        "OutputDataConfig": {...}
    }
 
@@ -265,9 +265,9 @@ Ask: "What AWS credential helper command do you use? (e.g., 'zalando-aws-cli log
 5. **Show cleaned config to user for review** (always, even if it came from colleague)
 
 **If creating from scratch, ask for:**
-- **S3 Data Location**: "What is your default S3 data location for training data? (e.g., 's3://your-bucket/tables')"
-- **S3 Output Path**: "What S3 path should SageMaker use for training outputs? (e.g., 's3://your-bucket/temp/username/sagemaker_output/')"
-- **SageMaker Role ARN**: "What is your SageMaker execution role ARN? (e.g., 'arn:aws:iam::123456789012:role/SageMakerExecutionRole')"
+- **S3 Data Location**: "What is your default S3 data location for training data? (e.g., 's3://example-bucket/tables')"
+- **S3 Output Path**: "What S3 path should SageMaker use for training outputs? (e.g., 's3://example-bucket/temp/username/sagemaker_output/')"
+- **SageMaker Role ARN**: "What is your SageMaker execution role ARN? (e.g., 'arn:aws:iam::123456789012:role/example-role')"
 - **Training Image**: "What Docker image should SageMaker use for training? (e.g., '123456789012.dkr.ecr.us-east-1.amazonaws.com/my-org/hotvect:X.Y.Z')"
 - **Job Name Prefix**: "What prefix should SageMaker training jobs use? (e.g., 'ml-exp-yourname' or 'sagemaker-team-project'). Leave empty for default 'ml-exp'."
 - **Required Tags**: "Does your company require specific tags on SageMaker jobs? (e.g., 'team=ml-team,project=ranking'). Leave empty if no tags required."
@@ -292,7 +292,7 @@ Create `~/.hotvect/config.json` with ALL user-provided values:
   "hotvect_source_dir": "{user_provided_hotvect_path}",
   "aws": {
     "role_arn": null,
-    "credential_helper": "{user_provided_credential_helper}"
+    "login_command": "{user_provided_login_command}"
   },
   "directories": {
     "output_base_dir": "{user_provided_output_dir}",
@@ -413,7 +413,7 @@ test -d "$HOTVECT_SOURCE" && echo "exists" || echo "not found"
 **If path doesn't exist:**
 - Clone from official repository to that location:
 ```bash
-git clone https://github.com/zalando-lounge/hotvect.git "$HOTVECT_SOURCE"
+git clone https://github.com/zalando/hotvect.git "$HOTVECT_SOURCE"
 ```
 
 ### 3.2 Build Hotvect
@@ -475,7 +475,7 @@ Expected: Help text displays without errors.
 
 ### 4.3 Clone Reference Algorithm Repository (Optional)
 
-Ask: "Do you have an algorithm repository to test with? (e.g., my-algorithm)"
+Ask: "Do you have an algorithm repository to test with? (e.g., example-algorithm)"
 
 If yes:
 ```bash
@@ -503,7 +503,7 @@ Verify hotvect can work with the algorithm.
 All agents, skills, and commands MUST:
 - Load and parse `~/.hotvect/config.json` as single source of truth
 - Never hardcode paths (e.g., scratch directories) or AWS credential logic
-- Always look up `directories.scratch_dir` or `aws.credential_helper` from config
+- Always look up `directories.scratch_dir` or `aws.login_command` from config
 
 ### Fail Fast
 
@@ -542,7 +542,7 @@ If Maven build fails:
 ### AWS Credential Issues
 
 If AWS commands fail:
-- Run the credential_helper command manually
+- Run the login_command command manually
 - Verify AWS CLI is installed: `brew install awscli`
 - Test: `aws sts get-caller-identity`
 

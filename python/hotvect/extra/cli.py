@@ -36,7 +36,7 @@ Examples:
 
   # Download SageMaker backtest results
   hv-ext download-results --s3-base-prefix "s3://bucket/path/" --dest-base-dir "./results" --from-date "2025-06-01" --to-date "2025-06-15"
-  hv-ext download-results --s3-base-prefix "s3://bucket/path/" --dest-base-dir "/local/results" --from-date "2025-06-01" --to-date "2025-06-15" --role-arn "arn:aws:iam::123:role/MyRole" --include-metadata
+  hv-ext download-results --s3-base-prefix "s3://bucket/path/" --dest-base-dir "/local/results" --from-date "2025-06-01" --to-date "2025-06-15" --role-arn "arn:aws:iam::123456789012:role/example-role" --include-metadata
 
   # Compare ML evaluation results (supports both simple JSON and backtest result.json formats)
   hv-ext compare-evaluations baseline_eval.json treatment_eval.json

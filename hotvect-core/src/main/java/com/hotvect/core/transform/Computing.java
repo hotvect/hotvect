@@ -92,6 +92,43 @@ public class Computing<ARGUMENT> implements Computable<ARGUMENT> {
         return transformed;
     }
 
+    public boolean hasPrecalculated(Namespace namespace) {
+        return precalculated != null && precalculated.get(namespace) != null;
+    }
+
+    public Iterable<Namespace> precalculatedNamespaces() {
+        if (precalculated == null) {
+            return List.of();
+        }
+        return precalculated.asMap().keySet();
+    }
+
+    public void putPrecalculated(Namespace namespace, Object value) {
+        if (precalculated == null) {
+            throw new IllegalStateException("Cannot put precalculated values: this Computing instance was constructed without a precalculated record.");
+        }
+        if (namespace == null) {
+            throw new IllegalArgumentException("Cannot put precalculated value: namespace is null.");
+        }
+        precalculated.put(namespace, new Holder<>(value));
+    }
+
+    public void putPrecalculatedAll(Map<Namespace, Object> values) {
+        if (values == null || values.isEmpty()) {
+            return;
+        }
+        if (precalculated == null) {
+            throw new IllegalStateException("Cannot put precalculated values: this Computing instance was constructed without a precalculated record.");
+        }
+        for (Map.Entry<Namespace, Object> entry : values.entrySet()) {
+            Namespace namespace = entry.getKey();
+            if (namespace == null) {
+                throw new IllegalArgumentException("Cannot put precalculated values: values contains a null namespace.");
+            }
+            precalculated.put(namespace, new Holder<>(entry.getValue()));
+        }
+    }
+
     /**
      * Please only use this method for debugging purposes, it is very inefficient
      *

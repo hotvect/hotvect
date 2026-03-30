@@ -11,7 +11,7 @@ cat ~/.hotvect/config.json
 ```
 
 Extract and use:
-- `directories.data_base_dir` - Where test data lives
+- `directories.data_base_dir` - Where test data lives  
 - `hotvect_source_dir` - Where hotvect Python venv is
 - Then activate: `source ${hotvect_source_dir}/python/.venv/bin/activate`
 
@@ -54,7 +54,7 @@ Algorithms that use:
 - TopK retrieval (need available items list)
 - Embeddings (need vector representations)
 - Lookup tables (need reference data)
-- Dynamic inventories (need current inventory)
+- Dynamic catalogs (need current inventory)
 
 ## Required Arguments
 
@@ -80,11 +80,11 @@ hv generate-state \
   --dest-path ./available_configs.jsonl
 ```
 
-**Item Ranking (with available items):**
+**Ranking With Available Items:**
 ```bash
 hv generate-state \
   --algorithm-jar algorithm.jar \
-  --algorithm-name my-algo \
+  --algorithm-name inventory-algo \
   --source-path '{"available_items":["items.jsonl"]}' \
   --dest-path ./state.jsonl
 ```
@@ -92,7 +92,7 @@ hv generate-state \
 ## What It Does
 
 1. Loads algorithm and state generator
-2. Reads source data (embeddings, item lists, etc.)
+2. Reads source data (embeddings, catalogs, etc.)
 3. Processes and filters data as needed
 4. Generates state file in algorithm-specific format
 5. Packages state for use in training/serving

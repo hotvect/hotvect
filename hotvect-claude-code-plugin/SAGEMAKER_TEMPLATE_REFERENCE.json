@@ -15,7 +15,7 @@
     ]
   },
   "OutputDataConfig": {
-    "S3OutputPath": "s3://my-ml-bucket/temp/username/sagemaker_output/"
+    "S3OutputPath": "s3://example-bucket/temp/username/sagemaker_output/"
   },
   "ResourceConfig": {
     "InstanceType": "ml.m6i.12xlarge",
@@ -25,7 +25,7 @@
   "StoppingCondition": {
     "MaxRuntimeInSeconds": 86400
   },
-  "RoleArn": "arn:aws:iam::123456789012:role/SageMakerExecutionRole",
+  "RoleArn": "arn:aws:iam::123456789012:role/example-role",
   "Environment": {
     "WRITE_OUTPUT_TO_S3": "false"
   },

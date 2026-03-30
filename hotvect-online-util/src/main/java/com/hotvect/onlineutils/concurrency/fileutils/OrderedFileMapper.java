@@ -137,7 +137,7 @@ public class OrderedFileMapper extends VerboseCallable<Map<String, Object>> {
 
         Map<String, Object> metadata = new HashMap<>();
         metadata.put("total_record_count", recordCounter.sum());
-
+        
         // Calculate throughput rate
         double rate = MetricUtils.calculateRate(startTime, System.nanoTime(), recordCounter.sum());
         metadata.put("mean_throughput", rate);

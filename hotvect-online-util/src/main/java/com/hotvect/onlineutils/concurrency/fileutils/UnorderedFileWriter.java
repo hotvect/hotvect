@@ -59,7 +59,7 @@ class UnorderedFileWriter {
                                 Map<String, Object> ret = new HashMap<>();
                                 long linesWritten = lineCounter.sum();
                                 ret.put("lines_written", linesWritten);
-
+                                
                                 // Calculate throughput rate
                                 double rate = MetricUtils.calculateRate(startTime, System.nanoTime(), linesWritten);
                                 ret.put("mean_rate_of_writing", rate);

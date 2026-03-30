@@ -30,7 +30,6 @@ import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.mockito.Mockito.*;
 
 
 public class PredictTaskTest {
@@ -79,15 +78,30 @@ public class PredictTaskTest {
         }
     }
 
+    private static AlgorithmDefinition algorithmDefinition() {
+        String nestedClassPrefix = ExampleDecoderFactory.class.getDeclaringClass().getCanonicalName() + "$";
+        return new AlgorithmDefinition(
+                null,
+                new AlgorithmId("test-algorithm", "1.2.3"),
+                ImmutableMap.of(),
+                ImmutableMap.of(),
+                null,
+                nestedClassPrefix + ExampleDecoderFactory.class.getSimpleName(),
+                nestedClassPrefix + TestTransformer.class.getSimpleName(),
+                null,
+                nestedClassPrefix + TestRewardFunctionFactoroy.class.getSimpleName(),
+                null,
+                nestedClassPrefix + TestAlgorithmFactory.class.getSimpleName(),
+                Optional.<JsonNode>empty(),
+                Optional.<JsonNode>empty(),
+                Optional.<JsonNode>empty(),
+                Optional.<JsonNode>empty(),
+                Optional.<JsonNode>empty()
+        );
+    }
+
     @Test
     void noSampling() throws Exception {
-        AlgorithmDefinition mockedAlgoDef = mock(AlgorithmDefinition.class);
-        when(mockedAlgoDef.decoderFactoryName()).thenReturn(ExampleDecoderFactory.class.getDeclaringClass().getCanonicalName() +"$" + ExampleDecoderFactory.class.getSimpleName());
-        when(mockedAlgoDef.transformerFactoryName()).thenReturn(ExampleDecoderFactory.class.getDeclaringClass().getCanonicalName() +"$" + TestTransformer.class.getSimpleName());
-        when(mockedAlgoDef.rewardFunctionFactoryName()).thenReturn(ExampleDecoderFactory.class.getDeclaringClass().getCanonicalName() +"$" + TestRewardFunctionFactoroy.class.getSimpleName());
-        when(mockedAlgoDef.algorithmFactoryName()).thenReturn(ExampleDecoderFactory.class.getDeclaringClass().getCanonicalName() +"$" + TestAlgorithmFactory.class.getSimpleName());
-        when(mockedAlgoDef.algorithmId()).thenReturn(new AlgorithmId("test-algorithm", "1.2.3"));
-
         Options options = new Options();
         options.parameters = Paths.get(Objects.requireNonNull(this.getClass().getResource("test-algorithm-parameter.zip")).toURI()).toFile();
         options.sourceFiles = ImmutableMap.of("default", ImmutableList.of(Paths.get(Objects.requireNonNull(this.getClass().getResource("multiple")).toURI()).toFile()));
@@ -96,7 +110,7 @@ public class PredictTaskTest {
         options.destinationFile = tempFile;
 
         try{
-            OfflineTaskContext offlineTaskContext = new OfflineTaskContext(new URLClassLoader(new URL[0], this.getClass().getClassLoader()), new SimpleMeterRegistry(), options, mockedAlgoDef);
+            OfflineTaskContext offlineTaskContext = new OfflineTaskContext(new URLClassLoader(new URL[0], this.getClass().getClassLoader()), new SimpleMeterRegistry(), options, algorithmDefinition());
 
             PredictTask<? extends Example<?, ?>, Ranker<String, String>, String> testSubject = new PredictTask<>(offlineTaskContext);
 
@@ -110,13 +124,6 @@ public class PredictTaskTest {
 
     @Test
     void withSampling() throws Exception {
-        AlgorithmDefinition mockedAlgoDef = mock(AlgorithmDefinition.class);
-        when(mockedAlgoDef.decoderFactoryName()).thenReturn(ExampleDecoderFactory.class.getDeclaringClass().getCanonicalName() +"$" + ExampleDecoderFactory.class.getSimpleName());
-        when(mockedAlgoDef.transformerFactoryName()).thenReturn(ExampleDecoderFactory.class.getDeclaringClass().getCanonicalName() +"$" + TestTransformer.class.getSimpleName());
-        when(mockedAlgoDef.rewardFunctionFactoryName()).thenReturn(ExampleDecoderFactory.class.getDeclaringClass().getCanonicalName() +"$" + TestRewardFunctionFactoroy.class.getSimpleName());
-        when(mockedAlgoDef.algorithmFactoryName()).thenReturn(ExampleDecoderFactory.class.getDeclaringClass().getCanonicalName() +"$" + TestAlgorithmFactory.class.getSimpleName());
-        when(mockedAlgoDef.algorithmId()).thenReturn(new AlgorithmId("test-algorithm", "1.2.3"));
-
         Options options = new Options();
         options.parameters = Paths.get(Objects.requireNonNull(this.getClass().getResource("test-algorithm-parameter.zip")).toURI()).toFile();
         options.sourceFiles = ImmutableMap.of("default", ImmutableList.of(Paths.get(Objects.requireNonNull(this.getClass().getResource("multiple")).toURI()).toFile()));
@@ -126,7 +133,7 @@ public class PredictTaskTest {
         options.samples = 1987;
 
         try{
-            OfflineTaskContext offlineTaskContext = new OfflineTaskContext(new URLClassLoader(new URL[0], this.getClass().getClassLoader()), new SimpleMeterRegistry(), options, mockedAlgoDef);
+            OfflineTaskContext offlineTaskContext = new OfflineTaskContext(new URLClassLoader(new URL[0], this.getClass().getClassLoader()), new SimpleMeterRegistry(), options, algorithmDefinition());
 
             PredictTask<? extends Example<?, ?>, Ranker<String, String>, String> testSubject = new PredictTask<>(offlineTaskContext);
 
@@ -143,13 +150,6 @@ public class PredictTaskTest {
 
     @Test
     void shouldThrowExceptionWhenNoRowsWritten() throws Exception {
-        AlgorithmDefinition mockedAlgoDef = mock(AlgorithmDefinition.class);
-        when(mockedAlgoDef.decoderFactoryName()).thenReturn(ExampleDecoderFactory.class.getDeclaringClass().getCanonicalName() + "$" + ExampleDecoderFactory.class.getSimpleName());
-        when(mockedAlgoDef.transformerFactoryName()).thenReturn(ExampleDecoderFactory.class.getDeclaringClass().getCanonicalName() + "$" + TestTransformer.class.getSimpleName());
-        when(mockedAlgoDef.rewardFunctionFactoryName()).thenReturn(ExampleDecoderFactory.class.getDeclaringClass().getCanonicalName() + "$" + TestRewardFunctionFactoroy.class.getSimpleName());
-        when(mockedAlgoDef.algorithmFactoryName()).thenReturn(ExampleDecoderFactory.class.getDeclaringClass().getCanonicalName() + "$" + TestAlgorithmFactory.class.getSimpleName());
-        when(mockedAlgoDef.algorithmId()).thenReturn(new AlgorithmId("test-algorithm", "1.2.3"));
-
         Options options = new Options();
         options.parameters = Paths.get(Objects.requireNonNull(this.getClass().getResource("test-algorithm-parameter.zip")).toURI()).toFile();
         options.sourceFiles = ImmutableMap.of("default", ImmutableList.of(Paths.get(Objects.requireNonNull(this.getClass().getResource("multiple")).toURI()).toFile()));
@@ -157,14 +157,15 @@ public class PredictTaskTest {
         tempFile.deleteOnExit();
         options.destinationFile = tempFile;
 
-        OfflineTaskContext offlineTaskContext = new OfflineTaskContext(new URLClassLoader(new URL[0], this.getClass().getClassLoader()), new SimpleMeterRegistry(), options, mockedAlgoDef);
+        OfflineTaskContext offlineTaskContext = new OfflineTaskContext(new URLClassLoader(new URL[0], this.getClass().getClassLoader()), new SimpleMeterRegistry(), options, algorithmDefinition());
 
-        PredictTask<? extends Example<?, ?>, Ranker<String, String>, String> testSubject = spy(new PredictTask<>(offlineTaskContext));
+        PredictTask<? extends Example<?, ?>, Ranker<String, String>, String> testSubject = new PredictTask<>(offlineTaskContext) {
+            @Override
+            protected Map<String, Object> callOrderedFileMapper(OrderedFileMapper processor) {
+                return Map.of("total_record_count", 0L);
+            }
+        };
 
-        doReturn(Map.of("total_record_count", 0L)).when(testSubject)
-                .callOrderedFileMapper(any(OrderedFileMapper.class));
-
-        // Verify that the perform method throws an exception
         Exception exception = assertThrows(Exception.class, testSubject::perform);
         assertEquals("No rows have been written.", exception.getMessage());
     }

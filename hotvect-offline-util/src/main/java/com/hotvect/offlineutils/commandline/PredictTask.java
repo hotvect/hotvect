@@ -84,11 +84,12 @@ public class PredictTask<EXAMPLE extends Example<? extends OfflineRequest, ?>, A
     }
 
     private <EXAMPLE, ALGO, OUTCOME> Function<EXAMPLE, String> getOutputFormatter(ALGO algo, RewardFunction<OUTCOME> rewardFunction) {
+        boolean includeFeatureStoreResponses = offlineTaskContext.options().includeFeatureStoreResponses;
         if (algo instanceof Ranker ranker) {
-            return new RankingResultFormatter().apply(rewardFunction, ranker);
+            return new RankingResultFormatter(includeFeatureStoreResponses).apply(rewardFunction, ranker);
         } else if (algo instanceof BulkScorer bulkScorer) {
             Ranker ranker = new BulkScoreGreedyRanker(bulkScorer);
-            return new RankingResultFormatter().apply(rewardFunction, ranker);
+            return new RankingResultFormatter(includeFeatureStoreResponses).apply(rewardFunction, ranker);
         } else if (algo instanceof ThemedTopK themedTopK) {
             // Handle ThemedTopK
             return new ThemedTopKResultFormatter().apply(rewardFunction, themedTopK);

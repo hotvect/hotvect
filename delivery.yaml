@@ -5,23 +5,23 @@ allow_concurrent_steps: true
 dependencies:
   - id: python_base_image
     type: docker
-    ref: registry.opensource.zalan.do/library/python-3.11-slim
+    ref: python:3.11-slim
     autostart_on_update: true
   - id: jdk_base_image
     type: docker
-    ref: container-registry.zalando.net/library/eclipse-temurin-21-jdk
+    ref: eclipse-temurin:21-jdk
     autostart_on_update: true
 
 shared_vars: &SHARED_ENV
-  APPLICATION_ID: "lounge-relevance-service"
-  TEAM_ID: "lounge-relevance"
+  APPLICATION_ID: "example-service"
+  TEAM_ID: "example-team"
   UV_DOWNLOAD_PYTHON: "never"
   UV_NATIVE_TLS: true
-  UV_DEFAULT_INDEX: "https://pypi.zalando.net/repository/pypi/simple"
-  UV_PUBLISH_URL: "https://pypi.zalando.net/repository/pypi-internal/"
+  UV_DEFAULT_INDEX: "https://example.com/pypi/simple"
+  UV_PUBLISH_URL: "https://example.com/pypi/internal/"
   UV_PUBLISH_USERNAME: "root"
   UV_PUBLISH_PASSWORD: ""
-  HOTVECT_VERSION: "9.31.2"
+  HOTVECT_VERSION: "9.36.1"
   IMAGE_NAME: &IMAGE_NAME "#{CDP_ZAPPR_TEAM}/hotvect"
 
 pipeline:
@@ -78,7 +78,7 @@ pipeline:
     commands:
       - desc: "Checks install requirements"
         cmd: |
-          cd python
+          cd python 
           uv sync --frozen --all-extras
       - desc: "Copy hotvect offline util jar"
         cmd: |
@@ -105,7 +105,7 @@ pipeline:
         cmd: |
           DOCS_CHANGED=$(git diff --quiet  origin/"${CDP_TARGET_BRANCH}"..."${CDP_HEAD_COMMIT_ID}" -- docs || echo changed)
           if [ "$CDP_PULL_REQUEST_NUMBER" ] && [ "$DOCS_CHANGED" == "changed" ]; then
-            comment="Docs have changed. Preview is available under: https://hotvect.docs-test.zalando.net/pr/#{CDP_PULL_REQUEST_NUMBER}/"
+            comment="Docs have changed. Preview is available under: https://example.com/docs-preview/pr/#{CDP_PULL_REQUEST_NUMBER}/"
             git gh-comment "$comment"
           fi
     artifacts:
@@ -134,9 +134,9 @@ pipeline:
       - desc: "Verifies that building the docker image works and pushes to staging"
         cmd: |
           # Need to copy the certificates so requests to internal pypi work from the container
-          # https://nexus.docs.zalando.net/faq/#docker-build-is-unable-to-access-nexus-from-cdp
-          cp -r /usr/local/share/ca-certificates/cdp ./cdp-certs
-
+          # https://example.com/docs/faq/#docker-build-is-unable-to-access-nexus-from-cdp
+          cp -r /usr/local/share/ca-certificates/cdp ./cdp-certs 
+          
           EXTRA_VERSION=".dev${CDP_TARGET_REPOSITORY_COUNTER}"
           TAG="${CDP_REGISTRY}/${IMAGE_NAME}:${HOTVECT_VERSION}${EXTRA_VERSION}"
           uv run --project=python python/scripts/copy_jar.py
@@ -203,8 +203,8 @@ pipeline:
       <<: *SHARED_ENV
     commands:
       # Push to ZCR. See details: https://github.com/zalando-build/zflow-examples/blob/01150415d6135349fa577fcd0695c13e74b61924/sagemaker-custom-image/README.md
-      # https://cloud.docs.zalando.net/concepts/builds/#publishing-artifacts
-      # https://cloud.docs.zalando.net/concepts/builds/#zalando-container-registry-zcr-images
+      # https://example.com/docs/concepts/builds/#publishing-artifacts
+      # https://example.com/docs/concepts/builds/#zalando-container-registry-zcr-images
       - desc: "Copy hotvect offline util jar"
         cmd: |
           cdp-tool stash pop stashed
@@ -213,9 +213,9 @@ pipeline:
       - desc: "Verifies that building the docker image works and pushes to staging"
         cmd: |
           # Need to copy the certificates so requests to internal pypi work from the container
-          # https://nexus.docs.zalando.net/faq/#docker-build-is-unable-to-access-nexus-from-cdp
-          cp -r /usr/local/share/ca-certificates/cdp ./cdp-certs
-
+          # https://example.com/docs/faq/#docker-build-is-unable-to-access-nexus-from-cdp
+          cp -r /usr/local/share/ca-certificates/cdp ./cdp-certs 
+          
           TAG="${CDP_REGISTRY}/${IMAGE_NAME}:${HOTVECT_VERSION}"
           uv run --project=python python/scripts/copy_jar.py
           docker build --network=host -t ${TAG} --build-arg BASE_IMAGE=${DEP_PYTHON_BASE_IMAGE_REF} --build-arg BASE_IMAGE_VERSION=${DEP_PYTHON_BASE_IMAGE_VERSION} --build-arg BASE_JDK_IMAGE=${DEP_JDK_BASE_IMAGE_REF} --build-arg BASE_JDK_IMAGE_VERSION=${DEP_JDK_BASE_IMAGE_VERSION} .

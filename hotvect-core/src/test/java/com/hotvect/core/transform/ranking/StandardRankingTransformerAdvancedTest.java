@@ -122,7 +122,7 @@ class StandardRankingTransformerAdvancedTest {
         StandardRankingTransformer.Builder<TestShared, TestAction> builder =
                 StandardRankingTransformer.builder();
 
-        Computation<RankingRequest<TestShared, TestAction>, Result<String, String>> resultComputation =
+        Computation<RankingRequest<TestShared, TestAction>, Result<String, String>> resultComputation = 
             memoized -> new Result.Success<>("success");
 
         builder.withSharedComputation(TestNamespace.SHARED_COMPUTATION, resultComputation)
@@ -139,10 +139,10 @@ class StandardRankingTransformerAdvancedTest {
 
         List<TransformedAction<TestAction>> result = transformer.transform(computingRankingRequest);
         assertEquals(1, result.size());
-
+        
         NamespacedRecord<Namespace, Object> record = result.get(0).transformed();
         assertTrue(record.asMap().containsKey(TestNamespace.SHARED_COMPUTATION));
-
+        
         @SuppressWarnings("unchecked")
         Result<String, String> computationResult = (Result<String, String>) record.get(TestNamespace.SHARED_COMPUTATION);
         assertTrue(computationResult instanceof Result.Success);
@@ -218,7 +218,7 @@ class StandardRankingTransformerAdvancedTest {
                 StandardRankingTransformer.builder();
 
         // Create a chain of computations that depend on each other
-        builder.withSharedComputation(TestNamespace.SHARED_COMPUTATION,
+        builder.withSharedComputation(TestNamespace.SHARED_COMPUTATION, 
                 memoized -> memoized.getOriginalInput().shared().sharedField)
                 .withSharedComputation(TestNamespace.SHARED_FEATURE,
                         memoized -> memoized.compute(TestNamespace.SHARED_COMPUTATION) + "-processed")
@@ -249,7 +249,7 @@ class StandardRankingTransformerAdvancedTest {
         assertEquals(1, result.size());
 
         NamespacedRecord<Namespace, Object> record = result.get(0).transformed();
-        assertEquals("sharedData-processed:actionData-processed",
+        assertEquals("sharedData-processed:actionData-processed", 
                 record.get(TestNamespace.INTERACTION_FEATURE));
     }
 }

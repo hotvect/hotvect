@@ -285,6 +285,8 @@ class SagemakerTrainingExecutor:
             "last_test_time": self.algorithm_pipeline.last_test_time.isoformat(),
             "evaluation_func": self.algorithm_pipeline.evaluation_function.__name__,
             "parameter_version": self.algorithm_pipeline.parameter_version,
+            "encode_test_data": self.algorithm_pipeline.encode_test_data,
+            "execute_audit": self.algorithm_pipeline.execute_audit,
         }
         self.hyperparameters[ALGO_PIPELINE_HYPERPARAMETER_PREFIX] = json.dumps(algorithm_pipeline_params_to_send)
 
@@ -467,6 +469,8 @@ class SagemakerAlgorithmPipelineRebuilder:
             evaluation_func=mlutils.standard_evaluation,
             hyperparameter_version=None,
             parameter_version=algorithm_pipeline_params["parameter_version"],
+            execute_audit=algorithm_pipeline_params.get("execute_audit", False),
+            encode_test_data=algorithm_pipeline_params.get("encode_test_data", False),
         )
         return algorithm_pipeline
 
@@ -506,7 +510,7 @@ class SagemakerAlgorithmPipelineRebuilder:
         logger.info(f"Algorithm context got from Hyperparameters: {json.dumps(context_in_hyperparameters, indent=2)}")
         algorithm_pipeline_context = AlgorithmPipelineContext(
             algorithm_jar_path=Path(algorithm_jar_path),
-            state_soruce_base_path=state_resource_base_path,
+            state_source_base_path=state_resource_base_path,
             data_base_path=Path(self.sagemaker_env.input_dir).joinpath("data"),
             metadata_base_path=metadata_base_path,
             output_base_path=output_data_base_path,

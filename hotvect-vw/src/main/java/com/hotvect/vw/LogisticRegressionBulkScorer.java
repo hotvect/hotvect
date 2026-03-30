@@ -69,21 +69,21 @@ public class LogisticRegressionBulkScorer<SHARED, ACTION> implements ComputingBu
             } else {
                 List<ComputingCandidate<SHARED,ACTION>> actions = request.candidates();
                 int mid = actions.size() / 2;
-                var secondTask = new RecursiveScoringTask(
-                        new ComputingRankingRequest<>(
-                                request.rankingRequest(),
-                                request.shared(),
-                                actions.subList(mid, actions.size())
-                        )
-                );
+	                var secondTask = new RecursiveScoringTask(
+	                        new ComputingRankingRequest<>(
+	                                request.rankingRequest(),
+	                                request.shared(),
+	                                actions.subList(mid, actions.size())
+	                        )
+	                );
                 var secondResult = secondTask.fork();
-                var firstTask = new RecursiveScoringTask(
-                        new ComputingRankingRequest<>(
-                                request.rankingRequest(),
-                                request.shared(),
-                                actions.subList(0, mid)
-                        )
-                );
+	                var firstTask = new RecursiveScoringTask(
+	                        new ComputingRankingRequest<>(
+	                                request.rankingRequest(),
+	                                request.shared(),
+	                                actions.subList(0, mid)
+	                        )
+	                );
                 var firstResult = firstTask.compute();
                 firstResult.addAll(secondResult.join());
                 return firstResult;

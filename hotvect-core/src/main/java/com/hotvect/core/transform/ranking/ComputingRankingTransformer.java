@@ -34,3 +34,4 @@ public interface ComputingRankingTransformer<SHARED, ACTION> extends RankingTran
     List<TransformationMetadata> getTransformationMetadata();
 
 }
+

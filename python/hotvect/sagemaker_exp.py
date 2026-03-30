@@ -131,7 +131,7 @@ class SageMakerScriptExecutor:
         hyperparameters_file = self.hyperparameters_as_file(hyperparameters_copy)
 
         script_location = os.path.join(temp_dir, "custom.py")
-        return runshell(["python", script_location, hyperparameters_file], shell=True)
+        return runshell(["python", script_location, hyperparameters_file])
 
     def hyperparameters_as_file(self, hyperparameters: Dict[str, Any]):
         class StringEncoder(json.JSONEncoder):

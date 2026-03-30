@@ -5,6 +5,7 @@ setup(
     name="hotvect",
     packages=find_packages(exclude=("tests", "docs")),
     include_package_data=True,
+    license_files=["LICENSE", "NOTICE"],
     scripts=[
         "bin/hv",
         "bin/hv-ext",

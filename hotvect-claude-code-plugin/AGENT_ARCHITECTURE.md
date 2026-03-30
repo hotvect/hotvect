@@ -18,7 +18,7 @@ This provides:
 - `directories.output_base_dir` - Where training outputs go
 - `directories.scratch_dir` - Temporary backtest artifacts
 - `hotvect_source_dir` - Location of hotvect source (for venv)
-- `aws.credential_helper` - Command for AWS credential refresh
+- `aws.login_command` - Command for AWS credential refresh
 
 ### 2. Activate Virtual Environment
 

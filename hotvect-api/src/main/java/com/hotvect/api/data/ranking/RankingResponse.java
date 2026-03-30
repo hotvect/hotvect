@@ -19,7 +19,7 @@ public record RankingResponse<ACTION>(
         FeatureStoreResponseContainer featureStoreResponseContainer,
         Map<String, Object> additionalProperties
 ) implements Response<ACTION> {
-
+    
     @Override
     public List<RankingDecision<ACTION>> decisions() {
         return rankingDecisions;

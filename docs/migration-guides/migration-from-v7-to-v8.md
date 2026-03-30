@@ -124,7 +124,7 @@ Algorithm developers can now attach pre-computed ML features to the `AvailableAc
 Pre-computed features are seamlessly integrated into the memoization framework, allowing them to be accessed in the same way as other features.
 
 ### Addition of ThemedTopK support (beta)
-The concept of `ThemedTopK` has been added to allow TopK response to include an additional content (`theme`). For example, this can be used to communicate the name of a carousel to be displayed, in addition to what articles should be included in the carousel and in what order.
+The concept of `ThemedTopK` has been added to allow TopK response to include an additional content (`theme`). For example, this can be used to communicate the name of a carousel to be displayed, in addition to what articles should be included in the carousel and in what order. 
 
 ### Support for Multiple Data Sources in State Generation
 

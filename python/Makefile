@@ -1,9 +1,10 @@
 init:
-	uv sync --all-extras
+	uv sync --all-extras --group dev
 	cd ../ && mvn clean install -DskipTests && cd ./python
 	uv run scripts/copy_jar.py
 
 test:
+	uv sync --all-extras --group dev
 	cd ../ && mvn clean install -Pintegration-test && cd ./python
 	uv run scripts/copy_jar.py
 	uv run pytest --hypothesis-verbosity=verbose

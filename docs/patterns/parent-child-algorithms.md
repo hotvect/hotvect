@@ -247,6 +247,73 @@ A parent can have multiple child dependencies:
 
 All children are trained in order, and parent can use outputs from all of them.
 
+## Advanced: Sharing computed values across the dependency DAG (Computing + memoization)
+
+Parent/child composition is not just about *training orchestration*; it also affects *inference-time computation*.
+In Hotvect, an algorithm can call into dependency algorithms, and the whole structure can form a dependency **DAG**
+(parents → children → grandchildren …).
+
+### The key idea: pass a `ComputingRankingRequest` down the DAG
+
+Hotvect supports two ways of invoking a dependency scorer:
+- With a plain `RankingRequest` (no shared compute context is reused across boundaries)
+- With a `ComputingRankingRequest` (reuses the existing `Computing` contexts)
+
+When you call a dependency algorithm with a `ComputingRankingRequest`, the dependency algorithm sees the same
+`Computing.shared()` instance as its caller. This enables “compute once, reuse everywhere” across the whole DAG.
+
+### Memoized (lazy) computations: compute once by `Namespace`
+
+Transformations are addressed by `Namespace`. If a transformation is registered as memoized, then:
+- it will run at most once per request, and
+- the computed value is cached inside `Computing`.
+
+Any code (parent, child, grandchild) that calls `shared.compute(namespace)` will reuse that cached value.
+
+This is the preferred pattern for sharing derived values across dependency boundaries.
+
+### Eager transformations: prefetch once, then reuse
+
+Some work is intentionally eager (run up-front), for example:
+- fetching Feature Store views (one network call, available for multiple downstream computations)
+
+Hotvect supports registering one or more eager steps on a `StandardRankingTransformer` via:
+
+```java
+builder.withEagerTransformation(eagerId, eagerTransformation);
+```
+
+Where:
+- `eagerId` is a marker `Namespace` (not a feature namespace; it has no feature `ValueType`) used only to store `true` and indicate the eager step already ran.
+- `eagerTransformation` returns a map of namespaces (also not feature namespaces) containing “prefetched” values (e.g. Feature Store responses) for downstream computations.
+
+When a dependency algorithm is prepared using `prepare(ComputingRankingRequest)`:
+- for each registered eager step (in insertion order):
+  - if `eagerId` is already present as a shared precalculated value, the eager step is skipped
+  - otherwise, the eager step is executed, its results are stored as shared precalculated values, and `eagerId` is set to `true`
+
+Fail-fast behavior:
+- registering the same `eagerId` twice throws
+- if an eager step attempts to write to a namespace that already exists as a shared precalculated value, Hotvect throws
+- eager steps cannot produce ML feature namespaces directly (register a memoized/lazy computation that reads the eager output)
+
+#### Note on correctness: “same namespace” must mean “same value”
+
+Hotvect reuses eager results by checking whether `eagerId` is already present. This assumes the eager step’s output is
+correct for all downstream consumers (child algorithms, grandchildren, etc.). If the output content depends on
+configuration (for example: a Feature Store response that depends on which feature names were requested), then callers
+must ensure either:
+- all consumers agree on the same configuration, or
+- the eager producer computes a superset that satisfies all consumers.
+
+### Practical guidance
+
+- If you are writing a wrapper ranker/scorer that needs expensive shared data (e.g. Feature Store), fetch it once in the
+  wrapper and call the dependency scorer using the *Computing* APIs so reuse is possible.
+- Prefer memoized transformations for derived values and eager transformations for batch/prefetch-style external calls.
+- If you see duplicate external calls across dependency layers, check whether you are accidentally invoking a dependency
+  algorithm with a plain `RankingRequest` instead of a `ComputingRankingRequest`.
+
 ## See Also
 
 - [Override Files Pattern](./override-files.md) - Configure parent-child training

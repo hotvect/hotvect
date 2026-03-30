@@ -48,6 +48,12 @@ public class Options {
     @CommandLine.Option(names = {"--audit"}, description = "Produce audit output from source file.")
     public boolean audit;
 
+    @CommandLine.Option(
+            names = {"--include-feature-store-responses"},
+            description = "Include feature store responses in predict/audit output under additional_properties.__feature_store_responses"
+    )
+    public boolean includeFeatureStoreResponses;
+
     @CommandLine.Option(names = {"--ordered"}, description = "Whether the order in the output should strictly follow the order in the input")
     public boolean ordered;
 
@@ -154,6 +160,7 @@ public class Options {
                 ", listAvailableTransformations=" + listAvailableTransformations +
                 ", predict=" + predict +
                 ", audit=" + audit +
+                ", includeFeatureStoreResponses=" + includeFeatureStoreResponses +
                 ", ordered=" + ordered +
                 ", performanceTest=" + performanceTest +
                 ", generateStateTask='" + generateStateTask + '\'' +
