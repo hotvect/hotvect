@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
-from typing import List, Optional
 
 from pydantic import AliasChoices, BaseModel, Field
 
@@ -26,7 +25,7 @@ class VariantSpec(BaseModel):
 
 
 class ExperimentSpec(BaseModel):
-    variants: List[VariantSpec]
+    variants: list[VariantSpec]
     experiment_name: str
     number_of_shards: int
     ramp_up_percentage: int
@@ -73,7 +72,7 @@ class AlgorithmWithLatestParameter(BaseModel):
     absolute_s3_jar_path: str
     created_at: datetime
     algorithm_training_image_name: str
-    latest_algorithm_parameter: Optional[AlgorithmWithLatestParameterSpec]
+    latest_algorithm_parameter: AlgorithmWithLatestParameterSpec | None
 
 
 class AlgorithmStateLog(BaseModel):
@@ -95,57 +94,57 @@ class AlgorithmWithActiveVariantsResponse(BaseModel):
     absolute_s3_jar_path: str
     created_at: datetime
     algorithm_training_image_name: str
-    latest_algorithm_parameter: Optional[AlgorithmParameter]
-    variants: List[VariantInfoForActiveAlgorithms]
+    latest_algorithm_parameter: AlgorithmParameter | None
+    variants: list[VariantInfoForActiveAlgorithms]
 
 
 class Experiment(BaseModel):
     experiment_id: int
     experiment_name: str
     created_at: datetime
-    terminated_at: Optional[datetime]
-    variants: List[int]
-    ramp_up_percentage: Optional[int]
+    terminated_at: datetime | None
+    variants: list[int]
+    ramp_up_percentage: int | None
 
 
 class Variant(BaseModel):
     variant_id: int
     algorithm: Algorithm
-    experiment: Optional[Experiment]
+    experiment: Experiment | None
     created_at: datetime
-    terminated_at: Optional[datetime]
-    is_default: Optional[bool]
-    is_control: Optional[bool]
-    shard_allocation_ratio: Optional[int]
+    terminated_at: datetime | None
+    is_default: bool | None
+    is_control: bool | None
+    shard_allocation_ratio: int | None
 
 
 class VariantBasicDetails(BaseModel):
     variant_id: int
     algorithm: Algorithm
-    is_default: Optional[bool]
-    is_control: Optional[bool]
-    shard_allocation_ratio: Optional[int]
+    is_default: bool | None
+    is_control: bool | None
+    shard_allocation_ratio: int | None
 
 
 class ExperimentWithVariantDetails(BaseModel):
     experiment_id: int
     experiment_name: str
     created_at: datetime
-    terminated_at: Optional[datetime]
-    variants: List[VariantBasicDetails]
-    ramp_up_percentage: Optional[int]
+    terminated_at: datetime | None
+    variants: list[VariantBasicDetails]
+    ramp_up_percentage: int | None
 
 
 class Shard(BaseModel):
     shard_id: int
-    experiment: Optional[Experiment]
+    experiment: Experiment | None
     created_at: datetime
 
 
 class ShardLog(BaseModel):
     shard_log_id: int
     shard: Shard
-    experiment: Optional[Experiment]
+    experiment: Experiment | None
     created_at: datetime
 
 
@@ -159,14 +158,14 @@ class SlotSpec(BaseModel):
 class Slot(BaseModel):
     name: str
     created_at: datetime
-    salts: List[str]
+    salts: list[str]
 
 
 class SlotSalt(BaseModel):
     salt: str
     slot: Slot
     created_at: datetime
-    terminated_at: Optional[datetime]
+    terminated_at: datetime | None
 
 
 class SlotActiveInfoAlgorithmResponse(BaseModel):
@@ -186,16 +185,16 @@ class SlotActiveInfoVariantResponse(BaseModel):
     variant_id: int
     algorithm: SlotActiveInfoAlgorithmResponse
     created_at: datetime
-    is_default: Optional[bool]
-    is_control: Optional[bool]
-    shard_allocation_ratio: Optional[int]
+    is_default: bool | None
+    is_control: bool | None
+    shard_allocation_ratio: int | None
 
 
 class SlotActiveInfoExperimentResponse(BaseModel):
     experiment_id: int
     experiment_name: str
-    variants: List[SlotActiveInfoVariantResponse]
-    shards: List[SlotActiveInfoShardResponse]
+    variants: list[SlotActiveInfoVariantResponse]
+    shards: list[SlotActiveInfoShardResponse]
     ramp_up_percentage: int
     created_at: datetime
 
@@ -214,9 +213,9 @@ class SlotActiveInfo(BaseModel):
     slot_salt: str
     total_number_of_shards: int
     default_variant: SlotActiveInfoVariantResponse
-    experiments: List[SlotActiveInfoExperimentResponse]
-    user_forced_assignments: List[SlotActiveInfoUserForcedAssignmentResponse]
-    campaign_forced_assignments: List[SlotActiveInfoCampaignForcedAssignmentResponse]
+    experiments: list[SlotActiveInfoExperimentResponse]
+    user_forced_assignments: list[SlotActiveInfoUserForcedAssignmentResponse]
+    campaign_forced_assignments: list[SlotActiveInfoCampaignForcedAssignmentResponse]
 
 
 class UserForcedAssignment(BaseModel):
@@ -244,8 +243,8 @@ class ExperimentRampUpLog(BaseModel):
     experiment_ramp_up_log_id: int = Field(
         validation_alias=AliasChoices("experiment_ramp_up_log_id", "experiment_log_id")
     )
-    experiment: Optional[Experiment] = None
-    experiment_id: Optional[int] = None
+    experiment: Experiment | None = None
+    experiment_id: int | None = None
     ramp_up_percentage: int
-    terminated_at: Optional[datetime]
+    terminated_at: datetime | None
     created_at: datetime

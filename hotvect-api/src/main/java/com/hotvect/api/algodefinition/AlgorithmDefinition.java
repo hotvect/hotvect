@@ -39,6 +39,17 @@ public record AlgorithmDefinition(
         return Objects.requireNonNullElse(dependencies, warnMap);
     }
 
+    public boolean requiresLocalStateStorage() {
+        JsonNode requirement = rawAlgorithmDefinition.get("requires_local_state_storage");
+        if (requirement == null || requirement.isNull()) {
+            return false;
+        }
+        if (!requirement.isBoolean()) {
+            throw new IllegalArgumentException("requires_local_state_storage must be a boolean");
+        }
+        return requirement.asBoolean();
+    }
+
     public AlgorithmDefinition replace(Map<String, AlgorithmDefinition> dependencies) {
         return new AlgorithmDefinition(
                 this.rawAlgorithmDefinition(),

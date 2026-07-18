@@ -1,11 +1,12 @@
 ---
-title: How to Run and Compare Feature Audits
+title: Run and compare feature audits
 description: Generate human-readable feature outputs and compare algorithm versions
 tags: [audit, debugging, comparison, features, testing]
 difficulty: beginner
 estimated_time: 10 minutes
 prerequisites:
   - Algorithm JAR built and available
+  - Predict-parameters ZIP for the algorithm
   - Test data available in expected directory structure
   - hotvect CLI installed
 related_docs:
@@ -21,23 +22,38 @@ next_steps:
   - Update algorithm based on findings
 ---
 
-# How to: Run and compare feature audits
+# Run and compare feature audits
 
-## What are feature audits?
-Feature audits are a way to output feature values as readable json files. It outputs the same feature values as encoding, but in a human readable format. It is useful for debugging and comparing feature values between different algorithm versions.
+Use an audit when you need to prove where two algorithm versions first diverge in feature engineering. It emits
+human-readable JSONL for the same transformation path that encoding uses.
+
+## Audit contract
+
+| Inputs | Command | Artifacts | Verify |
+| --- | --- | --- | --- |
+| One algorithm JAR/name, predict-parameters ZIP, and source rows | `hv audit` | A destination directory containing `part-*.jsonl` and a metadata directory | Compare the matching part files with `hv-ext compare-jsonl` |
+
+Audit output is a **directory**, never a single `.jsonl` file. For a deterministic, row-for-row comparison, pass
+`--ordered` and compare `part-00000.jsonl` from each run.
+
+## Output shape
+
+Feature audits output transformed feature values as readable JSONL. Use them to locate the first transformation
+difference before comparing model scores or retraining results.
 
 For example, your algorithm might produce the following encoded training file:
 ```text
 0.0\tITEM_FAKE_001\tFAKE_LABEL_A\t32\t452\t0.12
 2.0\tITEM_FAKE_002\tFAKE_LABEL_A FAKE_LABEL_B\t3252\t12\t0.75
 ```
-This file is not very readable. With the audit function, you can produce the same value in json format as follows:
+The corresponding audit record is structured by example and action:
 
 ```json
 {
   "example_id": "00000000-0000-0000-0000-000000000000",
   "actions": [
     {
+      "action_id": "ITEM_FAKE_001",
       "reward": 0.0,
       "features": {
         "feature_categorical_01": "ITEM_FAKE_001",
@@ -50,6 +66,7 @@ This file is not very readable. With the audit function, you can produce the sam
       }
     },
     {
+      "action_id": "ITEM_FAKE_002",
       "reward": 2.0,
       "features": {
         "feature_categorical_01": "ITEM_FAKE_002",
@@ -66,44 +83,40 @@ This file is not very readable. With the audit function, you can produce the sam
 }
 ```
 
-## How to run feature audits
-The easiest way to run feature audits is to use the `hv audit` CLI command:
+## Run an audit
 
 ```bash
 hv audit \
-  --algorithm-jar ~/.m2/repository/com/yourcompany/your-algorithm/1.2.3/your-algorithm-1.2.3.jar \
-  --algorithm-name your-algorithm-click-model \
+  --algorithm-jar /path/to/algorithm-1.2.3.jar \
+  --algorithm-name <algorithm-name> \
+  --parameter-path /path/to/predict.parameters.zip \
   --metadata-path ./audit.1.2.3.meta \
-  --source-path training_data/dt=2024-01-06 \
-  --dest-path audit.1.2.3.jsonl \
+  --source-path training_data/dt=2000-01-06 \
+  --dest-path audit.1.2.3 \
+  --ordered \
   --samples 2
 ```
 
-The command will audit `--samples` from the source path. For reproducibility, keep `--source-path` and `--samples` fixed when comparing runs.
+The command audits `--samples` rows from the source path and writes `audit.1.2.3/part-00000.jsonl`. For
+reproducibility, keep `--source-path`, `--samples`, and ordering fixed when comparing runs.
 
 Artifacts are written under `--metadata-path/` (including `metadata.json` and `hotvect-offline-utils.log`). If you run audits via the `hv` CLI wrapper, hotvect also writes `hv.log` (Python logs) and `stdout-stderr.log` (raw subprocess output) there.
 
-If your audit requires a parameters ZIP, pass it via `--parameter-path` (hv forwards it to Java as `--parameters`).
+`hv audit` always requires a predict-parameters ZIP. Pass it with `--parameter-path`; Hotvect forwards it to Java as
+`--parameters`.
 
 
-If you need to override the algorithm definition, or specify different JVM options, you can run the java command directly as follows:
+Use `--algorithm-override` for a definition patch and place raw JVM arguments after `--`. The [CLI
+reference](../../reference/cli/index.md) lists the common options.
 
-```bash
-java -cp ~/.m2/repository/com/hotvect/hotvect-offline-util/x.y.z/hotvect-offline-util-x.y.z-jar-with-dependencies.jar -XX:MaxRAMPercentage=80 -XX:+ExitOnOutOfMemoryError \
-  com.hotvect.offlineutils.commandline.Main audit \
-  --algorithm-jar ~/.m2/repository/com/yourcompany/your-algorithm/1.2.3/your-algorithm-1.2.3.jar \
-  --algorithm-definition custom.algorithm.definition.json \
-  --metadata-path audit_metadata.1.2.3.metadata \
-  --source training_data \
-  --dest audit.1.2.3.jsonl \
-  --parameters encode.parameters.file.zip
-```
-
-## How to compare feature audits
+## Compare two audits
 To compare audit outputs from different algorithm versions, use `hv-ext compare-jsonl`:
 
 ```bash
-hv-ext compare-jsonl audit.1.2.3.jsonl audit.1.2.4.jsonl -o ./audit-diff | jq .
+hv-ext compare-jsonl \
+  audit.1.2.3/part-00000.jsonl \
+  audit.1.2.4/part-00000.jsonl \
+  -o ./audit-diff | jq .
 ```
 
 If there are differences between the two audit files, the command prints a JSON summary and (for the **first** differing line) writes three files under `-o/--output`:
@@ -114,10 +127,11 @@ If there are differences between the two audit files, the command prints a JSON 
 
 If the files are identical, it prints `{ "message": "The two files are identical" }` and does not write diff files.
 
-Note that the output is only generated for the first line that is different. Also, when the feature value is an array of integers or strings, the order of the elements in the array is not considered. They are considered equal if they have the same elements same number of times.
+The command writes detail files only for the first differing line. Arrays of integers or strings compare as multisets:
+order is ignored, but duplicate counts still matter.
 
 
-Example output:
+Example diff:
 ```json
 {
   "actions": [

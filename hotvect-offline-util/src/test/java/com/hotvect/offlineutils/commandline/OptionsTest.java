@@ -109,7 +109,37 @@ class OptionsTest {
                 "--dest", "encoded"
         );
 
-        Assertions.assertEquals(-1, encode.writerNumShards);
+        Assertions.assertEquals(-1, encode.ordering.writerNumShards);
+    }
+
+    @Test
+    void testEncodeDoesNotRequireParameters() {
+        Main.EncodeCommand encode = new Main.EncodeCommand();
+        CommandLine cmd = new CommandLine(encode);
+
+        cmd.parseArgs(
+                "--algorithm-jar", "algo.jar",
+                "--algorithm-definition", "algo",
+                "--source", "file1.txt",
+                "--dest", "encoded"
+        );
+
+        Assertions.assertNull(encode.parameters.parameters);
+    }
+
+    @Test
+    void testPredictDoesNotRequireParameters() {
+        Main.PredictCommand predict = new Main.PredictCommand();
+        CommandLine cmd = new CommandLine(predict);
+
+        cmd.parseArgs(
+                "--algorithm-jar", "algo.jar",
+                "--algorithm-definition", "algo",
+                "--source", "file1.txt",
+                "--dest", "prediction"
+        );
+
+        Assertions.assertNull(predict.parameters.parameters);
     }
 
     @Test
@@ -125,7 +155,7 @@ class OptionsTest {
                 "--writer-num-shards", "8"
         );
 
-        Assertions.assertEquals(8, encode.writerNumShards);
+        Assertions.assertEquals(8, encode.ordering.writerNumShards);
     }
 
     @Test
@@ -141,7 +171,7 @@ class OptionsTest {
                 "--writer-num-shards", "0"
         );
 
-        Assertions.assertEquals(0, encode.writerNumShards);
+        Assertions.assertEquals(0, encode.ordering.writerNumShards);
     }
 
     @Test
@@ -157,6 +187,41 @@ class OptionsTest {
                 "--writer-num-shards", "-1"
         );
 
-        Assertions.assertEquals(-1, encode.writerNumShards);
+        Assertions.assertEquals(-1, encode.ordering.writerNumShards);
+    }
+
+    @Test
+    void predictAndAuditRejectOrderedWithMoreThanOneWriterShard() {
+        CommandLine predictCmd = new CommandLine(new Main.PredictCommand());
+        ParameterException predictException = Assertions.assertThrows(
+                ParameterException.class,
+                () -> Main.validateOutputOrderingOptions(predictCmd.getCommandSpec(), true, false, 2)
+        );
+        Assertions.assertTrue(predictException.getMessage().contains("--writer-num-shards > 1"));
+
+        CommandLine auditCmd = new CommandLine(new Main.AuditCommand());
+        ParameterException auditException = Assertions.assertThrows(
+                ParameterException.class,
+                () -> Main.validateOutputOrderingOptions(auditCmd.getCommandSpec(), true, false, 2)
+        );
+        Assertions.assertTrue(auditException.getMessage().contains("single part file"));
+    }
+
+    @Test
+    void testSplitQueueLengthOptions() {
+        Main.EncodeCommand encode = new Main.EncodeCommand();
+        CommandLine cmd = new CommandLine(encode);
+        cmd.parseArgs(
+                "--algorithm-jar", "algo.jar",
+                "--algorithm-definition", "algo",
+                "--parameters", "params.zip",
+                "--source", "file1.txt",
+                "--dest", "encoded",
+                "--read-queue-length", "13",
+                "--write-queue-length", "17"
+        );
+
+        Assertions.assertEquals(13, encode.execution.readQueueLength);
+        Assertions.assertEquals(17, encode.execution.writeQueueLength);
     }
 }

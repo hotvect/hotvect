@@ -113,34 +113,46 @@ public class OrderedFileMapper extends VerboseCallable<Map<String, Object>> {
 
 
         try (Stream<String> source = readData(this.source)) {
-            // Render %d pattern to 0 for ordered single-file mode
-            File actualDest = dest;
-            if (dest.getName().contains("%d")) {
-                String renderedName = String.format(Locale.ROOT, dest.getName(), 0);
-                actualDest = new File(dest.getParent(), renderedName);
-            }
+            Throwable failure = null;
+            try {
+                // Render %d pattern to 0 for ordered single-file mode
+                File actualDest = dest;
+                if (dest.getName().contains("%d")) {
+                    String renderedName = String.format(Locale.ROOT, dest.getName(), 0);
+                    actualDest = new File(dest.getParent(), renderedName);
+                }
 
-            // Create parent directories if they don't exist (required for directory-based sharding)
-            File parentDir = actualDest.getParentFile();
-            if (parentDir != null && !parentDir.exists()) {
-                if (!parentDir.mkdirs()) {
-                    throw new IOException("Failed to create directory: " + parentDir);
+                // Create parent directories if they don't exist (required for directory-based sharding)
+                File parentDir = actualDest.getParentFile();
+                if (parentDir != null && !parentDir.exists()) {
+                    if (!parentDir.mkdirs()) {
+                        throw new IOException("Failed to create directory: " + parentDir);
+                    }
+                }
+
+                try (OutputStream out = new BufferedOutputStream(new FileOutputStream(actualDest), 128 << 10)) {
+                    process(source, processor, out, sampleCount);
+                }
+            } catch (Throwable e) {
+                // Something bad happened
+                failure = e;
+                LOGGER.error("Exception encountered", e);
+                processor.shutdownNow();
+                throw e;
+            } finally {
+                processor.shutdown();
+                try {
+                    // Keep the source stream open until the loader thread has fully stopped.
+                    processor.awaitTermination();
+                } catch (Exception e) {
+                    if (failure != null) {
+                        failure.addSuppressed(e);
+                    } else {
+                        throw e;
+                    }
                 }
             }
-
-            try (OutputStream out = new BufferedOutputStream(new FileOutputStream(actualDest), 128 << 10)) {
-                process(source, processor, out, sampleCount);
-            }
-        } catch (Throwable e) {
-            // Something bad happened
-            LOGGER.error("Exception encountered", e);
-            processor.shutdownNow();
-            throw e;
-        } finally {
-            processor.shutdown();
         }
-
-        processor.awaitTermination();
 
         Map<String, Object> metadata = new HashMap<>();
         metadata.put("total_record_count", recordCounter.sum());

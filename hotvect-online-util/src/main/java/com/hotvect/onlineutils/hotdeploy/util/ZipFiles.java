@@ -1,8 +1,6 @@
 package com.hotvect.onlineutils.hotdeploy.util;
 
 import com.google.common.collect.Iterators;
-import org.apache.commons.compress.archivers.zip.ZipArchiveEntry;
-import org.apache.commons.compress.archivers.zip.ZipFile;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -14,6 +12,8 @@ import java.util.function.Predicate;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipFile;
 
 public class ZipFiles {
     private ZipFiles() {
@@ -21,20 +21,20 @@ public class ZipFiles {
 
     public static InputStream readFromZipFirstMatching(ZipFile zipFile, String pattern) throws IOException {
         try {
-            ZipArchiveEntry ret = Collections.list(zipFile.getEntries()).stream().filter(x -> x.getName().matches(pattern)).iterator().next();
+            ZipEntry ret = Collections.list(zipFile.entries()).stream().filter(x -> x.getName().matches(pattern)).iterator().next();
             return zipFile.getInputStream(ret);
         } catch (NoSuchElementException e){
-            throw new IOException("Requested resource matching:" + pattern + " not found in zipfile with content:" + Collections.list(zipFile.getEntries()), e);
+            throw new IOException("Requested resource matching:" + pattern + " not found in zipfile with content:" + Collections.list(zipFile.entries()), e);
         }
     }
 
 
     public static InputStream readFromZipByName(ZipFile zipFile, String name) throws IOException {
         try {
-            ZipArchiveEntry ret = Iterators.getOnlyElement(Collections.list(zipFile.getEntries()).stream().filter(x -> name.equals(x.getName())).iterator());
+            ZipEntry ret = Iterators.getOnlyElement(Collections.list(zipFile.entries()).stream().filter(x -> name.equals(x.getName())).iterator());
             return zipFile.getInputStream(ret);
         } catch (NoSuchElementException e){
-            throw new IOException("Requested resource:" + name + " not found in zipfile with content:" + Collections.list(zipFile.getEntries()), e);
+            throw new IOException("Requested resource:" + name + " not found in zipfile with content:" + Collections.list(zipFile.entries()), e);
         }
     }
 
@@ -42,8 +42,8 @@ public class ZipFiles {
         return readFromZip(zipFile, _x -> true);
     }
 
-    public static Map<String, InputStream> readFromZip(ZipFile zipFile, Predicate<ZipArchiveEntry> filter) {
-        return Collections.list(zipFile.getEntries()).stream()
+    public static Map<String, InputStream> readFromZip(ZipFile zipFile, Predicate<ZipEntry> filter) {
+        return Collections.list(zipFile.entries()).stream()
                 .filter(filter)
                 .filter(x -> !x.isDirectory())
                 .collect(Collectors.toMap(
@@ -69,7 +69,7 @@ public class ZipFiles {
         String capturePattern = pattern.replace("\\/.+", "/(.+)");
         Pattern p = Pattern.compile(capturePattern);
 
-        return Collections.list(zipFile.getEntries()).stream()
+        return Collections.list(zipFile.entries()).stream()
                 .filter(x -> x.getName().matches(pattern))
                 .filter(x -> !x.isDirectory())
                 .collect(Collectors.toMap(

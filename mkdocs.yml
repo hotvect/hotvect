@@ -1,95 +1,130 @@
 site_name: Hotvect
-site_url: https://hotvect.docs.example.com
+site_description: An application framework and runtime for complete, composable decision algorithms.
 docs_dir: python/hotvect/mcp/bundled_docs/docs
 
 repo_url: https://github.com/zalando/hotvect
-repo_name: GitHub
-edit_uri: edit/v10-2026Jan/python/hotvect/mcp/bundled_docs/docs/
+repo_name: View on GitHub
+edit_uri: edit/v10/python/hotvect/mcp/bundled_docs/docs/
 
 nav:
-  - Home: index.md
-  - "What's New":
-      - Overview: whats-new/index.md
+  - Home:
+      - Overview: index.md
+      - What's new: whats-new/index.md
       - Hotvect v10: whats-new/v10/index.md
-  - Agents:
+  - Concepts:
+      - Overview: concepts/index.md
+      - Start here:
+          - How Hotvect works: concepts/how-hotvect-works/index.md
+          - Requests, decisions, and examples: concepts/data-model/index.md
+          - Complete algorithms: concepts/complete-algorithm/index.md
+          - Why Hotvect: concepts/motivation/index.md
+      - Components and lifecycle:
+          - Components and connections: concepts/dependencies-and-bindings/index.md
+          - Feature computation: concepts/feature-computation/index.md
+          - Packages and identity: concepts/artifacts-and-identity/index.md
+          - Configuration and experiments: concepts/configuration-and-experimentation/index.md
+          - Where it runs: concepts/execution-contexts/index.md
+      - Architecture:
+          - Overview: architecture/index.md
+          - Online runtime and embedding: architecture/online-runtime/index.md
+          - Offline lifecycle: architecture/offline-lifecycle/index.md
+          - Where components run: architecture/runtime-topologies/index.md
+          - Loading algorithm packages: concepts/jar-loading/index.md
+          - Status and direction: architecture/status-and-direction/index.md
+      - Advanced:
+          - Namespace identity: concepts/namespaces/index.md
+  - Build and run:
+      - Overview: guides/index.md
+      - Get started:
+          - Install Hotvect: guides/quickstart/index.md
+          - Run the product example: guides/first-run/index.md
+          - Study the product example: guides/example-product-algorithms/index.md
+          - Tour an existing algorithm: guides/first-workflow/index.md
+          - Prepare local development: guides/local-development-env/index.md
+      - Build algorithms:
+          - Build your first algorithm: guides/first-algorithm/index.md
+          - Train your first model-backed algorithm: guides/first-trainable-algorithm/index.md
+          - Compose your first algorithm: guides/first-composite-algorithm/index.md
+          - Build a TopK algorithm: guides/topk-algorithms/index.md
+          - Develop an algorithm: guides/develop-algorithms/index.md
+          - Generate a ranking transformer: guides/simple-ranking-transformer/index.md
+          - Parent-child algorithms: guides/patterns/parent-child/index.md
+      - Train, evaluate, and run:
+          - Generate runtime data: guides/state-generation/index.md
+          - Train locally: guides/local-train/index.md
+          - Backtest locally: guides/local-backtest/index.md
+          - Take a change to a live experiment: guides/change-to-live-experiment/index.md
+          - Pipeline stages: guides/pipeline-stages/index.md
+          - Caching: guides/caching/index.md
+          - Reuse previous outputs: guides/reuse-outputs/index.md
+          - Data dependencies: guides/patterns/data-dependencies/index.md
+          - Overrides: guides/patterns/override-files/index.md
+          - Branching and versioning: guides/patterns/branching-and-versioning/index.md
+      - Remote execution:
+          - SageMaker backtests: guides/sagemaker-backtests/index.md
+          - Parallel one-shot runs: guides/parallel-sagemaker-one-shot/index.md
+          - Custom SageMaker payloads: guides/sagemaker-upgrade-custom-py/index.md
+          - FlatMap UDF API: guides/sagemaker-udf/index.md
+  - Validate and investigate:
+      - Overview: guides/validate-and-investigate/index.md
+      - Evaluation metrics and uncertainty: reference/evaluation-metrics/index.md
+      - Performance benchmarking: guides/performance-benchmarking/index.md
+      - Performance investigations: guides/performance-investigations/index.md
+      - Performance and optimization: guides/performance-optimization/index.md
+      - Debug feature engineering: guides/debug-feature-engineering/index.md
+      - Feature audits: guides/feature-audits/index.md
+      - Predict with feature logging: guides/feature-logging/index.md
+      - Score equivalence testing: guides/score-equivalence/index.md
+      - Online/offline parity gaps: guides/online-offline-parity/index.md
+  - Serve and integrate:
+      - Overview: guides/serve-and-integrate/index.md
+      - Embed Hotvect in Java: guides/application-integration/index.md
+      - Integrate direct Python workers: design/direct-python-workers/index.md
+      - Debug an algorithm in the browser: guides/local-algorithm-debugging/index.md
+  - Agent workflow:
       - Overview: agents/index.md
       - Contracts:
           - Overview: agents/contracts/index.md
           - Documentation sanitization: agents/contracts/documentation-sanitization/index.md
       - Runbooks:
+          - Overview: agents/runbooks/index.md
           - Local backtest: agents/runbooks/local-backtest/index.md
           - Local train: agents/runbooks/local-train/index.md
           - SageMaker backtest: agents/runbooks/sagemaker-backtest/index.md
-          - Docs build & preview: agents/runbooks/docs-build/index.md
-          - Debugging & logs: agents/runbooks/debugging/index.md
-  - Guides:
-      - Overview: guides/index.md
-      - Getting started:
-          - Quickstart: guides/quickstart/index.md
-          - Pipeline stages: guides/pipeline-stages/index.md
-          - Develop algorithms: guides/develop-algorithms/index.md
-          - Simple ranking transformer: guides/simple-ranking-transformer/index.md
-      - Workflows:
-          - Caching: guides/caching/index.md
-          - Performance and optimization: guides/performance-optimization/index.md
-          - Reuse previous outputs: guides/reuse-outputs/index.md
-          - Predict with feature logging: guides/feature-logging/index.md
-          - Dump transformations metadata: guides/dump-transformations/index.md
-      - Debugging:
-          - Debug feature engineering: guides/debug-feature-engineering/index.md
-          - Feature audits: guides/feature-audits/index.md
-          - Score equivalence testing: guides/score-equivalence/index.md
-          - Online/offline parity gaps: guides/online-offline-parity/index.md
-      - SageMaker:
-          - SageMaker backtests: guides/sagemaker-backtests/index.md
-          - Run UDF on SageMaker: guides/sagemaker-udf/index.md
-          - Upgrade Hotvect on SageMaker (custom.py): guides/sagemaker-upgrade-custom-py/index.md
-      - Tools:
-          - Use Hotvect Docs MCP (Codex): guides/docs-mcp/index.md
-      - Patterns:
-          - Data dependencies: guides/patterns/data-dependencies/index.md
-          - Branching and versioning: guides/patterns/branching-and-versioning/index.md
-          - Override files: guides/patterns/override-files/index.md
-          - Parent-child algorithms: guides/patterns/parent-child/index.md
+          - Debugging and logs: agents/runbooks/debugging/index.md
+          - Docs build and preview: agents/runbooks/docs-build/index.md
+      - Docs MCP: guides/docs-mcp/index.md
   - Reference:
-      - CLI: reference/cli/index.md
+      - Overview: reference/index.md
+      - Glossary: reference/glossary/index.md
+      - Command-line interfaces: reference/cli/index.md
+      - Java API map: reference/java-api/index.md
+      - Python EMS client: reference/python-ems-client/index.md
       - Configuration: reference/config/index.md
       - Version compatibility: reference/version-compatibility/index.md
-      - Algorithm definition (contract): reference/algorithm-definition/index.md
+      - Algorithm definition reference: reference/algorithm-definition/index.md
+      - Generated transformer backends: reference/generated-transformer-backends/index.md
       - FAQ: reference/faq/index.md
       - Troubleshooting: reference/troubleshooting/index.md
-  - Concepts:
-      - Overview: concepts/index.md
-      - Motivation: concepts/motivation/index.md
-      - Namespaces: concepts/namespaces/index.md
-      - JAR loading: concepts/jar-loading/index.md
-  - Design:
-      - Overview: design/index.md
-      - Automatic SageMaker Configuration: design/sagemaker-configuration/index.md
-      - Script-mode standardization: design/script-mode-standardization/index.md
-      - SageMaker InputDataConfig Solution: design/sagemaker-inputdataconfig/index.md
-      - Encoding Output Layout: design/encoding-output-layout/index.md
-      - GZIP Support: design/gzip-support/index.md
-      - Algorithm Demo UI: design/algorithm-demo-ui/index.md
-      - Direct Python Workers (UDS IPC): design/direct-python-workers/index.md
-  - Archive:
-      - Overview: archive/index.md
-      - Design (archived):
-          - Legacy auto-attach data: archive/design/legacy-auto-attach-data/index.md
-          - Backport plan (v10-2025Oct → v9): archive/design/backport-plan/index.md
-      - Legacy tutorials: archive/tutorials/index.md
+      - Project internals:
+          - Release and version Hotvect: guides/develop-hotvect/index.md
+          - Design overview: design/index.md
+          - Automatic SageMaker configuration: design/sagemaker-configuration/index.md
+          - custom.py payload contract: design/script-mode-standardization/index.md
+          - SageMaker InputDataConfig: design/sagemaker-inputdataconfig/index.md
+          - Encoding output layout: design/encoding-output-layout/index.md
+          - GZIP support: design/gzip-support/index.md
       - Migrations:
-          - v9 → v10: archive/migrations/v9-to-v10/index.md
-          - v7 → v8: archive/migrations/v7-to-v8/index.md
-      - Blog:
-          - What is hotvect?: archive/blog/what-is-hotvect/index.md
-          - Why Java?: archive/blog/why-java/index.md
+          - Overview: migrations/index.md
+          - Ranking action IDs: migrations/ranking-action-ids/index.md
+          - v9 → v10: migrations/v9-to-v10/index.md
 
 theme:
   name: material
+  custom_dir: python/hotvect/mcp/bundled_docs/overrides
   font: false
-  favicon: hot_pepper.png
-  logo: hot_pepper.png
+  favicon: hotvect-pepper.svg
+  logo: hotvect-pepper.svg
   icon:
     repo: fontawesome/brands/github
   features:
@@ -97,24 +132,26 @@ theme:
     - navigation.instant.progress
     - navigation.tracking
     - navigation.tabs
-    - navigation.indexes
+    - navigation.tabs.sticky
     - navigation.sections
     - navigation.top
+    - navigation.footer
     - toc.follow
     - search.suggest
     - search.highlight
     - content.code.copy
+    - content.action.edit
   palette:
     - media: "(prefers-color-scheme: light)"
       scheme: default
-      primary: black
+      primary: deep orange
       accent: deep orange
       toggle:
         icon: material/weather-night
         name: Switch to dark mode
     - media: "(prefers-color-scheme: dark)"
       scheme: slate
-      primary: black
+      primary: deep orange
       accent: deep orange
       toggle:
         icon: material/weather-sunny

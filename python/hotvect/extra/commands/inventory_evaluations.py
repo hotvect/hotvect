@@ -10,17 +10,17 @@ import json
 import re
 from dataclasses import dataclass
 from datetime import date, timedelta
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any
 
 from hotvect.extra.config import resolve_meta_dir
 
 from .base import BaseCommand
 
 
-def _iter_days(from_date: date, to_date: date) -> List[date]:
+def _iter_days(from_date: date, to_date: date) -> list[date]:
     lo = min(from_date, to_date)
     hi = max(from_date, to_date)
-    out: List[date] = []
+    out: list[date] = []
     cur = lo
     while cur <= hi:
         out.append(cur)
@@ -28,7 +28,7 @@ def _iter_days(from_date: date, to_date: date) -> List[date]:
     return out
 
 
-def _parse_last_test_date_dirname(dirname: str) -> Optional[str]:
+def _parse_last_test_date_dirname(dirname: str) -> str | None:
     prefix = "last_test_date_"
     if not dirname.startswith(prefix):
         return None
@@ -49,19 +49,19 @@ class _RunSummary:
     run_dir: str
     result_json_path: str
     result_json_exists: bool
-    result_json_json_ok: Optional[bool]
-    hyperparameter_version: Optional[str]
-    parameter_version: Optional[str]
-    test_data_time: Optional[str]
-    contents: Dict[str, Any]
-    errors: List[str]
+    result_json_json_ok: bool | None
+    hyperparameter_version: str | None
+    parameter_version: str | None
+    test_data_time: str | None
+    contents: dict[str, Any]
+    errors: list[str]
 
 
 def _extract_identity_from_algorithm_id(
-    algorithm_id: Optional[str],
+    algorithm_id: str | None,
     *,
-    hyperparameter_version: Optional[str],
-) -> Dict[str, Any]:
+    hyperparameter_version: str | None,
+) -> dict[str, Any]:
     """Extract {algorithm_id, algorithm_name, algorithm_version} from algorithm_id.
 
     If hyperparameter_version is known and algorithm_id ends with "-<hyperparameter_version>",
@@ -80,7 +80,7 @@ def _extract_identity_from_algorithm_id(
     return {"algorithm_id": algorithm_id, "algorithm_name": algorithm_name, "algorithm_version": rest}
 
 
-def _content_status(obj: Any) -> Tuple[str, Optional[str]]:
+def _content_status(obj: Any) -> tuple[str, str | None]:
     """Return (status, error) for a result.json section.
 
     Status is one of: missing, present, skipped, invalid.
@@ -94,8 +94,8 @@ def _content_status(obj: Any) -> Tuple[str, Optional[str]]:
     return "invalid", f"Unexpected type: {type(obj).__name__}"
 
 
-def _extract_metrics_from_nested(obj: Any, prefix: str = "") -> Dict[str, float]:
-    metrics: Dict[str, float] = {}
+def _extract_metrics_from_nested(obj: Any, prefix: str = "") -> dict[str, float]:
+    metrics: dict[str, float] = {}
     if not isinstance(obj, dict):
         return metrics
 
@@ -155,12 +155,12 @@ class ListAvailableResultsCommand(BaseCommand):
             raise ValueError("--from-date must be <= --to-date")
 
         # We don't precompute the full day set unless both sides are provided. Otherwise, we do one-sided checks.
-        day_set: Optional[Set[str]] = None
+        day_set: set[str] | None = None
         if from_date and to_date:
             day_set = {d.isoformat() for d in _iter_days(from_date, to_date)}
 
-        algorithms_seen: Set[str] = set()
-        runs: List[_RunSummary] = []
+        algorithms_seen: set[str] = set()
+        runs: list[_RunSummary] = []
 
         if not meta_dir.exists():
             raise FileNotFoundError(f"--meta-dir does not exist: {meta_dir}")
@@ -192,16 +192,16 @@ class ListAvailableResultsCommand(BaseCommand):
                         continue
 
                 result_path = run_dir / "result.json"
-                contents: Dict[str, Any] = {
+                contents: dict[str, Any] = {
                     "quality": {"status": "missing"},
                     "system_performance": {"status": "missing"},
                 }
-                errors: List[str] = []
+                errors: list[str] = []
                 result_json_exists = result_path.exists()
-                result_json_json_ok: Optional[bool] = None
-                hyper_v: Optional[str] = None
-                parameter_v: Optional[str] = None
-                test_data_time: Optional[str] = None
+                result_json_json_ok: bool | None = None
+                hyper_v: str | None = None
+                parameter_v: str | None = None
+                test_data_time: str | None = None
 
                 if not result_json_exists:
                     runs.append(

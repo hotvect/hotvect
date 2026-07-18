@@ -36,6 +36,7 @@ public class CatBoostEncoder<SHARED, ACTION, OUTCOME> implements RankingExampleE
         ComputingRankingRequest<SHARED, ACTION> memoized = transformer.prepare(toEncode.request());
         List<TransformedAction<ACTION>> transformedActions = transformer.transform(memoized);
         return CatBoostEncodingUtils.encodeRows(
+                toEncode.request().actions(),
                 transformedActions,
                 toEncode.outcomes(),
                 transformer.getUsedFeatures(),

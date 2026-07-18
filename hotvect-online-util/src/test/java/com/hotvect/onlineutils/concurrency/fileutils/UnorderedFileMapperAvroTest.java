@@ -64,8 +64,8 @@ class UnorderedFileMapperAvroTest {
 
         File dest = Files.createTempFile("avro-test-output", ".txt").toFile();
         dest.deleteOnExit();
-        File shardFile = new File(dest.getParentFile(), "shard_0.txt");
-        shardFile.deleteOnExit();
+        File partFile = new File(dest.getParentFile(), "part-00000.txt");
+        partFile.deleteOnExit();
 
         try {
             UnorderedFileMapper<String> testSubject = UnorderedFileMapper.builder(source, dest, transformFun)
@@ -77,14 +77,14 @@ class UnorderedFileMapperAvroTest {
             assertEquals(6L, result.get("lines_read"));
             assertEquals(2, result.get("number_of_files_read"));
 
-            List<String> outputLines = FileUtils.readLines(shardFile).toList();
+            List<String> outputLines = FileUtils.readLines(partFile).toList();
             assertEquals(8, outputLines.size());
 
             Set<String> expectedValues = new HashSet<>(List.of("1", "2", "3", "5", "6"));
             assertTrue(outputLines.containsAll(expectedValues));
         } finally {
             dest.delete();
-            shardFile.delete();
+            partFile.delete();
             source.forEach(File::delete);
         }
     }
@@ -101,8 +101,8 @@ class UnorderedFileMapperAvroTest {
 
         File dest = Files.createTempFile("avro-snappy-test-output", ".txt").toFile();
         dest.deleteOnExit();
-        File shardFile = new File(dest.getParentFile(), "shard_0.txt");
-        shardFile.deleteOnExit();
+        File partFile = new File(dest.getParentFile(), "part-00000.txt");
+        partFile.deleteOnExit();
 
         try {
             UnorderedFileMapper<String> testSubject = UnorderedFileMapper.builder(source, dest, transformFun)
@@ -114,7 +114,7 @@ class UnorderedFileMapperAvroTest {
             assertEquals(10L, result.get("lines_read"));
             assertEquals(2, result.get("number_of_files_read"));
 
-            List<String> outputLines = FileUtils.readLines(shardFile).toList();
+            List<String> outputLines = FileUtils.readLines(partFile).toList();
             assertTrue(outputLines.size() > 10); // Should have records + hashed values
 
             // Verify content: values not divisible by 4 should be present
@@ -125,7 +125,7 @@ class UnorderedFileMapperAvroTest {
             }
         } finally {
             dest.delete();
-            shardFile.delete();
+            partFile.delete();
             source.forEach(File::delete);
         }
     }
@@ -142,8 +142,8 @@ class UnorderedFileMapperAvroTest {
 
         File dest = Files.createTempFile("avro-deflate-test-output", ".txt").toFile();
         dest.deleteOnExit();
-        File shardFile = new File(dest.getParentFile(), "shard_0.txt");
-        shardFile.deleteOnExit();
+        File partFile = new File(dest.getParentFile(), "part-00000.txt");
+        partFile.deleteOnExit();
 
         try {
             UnorderedFileMapper<String> testSubject = UnorderedFileMapper.builder(source, dest, transformFun)
@@ -155,7 +155,7 @@ class UnorderedFileMapperAvroTest {
             assertEquals(6L, result.get("lines_read"));
             assertEquals(2, result.get("number_of_files_read"));
 
-            List<String> outputLines = FileUtils.readLines(shardFile).toList();
+            List<String> outputLines = FileUtils.readLines(partFile).toList();
             // Values: 10, 20, 30, 40, 50, 60
             // 20, 40, 60 divisible by 4 -> filtered out
             // 30 divisible by 3 -> only value
@@ -169,7 +169,7 @@ class UnorderedFileMapperAvroTest {
             }
         } finally {
             dest.delete();
-            shardFile.delete();
+            partFile.delete();
             source.forEach(File::delete);
         }
     }

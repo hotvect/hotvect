@@ -18,3 +18,11 @@ docs-build:
 
 docs-serve:
 	bash scripts/docs.sh serve
+
+bump-version:
+	@if [ -z "$(VERSION)" ]; then \
+		echo "Usage: make bump-version VERSION=<major|minor|patch|X.Y.Z>"; \
+		exit 1; \
+	fi
+	uv run scripts/bump_versions.py "$(VERSION)"
+	uv lock

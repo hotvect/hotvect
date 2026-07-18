@@ -43,20 +43,22 @@ Examples:
   hv-ext compare-jsonl file1.jsonl file2.jsonl -c renamings.json
 
   # Compare predict score/rank equivalence
-  hv-ext compare-equivalence baseline.predict.jsonl treatment.predict.jsonl
-  hv-ext compare-equivalence baseline.predict.jsonl treatment.predict.jsonl --allow-non-deterministic-tie-breaking
+  hv-ext compare-equivalence baseline.predict/part-00000.jsonl treatment.predict/part-00000.jsonl
+  hv-ext compare-equivalence baseline.predict/part-00000.jsonl treatment.predict/part-00000.jsonl --allow-non-deterministic-tie-breaking
 
   # List/download result.json runs (local meta dir or s3:// prefix)
-  hv-ext results ls s3://bucket/path/ --from-date "2026-02-15" --to-date "2026-02-15" --algorithm-name-regex "example-algorithm" --algorithm-version-regex "74\\.4\\..*" --job-name-regex "ml-exp-.*"
-  hv-ext results download s3://bucket/path/ --dest-base-dir "./results" --from-date "2026-02-15" --to-date "2026-02-15" --algorithm-name-regex "example-algorithm" --algorithm-version-regex "74\\.4\\..*" --job-name-regex "ml-exp-.*" --include-metadata
+  hv-ext results ls s3://example-bucket/path/ --from-date "2026-02-15" --to-date "2026-02-15" --algorithm-name-regex "example-algorithm" --algorithm-version-regex "74\\.4\\..*" --job-name-regex "example-job-.*"
+  hv-ext results download s3://example-bucket/path/ --dest-base-dir "./results" --from-date "2026-02-15" --to-date "2026-02-15" --algorithm-name-regex "example-algorithm" --algorithm-version-regex "74\\.4\\..*" --job-name-regex "example-job-.*" --include-metadata
 
   # Show or download data dependencies (default: list as JSON)
   hv-ext data-dependency --repo-url https://github.com/user/algorithm.git --git-reference v77.0.0 --s3-base-dir s3://bucket/data/ --local-data-dir ./data --scratch-dir ./temp --last-test-time 2025-04-30
+  hv-ext data-dependency --target predict --repo-url https://github.com/user/algorithm.git --git-reference v77.0.0 --s3-base-dir s3://bucket/data/ --local-data-dir ./data --scratch-dir ./temp --last-test-time 2025-04-30
   hv-ext data-dependency --download-all --repo-url https://github.com/user/algorithm.git --git-reference v77.0.0 --s3-base-dir s3://bucket/data/ --local-data-dir ./data --scratch-dir ./temp --last-test-time 2025-04-30
   hv-ext data-dependency --download training_data --repo-url https://github.com/user/algorithm.git --git-reference v77.0.0 --s3-base-dir s3://bucket/data/ --local-data-dir ./data --scratch-dir ./temp --last-test-time 2025-04-30 --sample-ratio 0.1
 
   # Show data dependencies for SageMaker InputDataConfig construction
   hv-ext show-data-dependency --repo-url https://github.com/user/algorithm.git --git-reference v77.0.0 --scratch-dir ./temp --last-test-time 2025-04-30
+  hv-ext show-data-dependency --target predict --repo-url https://github.com/user/algorithm.git --git-reference v77.0.0 --scratch-dir ./temp --last-test-time 2025-04-30
   hv-ext show-data-dependency --repo-url https://github.com/user/algorithm.git --git-reference v77.0.0 --git-reference v64.4.0 --scratch-dir ./temp --last-test-time 2025-04-30 > dependencies.json
 
 Use 'hv-ext <command> -h' to see help for each command.

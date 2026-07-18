@@ -29,6 +29,18 @@ test.describe('demo UI API', () => {
     expect(typeof body.examples_count).toBe('number');
   });
 
+  test('returns effective definition and packaged parameter metadata', async ({ request }) => {
+    const resp = await request.get('/api/demo/runtime-metadata');
+    expect(resp.ok()).toBeTruthy();
+    const body = await resp.json();
+
+    expect(body.algorithm_runtime_id).toContain('demo-ranker@1.0.0');
+    expect(body.effective_algorithm_definition.algorithm_name).toBe('demo-ranker');
+    expect(body.effective_algorithm_definition.algorithm_version).toBe('1.0.0');
+    expect(body.parameter_metadata.algorithm_name).toBe('demo-ranker');
+    expect(body.parameter_metadata.parameter_id).toBe('e2e-local');
+  });
+
   test('rejects missing example_index', async ({ request }) => {
     const resp = await request.post('/api/run', { data: {} });
     expect(resp.status()).toBe(400);

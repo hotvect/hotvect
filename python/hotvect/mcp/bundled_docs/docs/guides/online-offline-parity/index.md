@@ -12,7 +12,6 @@ related_docs:
   - ../feature-audits/index.md
   - ../feature-logging/index.md
   - ../score-equivalence/index.md
-  - ../../agents/runbooks/debugging/index.md
 related_commands:
   - hv predict
   - hv audit
@@ -72,6 +71,11 @@ This tells you whether the problem is:
 - a real online/offline parity gap inside one version, or
 - a genuine model difference between two versions.
 
+When reading Hotvect `result.json`, an online metric dimension appears only if it is present for **every** scored
+prediction row. A partially populated dimension is omitted rather than evaluated on a moving subset. Treat a missing
+dimension as “not comparable,” not as zero performance or evidence that parity is good; inspect the input/logging
+contract first.
+
 ## 3. Use `hv audit` and `hv predict` for offline localization
 
 When replay parity is bad, localize the first mismatch offline:
@@ -86,8 +90,10 @@ Recommended pattern:
 hv audit \
   --algorithm-jar /path/to/algo.jar \
   --algorithm-name <algorithm-name> \
+  --parameter-path /path/to/live.parameters.zip \
   --source-path /path/to/live-sampled-rows.jsonl.gz \
-  --dest-path replay.audit.jsonl \
+  --dest-path replay.audit \
+  --ordered \
   --samples 100
 
 hv predict --log-features \
@@ -95,7 +101,8 @@ hv predict --log-features \
   --algorithm-name <algorithm-name> \
   --parameter-path /path/to/live.parameters.zip \
   --source-path /path/to/live-sampled-rows.jsonl.gz \
-  --dest-path replay.predict.jsonl \
+  --dest-path replay.predict \
+  --ordered \
   --samples 100
 ```
 
@@ -139,13 +146,12 @@ Good examples:
 ```json
 {
   "additional_properties": {
-    "ext_diag_candidate_request_count": 24,
-    "ext_diag_history_request_count": 17,
-    "ext_diag_history_entity_count": 0,
-    "ext_diag_history_failure": "Duplicate key {entity_id=...}",
-    "ext_diag_candidate_only_fallback": true,
-    "model_input_sample_meta_json": "[{\"candidate_id\":\"A1\",\"candidate_index\":0,\"score\":0.0386}]",
-    "model_input_sample_tsv": "NaN\t0.123\tCateg_A\t..."
+    "dependency_request_count": 8,
+    "dependency_result_count": 0,
+    "dependency_failure": "example failure",
+    "fallback_used": true,
+    "feature_sample_meta_json": "[{\"action_id\":\"ITEM_FAKE_001\",\"action_index\":0}]",
+    "feature_sample_tsv": "0.25\tFAKE_VALUE_A\t..."
   }
 }
 ```
@@ -234,3 +240,10 @@ This lets you prove the issue is gone without mixing proof code into the long-li
   - instrument the live request path,
   - log request counts, entity counts, failures, and sampled model input,
   - test in a shadow environment before restarting the main rollout.
+
+## Continue the investigation
+
+- [Feature audits](../feature-audits/index.md) compare named transformed values on a bounded input.
+- [Score equivalence testing](../score-equivalence/index.md) tests whether two artifact paths preserve scores.
+- [Embed Hotvect in Java](../application-integration/index.md) identifies the application-owned adapters and bindings
+  that an offline replay does not reproduce automatically.

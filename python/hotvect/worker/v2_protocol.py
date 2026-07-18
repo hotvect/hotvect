@@ -1,17 +1,17 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Sequence
+from typing import Any
 
 
 @dataclass(frozen=True)
 class TensorSpec:
     name: str
     datatype: str
-    shape: List[int]
+    shape: list[int]
 
-    def metadata(self) -> Dict[str, Any]:
+    def metadata(self) -> dict[str, Any]:
         return {
             "name": self.name,
             "datatype": self.datatype,
@@ -34,7 +34,7 @@ def validate_request_envelope(request: Any) -> Mapping[str, Any]:
     return request
 
 
-def parse_requested_output_names(request: Mapping[str, Any], allowed_names: Iterable[str]) -> List[str]:
+def parse_requested_output_names(request: Mapping[str, Any], allowed_names: Iterable[str]) -> list[str]:
     allowed = list(allowed_names)
     allowed_set = set(allowed)
 
@@ -46,7 +46,7 @@ def parse_requested_output_names(request: Mapping[str, Any], allowed_names: Iter
     if not raw_outputs:
         return allowed
 
-    requested: List[str] = []
+    requested: list[str] = []
     seen = set()
     for index, item in enumerate(raw_outputs):
         if not isinstance(item, Mapping):
@@ -63,13 +63,13 @@ def parse_requested_output_names(request: Mapping[str, Any], allowed_names: Iter
     return requested
 
 
-def parse_inputs_by_name(request: Mapping[str, Any], expected_specs: Sequence[TensorSpec]) -> Dict[str, Any]:
+def parse_inputs_by_name(request: Mapping[str, Any], expected_specs: Sequence[TensorSpec]) -> dict[str, Any]:
     raw_inputs = request.get("inputs")
     if not isinstance(raw_inputs, list):
         raise ValueError("request.inputs must be a list")
 
     expected_by_name = {spec.name: spec for spec in expected_specs}
-    inputs_by_name: Dict[str, Any] = {}
+    inputs_by_name: dict[str, Any] = {}
     seen = set()
 
     for index, raw_input in enumerate(raw_inputs):
@@ -133,7 +133,7 @@ def batch_size_from_inputs(inputs_by_name: Mapping[str, Any], expected_specs: Se
     return batch_size
 
 
-def build_output_tensor(spec: TensorSpec, data: Any) -> Dict[str, Any]:
+def build_output_tensor(spec: TensorSpec, data: Any) -> dict[str, Any]:
     plain_data = _to_plain_python(data)
     shape = _infer_shape(plain_data)
     _validate_shape_against_spec(spec.name, shape, spec)
@@ -147,7 +147,7 @@ def build_output_tensor(spec: TensorSpec, data: Any) -> Dict[str, Any]:
 
 def build_model_metadata(
     *, name: str, platform: str, inputs: Sequence[TensorSpec], outputs: Sequence[TensorSpec]
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     return {
         "name": name,
         "versions": ["1"],
@@ -224,7 +224,7 @@ def _to_plain_python(value: Any) -> Any:
     return value
 
 
-def _infer_shape(data: Any) -> List[int]:
+def _infer_shape(data: Any) -> list[int]:
     if isinstance(data, list):
         if not data:
             return [0]

@@ -121,7 +121,7 @@ Recommended workflow:
 Why this matters:
 
 - a train-time gap may come from different encoded artifacts, not the trainer itself
-- shard-layout mismatches can accidentally make one runtime consume a different artifact shape
+- part-file layout mismatches can accidentally make one runtime consume a different artifact shape
 - a harness bug can create an invalid comparison long before the timing numbers look suspicious
 
 ## 6. Use enough samples for the percentile you care about
@@ -241,6 +241,59 @@ A useful benchmark note includes:
 
 Without that context, later readers cannot tell whether two results are comparable.
 
+Hotvect records this run contract in `result.json` as `benchmark_contract` for performance-test runs.
+Use it as the source of truth when you compare or archive benchmark results.
+
+Example:
+
+```json
+{
+  "benchmark_contract": {
+    "parameter_s3_uri": "s3://example-bucket/model.parameters.zip",
+    "source_s3_uri": "s3://example-bucket/perf-input/",
+    "instance_type": "ml.c7i.4xlarge",
+    "training_image": "<account-id>.dkr.ecr.<aws-region>.amazonaws.com/hotvect:<HOTVECT_VERSION>",
+    "samples": 1000000,
+    "sample_pool_size": 50000,
+    "target_rps": 1500.0,
+    "max_threads": 8,
+    "workload_mode": "realtime",
+    "execution_command": [
+      "java",
+      "-Xmx16g",
+      "-cp",
+      "/path/to/hotvect-offline-util.jar",
+      "com.hotvect.offlineutils.commandline.Main",
+      "performance-test",
+      "..."
+    ],
+    "output_prefixes": {
+      "metadata": "s3://example-bucket/output/job/algo/metadata",
+      "result": "s3://example-bucket/output/job/algo/result.json",
+      "task_output": "s3://example-bucket/output/job/algo/perf",
+      "sagemaker_output": "s3://example-bucket/output/job"
+    }
+  }
+}
+```
+
+The same key names are used for local/full-pipeline performance tests and one-shot SageMaker
+performance tests, but not every field applies to every execution mode:
+
+- `samples` is the measured execution count. `sample_pool_size` is the retained request pool used
+  for replay. Keep them separate when comparing runs.
+- `parameter_s3_uri` identifies a remote parameter ZIP. Local runs may instead record
+  `parameter_path`.
+- One-shot SageMaker runs usually record a single `source_s3_uri`. Full-pipeline runs may record
+  local `source_paths` and, for SageMaker backtests, an `input_channels` map because the job can
+  mount several channels rather than one source prefix.
+- `output_prefixes` contains the known metadata, result, task-output, parameter, and SageMaker
+  output locations for the run. Some entries are absent when Hotvect cannot know that location for
+  the selected execution mode.
+- `execution_command` is the actual Java argv used for the performance test. It includes JVM flags
+  and Hotvect offline-util flags. Paths may be local paths for local runs or container paths for
+  SageMaker runs.
+
 ## 11. Profile only after the regression is real
 
 If the stricter benchmark still shows a real slowdown, then move to profiling:
@@ -269,3 +322,10 @@ Before you publish a performance conclusion, make sure the answer to all of thes
 - Did I write down the exact benchmark contract?
 
 If any answer is “no”, rerun before making the claim.
+
+## Next
+
+- [Performance investigations](../performance-investigations/index.md) localizes a confirmed regression to a stage.
+- [Evaluation metrics and uncertainty](../../reference/evaluation-metrics/index.md) keeps quality evidence separate
+  from latency and throughput evidence.
+- [Command-line interfaces](../../reference/cli/index.md) lists the exact performance-test and backtest options.

@@ -8,33 +8,39 @@ tags: [agents, runbook, debugging, logs]
 
 Goal: quickly locate the authoritative logs/artifacts for a run and extract the signal needed for automation.
 
-## Local runs (`hv train`, `hv backtest`)
+## Local backtests
 
-Primary locations under `output_base_dir`:
+Primary locations under `<output-base-dir>/meta/<algorithm-id>/<parameter-version>/`:
 
-- `meta/<algo@version>/<parameter_version>/hv.log`:
+- `hv.log`:
   - pipeline summary for the algorithm
   - best for cache-hit detection
-- `meta/<algo@version>/<parameter_version>/hv.all.log`:
+- `hv.all.log`:
   - includes dependency pipelines
-- `meta/<algo@version>/<parameter_version>/result.json`:
+- `result.json`:
   - structured run output (stages, timings, evaluation, etc.)
+
+## Local train runs
+
+`hv train` writes the same high-signal files under
+`<output-base-dir>/metadata/<algorithm-id>/<parameter-version>/`. The root is `metadata`, not the backtest `meta`
+root.
 
 Cache-hit signals:
 
 - `Predict parameters available ... skipping encode and train`
 - `Using cached predict parameters ...`
 
-## SageMaker runs (`hv backtest --sagemaker-config`)
+## SageMaker backtests
 
-You generally want **both**:
+Use both sources when a job fails:
 
-1) CloudWatch logs (what the container printed)
+1. CloudWatch logs (what the container printed)
 
 - Group: `/aws/sagemaker/TrainingJobs`
 - Stream: `<JOB_NAME>/algo-1-...`
 
-2) S3 metadata logs (stable, structured, grep-friendly)
+2. S3 metadata logs (stable and grep-friendly)
 
 Under the job output prefix:
 
@@ -45,6 +51,9 @@ If a SageMaker job fails without writing `result.json`, CloudWatch usually has t
 
 ## Common SageMaker failure classes
 
-- Missing region on the client side: set `AWS_DEFAULT_REGION=eu-central-1`
-- IAM conditions on `TrainingJobName`: use an allowed prefix (often `exp-...`)
+- Missing region on the client side: set `AWS_DEFAULT_REGION=<aws-region>` to the region containing the job.
+- IAM conditions on `TrainingJobName`: use a prefix allowed by the role policy.
 - Tags permission: if your role cannot tag training jobs, remove `Tags` from the job template JSON
+
+Related: [Troubleshooting](../../../reference/troubleshooting/index.md) for command-level failures and
+[Pipeline stages](../../../guides/pipeline-stages/index.md) for the artifact and log layout.

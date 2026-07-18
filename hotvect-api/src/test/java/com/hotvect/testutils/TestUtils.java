@@ -3,14 +3,8 @@ package com.hotvect.testutils;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.google.common.hash.Hashing;
-import java.util.Random;
-import java.util.concurrent.ThreadLocalRandom;
+
 import java.util.stream.Stream;
-import net.jqwik.api.Arbitraries;
-import net.jqwik.api.Arbitrary;
-import net.jqwik.api.Tuple;
-import net.jqwik.api.Tuple.Tuple2;
 
 public enum TestUtils {
     ;
@@ -29,103 +23,14 @@ public enum TestUtils {
         }
     }
 
-    public static Arbitrary<double[]> doubleArrays(Arbitrary<Integer> sizes, Arbitrary<Double> contents) {
-        return sizes.flatMap(size -> contents.array(double[].class).ofSize(size));
-    }
-
-    public static Arbitrary<String[]> stringArrays(Arbitrary<Integer> sizes, Arbitrary<String> contents) {
-        return sizes.flatMap(size -> contents.array(String[].class).ofSize(size));
-    }
-
-    public static Arbitrary<String[]> stringArraysWithDefaultContent() {
-        Arbitrary<Integer> sizes = Arbitraries.integers().between(0, 2);
-        Arbitrary<String> contents = Arbitraries.strings().ofMinLength(0).ofMaxLength(4);
-        return stringArrays(sizes, contents);
-    }
-
-    public static Arbitrary<String> defaultStrings() {
-        return Arbitraries.strings().ofMinLength(0).ofMaxLength(3);
-    }
-
     /**
      * Returns a stream of blank strings commonly used for validation testing.
      * <p>
-     * Includes various whitespace-only strings that should be rejected by validation:
-     * <ul>
-     *   <li>Empty string ({@code ""})</li>
-     *   <li>Spaces ({@code "   "})</li>
-     *   <li>Tab ({@code "\t"})</li>
-     *   <li>Newline ({@code "\n"})</li>
-     *   <li>Carriage return ({@code "\r"})</li>
-     *   <li>Mixed whitespace ({@code " \t\n "})</li>
-     * </ul>
+     * Includes whitespace-only strings that should be rejected by validation.
      *
      * @return a stream of blank strings for testing validation
      */
     public static Stream<String> blankStrings() {
         return Stream.of("", "   ", "\t", "\n", "\r", " \t\n ");
-    }
-
-    public static Arbitrary<int[]> categoricalVectors() {
-        Arbitrary<Integer> sizes = Arbitraries.integers().between(0, 3);
-        Arbitrary<Integer> contents = Arbitraries.integers();
-        return sizes.flatMap(size -> contents.array(int[].class).ofSize(size));
-    }
-
-    public static Arbitrary<int[]> categoricalVectors(Arbitrary<Integer> content) {
-        Arbitrary<Integer> sizes = Arbitraries.integers().between(0, 3);
-        return sizes.flatMap(size -> content.array(int[].class).ofSize(size));
-    }
-
-    public static Arbitrary<Double> discreteDoubles() {
-        return Arbitraries.doubles();
-    }
-
-    public static Arbitrary<Tuple2<int[], double[]>> testVectors() {
-        return categoricalVectors().flatMap(is -> {
-            int length = is.length;
-            Arbitrary<double[]> doublesArray = discreteDoubles().array(double[].class).ofSize(length);
-            return doublesArray.map(ds -> Tuple.of(is, ds));
-        });
-    }
-
-    public static Arbitrary<Tuple2<String[], double[]>> stringToNumericals() {
-        Arbitrary<Integer> sizes = Arbitraries.integers().between(0, 3);
-        Arbitrary<String> strings = Arbitraries.strings().withCharRange('a', 'z').ofMinLength(0).ofMaxLength(3);
-        return stringArrays(sizes, strings).flatMap(is -> {
-            int length = is.length;
-            Arbitrary<double[]> doublesArray = discreteDoubles().array(double[].class).ofSize(length);
-            return doublesArray.map(ds -> Tuple.of(is, ds));
-        });
-    }
-
-    public static <T> Arbitrary<Tuple2<T, T>> generateEquals(Arbitrary<T> gen) {
-        return gen.map(i -> Tuple.of(i, i));
-    }
-
-    public static void shuffleArray(int[] ar) {
-        Random rnd = ThreadLocalRandom.current();
-        for (int i = ar.length - 1; i > 0; i--) {
-            int index = rnd.nextInt(i + 1);
-            // Simple swap
-            int a = ar[index];
-            ar[index] = ar[i];
-            ar[i] = a;
-        }
-    }
-
-//    public static <T> Arbitrary<T[]> generateArrays(Arbitrary<Integer> sizes, Arbitrary<T> contents, Class<T> contentType) {
-//        return sizes.flatMap(size -> contents.array(contentType).ofSize(size));
-//    }
-
-    private static int[] generateCategoricals(final int seed) {
-        int size = Math.abs(Hashing.murmur3_32().hashInt(seed).asInt() % 3) + 1;
-        int[] ret = new int[size];
-        int h = seed;
-        for (int i = 0; i < ret.length; i++) {
-            h ^= Hashing.murmur3_32().hashInt(h).asInt();
-            ret[i] = h;
-        }
-        return ret;
     }
 }

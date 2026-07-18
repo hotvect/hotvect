@@ -7,22 +7,15 @@ import com.hotvect.api.data.ranking.RankingRequest;
 import com.hotvect.api.data.ranking.RankingResponse;
 import com.hotvect.api.data.scoring.BulkScoreResponse;
 import com.hotvect.api.data.scoring.ScoringDecision;
-import com.hotvect.utils.ListTransform;
 
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
-import java.util.Map;
-import java.lang.reflect.Method;
+
+import static com.google.common.base.Preconditions.checkArgument;
+import static com.hotvect.utils.AdditionalProperties.mergeAdditionalProperties;
 
 public class BulkScoreGreedyRanker<SHARED, ACTION> implements Ranker<SHARED, ACTION> {
     private final BulkScorer<SHARED, ACTION> bulkScorer;
-    private final Comparator<IndexedScoredAction> COMPARATOR = (o1, o2) -> {
-        int byScore = Double.compare(o2.score, o1.score);
-        // This tie breaking is not very nice, because it's not guaranteed that it's stable across
-        // invocation. But for now we ignore it TODO
-        return byScore == 0 ? Integer.compare(o1.hashCode(), o2.hashCode()) : byScore;
-    };
 
     public BulkScoreGreedyRanker(BulkScorer<SHARED, ACTION> bulkScorer) {
         this.bulkScorer = bulkScorer;
@@ -30,25 +23,34 @@ public class BulkScoreGreedyRanker<SHARED, ACTION> implements Ranker<SHARED, ACT
 
     @Override
     public RankingResponse<ACTION> rank(RankingRequest<SHARED, ACTION> request) {
-        int numActions = request.availableActions().size();
+        var actions = request.actions();
+        int numActions = actions.size();
         BulkScoreResponse<ACTION> scoringResponse = this.bulkScorer.score(request);
         List<ScoringDecision<ACTION>> scores = scoringResponse.decisions();
-
-
-        List<BulkScoreGreedyRanker<SHARED, ACTION>.IndexedScoredAction> processed = new ArrayList<>(numActions);
-
-        for(int i = 0; i < numActions; ++i) {
-            processed.add(new IndexedScoredAction(i, request.availableActions().get(i), scores.get(i).score(), scores.get(i).additionalProperties()));
+        if (scores.size() != numActions) {
+            throw new IllegalArgumentException(
+                    "BulkScorer returned " + scores.size() + " scores for " + numActions + " actions"
+            );
         }
 
-        processed.sort(this.COMPARATOR);
-        var decisions = ListTransform.map(
-                processed,
-                x -> RankingDecision.builder(resolveActionId(x.action, x.additionalProperties), x.index, x.action)
-                        .withScore(x.score)
-                        .withAdditionalProperties(x.additionalProperties)
-                        .build()
-        );
+        List<RankingDecision<ACTION>> decisions = new ArrayList<>(numActions);
+
+        // O(n) ID checks are assertion-only; scorer order is part of the BulkScorer contract.
+        assert validateScoreActionIds(request, scores);
+        for (int i = 0; i < numActions; ++i) {
+            String actionId = actions.get(i).actionId();
+            ScoringDecision<ACTION> score = scores.get(i);
+            decisions.add(new RankingDecision<>(
+                    actionId,
+                    i,
+                    score.score(),
+                    actions.get(i).action(),
+                    null,
+                    mergeAdditionalProperties(actions.get(i).additionalProperties(), score.additionalProperties())
+            ));
+        }
+
+        RankingTieBreakers.sortDecisions(decisions, request.exampleId());
         return RankingResponse.newResponse(
                 decisions,
                 scoringResponse.featureStoreResponseContainer(),
@@ -56,69 +58,40 @@ public class BulkScoreGreedyRanker<SHARED, ACTION> implements Ranker<SHARED, ACT
         );
     }
 
+    private static <SHARED, ACTION> boolean validateScoreActionIds(
+            RankingRequest<SHARED, ACTION> request,
+            List<ScoringDecision<ACTION>> scores
+    ) {
+        boolean hasActionIds = false;
+        boolean hasPositionalScores = false;
+        for (int i = 0; i < scores.size(); i++) {
+            String scoreActionId = scores.get(i).actionId();
+            if (scoreActionId == null) {
+                hasPositionalScores = true;
+            } else {
+                hasActionIds = true;
+                String expectedActionId = request.actions().get(i).actionId();
+                checkArgument(
+                        scoreActionId.equals(expectedActionId),
+                        "BulkScorer must preserve request action order; score at position %s has action id %s, expected %s",
+                        i,
+                        scoreActionId,
+                        expectedActionId
+                );
+            }
+        }
+        if (!hasActionIds) {
+            return true;
+        }
+        checkArgument(
+                !hasPositionalScores,
+                "BulkScorer returned a mix of action-id and positional scores"
+        );
+        return true;
+    }
+
     @Override
     public void close() throws Exception {
         bulkScorer.close();
-    }
-
-    private static String resolveActionId(Object action, Map<String, Object> additionalProperties) {
-        String fromAdditionalProperties = asNonBlankString(additionalProperties.get("action_id"));
-        if (fromAdditionalProperties != null) {
-            return fromAdditionalProperties;
-        }
-
-        if (action == null) {
-            return null;
-        }
-        if (action instanceof CharSequence charSequence) {
-            String value = charSequence.toString();
-            return value.isBlank() ? null : value;
-        }
-        if (action instanceof Map<?, ?> map) {
-            String fromMap = asNonBlankString(map.get("action_id"));
-            if (fromMap != null) {
-                return fromMap;
-            }
-            return asNonBlankString(map.get("id"));
-        }
-
-        for (String methodName : List.of("getId", "id", "getActionId", "actionId")) {
-            try {
-                Method method = action.getClass().getMethod(methodName);
-                if (method.getParameterCount() != 0) {
-                    continue;
-                }
-                String value = asNonBlankString(method.invoke(action));
-                if (value != null) {
-                    return value;
-                }
-            } catch (ReflectiveOperationException ignored) {
-                // Best-effort fallback for action models that expose an id accessor.
-            }
-        }
-
-        return null;
-    }
-
-    private static String asNonBlankString(Object value) {
-        if (!(value instanceof CharSequence charSequence)) {
-            return null;
-        }
-        String text = charSequence.toString();
-        return text.isBlank() ? null : text;
-    }
-
-    private class IndexedScoredAction {
-        final int index;
-        final ACTION action;
-        final double score;
-        final Map<String, Object> additionalProperties;
-
-        private IndexedScoredAction(int index, ACTION action, double score, Map<String, Object> additionalProperties) {
-            this.index = index;
-            this.action = action;
-            this.score = score;
-            this.additionalProperties = additionalProperties;
-        }
     }
 }

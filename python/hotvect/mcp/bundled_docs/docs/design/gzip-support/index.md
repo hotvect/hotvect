@@ -1,10 +1,30 @@
-# GZIP Support
+# GZIP support
 
-## Current Behavior
+## Inputs
 
-- **GZIP input** is supported where applicable (e.g. reading `.json.gz` / `.jsonl.gz` inputs).
-- **GZIP output** is not supported. Hotvect writes outputs uncompressed (and, for encoders, directory-based sharded outputs).
+Hotvect reads supported gzip-compressed data inputs, including `.json.gz` and `.jsonl.gz`, where the command accepts
+those source formats.
+
+## Output
+
+Local commands and single-job SageMaker one-shot runs write uncompressed output. Gzip output is available only for
+parallel SageMaker one-shot `predict` and `audit` runs:
+
+```bash
+hv predict ... \
+  --sagemaker \
+  --job-parallelism 8 \
+  --compression gzip
+```
+
+That mode publishes zero-padded `.jsonl.gz` part files directly under `--dest-path`, such as
+`part-00003-00012.jsonl.gz`. `none` is the default compression value.
+
+`encode` rejects `--compression`; so do all non-parallel and non-`audit`/`predict` one-shot modes. See
+[Parallel SageMaker one-shot runs](../../guides/parallel-sagemaker-one-shot/index.md) for the complete submission and
+verification contract.
 
 ## Rationale
 
-GZIP output added complexity (naming/path handling, compatibility with sharded directories) without being a relied-upon production feature. Keeping GZIP input support preserves common workflows for training/evaluation data stored as gzip-compressed files.
+Compression is deliberately scoped to the fan-out S3 output path, where it reduces transferred and stored JSONL data
+without changing a local command's directory/part-file contract.

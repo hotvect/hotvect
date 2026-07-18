@@ -7,23 +7,73 @@ import math
 import os
 import shlex
 import sys
+import tempfile
 import zipfile
 from abc import ABC, abstractmethod
-from datetime import date
+from datetime import date, datetime, timezone
+from importlib.resources import as_file
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any
+from urllib.parse import urlparse
+
+from botocore.exceptions import ClientError
+
+_REPO_PYTHON_ROOT = Path(__file__).resolve().parents[1]
+if str(_REPO_PYTHON_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_PYTHON_ROOT))
 
 import hotvect
 import hotvect.hotvectjar
+from hotvect.algorithm_definition_overrides import (
+    load_algorithm_definition_override_fragment as _shared_load_algorithm_definition_override_fragment,
+)
+from hotvect.algorithm_definition_overrides import (
+    load_effective_algorithm_definition as _shared_load_effective_algorithm_definition,
+)
+from hotvect.algorithm_definition_overrides import (
+    merge_algorithm_definition_override_fragments,
+    serialize_effective_algorithm_definition,
+)
+from hotvect.jvm_args import normalize_pipeline_jvm_options, normalize_runtime_jvm_args
+from hotvect.offline_task import OfflineTaskSpec, build_offline_task_main_args
+from hotvect.parallel_oneshot import (
+    build_parallel_manifest,
+    build_parallel_submission_state,
+    build_parallel_worker_plans,
+    build_submission_pointer,
+    create_session,
+    list_source_objects,
+    load_parallel_manifest_for_dest,
+    load_parallel_submission_state_for_dest,
+    managed_manifest_uri,
+    managed_status_uri,
+    managed_submission_state_uri,
+    normalize_s3_prefix_uri,
+    parallel_submission_pointer_uri,
+    put_json_to_s3,
+    validate_parallel_dest_path_is_empty,
+    verify_parallel_manifest,
+    wait_for_parallel_manifest,
+)
 from hotvect.sagemaker_config import (
+    apply_cli_sagemaker_job_overrides,
+    apply_performance_test_sample_pool_size_override,
     apply_performance_test_samples_override,
+    build_cli_sagemaker_job_overrides,
     build_training_job_definition,
     resolve_template_path,
     resolve_training_image,
     validate_job_prefix,
 )
-from hotvect.sagemaker_job_name import build_one_shot_training_job_name
+from hotvect.sagemaker_contracts import (
+    OneShotSagemakerHyperparameters,
+    ParallelExecutionConfig,
+    TaskOutputConfig,
+    build_one_shot_effective_algorithm_definition,
+    resolve_evaluate_source_path,
+)
+from hotvect.sagemaker_job_name import build_one_shot_training_job_name, generate_runid
 
 _LOG_FORMAT = "%(asctime)s:%(levelname)s:%(name)s:%(funcName)s:%(message)s"
 
@@ -36,6 +86,14 @@ logger = logging.getLogger(__name__)
 
 _DEFAULT_HV_LOG_FILENAME = "hv.log"
 _DEFAULT_STDOUT_STDERR_LOG_FILENAME = "stdout-stderr.log"
+_REMOTE_BACKTEST_SUBMISSION_DIRNAME = "_backtest_submissions"
+_REMOTE_BACKTEST_SUBMISSION_MANIFEST_FILENAME = "backtest_submission_manifest.json"
+_REMOTE_BACKTEST_SUBMISSION_STATUS_FILENAME = "backtest_submission_status.json"
+_SOURCE_PREFLIGHT_ACCESS_DENIED_CODES = {"AccessDenied", "AccessDeniedException", "AllAccessDisabled", "403"}
+_ALGORITHM_OVERRIDE_HELP = (
+    "Path to JSON override patch. Object fields merge recursively, scalars/arrays replace, "
+    "null deletes fields, and dependencies.<child> may only target declared children."
+)
 
 
 def _enable_file_logging(log_dir: Path) -> None:
@@ -70,19 +128,18 @@ def _tee_subprocess_output_to_metadata_dir(
 
         stream_output(cmd, _display, env=env)
 
-
 def _parse_algorithm_name(value: str) -> str:
     """
     Parse and validate `--algorithm-name`.
 
     hv intentionally only accepts an algorithm name here (not an algorithm-definition JSON path).
-    To pass a full algorithm definition JSON, use `--algorithm-override`.
+    Use `--algorithm-override` for JSON override fragments that are merged into the JAR definition.
     """
     lowered = value.lower()
     if lowered.endswith(".json") or "/" in value or "\\" in value:
         raise argparse.ArgumentTypeError(
             f"--algorithm-name must be an algorithm name (not a file path): {value}. "
-            f"Use --algorithm-override to pass algorithm definition JSON."
+            f"Use --algorithm-override to pass a JSON override fragment."
         )
 
     from hotvect.utils import verify_algorithm_name
@@ -94,7 +151,7 @@ def _parse_algorithm_name(value: str) -> str:
 
 
 def _get_hotvect_jar_version() -> str:
-    jar_path = hotvect.hotvectjar.HOTVECT_JAR_PATH
+    jar_path = _hotvectjar_module().HOTVECT_JAR_PATH
     pom_properties_path = "META-INF/maven/com.hotvect/hotvect-offline-util/pom.properties"
     with zipfile.ZipFile(jar_path) as jar:
         contents = jar.read(pom_properties_path).decode("utf-8")
@@ -105,6 +162,396 @@ def _get_hotvect_jar_version() -> str:
             return value.strip()
 
     raise ValueError(f"Expected 'version=' in {pom_properties_path} inside {jar_path}")
+
+
+def _hotvectjar_module():
+    import hotvect.hotvectjar as hotvectjar
+
+    return hotvectjar
+
+
+def _exit_cli_usage_error(message: str) -> None:
+    print(f"Error: {message}", file=sys.stderr)
+    raise SystemExit(2)
+
+
+def _extract_remote_backtest_submission_rows(results) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for result in results:
+        if result.error or not result.backtest_iteration_results:
+            continue
+        for iteration in result.backtest_iteration_results:
+            if not iteration.result:
+                continue
+            row = {
+                "algo_git_reference": result.algo_git_reference,
+                "parameter_version": iteration.parameter_version,
+                "test_data_time": iteration.test_data_time,
+            }
+            row.update(iteration.result)
+            rows.append(row)
+    return rows
+
+
+def _remote_backtest_submission_run_dir(output_base_dir: str, generated_at: datetime) -> Path:
+    run_id = generated_at.strftime("%Y%m%dT%H%M%S.%fZ")
+    return Path(output_base_dir) / "meta" / _REMOTE_BACKTEST_SUBMISSION_DIRNAME / run_id
+
+
+def _write_remote_backtest_submission_files(output_base_dir: str, results) -> tuple[Path, Path]:
+    manifest_rows = _extract_remote_backtest_submission_rows(results)
+    generated_at = datetime.now(timezone.utc)
+    run_dir = _remote_backtest_submission_run_dir(output_base_dir, generated_at)
+    run_dir.mkdir(parents=True, exist_ok=False)
+    generated_at_iso = generated_at.isoformat()
+    manifest_payload = {
+        "generated_at": generated_at_iso,
+        "job_count": len(manifest_rows),
+        "jobs": manifest_rows,
+    }
+    status_payload = {
+        "generated_at": generated_at_iso,
+        "job_count": len(manifest_rows),
+        "jobs": [
+            {
+                "algo_git_reference": row["algo_git_reference"],
+                "parameter_version": row["parameter_version"],
+                "test_data_time": row["test_data_time"],
+                "training_job_name": row.get("training_job_name"),
+                "training_job_arn": row.get("training_job_arn"),
+                "submission_status": row.get("submission_status"),
+                "s3_uri_result_file": row.get("s3_uri_result_file"),
+                "s3_uri_metadata": row.get("s3_uri_metadata"),
+            }
+            for row in manifest_rows
+        ],
+    }
+    manifest_path = run_dir / _REMOTE_BACKTEST_SUBMISSION_MANIFEST_FILENAME
+    status_path = run_dir / _REMOTE_BACKTEST_SUBMISSION_STATUS_FILENAME
+    manifest_path.write_text(json.dumps(manifest_payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    status_path.write_text(json.dumps(status_payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return manifest_path, status_path
+
+
+def _require_s3_dest_path(dest_path: str | None) -> str:
+    if not dest_path:
+        raise ValueError("--dest-path is required for parallel SageMaker one-shot execution")
+    if not str(dest_path).startswith("s3://"):
+        raise ValueError("--dest-path must be an s3:// prefix for parallel SageMaker one-shot execution")
+    return dest_path
+
+
+def _parallel_verify_command(command_name: str, args: argparse.Namespace) -> str:
+    parts = [
+        "hv",
+        command_name,
+        "--sagemaker",
+        "--verify",
+        "--dest-path",
+        shlex.quote(str(args.dest_path)),
+        "--s3-output-base",
+        shlex.quote(str(args.s3_output_base)),
+    ]
+    if getattr(args, "assume_role_arn", None):
+        parts.extend(["--assume-role-arn", shlex.quote(str(args.assume_role_arn))])
+    return " ".join(parts)
+
+
+def _parallel_kind_short(task_kind_short: str, shard_index: int) -> str:
+    return f"{task_kind_short[:4]}s{shard_index:02d}"
+
+
+def _nested_get(mapping: dict[str, Any], *keys: str) -> Any:
+    current: Any = mapping
+    for key in keys:
+        if not isinstance(current, dict):
+            return None
+        current = current.get(key)
+    return current
+
+
+def _validate_parallel_one_shot_output_contract(
+    *,
+    task: str,
+    args: argparse.Namespace,
+    effective_algorithm_definition: dict[str, Any],
+) -> None:
+    ordered_sources: list[str] = []
+
+    if task in {"predict", "audit", "encode"} and getattr(args, "ordered", False):
+        ordered_sources.append("CLI --ordered")
+
+    if task == "predict":
+        if _nested_get(effective_algorithm_definition, "hotvect_execution_parameters", "predict", "ordered") is True:
+            ordered_sources.append("effective algorithm definition hotvect_execution_parameters.predict.ordered=true")
+    elif task == "audit":
+        if _nested_get(effective_algorithm_definition, "hotvect_execution_parameters", "audit", "ordered") is True:
+            ordered_sources.append("effective algorithm definition hotvect_execution_parameters.audit.ordered=true")
+    elif task == "encode":
+        encode_ordering = _nested_get(effective_algorithm_definition, "train_decoder_parameters", "ordering")
+        if isinstance(encode_ordering, str) and encode_ordering.lower() == "ordered":
+            ordered_sources.append("effective algorithm definition train_decoder_parameters.ordering='ordered'")
+
+    if ordered_sources:
+        raise ValueError(
+            "Parallel SageMaker one-shot requires unordered output, but ordered output was requested via: "
+            + "; ".join(ordered_sources)
+        )
+
+
+def _best_effort_validate_parallel_source_prefix(*, s3_client, source_s3_uri: str) -> dict[str, Any]:
+    try:
+        source_objects = list_source_objects(s3_client, source_s3_uri)
+    except ClientError as exc:
+        error = exc.response.get("Error", {})
+        error_code = str(error.get("Code", ""))
+        if error_code in _SOURCE_PREFLIGHT_ACCESS_DENIED_CODES:
+            logger.warning(
+                "Skipping parallel source-prefix validation because listing %s is not permitted (%s). "
+                "SageMaker shard jobs will validate the source at runtime.",
+                source_s3_uri,
+                error_code,
+            )
+            return {"status": "skipped", "reason": "access_denied", "error_code": error_code}
+        raise
+
+    source_total_bytes = sum(source_object.size for source_object in source_objects)
+    logger.info(
+        "Validated parallel source prefix %s: %d usable source files, %d bytes",
+        source_s3_uri,
+        len(source_objects),
+        source_total_bytes,
+    )
+    return {
+        "status": "validated",
+        "source_object_count": len(source_objects),
+        "source_total_bytes": source_total_bytes,
+    }
+
+
+def _verify_parallel_one_shot_sagemaker_job(*, command_name: str, args: argparse.Namespace) -> None:
+    if not getattr(args, "sagemaker", False):
+        raise ValueError("--verify requires --sagemaker")
+    if getattr(args, "job_parallelism", 1) not in (None, 1):
+        logger.info("--job-parallelism is ignored in --verify mode")
+    _require_s3_dest_path(getattr(args, "dest_path", None))
+    if not getattr(args, "s3_output_base", None):
+        raise ValueError("--s3-output-base is required for --verify")
+
+    session = create_session(getattr(args, "assume_role_arn", None))
+    s3_client = session.client("s3")
+    sagemaker_client = session.client("sagemaker")
+    manifest = load_parallel_manifest_for_dest(
+        s3_client=s3_client,
+        dest_path=args.dest_path,
+        s3_output_base=args.s3_output_base,
+    )
+    submission_state = load_parallel_submission_state_for_dest(
+        s3_client=s3_client,
+        dest_path=args.dest_path,
+        s3_output_base=args.s3_output_base,
+    )
+    result = verify_parallel_manifest(
+        s3_client=s3_client,
+        sagemaker_client=sagemaker_client,
+        manifest=manifest,
+        submission_state=submission_state,
+        write_success=True,
+    )
+    put_json_to_s3(s3_client, managed_status_uri(args.s3_output_base, manifest["run_id"]), result)
+    if result["complete"]:
+        logger.info("Parallel one-shot verification succeeded. Wrote %s", result["success_marker_uri"])
+        return
+    if result["unsubmitted_shards"]:
+        raise ValueError(
+            "Parallel one-shot run was not fully submitted. Missing training-job names for shards: "
+            + ", ".join(str(index) for index in result["unsubmitted_shards"])
+        )
+    if result["failed_jobs"]:
+        raise ValueError(
+            "Parallel one-shot run failed for jobs: "
+            + ", ".join(result["failed_jobs"])
+        )
+    raise ValueError(
+        "Parallel one-shot run is not complete yet. Running jobs: "
+        + ", ".join(result["running_jobs"])
+    )
+
+
+def _run_parallel_one_shot_sagemaker_job(
+    *,
+    task: str,
+    task_kind_short: str,
+    command_name: str,
+    args: argparse.Namespace,
+) -> None:
+    _require_s3_dest_path(getattr(args, "dest_path", None))
+    if not getattr(args, "s3_output_base", None):
+        raise ValueError("--s3-output-base is required for parallel SageMaker one-shot execution")
+    if not getattr(args, "source_s3_uri", None):
+        raise ValueError("--source-s3-uri is required for parallel SageMaker one-shot execution")
+    if not getattr(args, "sagemaker_job_prefix", None):
+        raise ValueError("--sagemaker-job-prefix is required for parallel SageMaker one-shot execution")
+    if getattr(args, "job_parallelism", 1) <= 1:
+        raise ValueError("--job-parallelism must be > 1 for parallel SageMaker one-shot execution")
+
+    compression = getattr(args, "compression", "none")
+    verify_command = _parallel_verify_command(command_name, args)
+    source_s3_uri = normalize_s3_prefix_uri(args.source_s3_uri)
+    effective_algorithm_definition = build_one_shot_effective_algorithm_definition(
+        algorithm_jar=str(args.algorithm_jar),
+        algorithm_name=args.algorithm_name,
+        algorithm_override=getattr(args, "algorithm_override", None),
+        task=task,
+        parameter_s3_uri=getattr(args, "parameter_s3_uri", None),
+    )
+    _validate_parallel_one_shot_output_contract(
+        task=task,
+        args=args,
+        effective_algorithm_definition=effective_algorithm_definition,
+    )
+    session = create_session(getattr(args, "assume_role_arn", None))
+    s3_client = session.client("s3")
+    validate_parallel_dest_path_is_empty(s3_client=s3_client, dest_path=args.dest_path)
+    source_preflight = _best_effort_validate_parallel_source_prefix(
+        s3_client=s3_client,
+        source_s3_uri=source_s3_uri,
+    )
+
+    run_id = generate_runid()
+    shard_plans = build_parallel_worker_plans(
+        source_s3_uri=source_s3_uri,
+        task=task,
+        dest_path=args.dest_path,
+        compression=compression,
+        job_parallelism=int(args.job_parallelism),
+    )
+    shared_algorithm_jar_s3_uri = f"{args.s3_output_base.rstrip('/')}/_parallel_oneshot_runs/{run_id}/{Path(args.algorithm_jar).name}"
+    logger.info("Uploading algorithm jar once for all shard jobs to %s", shared_algorithm_jar_s3_uri)
+    parsed = urlparse(shared_algorithm_jar_s3_uri)
+    if parsed.scheme != "s3" or not parsed.netloc:
+        raise ValueError(f"Expected s3:// URI, got {shared_algorithm_jar_s3_uri!r}")
+    s3_client.upload_file(
+        Filename=str(args.algorithm_jar),
+        Bucket=parsed.netloc,
+        Key=parsed.path.lstrip("/"),
+    )
+    manifest_uri = managed_manifest_uri(args.s3_output_base, run_id)
+    submission_state_uri = managed_submission_state_uri(args.s3_output_base, run_id)
+    manifest = build_parallel_manifest(
+        run_id=run_id,
+        task=task,
+        source_s3_uri=source_s3_uri,
+        dest_path=args.dest_path,
+        s3_output_base=args.s3_output_base,
+        compression=compression,
+        job_parallelism_requested=int(args.job_parallelism),
+        shards=shard_plans,
+        verify_command=verify_command,
+    )
+    manifest["source_preflight"] = source_preflight
+    submission_state = build_parallel_submission_state(
+        run_id=run_id,
+        task=task,
+        dest_path=args.dest_path,
+        shards=shard_plans,
+    )
+    put_json_to_s3(s3_client, manifest_uri, manifest)
+    put_json_to_s3(s3_client, submission_state_uri, submission_state)
+    put_json_to_s3(
+        s3_client,
+        parallel_submission_pointer_uri(args.dest_path),
+        build_submission_pointer(
+            task=task,
+            run_id=run_id,
+            manifest_s3_uri=manifest_uri,
+            submission_state_s3_uri=submission_state_uri,
+            dest_path=args.dest_path,
+        ),
+    )
+    put_json_to_s3(
+        s3_client,
+        managed_status_uri(args.s3_output_base, run_id),
+        {
+            "status": "submitting",
+            "run_id": run_id,
+            "task": task,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        },
+    )
+
+    for shard_plan in shard_plans:
+        shard_args = copy.deepcopy(args)
+        shard_args.source_s3_uri = source_s3_uri
+        shard_args.parallel_task_output_s3_uri = args.dest_path
+        shard_args.parallel_worker_count = int(args.job_parallelism)
+        shard_args.parallel_worker_index = shard_plan.index
+        if task in {"predict", "audit"}:
+            shard_args.ordered = False
+            shard_args.unordered = True
+        shard_args.parallel_preuploaded_algorithm_jar_s3_uri = shared_algorithm_jar_s3_uri
+        submission = _submit_one_shot_sagemaker_job(
+            task=task,
+            task_kind_short=_parallel_kind_short(task_kind_short, shard_plan.index),
+            args=shard_args,
+        )
+        shard_plan.training_job_name = submission["training_job_name"]
+        shard_plan.s3_uri_result_file = submission.get("s3_uri_result_file")
+        shard_plan.s3_uri_metadata = submission.get("s3_uri_metadata")
+        shard_plan.task_output_s3_uri = submission.get("task_output_s3_uri")
+        shard_plan.sagemaker_output_s3_path = submission.get("sagemaker_output_s3_path")
+        shard_plan.hyperparameter_slug = submission.get("hyperparameter_slug")
+        submission_state = build_parallel_submission_state(
+            run_id=run_id,
+            task=task,
+            dest_path=args.dest_path,
+            shards=shard_plans,
+        )
+        put_json_to_s3(s3_client, submission_state_uri, submission_state)
+
+    logger.info("Parallel one-shot mode active: submitted %s shard jobs.", len(shard_plans))
+    logger.info("Final part-file outputs will be written directly under: %s", args.dest_path)
+    logger.info("Managed manifests/status live under: %s", args.s3_output_base)
+    logger.info("If this local process is interrupted, the remote SageMaker jobs continue running.")
+    logger.info("To finalize the run later and write _SUCCESS, use:\n%s", verify_command)
+
+    status_uri = managed_status_uri(args.s3_output_base, run_id)
+    if getattr(args, "no_wait", False):
+        put_json_to_s3(
+            s3_client,
+            status_uri,
+            {"status": "submitted", "run_id": run_id, "task": task, "updated_at": datetime.now(timezone.utc).isoformat()},
+        )
+        logger.info("--no-wait was set, so the command is exiting after submission.")
+        return
+
+    logger.info("Waiting for all shard jobs to finish. Press Ctrl-C to stop waiting; later run:\n%s", verify_command)
+    sagemaker_client = session.client("sagemaker")
+    try:
+        result = wait_for_parallel_manifest(
+            s3_client=s3_client,
+            sagemaker_client=sagemaker_client,
+            manifest=manifest,
+            submission_state=submission_state,
+            status_s3_uri=status_uri,
+        )
+    except KeyboardInterrupt:
+        logger.warning("Local process interrupted. Remote SageMaker jobs keep running.")
+        logger.warning("Run the following later to verify/finalize and write _SUCCESS:\n%s", verify_command)
+        raise
+
+    if result["complete"]:
+        logger.info("Parallel one-shot run completed successfully. Wrote %s", result["success_marker_uri"])
+        return
+    if result["unsubmitted_shards"]:
+        raise ValueError(
+            "Parallel one-shot run was not fully submitted. Missing training-job names for shards: "
+            + ", ".join(str(index) for index in result["unsubmitted_shards"])
+        )
+    raise ValueError(
+        "Parallel one-shot run did not complete successfully. Failed jobs: "
+        + ", ".join(result["failed_jobs"])
+    )
 
 
 class _HotvectVersionAction(argparse.Action):
@@ -119,22 +566,37 @@ class _HotvectVersionAction(argparse.Action):
         parser.exit(message=message)
 
 
-def _require_for_template_free(value: Optional[str], flag: str) -> str:
+def _require_for_template_free(value: str | None, flag: str) -> str:
     if not value:
         raise ValueError(f"Missing required flag for template-free SageMaker mode: {flag}")
     return value
 
 
 def _add_or_keep_source_channel(
-    training_job_definition: Dict[str, Any],
+    training_job_definition: dict[str, Any],
     *,
     source_s3_uri: str,
     channel_name: str = "source",
 ) -> None:
+    source_s3_uri = normalize_s3_prefix_uri(source_s3_uri)
     input_data_config = training_job_definition.setdefault("InputDataConfig", [])
     if not isinstance(input_data_config, list):
         raise ValueError("InputDataConfig must be a list in SageMaker config.")
-    if any(isinstance(ch, dict) and ch.get("ChannelName") == channel_name for ch in input_data_config):
+    for channel in input_data_config:
+        if not isinstance(channel, dict) or channel.get("ChannelName") != channel_name:
+            continue
+        data_source = channel.setdefault("DataSource", {})
+        if not isinstance(data_source, dict):
+            raise ValueError(f"Existing SageMaker input channel {channel_name!r} has invalid DataSource")
+        s3_data_source = data_source.setdefault("S3DataSource", {})
+        if not isinstance(s3_data_source, dict):
+            raise ValueError(f"Existing SageMaker input channel {channel_name!r} has invalid S3DataSource")
+        s3_data_source["S3DataType"] = "S3Prefix"
+        s3_data_source["S3Uri"] = source_s3_uri
+        if "InputMode" not in channel:
+            channel["InputMode"] = training_job_definition.get("AlgorithmSpecification", {}).get(
+                "TrainingInputMode"
+            ) or "FastFile"
         return
     training_input_mode = (
         training_job_definition.get("AlgorithmSpecification", {}).get("TrainingInputMode") or "FastFile"
@@ -153,10 +615,9 @@ def _submit_one_shot_sagemaker_job(
     task: str,
     task_kind_short: str,
     args: argparse.Namespace,
-) -> None:
+) -> dict[str, Any]:
+    from hotvect.evaluation import evaluation
     from hotvect.pyhotvect import AlgorithmPipeline, AlgorithmPipelineContext
-
-    import hotvect.mlutils as mlutils
 
     if not args.sagemaker_job_prefix:
         raise ValueError("--sagemaker-job-prefix is required for --sagemaker")
@@ -173,27 +634,18 @@ def _submit_one_shot_sagemaker_job(
             state_source_base_path=tmp / "state",
             jvm_options=[],
         )
-        algorithm_definition_arg: Union[str, Tuple[str, Dict[str, Any]]] = args.algorithm_name
-        needs_effective_definition = bool(getattr(args, "algorithm_override", None)) or (
-            task in {"predict", "audit", "performance-test"} and getattr(args, "parameter_s3_uri", None)
+        effective_algorithm_definition = build_one_shot_effective_algorithm_definition(
+            algorithm_jar=str(args.algorithm_jar),
+            algorithm_name=args.algorithm_name,
+            algorithm_override=getattr(args, "algorithm_override", None),
+            task=task,
+            parameter_s3_uri=getattr(args, "parameter_s3_uri", None),
         )
-        if needs_effective_definition:
-            effective_algorithm_definition = _load_effective_algorithm_definition(
-                str(args.algorithm_jar),
-                args.algorithm_name,
-                getattr(args, "algorithm_override", None),
-            )
-            effective_algorithm_definition = _pin_with_parameter_for_one_shot_task(
-                effective_algorithm_definition,
-                task=task,
-                parameter_s3_uri=getattr(args, "parameter_s3_uri", None),
-            )
-            algorithm_definition_arg = (args.algorithm_name, effective_algorithm_definition)
         pipeline = AlgorithmPipeline(
             algorithm_pipeline_context=ctx,
-            algorithm_definition=algorithm_definition_arg,
+            algorithm_definition=effective_algorithm_definition,
             last_test_time=date.today(),
-            evaluation_func=mlutils.standard_evaluation,
+            evaluation_func=evaluation.standard_evaluation,
             parameter_version="oneshot",
         )
 
@@ -235,28 +687,107 @@ def _submit_one_shot_sagemaker_job(
             training_image=training_image,
         )
 
+        algorithm_job_overrides = pipeline.algorithm_definition.get("sagemaker_training_job_definition")
+        if algorithm_job_overrides:
+            from hotvect.backtest import apply_sagemaker_job_overrides
+
+            logger.info("Applying algorithm-declared SageMaker job overrides")
+            apply_sagemaker_job_overrides(job_def, algorithm_job_overrides)
+
+        legacy_params_override = None
+        if pipeline.algorithm_definition.get("sagemaker_execution_parameters"):
+            from hotvect.backtest import (
+                apply_sagemaker_job_overrides,
+                legacy_sagemaker_params_to_overrides,
+            )
+
+            legacy_params_override = legacy_sagemaker_params_to_overrides(
+                pipeline.algorithm_definition.get("sagemaker_execution_parameters")
+            )
+        if legacy_params_override:
+            logger.warning(
+                "Algorithm %s uses deprecated sagemaker_execution_parameters. "
+                "Please move these settings into sagemaker_training_job_definition.ResourceConfig/StoppingCondition.",
+                args.algorithm_name,
+            )
+            apply_sagemaker_job_overrides(job_def, legacy_params_override)
+
+        apply_cli_sagemaker_job_overrides(
+            job_def,
+            role_arn=role_arn,
+            s3_output_base=s3_output_base,
+            instance_type=instance_type,
+            volume_gb=args.volume_gb,
+            max_runtime_seconds=args.max_runtime_seconds,
+            training_image=getattr(args, "training_image", None),
+        )
+
         _add_or_keep_source_channel(job_def, source_s3_uri=args.source_s3_uri, channel_name="source")
 
         hp = job_def.setdefault("HyperParameters", {})
-        hp["hotvect_task"] = task
-        hp["hotvect_source_channel"] = "source"
-        if getattr(args, "parameter_s3_uri", None):
-            hp["s3_uri_parameter_zip"] = args.parameter_s3_uri
-        if getattr(args, "include_feature_store_responses", None):
-            hp["hotvect_include_feature_store_responses"] = "true"
-        if getattr(args, "samples", None) is not None:
-            hp["hotvect_samples"] = str(args.samples)
-        if task == "performance-test" and getattr(args, "target_rps", None) is not None:
-            hp["hotvect_target_rps"] = str(args.target_rps)
-        if task == "performance-test" and getattr(args, "target_throughput_fraction", None) is not None:
-            hp["hotvect_target_throughput_fraction"] = str(args.target_throughput_fraction)
-        if task == "performance-test" and getattr(args, "workload_mode", None) is not None:
-            hp["hotvect_workload_mode"] = str(args.workload_mode)
-
+        parallel_task_output_s3_uri = getattr(args, "parallel_task_output_s3_uri", None)
         # Derive S3 base for this job for outputs. Executor uses: S3OutputPath + TrainingJobName
         output_s3_base = job_def["OutputDataConfig"]["S3OutputPath"].rstrip("/")
         sagemaker_job_output_prefix = f"{output_s3_base}/{training_job_name}"
-        hp["s3_uri_task_output"] = f"{sagemaker_job_output_prefix}/{pipeline.hyperparameter_slug()}/{task_kind_short}"
+        parallel_worker_count = getattr(args, "parallel_worker_count", None)
+        parallel_worker_index = getattr(args, "parallel_worker_index", None)
+        compression = getattr(args, "compression", "none")
+        task_output_s3_uri = (
+            str(parallel_task_output_s3_uri)
+            if parallel_task_output_s3_uri is not None
+            else f"{sagemaker_job_output_prefix}/{pipeline.hyperparameter_slug()}/{task_kind_short}"
+        )
+        ordered = bool(getattr(args, "ordered", False))
+        unordered = bool(getattr(args, "unordered", False))
+        writer_num_shards = getattr(args, "writer_num_shards", None)
+
+        if task in {"predict", "audit"} and parallel_task_output_s3_uri is not None:
+            # Parallel one-shot owns the public part-file layout, so the inner task always writes
+            # unordered worker-local outputs. writer_num_shards remains per-worker fan-out.
+            ordered = False
+            unordered = True
+        elif task == "encode" and parallel_task_output_s3_uri is None and not ordered and not unordered:
+            # Single-job encode should mirror the local CLI's ordered output contract.
+            ordered = True
+
+        one_shot_hp = OneShotSagemakerHyperparameters(
+            task=task,
+            task_output=TaskOutputConfig(s3_uri=task_output_s3_uri, compression=compression),
+            source_s3_uri=(normalize_s3_prefix_uri(args.source_s3_uri) if task == "performance-test" else None),
+            algorithm_jar_s3_uri=(
+                str(args.parallel_preuploaded_algorithm_jar_s3_uri)
+                if getattr(args, "parallel_preuploaded_algorithm_jar_s3_uri", None)
+                else None
+            ),
+            parameter_zip_s3_uri=getattr(args, "parameter_s3_uri", None),
+            instance_type=(job_def.get("ResourceConfig", {}).get("InstanceType") if task == "performance-test" else None),
+            training_image=(
+                job_def.get("AlgorithmSpecification", {}).get("TrainingImage") if task == "performance-test" else None
+            ),
+            sagemaker_output_s3_uri=sagemaker_job_output_prefix if task == "performance-test" else None,
+            ordered=ordered,
+            unordered=unordered,
+            writer_num_shards=writer_num_shards,
+            include_feature_store_responses=bool(getattr(args, "include_feature_store_responses", False)),
+            max_threads=getattr(args, "max_threads", None),
+            log_features=bool(getattr(args, "log_features", False)),
+            samples=getattr(args, "samples", None),
+            sample_pool_size=(getattr(args, "sample_pool_size", None) if task == "performance-test" else None),
+            target_rps=(getattr(args, "target_rps", None) if task == "performance-test" else None),
+            target_throughput_fraction=(
+                getattr(args, "target_throughput_fraction", None) if task == "performance-test" else None
+            ),
+            workload_mode=(getattr(args, "workload_mode", None) if task == "performance-test" else None),
+            parallel_execution=(
+                ParallelExecutionConfig(
+                    worker_count=int(parallel_worker_count),
+                    worker_index=int(parallel_worker_index),
+                )
+                if parallel_task_output_s3_uri is not None
+                else None
+            ),
+        )
+        hp.update(one_shot_hp.to_hyperparameters())
 
         try:
             from hotvect.sagemaker import SagemakerTrainingExecutor
@@ -271,12 +802,25 @@ def _submit_one_shot_sagemaker_job(
             training_job_definition=job_def,
             role_arn_to_assume=args.assume_role_arn,
         )
-        executor.run()
-
+        submission_response = executor.run()
         logger.info("SageMaker job submitted: %s", executor.training_job_name)
         logger.info("s3_uri_result_file: %s", executor.hyperparameters.get("s3_uri_result_file"))
         logger.info("s3_uri_metadata: %s", executor.hyperparameters.get("s3_uri_metadata"))
-        logger.info("s3_uri_task_output: %s", hp.get("s3_uri_task_output"))
+        logger.info("task_output_s3_uri: %s", task_output_s3_uri)
+
+        if hasattr(executor, "build_submission_manifest"):
+            submission_manifest = executor.build_submission_manifest(submission_response)
+            submission_manifest.setdefault("s3_uri_result_file", executor.hyperparameters.get("s3_uri_result_file"))
+            submission_manifest.setdefault("s3_uri_metadata", executor.hyperparameters.get("s3_uri_metadata"))
+            submission_manifest.setdefault("task_output_s3_uri", task_output_s3_uri)
+            return submission_manifest
+        return {
+            "training_job_name": executor.training_job_name,
+            "submission_status": "submitted",
+            "s3_uri_result_file": executor.hyperparameters.get("s3_uri_result_file"),
+            "s3_uri_metadata": executor.hyperparameters.get("s3_uri_metadata"),
+            "task_output_s3_uri": task_output_s3_uri,
+        }
 
 
 class BaseCommand(ABC):
@@ -312,6 +856,246 @@ class BaseCommand(ABC):
         return False
 
 
+def _docs_target_to_uri(target: str, *, base_uri: str = "hotvect://docs") -> str:
+    normalized = (target or "").strip()
+    if not normalized:
+        raise ValueError("docs target must be non-empty")
+    if normalized.startswith(base_uri + "/"):
+        return normalized
+
+    relpath = normalized.lstrip("/").replace("\\", "/")
+    if not relpath:
+        raise ValueError(f"docs target must include a path below {base_uri}/")
+    if ".." in Path(relpath).parts:
+        raise ValueError(f"Invalid docs target path: {target}")
+    return f"{base_uri}/{relpath}"
+
+
+class DocsCommand(BaseCommand):
+    def get_name(self) -> str:
+        return "docs"
+
+    def get_help(self) -> str:
+        return "Search and read bundled Hotvect docs (JSON output only)"
+
+    def get_description(self) -> str:
+        return (
+            "Search and read the bundled Hotvect documentation corpus. Output is always JSON on stdout. "
+            "By default hv docs uses scan-based search and avoids local SQLite index writes."
+        )
+
+    def add_arguments(self, parser: argparse.ArgumentParser) -> None:
+        parser.add_argument(
+            "--sqlite-index",
+            action=argparse.BooleanOptionalAction,
+            default=None,
+            help=(
+                "Enable SQLite FTS indexing for faster repeated searches. Disabled by default to avoid local cache writes; "
+                "use --sqlite-index-path to pin the cache file location."
+            ),
+        )
+        parser.add_argument(
+            "--sqlite-index-path",
+            default=None,
+            help="Optional explicit path for the SQLite docs index file (implies --sqlite-index).",
+        )
+
+        subparsers = parser.add_subparsers(dest="docs_command", required=True, metavar="<docs-command>")
+
+        subparsers.add_parser("list", help="List bundled docs")
+
+        search_parser = subparsers.add_parser("search", help="Search bundled docs")
+        search_parser.add_argument("query", nargs="+", help="Search query")
+        search_parser.add_argument("--limit", type=int, default=20, help="Maximum results to return (default: 20)")
+
+        read_parser = subparsers.add_parser("read", help="Read one bundled doc")
+        read_parser.add_argument(
+            "target",
+            help="Document URI (hotvect://docs/...) or docs-relative path (for example reference/cli/index.md)",
+        )
+
+    def execute(self, args: argparse.Namespace) -> None:
+        from hotvect.mcp.docs_repo import DocsRepository, bundled_docs_traversable
+
+        if args.sqlite_index is False and args.sqlite_index_path:
+            _exit_cli_usage_error("--sqlite-index-path cannot be used with --no-sqlite-index")
+
+        sqlite_index = bool(args.sqlite_index) if args.sqlite_index is not None else bool(args.sqlite_index_path)
+        sqlite_index_path = Path(args.sqlite_index_path).expanduser() if args.sqlite_index_path else None
+
+        docs = bundled_docs_traversable()
+        with as_file(docs) as docs_root:
+            repo = DocsRepository(
+                docs_root=Path(docs_root).resolve(),
+                sqlite_index=sqlite_index,
+                sqlite_index_path=sqlite_index_path,
+                hotvect_version=getattr(hotvect, "__version__", "unknown"),
+            )
+
+            if args.docs_command == "list":
+                payload = {"docs": repo.list_docs()}
+            elif args.docs_command == "search":
+                payload = repo.search(" ".join(args.query), limit=args.limit)
+            elif args.docs_command == "read":
+                try:
+                    payload = repo.read_markdown(_docs_target_to_uri(args.target))
+                except (FileNotFoundError, ValueError) as e:
+                    _exit_cli_usage_error(str(e))
+            else:
+                _exit_cli_usage_error(f"Unknown docs command: {args.docs_command}")
+
+        print(json.dumps(payload, indent=2))
+
+
+class PromptsCommand(BaseCommand):
+    def get_name(self) -> str:
+        return "prompts"
+
+    def get_help(self) -> str:
+        return "List and read bundled Hotvect prompt templates (JSON output only)"
+
+    def get_description(self) -> str:
+        return (
+            "List and read the bundled Hotvect prompt templates that are also exposed by hv-mcp. "
+            "Output is always JSON on stdout."
+        )
+
+    def add_arguments(self, parser: argparse.ArgumentParser) -> None:
+        subparsers = parser.add_subparsers(dest="prompts_command", required=True, metavar="<prompts-command>")
+
+        subparsers.add_parser("list", help="List bundled prompt templates")
+
+        read_parser = subparsers.add_parser("read", help="Read one bundled prompt template")
+        read_parser.add_argument("name", help="Prompt name (for example setup_config)")
+
+    def execute(self, args: argparse.Namespace) -> None:
+        from hotvect.mcp.prompts import get_prompt, list_prompts
+
+        if args.prompts_command == "list":
+            payload = {"prompts": list_prompts()}
+        elif args.prompts_command == "read":
+            try:
+                prompt = get_prompt(args.name)
+            except ValueError as e:
+                _exit_cli_usage_error(str(e))
+            payload = {
+                "name": prompt.name,
+                "description": prompt.description,
+                "text": prompt.text,
+            }
+        else:
+            _exit_cli_usage_error(f"Unknown prompts command: {args.prompts_command}")
+
+        print(json.dumps(payload, indent=2))
+
+
+def add_sagemaker_args(
+    parser: argparse.ArgumentParser,
+    *,
+    job_prefix_required_with_config: bool,
+    training_image_help: str,
+    include_source_s3_uri: bool = False,
+    source_s3_uri_help: str = "S3 prefix for the input data (one-shot SageMaker mode)",
+    include_parameter_s3_uri: bool = False,
+    parameter_s3_uri_help: str = (
+        "S3 URI to parameters zip (optional for encode/predict, required for audit/perf-test SageMaker mode)"
+    ),
+    include_parallel_args: bool = False,
+) -> None:
+    """Add the shared SageMaker CLI surface used by train/backtest and one-shot commands."""
+
+    job_prefix_help = (
+        "Required when using --sagemaker or --sagemaker-config. Must be a valid SageMaker TrainingJobName prefix."
+        if job_prefix_required_with_config
+        else "Required when using --sagemaker. Must be a valid SageMaker TrainingJobName prefix."
+    )
+
+    parser.add_argument("--sagemaker", action="store_true", help="Execute this command remotely on SageMaker")
+    parser.add_argument("--sagemaker-job-prefix", help=job_prefix_help)
+    parser.add_argument("--sagemaker-config", help="Path to JSON file containing SageMaker training job configuration")
+    parser.add_argument(
+        "--role-arn",
+        help="SageMaker job execution role ARN (CreateTrainingJob.RoleArn). Required in template-free mode.",
+    )
+    parser.add_argument(
+        "--assume-role-arn",
+        help="AWS role ARN to assume for SageMaker submission (optional; defaults to using current AWS credentials)",
+    )
+    parser.add_argument("--s3-output-base", help="S3 output base prefix used in template-free mode (OutputDataConfig.S3OutputPath)")
+    parser.add_argument(
+        "--instance-type",
+        help=(
+            "Primary SageMaker instance type used in template-free mode (ResourceConfig.InstanceType). "
+            "For ordered capacity fallback, set HotvectSubmissionOptions.PreferredInstanceTypes in the "
+            "job definition."
+        ),
+    )
+    parser.add_argument("--volume-gb", type=int, help="EBS volume size in GB (ResourceConfig.VolumeSizeInGB)")
+    parser.add_argument("--max-runtime-seconds", type=int, help="Max runtime in seconds (StoppingCondition.MaxRuntimeInSeconds)")
+    parser.add_argument("--training-image", dest="training_image", help=training_image_help)
+
+    if include_source_s3_uri:
+        parser.add_argument("--source-s3-uri", help=source_s3_uri_help)
+    if include_parameter_s3_uri:
+        parser.add_argument("--parameter-s3-uri", help=parameter_s3_uri_help)
+    if include_parallel_args:
+        parser.add_argument(
+            "--job-parallelism",
+            type=int,
+            default=1,
+            help="Parallelize one-shot SageMaker runs across N shard jobs (SageMaker-only, optional)",
+        )
+        parser.add_argument(
+            "--verify",
+            action="store_true",
+            help="Verify/finalize a previously submitted parallel one-shot SageMaker run and write _SUCCESS",
+        )
+        parser.add_argument(
+            "--no-wait",
+            action="store_true",
+            help=(
+                "Submit a SageMaker one-shot run and exit after submission. "
+                "For parallel runs this skips waiting/finalization; for single-job runs this is a no-op convenience flag."
+            ),
+        )
+
+
+def add_output_ordering_args(parser: argparse.ArgumentParser, *, command_label: str) -> None:
+    parser.add_argument(
+        "--ordered",
+        action="store_true",
+        help=f"Whether {command_label} output should strictly follow the order of the input (optional)",
+    )
+    parser.add_argument(
+        "--unordered",
+        action="store_true",
+        help=f"Allow unordered internal {command_label} processing and write part files under --dest-path (optional)",
+    )
+    parser.add_argument(
+        "--writer-num-shards",
+        type=int,
+        help=f"Number of unordered {command_label} output part files (<=0 auto-determines count, optional)",
+    )
+
+
+def validate_output_ordering_flags(args: argparse.Namespace) -> None:
+    if bool(getattr(args, "ordered", False)) and bool(getattr(args, "unordered", False)):
+        raise ValueError("At most one of --ordered and --unordered may be specified")
+    writer_num_shards = getattr(args, "writer_num_shards", None)
+    if bool(getattr(args, "ordered", False)) and writer_num_shards is not None and writer_num_shards > 1:
+        raise ValueError(
+            "--writer-num-shards > 1 may only be used with --unordered. Ordered output always writes a single part file."
+        )
+
+
+def resolve_local_output_ordering(command_name: str, args: argparse.Namespace) -> tuple[bool, bool]:
+    ordered = bool(getattr(args, "ordered", False))
+    unordered = bool(getattr(args, "unordered", False))
+    if command_name == "encode" and not ordered and not unordered:
+        ordered = True
+    return ordered, unordered
+
+
 class JavaCommand(BaseCommand):
     """Base class for commands that execute Java with hotvect JAR."""
 
@@ -320,14 +1104,14 @@ class JavaCommand(BaseCommand):
 
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
         """Add common Java command arguments."""
-        parser.add_argument("--algorithm-jar", required=True,
-                          help="Path to the JAR file containing the algorithm implementation (required)")
-        parser.add_argument("--algorithm-name", required=True, type=_parse_algorithm_name,
-                          help="Name of the algorithm to execute (required)")
+        parser.add_argument("--algorithm-jar",
+                          help="Path to the JAR file containing the algorithm implementation")
+        parser.add_argument("--algorithm-name", type=_parse_algorithm_name,
+                          help="Name of the algorithm to execute")
         parser.add_argument(
             "--algorithm-override",
             help=(
-                "Path to JSON file containing algorithm configuration overrides (optional). "
+                f"{_ALGORITHM_OVERRIDE_HELP} "
                 "When set, hv loads the base algorithm definition from the JAR, merges overrides, "
                 "writes a complete effective definition to --metadata-path/effective_algorithm_definition.json, and passes that "
                 "JSON file to Java."
@@ -347,7 +1131,7 @@ class JavaCommand(BaseCommand):
         parser.add_argument("--dest-path",
                           help="Path where the operation results will be saved (optional, auto-generated if not specified)")
         parser.add_argument("--parameter-path",
-                          help="Path to the trained model parameter file (required for predict/audit/serve/worker serve, optional for others)")
+                          help="Path to the trained model parameter file (optional for encode/predict, required for audit/performance-test/serve/worker serve)")
         parser.add_argument("--dest-schema-path",
                           help="Path where the feature schema description will be saved (optional, used in encoding operations)")
         parser.add_argument("--samples", type=int,
@@ -362,30 +1146,14 @@ class JavaCommand(BaseCommand):
                 "(else 1); pass an explicit value to override, or 0 to let the JAR decide. (optional)"
             ),
         )
-
-        # SageMaker execution (one-shot)
-        parser.add_argument("--sagemaker", action="store_true", help="Execute this command remotely on SageMaker")
-        parser.add_argument(
-            "--sagemaker-job-prefix",
-            help="Required when using --sagemaker. Must be a valid SageMaker TrainingJobName prefix.",
+        add_sagemaker_args(
+            parser,
+            job_prefix_required_with_config=False,
+            training_image_help="Training image URI (AlgorithmSpecification.TrainingImage)",
+            include_source_s3_uri=True,
+            include_parameter_s3_uri=True,
+            include_parallel_args=True,
         )
-        parser.add_argument("--sagemaker-config", help="Path to JSON file containing SageMaker training job configuration")
-        parser.add_argument(
-            "--role-arn",
-            help="SageMaker job execution role ARN (CreateTrainingJob.RoleArn). Required in template-free mode.",
-        )
-        parser.add_argument(
-            "--assume-role-arn",
-            help="AWS role ARN to assume for SageMaker submission (optional; defaults to using current AWS credentials)",
-        )
-        parser.add_argument("--s3-output-base", help="S3 output base prefix used in template-free mode (OutputDataConfig.S3OutputPath)")
-        parser.add_argument("--instance-type", help="SageMaker instance type used in template-free mode (ResourceConfig.InstanceType)")
-        parser.add_argument("--volume-gb", type=int, help="EBS volume size in GB (ResourceConfig.VolumeSizeInGB)")
-        parser.add_argument("--max-runtime-seconds", type=int, help="Max runtime in seconds (StoppingCondition.MaxRuntimeInSeconds)")
-        parser.add_argument("--training-image", dest="training_image", help="Training image URI (AlgorithmSpecification.TrainingImage)")
-        parser.add_argument("--source-s3-uri", help="S3 prefix for the input data (one-shot SageMaker mode)")
-        parser.add_argument("--parameter-s3-uri", help="S3 URI to parameters zip (predict/audit/perf-test SageMaker mode)")
-
         # Add command-specific arguments
         self.add_command_arguments(parser)
 
@@ -398,29 +1166,13 @@ class JavaCommand(BaseCommand):
         """
         if not getattr(args, "algorithm_override", None):
             return args.algorithm_name
-
-        from hotvect.utils import read_algorithm_definition_from_jar, recursive_dict_update
-
-        base_def = read_algorithm_definition_from_jar(args.algorithm_name, Path(args.algorithm_jar))
-
-        with open(args.algorithm_override, "r", encoding="utf-8") as f:
-            override = json.load(f)
-        if not isinstance(override, dict):
-            raise ValueError(
-                f"--algorithm-override must be a JSON object, got {type(override).__name__}: {args.algorithm_override}"
+        effective_def = serialize_effective_algorithm_definition(
+            _load_effective_algorithm_definition(
+                str(args.algorithm_jar),
+                args.algorithm_name,
+                getattr(args, "algorithm_override", None),
             )
-
-        if "algorithm_name" in override and override["algorithm_name"] != args.algorithm_name:
-            raise ValueError(
-                f"--algorithm-override may not change algorithm_name (expected {args.algorithm_name}, got {override['algorithm_name']})"
-            )
-
-        effective_def = copy.deepcopy(base_def)
-        recursive_dict_update(effective_def, override)
-        if effective_def.get("algorithm_name") != args.algorithm_name:
-            raise ValueError(
-                f"--algorithm-override changed algorithm_name to {effective_def.get('algorithm_name')}; this is not supported"
-            )
+        )
 
         metadata_dir = Path(args.metadata_path)
         effective_def_path = metadata_dir / "effective_algorithm_definition.json"
@@ -443,19 +1195,68 @@ class JavaCommand(BaseCommand):
     def execute(self, args: argparse.Namespace) -> None:
         """Execute Java command with common logic."""
         command_name = self.get_name()
+        parallel_requested = getattr(args, "job_parallelism", 1) > 1
+        verify_requested = bool(getattr(args, "verify", False))
 
+        if command_name in {"predict", "audit", "encode"}:
+            validate_output_ordering_flags(args)
+        if verify_requested:
+            if not getattr(args, "sagemaker", False):
+                raise ValueError("--verify requires --sagemaker")
+            if getattr(args, "no_wait", False):
+                raise ValueError("--no-wait cannot be combined with --verify")
+            if command_name not in {"audit", "predict", "encode"}:
+                raise ValueError(f"--verify is not supported for '{command_name}'")
+            _verify_parallel_one_shot_sagemaker_job(command_name=command_name, args=args)
+            return
+        if getattr(args, "no_wait", False) and not getattr(args, "sagemaker", False):
+            raise ValueError("--no-wait is only supported with --sagemaker")
+        if getattr(args, "compression", "none") != "none":
+            if command_name == "encode":
+                raise ValueError("--compression is not supported for encode")
+            if command_name not in {"predict", "audit"}:
+                raise ValueError("--compression is only supported for predict and audit")
+            if not parallel_requested:
+                raise ValueError("--compression is only supported for parallel one-shot SageMaker runs")
+        if parallel_requested:
+            if not getattr(args, "sagemaker", False):
+                raise ValueError("--job-parallelism is only supported with --sagemaker")
+            if command_name not in {"audit", "predict", "encode"}:
+                raise ValueError(f"--job-parallelism is not supported for '{command_name}'")
+            if command_name in {"predict", "audit", "encode"} and getattr(args, "ordered", False):
+                raise ValueError("--ordered is not supported together with --job-parallelism")
+            if getattr(args, "algorithm_jar", None) is None:
+                raise ValueError("--algorithm-jar is required")
+            if getattr(args, "algorithm_name", None) is None:
+                raise ValueError("--algorithm-name is required")
+            _run_parallel_one_shot_sagemaker_job(
+                task=command_name,
+                task_kind_short=command_name,
+                command_name=command_name,
+                args=args,
+            )
+            return
         # SageMaker mode: submit one-shot job and return immediately.
         if getattr(args, "sagemaker", False):
             if command_name not in {"audit", "predict", "encode", "performance-test"}:
                 raise ValueError(f"--sagemaker is not supported for '{command_name}'")
+            if getattr(args, "algorithm_jar", None) is None:
+                raise ValueError("--algorithm-jar is required")
+            if getattr(args, "algorithm_name", None) is None:
+                raise ValueError("--algorithm-name is required")
             task = command_name
             kind_short = "perf" if command_name == "performance-test" else command_name
             if task == "performance-test":
                 task = "performance-test"
                 kind_short = "perf"
-            if task in {"predict", "audit", "performance-test"} and not getattr(args, "parameter_s3_uri", None):
+            if task in {"audit", "performance-test"} and not getattr(args, "parameter_s3_uri", None):
                 raise ValueError("--parameter-s3-uri is required for this command in --sagemaker mode")
             _submit_one_shot_sagemaker_job(task=task, task_kind_short=kind_short, args=args)
+            if getattr(args, "no_wait", False):
+                logger.info(
+                    "--no-wait was set. Single-job SageMaker one-shot runs already return after submission, so no "
+                    "additional waiting or finalization is performed."
+                )
             return
 
         # Set default paths if not provided
@@ -472,7 +1273,7 @@ class JavaCommand(BaseCommand):
         Path(args.metadata_path).mkdir(parents=True, exist_ok=True)
         _enable_file_logging(Path(args.metadata_path))
 
-        needs_dest_path = command_name in {"encode", "predict", "audit", "generate-state", "list-transformations"}
+        needs_dest_path = command_name in {"encode", "predict", "audit", "generate-state"}
         if needs_dest_path and not getattr(args, 'dest_path', None):
             dest_path = f"{args.algorithm_name}.{command_name}.output"
             logger.info(f"Destination path not provided. Using default: {dest_path}")
@@ -484,6 +1285,10 @@ class JavaCommand(BaseCommand):
             args.dest_schema_path = dest_schema_path
 
         source_required, _ = self.get_source_path_config()
+        if getattr(args, "algorithm_jar", None) is None:
+            raise ValueError("--algorithm-jar is required")
+        if getattr(args, "algorithm_name", None) is None:
+            raise ValueError("--algorithm-name is required")
         if source_required and not getattr(args, "source_path", None):
             raise ValueError("--source-path is required for local execution")
 
@@ -492,77 +1297,42 @@ class JavaCommand(BaseCommand):
 
         self.run_java_command(args, jvm_args)
 
-    def run_java_command(self, args: argparse.Namespace, jvm_args: List[str]) -> None:
+    def run_java_command(self, args: argparse.Namespace, jvm_args: list[str]) -> None:
         """Run the Java command."""
 
         cmd = ["java"]
-        cmd.extend(jvm_args)
-        if not any(arg.startswith("-Xmx") or arg.startswith("-XX:MaxRAMPercentage") for arg in jvm_args):
-            cmd.append("-XX:MaxRAMPercentage=90")
-        if "-XX:+ExitOnOutOfMemoryError" not in jvm_args:
-            cmd.append("-XX:+ExitOnOutOfMemoryError")
-        if "-cp" not in jvm_args:
-            cmd.extend(["-cp", str(hotvect.hotvectjar.HOTVECT_JAR_PATH)])
+        normalized_jvm_args = normalize_runtime_jvm_args(jvm_args)
+        cmd.extend(normalized_jvm_args)
+        if "-cp" not in normalized_jvm_args:
+            cmd.extend(["-cp", str(_hotvectjar_module().HOTVECT_JAR_PATH)])
 
         algorithm_definition_arg = self._resolve_java_algorithm_definition_arg(args)
         subcommand = self.get_name()
-        cmd.extend(
-            [
-                "com.hotvect.offlineutils.commandline.Main",
-                subcommand,
-                "--algorithm-jar",
-                str(args.algorithm_jar),
-                "--algorithm-definition",
-                algorithm_definition_arg,
-                "--metadata-path",
-                str(args.metadata_path),
-            ]
+        ordered, unordered = resolve_local_output_ordering(subcommand, args)
+        spec = OfflineTaskSpec(
+            task=subcommand,
+            algorithm_jar_path=Path(args.algorithm_jar),
+            algorithm_definition_arg=algorithm_definition_arg,
+            metadata_path=Path(args.metadata_path),
+            source_path=Path(args.source_path) if getattr(args, "source_path", None) else None,
+            dest_path=Path(args.dest_path) if getattr(args, "dest_path", None) else None,
+            parameter_path=Path(args.parameter_path) if getattr(args, "parameter_path", None) else None,
+            dest_schema_description_path=(
+                Path(args.dest_schema_path) if getattr(args, "dest_schema_path", None) else None
+            ),
+            samples=getattr(args, "samples", None),
+            sample_pool_size=getattr(args, "sample_pool_size", None),
+            max_threads=getattr(args, "max_threads", None),
+            ordered=ordered,
+            unordered=unordered,
+            writer_num_shards=getattr(args, "writer_num_shards", None),
+            include_feature_store_responses=bool(getattr(args, "include_feature_store_responses", False)),
+            target_rps=getattr(args, "target_rps", None),
+            target_throughput_fraction=getattr(args, "target_throughput_fraction", None),
+            workload_mode=getattr(args, "workload_mode", None),
+            log_features=bool(getattr(args, "log_features", False)),
         )
-
-        tasks_with_dest = {"encode", "predict", "audit", "generate-state", "list-transformations"}
-        tasks_with_source = {"encode", "predict", "audit", "performance-test", "generate-state"}
-        tasks_with_parameters = {"encode", "predict", "audit", "performance-test", "list-transformations"}
-        tasks_with_samples = {"encode", "predict", "audit", "performance-test"}
-        tasks_with_max_threads = {"encode", "predict", "audit", "performance-test"}
-
-        if subcommand in tasks_with_dest:
-            cmd.extend(["--dest", str(args.dest_path)])
-
-        if getattr(args, "max_threads", None) and args.max_threads > 0 and subcommand in tasks_with_max_threads:
-            cmd.extend(["--max-threads", str(args.max_threads)])
-
-        if args.source_path and subcommand in tasks_with_source:
-            cmd.extend(["--source", str(args.source_path)])
-
-        if subcommand == "encode":
-            cmd.append("--ordered")
-
-        if subcommand == "encode":
-            cmd.extend(["--dest-schema-description", str(args.dest_schema_path)])
-
-        if getattr(args, "parameter_path", None) and subcommand in tasks_with_parameters:
-            cmd.extend(["--parameters", str(args.parameter_path)])
-
-        if getattr(args, "samples", None) is not None and subcommand in tasks_with_samples:
-            cmd.extend(["--samples", str(args.samples)])
-
-        if subcommand == "performance-test" and getattr(args, "target_rps", None) is not None:
-            cmd.extend(["--target-rps", str(args.target_rps)])
-
-        if subcommand == "performance-test" and getattr(args, "target_throughput_fraction", None) is not None:
-            cmd.extend(["--target-throughput-fraction", str(args.target_throughput_fraction)])
-
-        if subcommand == "performance-test" and getattr(args, "workload_mode", None) is not None:
-            cmd.extend(["--workload-mode", str(args.workload_mode)])
-
-        if subcommand == "predict" and getattr(args, "log_features", None):
-            cmd.append("--log-features")
-
-        if subcommand in {"predict", "audit"} and getattr(args, "include_feature_store_responses", None):
-            cmd.append("--include-feature-store-responses")
-
-        if subcommand == "list-transformations" and getattr(args, "verbose", None):
-            cmd.append("--verbose")
+        cmd.extend(build_offline_task_main_args(spec))
 
         cmd_str = ' '.join(map(str, cmd))
         logger.info(f"Running command: {cmd_str}")
@@ -583,6 +1353,13 @@ class AuditCommand(JavaCommand):
         return True, "Path to the input data source for auditing (required)"
 
     def add_command_arguments(self, parser: argparse.ArgumentParser) -> None:
+        parser.add_argument(
+            "--compression",
+            choices=("none", "gzip"),
+            default="none",
+            help="Compression for parallel audit part-file outputs (default: none)",
+        )
+        add_output_ordering_args(parser, command_label="audit")
         parser.add_argument(
             "--include-feature-store-responses",
             action="store_true",
@@ -628,8 +1405,17 @@ class PerformanceTestCommand(JavaCommand):
                 "normally measures serving latency. Use batch to explicitly benchmark the batch path."
             ),
         )
+        parser.add_argument(
+            "--sample-pool-size",
+            type=int,
+            default=None,
+            help=(
+                "Performance-test only: number of decoded candidate examples retained in memory for replay. "
+                "This is separate from --samples, which controls measured executions."
+            ),
+        )
 
-    def run_java_command(self, args: argparse.Namespace, jvm_args: List[str]) -> None:
+    def run_java_command(self, args: argparse.Namespace, jvm_args: list[str]) -> None:
         if getattr(args, "max_threads", None) is None:
             import os
 
@@ -654,6 +1440,9 @@ class EncodeCommand(JavaCommand):
     def get_source_path_config(self):
         return True, "Path to the input data source for encoding (required)"
 
+    def add_command_arguments(self, parser: argparse.ArgumentParser) -> None:
+        add_output_ordering_args(parser, command_label="encode")
+
 
 class PredictCommand(JavaCommand):
     def get_name(self) -> str:
@@ -669,6 +1458,13 @@ class PredictCommand(JavaCommand):
         return True, "Path to the input data source for prediction (required)"
 
     def add_command_arguments(self, parser: argparse.ArgumentParser) -> None:
+        parser.add_argument(
+            "--compression",
+            choices=("none", "gzip"),
+            default="none",
+            help="Compression for parallel prediction part-file outputs (default: none)",
+        )
+        add_output_ordering_args(parser, command_label="prediction")
         parser.add_argument("--log-features", action='store_true',
                           help="Enable feature logging during prediction for debugging composite algorithms (optional)")
         parser.add_argument(
@@ -676,24 +1472,6 @@ class PredictCommand(JavaCommand):
             action="store_true",
             help="Include feature store responses in predict output under additional_properties.__feature_store_responses (optional)",
         )
-
-
-class ListTransformationsCommand(JavaCommand):
-    def get_name(self) -> str:
-        return "list-transformations"
-
-    def get_help(self) -> str:
-        return "Display all feature transformations defined in the algorithm"
-
-    def get_description(self) -> str:
-        return "List all feature transformations, encoders, and data processing steps available in the specified algorithm. Use --verbose for detailed information about each transformation including parameters and data types."
-
-    def get_source_path_config(self):
-        return False, "Path to the input data source (optional for list-transformations)"
-
-    def add_command_arguments(self, parser: argparse.ArgumentParser) -> None:
-        parser.add_argument("--verbose", action='store_true',
-                          help="Show detailed information about each transformation including parameters and data types (optional)")
 
 
 class GenerateStateCommand(JavaCommand):
@@ -723,18 +1501,48 @@ class EvaluateCommand(BaseCommand):
         return "Compute evaluation metrics (accuracy, precision, recall, AUC, etc.) from prediction results. Can perform both online/offline analysis to compare model performance across different scenarios and data splits."
 
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
-        parser.add_argument("--source-path", required=True,
-                          help="Path to the prediction results file (JSONL format) to evaluate (required)")
-        parser.add_argument("--dest-path", required=True,
-                          help="Path where the evaluation metrics will be saved as JSON (required)")
+        parser.add_argument("--source-path",
+                          help="Path to the prediction results file or part-file directory to evaluate (required for local execution)")
+        parser.add_argument("--dest-path",
+                          help="Path where the evaluation metrics will be saved as JSON (required for local execution)")
         parser.add_argument("--enable-online-offline-analysis", action='store_true',
                           help="Enable detailed online vs offline performance analysis (optional)")
+        parser.add_argument("--algorithm-jar",
+                          help="Path to the JAR file containing the algorithm implementation (required for --sagemaker)")
+        parser.add_argument("--algorithm-name", type=_parse_algorithm_name,
+                          help="Name of the algorithm to execute (required for --sagemaker)")
+        parser.add_argument(
+            "--algorithm-override",
+            help=(
+                "Path to JSON file containing algorithm configuration overrides (optional). "
+                "Used when evaluating remotely on SageMaker."
+            ),
+        )
+        add_sagemaker_args(
+            parser,
+            job_prefix_required_with_config=False,
+            training_image_help="Training image URI (AlgorithmSpecification.TrainingImage)",
+            include_source_s3_uri=True,
+            source_s3_uri_help="S3 prefix containing cached prediction output when using --sagemaker",
+        )
 
     def execute(self, args: argparse.Namespace) -> None:
-        from hotvect.mlutils import standard_evaluation
+        from hotvect.evaluation.evaluation import standard_evaluation
 
-        perform_online_offline_evaluations = args.enable_online_offline_analysis
-        result = standard_evaluation(path=args.source_path)
+        if getattr(args, "sagemaker", False):
+            if not args.algorithm_jar:
+                raise ValueError("--algorithm-jar is required for this command in --sagemaker mode")
+            if not args.algorithm_name:
+                raise ValueError("--algorithm-name is required for this command in --sagemaker mode")
+            _submit_one_shot_sagemaker_job(task="evaluate", task_kind_short="eval", args=args)
+            return
+
+        if not args.source_path:
+            raise ValueError("--source-path is required for local execution")
+        if not args.dest_path:
+            raise ValueError("--dest-path is required for local execution")
+
+        result = standard_evaluation(path=str(resolve_evaluate_source_path(Path(args.source_path))))
         with open(args.dest_path, 'w') as f:
             json.dump(result, f, indent=2)
         print(f"Evaluation results saved to {args.dest_path}")
@@ -762,16 +1570,27 @@ class TrainCommand(BaseCommand):
         parser.add_argument("--last-test-time", required=True,
                           help="Last test time in YYYY-MM-DD format, e.g., '2025-04-30' (required)")
         parser.add_argument("--algorithm-override",
-                          help="Path to JSON file containing algorithm configuration overrides (optional)")
+                          help=_ALGORITHM_OVERRIDE_HELP)
         parser.add_argument("--extra-jvm-args",
                           help="Additional JVM arguments for training, comma-separated, e.g., '-Xmx64g,-XX:+UseG1GC' (optional)")
         parser.add_argument("--max-threads", type=int, default=0,
                           help="Max threads for hotvect encode/predict. 0=don't pass; JAR decides. (optional)")
         parser.add_argument(
+            "--target",
+            choices=["parameters", "predict", "evaluate"],
+            default="evaluate",
+            help=(
+                "Pipeline end target. "
+                "'parameters' stops after packaging predict parameters, "
+                "'predict' runs through prediction_spec and stops, "
+                "'evaluate' runs the full local pipeline including evaluation (default)."
+            ),
+        )
+        parser.add_argument(
             "--cache",
             dest="cache_base_dir",
             default=None,
-            help="Enable Hotvect pipeline caching (local path or s3://example-bucket).",
+            help="Enable Hotvect pipeline caching (local path or s3://...).",
         )
         parser.add_argument(
             "--cache-scope",
@@ -785,45 +1604,42 @@ class TrainCommand(BaseCommand):
         parser.add_argument(
             "--cache-refresh",
             action="store_true",
-            help="Ignore cache reads (force recompute) while still writing results to cache.",
+            help=(
+                "Ignore cache reads and write fresh run-level cache results. "
+                "Requires an effective cache base dir and effective cache mode 'run'."
+            ),
         )
 
-        parser.add_argument("--sagemaker", action="store_true", help="Execute this training remotely on SageMaker")
-        parser.add_argument(
-            "--sagemaker-job-prefix",
-            help="Required when using --sagemaker or --sagemaker-config. Must be a valid SageMaker TrainingJobName prefix.",
+        add_sagemaker_args(
+            parser,
+            job_prefix_required_with_config=True,
+            training_image_help="Training image URI override (AlgorithmSpecification.TrainingImage)",
         )
-        parser.add_argument("--sagemaker-config", help="Path to JSON file containing SageMaker training job configuration (optional)")
-        parser.add_argument("--role-arn", help="SageMaker job execution role ARN (CreateTrainingJob.RoleArn) (optional)")
-        parser.add_argument(
-            "--assume-role-arn",
-            help="AWS role ARN to assume for SageMaker submission (optional; defaults to using current AWS credentials)",
-        )
-        parser.add_argument("--s3-output-base", help="S3 output base prefix used in template-free SageMaker mode (OutputDataConfig.S3OutputPath)")
-        parser.add_argument("--instance-type", help="SageMaker instance type used in template-free SageMaker mode (ResourceConfig.InstanceType)")
-        parser.add_argument("--volume-gb", type=int, help="EBS volume size in GB (ResourceConfig.VolumeSizeInGB)")
-        parser.add_argument("--max-runtime-seconds", type=int, help="Max runtime in seconds (StoppingCondition.MaxRuntimeInSeconds)")
-        parser.add_argument("--training-image", dest="training_image", help="Training image URI override (AlgorithmSpecification.TrainingImage)")
 
-        parser.add_argument("--performance-test-samples", type=int, help="Pin perf-test sample size for comparability")
+        parser.add_argument("--performance-test-samples", type=int, help="Pin perf-test measured execution count for comparability")
+        parser.add_argument(
+            "--performance-test-sample-pool-size",
+            type=int,
+            help="Pin perf-test decoded replay pool size separately from measured executions",
+        )
         parser.add_argument("--auto-attach-data", action="store_true", help="Auto-populate InputDataConfig from algorithm dependencies (SageMaker mode)")
         parser.add_argument("--auto-attach-data-default-s3-base", help="Default S3 base URI used when dependencies do not specify explicit s3_uri")
         parser.add_argument(
             "--auto-attach-data-environment",
-            choices=["production", "test"],
             default="production",
-            help="Environment key to use when dependency s3_uri is a map (default: production)",
+            help=(
+                "Environment key to use when dependency s3_uri maps are resolved and when prediction_spec env maps "
+                "are selected. prediction_spec.s3_uri/output_uri require an exact key match (default: production)"
+            ),
         )
 
     def execute(self, args: argparse.Namespace) -> None:
         remote_mode = bool(args.sagemaker or args.sagemaker_config)
+        from hotvect.evaluation import evaluation
         from hotvect.pyhotvect import AlgorithmPipeline, AlgorithmPipelineContext
-        from hotvect.utils import recursive_dict_update
-
-        import hotvect.mlutils as mlutils
 
         if not remote_mode:
-            cfg_dirs: Dict[str, Any] = {}
+            cfg_dirs: dict[str, Any] = {}
             if not args.data_base_dir or not args.output_base_dir:
                 from hotvect.extra.config import try_load_config
 
@@ -842,36 +1658,32 @@ class TrainCommand(BaseCommand):
                 )
 
         # Parse extra JVM args if provided
-        jvm_options = ["-XX:MaxRAMPercentage=90"]  # Default JVM memory
-        if args.extra_jvm_args:
-            extra_jvm_args = [arg.strip() for arg in args.extra_jvm_args.split(',')]
-            jvm_options.extend(extra_jvm_args)
+        jvm_options = normalize_pipeline_jvm_options(
+            [arg.strip() for arg in args.extra_jvm_args.split(',')] if args.extra_jvm_args else None
+        )
 
         # Parse last test time
         last_test_time = date.fromisoformat(args.last_test_time)
 
         # Handle algorithm definition with optional overrides
         algorithm_definition = args.algorithm_name
-        if args.cache_refresh and not args.cache_base_dir:
-            print("Error: --cache-refresh requires --cache.", file=sys.stderr)
-            sys.exit(2)
-
-        override_config: Optional[Dict[str, Any]] = None
+        override_config: dict[str, Any] | None = None
         if args.algorithm_override:
             logger.info(f"Loading algorithm overrides from: {args.algorithm_override}")
-            with open(args.algorithm_override, "r") as f:
-                override_config = json.load(f)
+            override_config = _load_algorithm_definition_override_fragment(args.algorithm_name, args.algorithm_override)
             logger.info(f"Applied algorithm overrides: {override_config}")
+        cache_overrides = {"hotvect_execution_parameters": {}}
         if args.cache_base_dir:
-            cache_overrides = {
-                "hotvect_execution_parameters": {
-                    "cache_base_dir": args.cache_base_dir,
-                    "cache_scope": args.cache_scope,
-                    **({"cache_refresh": True} if args.cache_refresh else {}),
-                }
-            }
-            override_config = recursive_dict_update(override_config or {}, cache_overrides)
+            cache_overrides["hotvect_execution_parameters"]["cache_base_dir"] = args.cache_base_dir
+            cache_overrides["hotvect_execution_parameters"]["cache_scope"] = args.cache_scope
+        if args.cache_refresh:
+            cache_overrides["hotvect_execution_parameters"]["cache_refresh"] = True
+        if cache_overrides["hotvect_execution_parameters"]:
+            override_config = merge_algorithm_definition_override_fragments(override_config, cache_overrides)
         override_config = apply_performance_test_samples_override(override_config, args.performance_test_samples)
+        override_config = apply_performance_test_sample_pool_size_override(
+            override_config, args.performance_test_sample_pool_size
+        )
         if override_config:
             algorithm_definition = (args.algorithm_name, override_config)
 
@@ -907,7 +1719,9 @@ class TrainCommand(BaseCommand):
                     algorithm_pipeline_context=context,
                     algorithm_definition=algorithm_definition,
                     last_test_time=last_test_time,
-                    evaluation_func=mlutils.standard_evaluation,
+                    evaluation_func=evaluation.standard_evaluation,
+                    run_target=getattr(args, "target", "evaluate"),
+                    data_environment=args.auto_attach_data_environment,
                 )
 
                 training_job_name = build_one_shot_training_job_name(
@@ -935,9 +1749,39 @@ class TrainCommand(BaseCommand):
                     require_training_image=True,
                 )
 
-                if args.auto_attach_data:
-                    from hotvect.backtest import attach_input_data_config_for_dependencies
+                from hotvect.backtest import (
+                    apply_sagemaker_job_overrides,
+                    attach_input_data_config_for_dependencies,
+                    legacy_sagemaker_params_to_overrides,
+                )
 
+                algorithm_job_overrides = pipeline.algorithm_definition.get("sagemaker_training_job_definition")
+                if algorithm_job_overrides:
+                    logger.info("Applying algorithm-declared SageMaker job overrides")
+                    apply_sagemaker_job_overrides(job_def, algorithm_job_overrides)
+
+                legacy_params_override = legacy_sagemaker_params_to_overrides(
+                    pipeline.algorithm_definition.get("sagemaker_execution_parameters")
+                )
+                if legacy_params_override:
+                    logger.warning(
+                        "Algorithm %s uses deprecated sagemaker_execution_parameters. "
+                        "Please move these settings into sagemaker_training_job_definition.ResourceConfig/StoppingCondition.",
+                        args.algorithm_name,
+                    )
+                    apply_sagemaker_job_overrides(job_def, legacy_params_override)
+
+                apply_cli_sagemaker_job_overrides(
+                    job_def,
+                    role_arn=args.role_arn,
+                    s3_output_base=args.s3_output_base,
+                    instance_type=args.instance_type,
+                    volume_gb=args.volume_gb,
+                    max_runtime_seconds=args.max_runtime_seconds,
+                    training_image=args.training_image,
+                )
+
+                if args.auto_attach_data:
                     attach_input_data_config_for_dependencies(
                         algorithm_pipeline=pipeline,
                         training_job_definition=job_def,
@@ -990,66 +1834,64 @@ class TrainCommand(BaseCommand):
             algorithm_pipeline_context=context,
             algorithm_definition=algorithm_definition,
             last_test_time=last_test_time,
-            evaluation_func=mlutils.standard_evaluation
+            evaluation_func=evaluation.standard_evaluation,
+            run_target=getattr(args, "target", "evaluate"),
+            data_environment=args.auto_attach_data_environment,
         )
         pipeline.run_all()
 
         logger.info("Training pipeline completed successfully")
 
 
-def _resolve_host(cli_host: Optional[str]) -> str:
+def _resolve_host(cli_host: str | None) -> str:
     return cli_host or "127.0.0.1"
+
+
+def _validate_network_port(port: int | None, *, zero_message: str) -> int:
+    if port in (None, 0):
+        raise ValueError(zero_message)
+    if not (1 <= int(port) <= 65535):
+        raise ValueError(f"--port must be between 1 and 65535, got {port}")
+    return int(port)
+
+
+def _validate_max_request_mib(max_request_mib: int) -> int:
+    if not (1 <= int(max_request_mib) <= 512):
+        raise ValueError(f"--max-request-mib must be between 1 and 512, got {max_request_mib}")
+    return int(max_request_mib)
+
+
+def _validate_positive_int_option(value: int, *, option_name: str) -> int:
+    if int(value) <= 0:
+        raise ValueError(f"{option_name} must be a positive integer, got {value}")
+    return int(value)
+
+
+def _require_args(args: argparse.Namespace, option_specs: list[tuple[str, str]], *, mode_label: str) -> None:
+    for attr_name, option_name in option_specs:
+        if not getattr(args, attr_name):
+            raise ValueError(f"{option_name} is required in {mode_label}")
+
+
+def _reject_args(args: argparse.Namespace, option_specs: list[tuple[str, str]], *, mode_label: str) -> None:
+    for attr_name, option_name in option_specs:
+        if getattr(args, attr_name):
+            raise ValueError(f"{option_name} is only supported in {mode_label}")
+
+
+def _load_algorithm_definition_override_fragment(
+    algorithm_name: str,
+    algorithm_override: str | None,
+) -> dict[str, Any] | None:
+    return _shared_load_algorithm_definition_override_fragment(algorithm_name, algorithm_override)
 
 
 def _load_effective_algorithm_definition(
     algorithm_jar: str,
     algorithm_name: str,
-    algorithm_override: Optional[str],
-) -> Dict[str, Any]:
-    from hotvect.utils import read_algorithm_definition_from_jar, recursive_dict_update
-
-    effective = read_algorithm_definition_from_jar(algorithm_name, Path(algorithm_jar))
-    if not algorithm_override:
-        return effective
-
-    with open(algorithm_override, "r", encoding="utf-8") as f:
-        override = json.load(f)
-    if not isinstance(override, dict):
-        raise ValueError(
-            f"--algorithm-override must be a JSON object, got {type(override).__name__}: {algorithm_override}"
-        )
-    if "algorithm_name" in override and override["algorithm_name"] != algorithm_name:
-        raise ValueError(
-            f"--algorithm-override may not change algorithm_name (expected {algorithm_name}, got {override['algorithm_name']})"
-        )
-
-    recursive_dict_update(effective, override)
-    if effective.get("algorithm_name") != algorithm_name:
-        raise ValueError(
-            f"--algorithm-override changed algorithm_name to {effective.get('algorithm_name')}; this is not supported"
-        )
-    return effective
-
-
-def _pin_with_parameter_for_one_shot_task(
-    algorithm_definition: Dict[str, Any],
-    *,
-    task: str,
-    parameter_s3_uri: Optional[str],
-) -> Dict[str, Any]:
-    if task not in {"predict", "audit", "performance-test"} or not parameter_s3_uri:
-        return algorithm_definition
-
-    existing = algorithm_definition.get("hotvect_execution_parameters", {}).get("with_parameter")
-    if existing and existing != parameter_s3_uri:
-        raise ValueError(
-            "Conflicting with_parameter pin for one-shot task: "
-            f"algorithm definition has {existing!r}, but --parameter-s3-uri is {parameter_s3_uri!r}"
-        )
-
-    algorithm_definition = copy.deepcopy(algorithm_definition)
-    algorithm_definition.setdefault("hotvect_execution_parameters", {})["with_parameter"] = parameter_s3_uri
-    return algorithm_definition
+    algorithm_override: str | None,
+) -> dict[str, Any]:
+    return _shared_load_effective_algorithm_definition(algorithm_jar, algorithm_name, algorithm_override)
 
 
 def _extract_model_and_schema_from_parameters(zip_path: str, algorithm_name: str, temp_dir: str) -> tuple[Path, Path]:
@@ -1130,13 +1972,13 @@ def _wait_for_health(
 
 
 def _run_http_server_process(
-    cmd: List[str],
+    cmd: list[str],
     *,
     host: str,
     port: int,
     health_timeout_seconds: int,
     health_request_timeout_seconds: float,
-    env: Optional[Dict[str, str]] = None,
+    env: dict[str, str] | None = None,
 ) -> None:
     import subprocess
     import threading
@@ -1181,7 +2023,7 @@ def _run_http_server_process(
                 process.wait()
 
 
-def _stringify_env_overrides(raw: Any, *, field_name: str) -> Dict[str, str]:
+def _stringify_env_overrides(raw: Any, *, field_name: str) -> dict[str, str]:
     if raw is None:
         return {}
     if not isinstance(raw, dict):
@@ -1192,7 +2034,7 @@ def _stringify_env_overrides(raw: Any, *, field_name: str) -> Dict[str, str]:
     return overrides
 
 
-def _parse_cuda_visible_devices_allowlist(visible: Optional[str]) -> List[str]:
+def _parse_cuda_visible_devices_allowlist(visible: str | None) -> list[str]:
     if visible is None:
         return []
     trimmed = visible.strip()
@@ -1214,7 +2056,7 @@ def _parse_cuda_visible_devices_allowlist(visible: Optional[str]) -> List[str]:
     return tokens
 
 
-def _detect_cuda_visible_device_tokens() -> List[str]:
+def _detect_cuda_visible_device_tokens() -> list[str]:
     import subprocess
 
     try:
@@ -1249,7 +2091,7 @@ def _detect_cuda_visible_device_tokens() -> List[str]:
     return tokens
 
 
-def _select_cuda_visible_device_tokens(devices_value: Any, available_tokens: List[str]) -> List[str]:
+def _select_cuda_visible_device_tokens(devices_value: Any, available_tokens: list[str]) -> list[str]:
     if not available_tokens:
         raise ValueError("No CUDA devices available")
     if devices_value is None:
@@ -1298,7 +2140,7 @@ def _select_cuda_visible_device_tokens(devices_value: Any, available_tokens: Lis
     )
 
 
-def _resolve_worker_server_cuda_visible_devices(config: Dict[str, Any], parent_visible_devices: Optional[str]) -> str:
+def _resolve_worker_server_cuda_visible_devices(config: dict[str, Any], parent_visible_devices: str | None) -> str:
     accelerator_raw = str(config.get("accelerator", "auto")).strip().lower()
     accelerator = accelerator_raw or "auto"
     if accelerator not in {"cpu", "cuda", "gpu", "auto"}:
@@ -1321,7 +2163,7 @@ def _resolve_worker_server_cuda_visible_devices(config: Dict[str, Any], parent_v
     return ",".join(selected_tokens)
 
 
-def _resolve_worker_server_litserve_devices_arg(config: Dict[str, Any], parent_visible_devices: Optional[str]) -> str:
+def _resolve_worker_server_litserve_devices_arg(config: dict[str, Any], parent_visible_devices: str | None) -> str:
     accelerator_raw = str(config.get("accelerator", "auto")).strip().lower()
     accelerator = accelerator_raw or "auto"
     if accelerator == "cpu":
@@ -1341,7 +2183,7 @@ def _resolve_worker_server_litserve_devices_arg(config: Dict[str, Any], parent_v
     return str(len(selected_tokens))
 
 
-def _resolve_worker_backend(algorithm_definition: Dict[str, Any]) -> str:
+def _resolve_worker_backend(algorithm_definition: dict[str, Any]) -> str:
     algo_params = algorithm_definition.get("algorithm_parameters")
     if not isinstance(algo_params, dict):
         raise ValueError("Algorithm definition is missing algorithm_parameters")
@@ -1355,10 +2197,10 @@ def _resolve_worker_backend(algorithm_definition: Dict[str, Any]) -> str:
 
 def _resolve_worker_backend_cfg(
     backend: str,
-    algorithm_definition: Dict[str, Any],
+    algorithm_definition: dict[str, Any],
     *,
     debug_include_tf_inputs: bool,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     algo_params = algorithm_definition.get("algorithm_parameters")
     if not isinstance(algo_params, dict):
         raise ValueError("Algorithm definition is missing algorithm_parameters")
@@ -1391,14 +2233,14 @@ def _resolve_worker_backend_cfg(
 def _build_worker_server_command(
     *,
     python_executable: str,
-    backend_cfg: Dict[str, Any],
-    runtime_cfg: Dict[str, Any],
+    backend_cfg: dict[str, Any],
+    runtime_cfg: dict[str, Any],
     model_path: Path,
     schema_path: Path,
     host: str,
     port: int,
     model_name: str,
-) -> List[str]:
+) -> list[str]:
     cmd = [
         str(python_executable),
         "-m",
@@ -1442,12 +2284,12 @@ def _build_worker_server_command(
     return cmd
 
 
-def _resolve_worker_serve_scope_config(algorithm_definition: Dict[str, Any], scope: str) -> tuple[str, str, Dict[str, Any]]:
+def _resolve_worker_serve_scope_config(algorithm_definition: dict[str, Any], scope: str) -> tuple[str, str, dict[str, Any]]:
     algo_params = algorithm_definition.get("algorithm_parameters")
     if not isinstance(algo_params, dict):
         raise ValueError("Algorithm definition is missing algorithm_parameters")
 
-    scoped_configs: Dict[str, tuple[str, Dict[str, Any]]] = {}
+    scoped_configs: dict[str, tuple[str, dict[str, Any]]] = {}
     for scope_name in ("realtime", "batch"):
         scope_node = algo_params.get(scope_name)
         if scope_node is None:
@@ -1467,7 +2309,7 @@ def _resolve_worker_serve_scope_config(algorithm_definition: Dict[str, Any], sco
         if direct_workers_cfg is not None:
             raise ValueError(f"algorithm_parameters.{scope_name}.direct_workers must be an object")
 
-    def _scope_entry(scope_name: str) -> tuple[str, str, Dict[str, Any]]:
+    def _scope_entry(scope_name: str) -> tuple[str, str, dict[str, Any]]:
         cfg = scoped_configs.get(scope_name)
         if cfg is None:
             raise ValueError(f"algorithm_parameters.{scope_name}.litserve or .direct_workers is not configured")
@@ -1503,20 +2345,52 @@ class ServeCommand(BaseCommand):
         return "Start the full Java algorithm runtime over HTTP. Add --ui to enable the browser UI on the same server."
 
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
-        parser.add_argument("--algorithm-jar", required=True, help="Path to algorithm JAR file (required)")
+        parser.add_argument("--algorithm-jar", help="Path to algorithm JAR file (required in single-runtime local mode)")
         parser.add_argument(
             "--algorithm-name",
-            required=True,
             type=_parse_algorithm_name,
-            help="Algorithm name (matches algorithm definition) (required)",
+            help="Algorithm name (matches algorithm definition) (required in single-runtime local mode)",
         )
         parser.add_argument(
             "--algorithm-override",
-            help="Path to JSON file containing algorithm configuration overrides (optional)",
+            help=_ALGORITHM_OVERRIDE_HELP,
         )
-        parser.add_argument("--parameter-path", required=True, help="Path to parameters ZIP from training (required)")
+        parser.add_argument("--parameter-path", help="Path to parameters ZIP from training (required in single-runtime local mode)")
+        parser.add_argument(
+            "--local-runtime-config",
+            help="Path to JSON file describing one or more local runtimes (alternative to --algorithm-jar/--algorithm-name/--parameter-path)",
+        )
+        parser.add_argument("--ems-url", help="EMS base URL; enables EMS-backed algorithm loading")
+        parser.add_argument("--ems-slot", help="EMS slot name (required with --ems-url)")
+        parser.add_argument(
+            "--ems-assignment-key",
+            help="Assignment key used for EMS variant assignment (Java default: hv-serve)",
+        )
+        parser.add_argument(
+            "--ems-token-env",
+            help="Environment variable containing EMS bearer token (Java default: EMS_TOKEN; blank omits Authorization)",
+        )
+        parser.add_argument(
+            "--ems-scratch-dir",
+            help="Scratch directory for EMS algorithm downloads (default: a hv-serve directory under java.io.tmpdir)",
+        )
+        parser.add_argument(
+            "--ems-refresh-period-seconds",
+            type=int,
+            help="EMS state refresh period in seconds (Java default: 300)",
+        )
+        parser.add_argument(
+            "--ems-connect-timeout-seconds",
+            type=int,
+            help="EMS HTTP connect timeout in seconds (Java default: 5)",
+        )
+        parser.add_argument(
+            "--ems-read-timeout-seconds",
+            type=int,
+            help="EMS HTTP read timeout in seconds (Java default: 30)",
+        )
         parser.add_argument("--port", type=int, required=True, help="Port to bind to (required; must be non-zero)")
-        parser.add_argument("--host", help="Host to bind to (default: 127.0.0.1)")
+        parser.add_argument("--host", default="127.0.0.1", help="Host to bind to (default: 127.0.0.1)")
         parser.add_argument("--ui", action="store_true", help="Enable browser UI routes and static assets")
         parser.add_argument(
             "--source-path",
@@ -1531,17 +2405,29 @@ class ServeCommand(BaseCommand):
             help="SQLite cache path used by the UI mode",
         )
         parser.add_argument(
+            "--default-select-json-path",
+            help="Default JSON path selected in the UI editor (UI only)",
+        )
+        parser.add_argument(
             "--max-request-mib",
             type=int,
             default=256,
-            help="Maximum request size accepted by the server in MiB (default: 256)",
+            help="Maximum request size accepted by the server in MiB (default: 256; must be 1-512)",
+        )
+        parser.add_argument(
+            "--startup-timeout-seconds",
+            type=int,
+            default=120,
+            help="Maximum time to wait for server health before failing (default: 120; must be positive)",
         )
 
     def execute(self, args: argparse.Namespace) -> None:
-        if args.port in (None, 0):
-            raise ValueError("--port is required and must be non-zero")
-        if not (1 <= int(args.port) <= 65535):
-            raise ValueError(f"--port must be between 1 and 65535, got {args.port}")
+        port = _validate_network_port(args.port, zero_message="--port is required and must be non-zero")
+        max_request_mib = _validate_max_request_mib(args.max_request_mib)
+        startup_timeout_seconds = _validate_positive_int_option(
+            args.startup_timeout_seconds,
+            option_name="--startup-timeout-seconds",
+        )
         if args.ui and not args.source_path:
             raise ValueError("--source-path is required with --ui")
         if not args.ui:
@@ -1551,36 +2437,109 @@ class ServeCommand(BaseCommand):
                 raise ValueError("--action-metadata-path is only supported with --ui")
             if args.demo_sqlite_path:
                 raise ValueError("--demo-sqlite-path is only supported with --ui")
+            if args.default_select_json_path:
+                raise ValueError("--default-select-json-path is only supported with --ui")
+        local_single_runtime_args = [
+            ("algorithm_jar", "--algorithm-jar"),
+            ("algorithm_name", "--algorithm-name"),
+            ("algorithm_override", "--algorithm-override"),
+            ("parameter_path", "--parameter-path"),
+        ]
+        ems_mode = bool(args.ems_url or args.ems_slot)
+        if ems_mode:
+            _require_args(
+                args,
+                [("ems_url", "--ems-url"), ("ems_slot", "--ems-slot")],
+                mode_label="EMS mode",
+            )
+            _reject_args(
+                args,
+                [*local_single_runtime_args, ("local_runtime_config", "--local-runtime-config")],
+                mode_label="local algorithm mode",
+            )
+        else:
+            _reject_args(
+                args,
+                [
+                    ("ems_scratch_dir", "--ems-scratch-dir"),
+                    ("ems_assignment_key", "--ems-assignment-key"),
+                    ("ems_token_env", "--ems-token-env"),
+                    ("ems_refresh_period_seconds", "--ems-refresh-period-seconds"),
+                    ("ems_connect_timeout_seconds", "--ems-connect-timeout-seconds"),
+                    ("ems_read_timeout_seconds", "--ems-read-timeout-seconds"),
+                ],
+                mode_label="EMS mode",
+            )
+            if args.local_runtime_config:
+                _reject_args(args, local_single_runtime_args, mode_label="single-runtime local mode")
+            else:
+                _require_args(
+                    args,
+                    [("algorithm_jar", "--algorithm-jar"), ("algorithm_name", "--algorithm-name"), ("parameter_path", "--parameter-path")],
+                    mode_label="local algorithm mode",
+                )
 
         host = _resolve_host(args.host)
         jvm_args = getattr(args, "_jvm_args", [])
         cmd = ["java"]
-        cmd.extend(jvm_args)
-        if not any(arg.startswith("-Xmx") or arg.startswith("-XX:MaxRAMPercentage") for arg in jvm_args):
-            cmd.append("-XX:MaxRAMPercentage=90")
-        if "-XX:+ExitOnOutOfMemoryError" not in jvm_args:
-            cmd.append("-XX:+ExitOnOutOfMemoryError")
-        if "-cp" not in jvm_args:
-            cmd.extend(["-cp", str(hotvect.hotvectjar.HOTVECT_ALGORITHM_DEMO_JAR_PATH)])
+        normalized_jvm_args = normalize_runtime_jvm_args(jvm_args)
+        cmd.extend(normalized_jvm_args)
+        if args.ui:
+            server_jar_path = _hotvectjar_module().HOTVECT_ALGORITHM_DEMO_JAR_PATH
+            server_main_class = "com.hotvect.algorithmdemo.Main"
+        else:
+            server_jar_path = _hotvectjar_module().HOTVECT_ALGORITHM_SERVE_JAR_PATH
+            server_main_class = "com.hotvect.algorithmserver.Main"
+        if "-cp" not in normalized_jvm_args:
+            cmd.extend(["-cp", str(server_jar_path)])
         cmd.extend(
             [
-                "com.hotvect.algorithmdemo.Main",
-                "--algorithm-jar",
-                str(args.algorithm_jar),
-                "--algorithm-name",
-                args.algorithm_name,
-                "--parameter-path",
-                str(args.parameter_path),
+                server_main_class,
                 "--host",
                 host,
                 "--port",
-                str(args.port),
+                str(port),
                 "--max-request-mib",
-                str(args.max_request_mib),
+                str(max_request_mib),
             ]
         )
-        if args.algorithm_override:
-            cmd.extend(["--algorithm-override", str(args.algorithm_override)])
+        if ems_mode:
+            cmd.extend(
+                [
+                    "--ems-url",
+                    str(args.ems_url),
+                    "--ems-slot",
+                    str(args.ems_slot),
+                ]
+            )
+            if args.ems_assignment_key is not None:
+                cmd.extend(["--ems-assignment-key", str(args.ems_assignment_key)])
+            if args.ems_token_env is not None:
+                cmd.extend(["--ems-token-env", str(args.ems_token_env)])
+            if args.ems_scratch_dir:
+                cmd.extend(["--ems-scratch-dir", str(args.ems_scratch_dir)])
+            if args.ems_refresh_period_seconds is not None:
+                cmd.extend(["--ems-refresh-period-seconds", str(args.ems_refresh_period_seconds)])
+            if args.ems_connect_timeout_seconds is not None:
+                cmd.extend(["--ems-connect-timeout-seconds", str(args.ems_connect_timeout_seconds)])
+            if args.ems_read_timeout_seconds is not None:
+                cmd.extend(["--ems-read-timeout-seconds", str(args.ems_read_timeout_seconds)])
+        else:
+            if args.local_runtime_config:
+                cmd.extend(["--local-runtime-config", str(args.local_runtime_config)])
+            else:
+                cmd.extend(
+                    [
+                        "--algorithm-jar",
+                        str(args.algorithm_jar),
+                        "--algorithm-name",
+                        args.algorithm_name,
+                        "--parameter-path",
+                        str(args.parameter_path),
+                    ]
+                )
+                if args.algorithm_override:
+                    cmd.extend(["--algorithm-override", str(args.algorithm_override)])
         if args.ui:
             cmd.append("--ui")
             cmd.extend(["--source-path", str(args.source_path)])
@@ -1588,12 +2547,14 @@ class ServeCommand(BaseCommand):
                 cmd.extend(["--action-metadata-path", str(args.action_metadata_path)])
             if args.demo_sqlite_path:
                 cmd.extend(["--demo-sqlite-path", str(args.demo_sqlite_path)])
+            if args.default_select_json_path:
+                cmd.extend(["--default-select-json-path", str(args.default_select_json_path)])
 
         _run_http_server_process(
             cmd,
             host=host,
-            port=int(args.port),
-            health_timeout_seconds=120,
+            port=port,
+            health_timeout_seconds=startup_timeout_seconds,
             health_request_timeout_seconds=2.0,
         )
 
@@ -1609,20 +2570,19 @@ class WorkerServeCommand(BaseCommand):
         return "Start a local LitServe worker HTTP endpoint using the backend declared in the algorithm definition. This bypasses JVM feature extraction and expects worker-ready feature rows."
 
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
-        parser.add_argument("--algorithm-jar", required=True, help="Path to algorithm JAR file (required)")
+        parser.add_argument("--algorithm-jar", help="Path to algorithm JAR file (required)")
         parser.add_argument(
             "--algorithm-name",
-            required=True,
             type=_parse_algorithm_name,
             help="Model algorithm name (matches algorithm definition) (required)",
         )
         parser.add_argument(
             "--algorithm-override",
-            help="Path to JSON file containing algorithm configuration overrides (optional)",
+            help=_ALGORITHM_OVERRIDE_HELP,
         )
-        parser.add_argument("--parameter-path", required=True, help="Path to parameters ZIP from training (required)")
+        parser.add_argument("--parameter-path", help="Path to parameters ZIP from training (required)")
         parser.add_argument("--port", type=int, default=8000, help="Port to bind to (default: 8000; must be non-zero)")
-        parser.add_argument("--host", help="Host to bind to (default: 127.0.0.1)")
+        parser.add_argument("--host", default="127.0.0.1", help="Host to bind to (default: 127.0.0.1)")
         parser.add_argument(
             "--scope",
             choices=["auto", "realtime", "batch"],
@@ -1639,6 +2599,16 @@ class WorkerServeCommand(BaseCommand):
     def execute(self, args: argparse.Namespace) -> None:
         import shutil
 
+        _require_args(
+            args,
+            [("algorithm_jar", "--algorithm-jar"), ("algorithm_name", "--algorithm-name"), ("parameter_path", "--parameter-path")],
+            mode_label="worker serve",
+        )
+        port = _validate_network_port(
+            args.port,
+            zero_message="--port is required for local LitServe and must be non-zero",
+        )
+
         algorithm_definition = _load_effective_algorithm_definition(
             args.algorithm_jar,
             args.algorithm_name,
@@ -1649,13 +2619,7 @@ class WorkerServeCommand(BaseCommand):
         logger.info("Using worker serve scope: %s (%s)", selected_scope, selected_source)
         model_name = str(runtime_cfg.get("model_name", args.algorithm_name))
 
-        if args.port in (None, 0):
-            raise ValueError("--port is required for local LitServe and must be non-zero")
-        if not (1 <= int(args.port) <= 65535):
-            raise ValueError(f"--port must be between 1 and 65535, got {args.port}")
-
-        temp_dir = Path(os.path.abspath(os.path.join("/tmp", f"hv-worker-serve-{os.getpid()}-{os.urandom(4).hex()}")))
-        temp_dir.mkdir(parents=True, exist_ok=False)
+        temp_dir = Path(tempfile.mkdtemp(prefix="hv-worker-serve-"))
         keep_temp_dir = bool(args.keep_temp_dir or runtime_cfg.get("keep_temp_dir", False))
 
         clean_exit = False
@@ -1703,17 +2667,21 @@ class WorkerServeCommand(BaseCommand):
                 model_path=model_path,
                 schema_path=schema_path,
                 host=host,
-                port=int(args.port),
+                port=port,
                 model_name=model_name,
             )
 
             startup_timeout_ms = runtime_cfg.get("startup_timeout_ms", 30_000)
-            if not isinstance(startup_timeout_ms, int) or startup_timeout_ms <= 0:
+            if not isinstance(startup_timeout_ms, int):
                 raise ValueError(f"startup_timeout_ms must be a positive integer, got: {startup_timeout_ms}")
+            startup_timeout_ms = _validate_positive_int_option(
+                startup_timeout_ms,
+                option_name="startup_timeout_ms",
+            )
             _run_http_server_process(
                 cmd,
                 host=host,
-                port=int(args.port),
+                port=port,
                 health_timeout_seconds=max(1, int(startup_timeout_ms / 1000)),
                 health_request_timeout_seconds=max(0.5, float(runtime_cfg.get("request_timeout_ms", 30_000)) / 1000.0),
                 env=env,
@@ -1768,7 +2736,7 @@ class BacktestCommand(BaseCommand):
         return "Run backtest on git references to compare algorithm performance"
 
     def get_description(self) -> str:
-        return "Run backtest on git references to compare algorithm performance across different versions or configurations. For SageMaker execution, returns immediately after job submission without waiting for completion."
+        return "Run backtest on git references to compare algorithm performance across different versions or configurations. For SageMaker execution, returns immediately after job submission without waiting for completion and writes run-scoped submission metadata under <output-base-dir>/meta/_backtest_submissions/."
 
     def add_arguments(self, parser: argparse.ArgumentParser) -> None:
         # Create mutually exclusive group for git references
@@ -1779,7 +2747,7 @@ class BacktestCommand(BaseCommand):
                               help="Path to JSON file containing list of git references and their overrides")
 
         parser.add_argument("--algorithm-override", action='append', dest='algorithm_overrides',
-                          help="Path to JSON file containing algorithm configuration overrides. If one override provided, applies to all git references. If multiple overrides provided, applies to git references in order (optional)")
+                          help=f"{_ALGORITHM_OVERRIDE_HELP} If one override is provided, it applies to all git references. If multiple overrides are provided, they apply in git-reference order.")
 
         # Required arguments
         parser.add_argument("--algo-repo-url", required=True,
@@ -1787,7 +2755,7 @@ class BacktestCommand(BaseCommand):
         parser.add_argument("--data-base-dir", default="",
                           help="Base directory containing training and test data (default: from ~/.hotvect/config.json)")
         parser.add_argument("--output-base-dir", default="",
-                          help="Base directory where backtest results will be saved (default: from ~/.hotvect/config.json)")
+                          help="Base directory where backtest results and submission metadata will be saved (default: from ~/.hotvect/config.json)")
         parser.add_argument("--scratch-dir", default="",
                           help="Directory for temporary files like JARs and working data during backtest execution (default: from ~/.hotvect/config.json)")
         parser.add_argument("--last-test-time", required=True,
@@ -1798,22 +2766,11 @@ class BacktestCommand(BaseCommand):
                           help="Number of backtest runs to execute (default: 1)")
         parser.add_argument("--extra-jvm-args",
                           help="Additional JVM arguments, comma-separated, e.g., '-Xmx176g,-XX:+UseG1GC' (optional)")
-        parser.add_argument("--sagemaker", action="store_true", help="Execute this backtest remotely on SageMaker")
-        parser.add_argument(
-            "--sagemaker-job-prefix",
-            help="Required when using --sagemaker or --sagemaker-config. Must be a valid SageMaker TrainingJobName prefix.",
+        add_sagemaker_args(
+            parser,
+            job_prefix_required_with_config=True,
+            training_image_help="Training image URI override (AlgorithmSpecification.TrainingImage)",
         )
-        parser.add_argument("--sagemaker-config", help="Path to JSON file containing SageMaker training job configuration (optional)")
-        parser.add_argument("--role-arn", help="SageMaker job execution role ARN (CreateTrainingJob.RoleArn) (optional)")
-        parser.add_argument(
-            "--assume-role-arn",
-            help="AWS role ARN to assume for SageMaker submission (optional; defaults to using current AWS credentials)",
-        )
-        parser.add_argument("--s3-output-base", help="S3 output base prefix used in template-free SageMaker mode (OutputDataConfig.S3OutputPath)")
-        parser.add_argument("--instance-type", help="SageMaker instance type used in template-free SageMaker mode (ResourceConfig.InstanceType)")
-        parser.add_argument("--volume-gb", type=int, help="EBS volume size in GB (ResourceConfig.VolumeSizeInGB)")
-        parser.add_argument("--max-runtime-seconds", type=int, help="Max runtime in seconds (StoppingCondition.MaxRuntimeInSeconds)")
-        parser.add_argument("--training-image", dest="training_image", help="Training image URI override (AlgorithmSpecification.TrainingImage)")
         parser.add_argument("--n-process", type=int, default=1,
                           help="Number of parallel processes for local execution (default: 1)")
         parser.add_argument("--max-threads-per-process", type=int, default=-1,
@@ -1826,7 +2783,7 @@ class BacktestCommand(BaseCommand):
             "--cache",
             dest="cache_base_dir",
             default=None,
-            help="Enable Hotvect pipeline caching (local path or s3://example-bucket).",
+            help="Enable Hotvect pipeline caching (local path or s3://...).",
         )
         parser.add_argument(
             "--cache-scope",
@@ -1840,38 +2797,71 @@ class BacktestCommand(BaseCommand):
         parser.add_argument(
             "--cache-refresh",
             action="store_true",
-            help="Ignore cache reads (force recompute) while still writing results to cache.",
+            help=(
+                "Ignore cache reads and write fresh run-level cache results. "
+                "Requires an effective cache base dir and effective cache mode 'run'."
+            ),
         )
         parser.add_argument(
             "--performance-test-samples",
             type=int,
-            help="Pin perf-test sample size for comparability (pipeline performance-test --samples)",
+            help="Pin perf-test measured execution count for comparability (pipeline performance-test --samples)",
+        )
+        parser.add_argument(
+            "--performance-test-sample-pool-size",
+            type=int,
+            help="Pin perf-test decoded replay pool size separately from measured executions",
         )
         parser.add_argument("--auto-attach-data-default-s3-base",
                           help="Default S3 base URI used when dependencies do not specify explicit s3_uri (e.g., s3://bucket/tables/). Auto-attach is always enabled in SageMaker mode.")
         parser.add_argument("--auto-attach-data-environment", default='production',
                           help="Environment key to use when dependency s3_uri is a map (e.g., production, prod, test, staging). Default: production")
 
-    def execute(self, args: argparse.Namespace) -> None:
-        from datetime import date
-        from hotvect.backtest import run_backtest_on_git_references
-        from hotvect.extra.config import load_config
-        from hotvect.mlutils import standard_evaluation
-        import json
+    @staticmethod
+    def _log_backtest_results(results, *, remote_mode: bool) -> bool:
+        has_errors = False
+        for result in results:
+            logger.info(f"Git reference: {result.algo_git_reference}")
+            if result.error:
+                has_errors = True
+                logger.error(f"Error: {result.error}")
+                continue
 
-        cfg = load_config()
-        cfg_dirs = cfg.get("directories", {}) if isinstance(cfg, dict) else {}
-        if not args.data_base_dir:
-            args.data_base_dir = cfg_dirs.get("data_base_dir", "")
-        if not args.output_base_dir:
-            args.output_base_dir = cfg_dirs.get("output_base_dir", "")
-        if not args.scratch_dir:
-            args.scratch_dir = cfg_dirs.get("scratch_dir", "")
+            if not result.backtest_iteration_results:
+                continue
+
+            for iteration in result.backtest_iteration_results:
+                if not iteration.result:
+                    continue
+                if remote_mode and "training_job_name" in iteration.result:
+                    logger.info(f"  SageMaker job submitted: {iteration.result['training_job_name']}")
+                elif not remote_mode:
+                    logger.info(f"Results for {iteration.parameter_version}: {iteration.result}")
+        return has_errors
+
+    def execute(self, args: argparse.Namespace) -> None:
+        import json
+        from datetime import date
+
+        from hotvect.backtest import run_backtest_on_git_references
+        from hotvect.evaluation.evaluation import standard_evaluation
+
+        if not args.data_base_dir or not args.output_base_dir or not args.scratch_dir:
+            from hotvect.extra.config import try_load_config
+
+            cfg = try_load_config() or {}
+            cfg_dirs = cfg.get("directories", {}) if isinstance(cfg, dict) else {}
+            if not args.data_base_dir:
+                args.data_base_dir = cfg_dirs.get("data_base_dir", "")
+            if not args.output_base_dir:
+                args.output_base_dir = cfg_dirs.get("output_base_dir", "")
+            if not args.scratch_dir:
+                args.scratch_dir = cfg_dirs.get("scratch_dir", "")
 
         # Parse git references and overrides
         if args.backtest_config:
             # Load from config file
-            with open(args.backtest_config, 'r') as f:
+            with open(args.backtest_config) as f:
                 config = json.load(f)
             git_references = [(item['git_reference'], item.get('algorithm_definition_override')) for item in config]
         else:
@@ -1898,7 +2888,7 @@ class BacktestCommand(BaseCommand):
             for i, git_ref in enumerate(args.git_references):
                 override = None
                 if i < len(overrides) and overrides[i]:
-                    with open(overrides[i], 'r') as f:
+                    with open(overrides[i]) as f:
                         override = json.load(f)
                     logger.info(f"Applied algorithm override from {overrides[i]} to git reference {git_ref}")
                 else:
@@ -1912,15 +2902,22 @@ class BacktestCommand(BaseCommand):
 
         remote_mode = bool(args.sagemaker or args.sagemaker_config)
 
-        # Apply perf-test sample pinning into algo overrides (pipeline perf-test --samples)
-        if args.performance_test_samples is not None:
+        # Apply perf-test benchmark sizing pins into algo overrides.
+        if args.performance_test_samples is not None or args.performance_test_sample_pool_size is not None:
             git_references = [
-                (ref, apply_performance_test_samples_override(override, args.performance_test_samples))
+                (
+                    ref,
+                    apply_performance_test_sample_pool_size_override(
+                        apply_performance_test_samples_override(override, args.performance_test_samples),
+                        args.performance_test_sample_pool_size,
+                    ),
+                )
                 for (ref, override) in git_references
             ]
 
         # Resolve SageMaker training job definition (template optional)
         sagemaker_training_job_definition = None
+        sagemaker_cli_job_overrides = None
         if remote_mode:
             if not args.sagemaker_job_prefix:
                 raise ValueError("--sagemaker-job-prefix is required for SageMaker execution")
@@ -1955,6 +2952,14 @@ class BacktestCommand(BaseCommand):
                 training_image=base_training_image,
                 require_training_image=False if base_training_image is None else True,
             )
+            sagemaker_cli_job_overrides = build_cli_sagemaker_job_overrides(
+                role_arn=args.role_arn,
+                s3_output_base=args.s3_output_base,
+                instance_type=args.instance_type,
+                volume_gb=args.volume_gb,
+                max_runtime_seconds=args.max_runtime_seconds,
+                training_image=args.training_image,
+            )
 
         # Validate base dirs
         if not args.output_base_dir:
@@ -1988,12 +2993,6 @@ class BacktestCommand(BaseCommand):
         # Parse last test time
         last_test_time = date.fromisoformat(args.last_test_time)
 
-        if args.cache_refresh and not args.cache_base_dir:
-            import sys
-
-            print("Error: --cache-refresh requires --cache.", file=sys.stderr)
-            sys.exit(2)
-
         logger.info(f"Starting backtest with {len(git_references)} git references")
         logger.info(f"Git references: {[ref[0] for ref in git_references]}")
         logger.info(f"SageMaker mode: {'enabled' if remote_mode else 'disabled'}")
@@ -2010,6 +3009,7 @@ class BacktestCommand(BaseCommand):
             number_of_runs=args.number_of_runs,
             jvm_options=jvm_options,
             sagemaker_training_job_definition=sagemaker_training_job_definition,
+            sagemaker_cli_job_overrides=sagemaker_cli_job_overrides,
             role_arn_to_assume=args.assume_role_arn,
             training_image_override=args.training_image,
             clean=args.clean,
@@ -2023,25 +3023,21 @@ class BacktestCommand(BaseCommand):
 
         # Display results
         if sagemaker_training_job_definition:
+            has_errors = self._log_backtest_results(results, remote_mode=True)
+            if has_errors:
+                logger.error("Backtest execution failed")
+                raise SystemExit(1)
             logger.info("SageMaker jobs submitted successfully!")
-            for result in results:
-                logger.info(f"Git reference: {result.algo_git_reference}")
-                if result.error:
-                    logger.error(f"Error: {result.error}")
-                elif result.backtest_iteration_results:
-                    for iteration in result.backtest_iteration_results:
-                        if iteration.result and 'training_job_name' in iteration.result:
-                            logger.info(f"  SageMaker job submitted: {iteration.result['training_job_name']}")
+            manifest_path, status_path = _write_remote_backtest_submission_files(args.output_base_dir, results)
+            logger.info("Backtest submission metadata dir: %s", manifest_path.parent)
+            logger.info("Backtest submission manifest: %s", manifest_path)
+            logger.info("Backtest submission status: %s", status_path)
         else:
+            has_errors = self._log_backtest_results(results, remote_mode=False)
+            if has_errors:
+                logger.error("Backtest execution failed")
+                raise SystemExit(1)
             logger.info("Local backtest completed!")
-            for result in results:
-                logger.info(f"Git reference: {result.algo_git_reference}")
-                if result.error:
-                    logger.error(f"Error: {result.error}")
-                elif result.backtest_iteration_results:
-                    for iteration in result.backtest_iteration_results:
-                        if iteration.result:
-                            logger.info(f"Results for {iteration.parameter_version}: {iteration.result}")
 
         logger.info("Backtest execution completed")
 
@@ -2050,12 +3046,13 @@ class BacktestCommand(BaseCommand):
 def main():
     # Define available commands
     commands = {
+        'docs': DocsCommand(),
+        'prompts': PromptsCommand(),
         'audit': AuditCommand(),
         'performance-test': PerformanceTestCommand(),
         'encode': EncodeCommand(),
         'predict': PredictCommand(),
         'generate-state': GenerateStateCommand(),
-        'list-transformations': ListTransformationsCommand(),
         'evaluate': EvaluateCommand(),
         'train': TrainCommand(),
         'backtest': BacktestCommand(),

@@ -9,7 +9,6 @@ import com.hotvect.api.algodefinition.AlgorithmDefinition;
 import com.hotvect.api.algodefinition.AlgorithmId;
 import com.hotvect.api.algodefinition.AlgorithmParameterMetadata;
 import com.hotvect.utils.AlgorithmDefinitionReader;
-import org.apache.commons.compress.archivers.zip.ZipFile;
 
 import java.io.File;
 import java.io.IOException;
@@ -23,6 +22,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Pattern;
+import java.util.zip.ZipFile;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.base.Preconditions.checkState;
@@ -72,7 +72,7 @@ public class AlgorithmUtils {
     public static AlgorithmParameterMetadata readAlgorithmParameterMetadata(AlgorithmId algorithmId, File parameterFile, boolean strictAlgorithmVersionCheck) throws MalformedAlgorithmException {
         checkState(parameterFile != null, "Parameter file is required, but was not supplied");
         checkState(parameterFile.exists(), "Specified parameter file %s does not exist", parameterFile);
-        try (ZipFile parameterFileIn = new ZipFile.Builder().setFile(parameterFile).get()) {
+        try (ZipFile parameterFileIn = new ZipFile(parameterFile)) {
             String pattern = "^" + Pattern.quote(algorithmId.algorithmName()) + "\\/algorithm-parameters\\.json$";
             JsonNode parsed = new ObjectMapper().readTree(ZipFiles.readFromZipFirstMatching(parameterFileIn, pattern));
             AlgorithmId algorithmIdFromZip = new AlgorithmId(

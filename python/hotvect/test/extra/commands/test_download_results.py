@@ -28,7 +28,7 @@ class TestDownloadResultsCommand(unittest.TestCase):
             [
                 "download-results",
                 "--s3-base-prefix",
-                "s3://example-bucket/path/",
+                "s3://test-bucket/path/",
                 "--dest-base-dir",
                 "/tmp/results",
                 "--from-date",
@@ -39,7 +39,7 @@ class TestDownloadResultsCommand(unittest.TestCase):
         )
 
         self.assertEqual(args.command, "download-results")
-        self.assertEqual(args.s3_base_prefix, "s3://example-bucket/path/")
+        self.assertEqual(args.s3_base_prefix, "s3://test-bucket/path/")
         self.assertEqual(args.dest_base_dir, "/tmp/results")
         self.assertEqual(args.from_date, "2025-06-01")
         self.assertEqual(args.to_date, "2025-06-15")
@@ -56,7 +56,7 @@ class TestDownloadResultsCommand(unittest.TestCase):
             [
                 "download-results",
                 "--s3-base-prefix",
-                "s3://example-bucket/path/",
+                "s3://test-bucket/path/",
                 "--dest-base-dir",
                 "/tmp/results",
                 "--from-date",
@@ -64,12 +64,12 @@ class TestDownloadResultsCommand(unittest.TestCase):
                 "--to-date",
                 "2025-06-15",
                 "--role-arn",
-                "arn:aws:iam::123456789012:role/example-role",
+                "arn:aws:iam::123:role/MyRole",
                 "--include-metadata",
                 "--include-output-data",
                 "--no-skip-existing",
                 "--training-job-id-regex",
-                "ml-exp-exampleuser-.*",
+                "example-job-.*",
                 "--algorithm-name-regex",
                 "example-algorithm",
                 "--algorithm-version-regex",
@@ -77,11 +77,11 @@ class TestDownloadResultsCommand(unittest.TestCase):
             ]
         )
 
-        self.assertEqual(args.role_arn, "arn:aws:iam::123456789012:role/example-role")
+        self.assertEqual(args.role_arn, "arn:aws:iam::123:role/MyRole")
         self.assertTrue(args.include_metadata)
         self.assertTrue(args.include_output_data)
         self.assertTrue(args.no_skip_existing)
-        self.assertEqual(args.training_job_id_regex, "ml-exp-exampleuser-.*")
+        self.assertEqual(args.training_job_id_regex, "example-job-.*")
         self.assertEqual(args.algorithm_name_regex, "example-algorithm")
         self.assertEqual(args.algorithm_version_regex, "74\\.4\\..*")
 
@@ -96,11 +96,11 @@ class TestDownloadResultsCommand(unittest.TestCase):
         # Create temporary directory for test
         with tempfile.TemporaryDirectory() as temp_dir:
             args = MagicMock()
-            args.s3_base_prefix = "s3://example-bucket/path/"
+            args.s3_base_prefix = "s3://test-bucket/path/"
             args.dest_base_dir = temp_dir
             args.from_date = "2025-06-01"
             args.to_date = "2025-06-15"
-            args.role_arn = "arn:aws:iam::123456789012:role/example-role"
+            args.role_arn = "arn:aws:iam::123:role/MyRole"
             args.include_metadata = True
             args.include_output_data = False
             args.no_skip_existing = False
@@ -112,7 +112,7 @@ class TestDownloadResultsCommand(unittest.TestCase):
 
             # Verify downloader was created with correct parameters
             mock_downloader_class.assert_called_once_with(
-                s3_base_prefix="s3://example-bucket/path/",
+                s3_base_prefix="s3://test-bucket/path/",
                 dest_base_dir=temp_dir,
                 include_metadata=True,
                 skip_data_if_already_present=True,  # not args.no_skip_existing
@@ -122,7 +122,7 @@ class TestDownloadResultsCommand(unittest.TestCase):
                 algorithm_version_pattern=".+?",
                 from_including_test_date=date(2025, 6, 1),
                 to_including_test_date=date(2025, 6, 15),
-                role_arn_to_assume="arn:aws:iam::123456789012:role/example-role",
+                role_arn_to_assume="arn:aws:iam::123:role/MyRole",
             )
 
             # Verify download was called
@@ -141,7 +141,7 @@ class TestDownloadResultsCommand(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as temp_dir:
             args = MagicMock()
-            args.s3_base_prefix = "s3://example-bucket/path/"
+            args.s3_base_prefix = "s3://test-bucket/path/"
             args.dest_base_dir = temp_dir
             args.from_date = "2025-06-01"
             args.to_date = "2025-06-15"
@@ -157,7 +157,7 @@ class TestDownloadResultsCommand(unittest.TestCase):
 
             # Verify downloader was created with correct parameters
             mock_downloader_class.assert_called_once_with(
-                s3_base_prefix="s3://example-bucket/path/",
+                s3_base_prefix="s3://test-bucket/path/",
                 dest_base_dir=temp_dir,
                 include_metadata=False,
                 skip_data_if_already_present=False,  # not args.no_skip_existing
@@ -175,7 +175,7 @@ class TestDownloadResultsCommand(unittest.TestCase):
     def test_execute_invalid_from_date(self, mock_print, mock_exit):
         """Test execution with invalid from date format."""
         args = MagicMock()
-        args.s3_base_prefix = "s3://example-bucket/path/"
+        args.s3_base_prefix = "s3://test-bucket/path/"
         args.dest_base_dir = "/tmp/results"
         args.from_date = "invalid-date"
         args.to_date = "2025-06-15"
@@ -199,7 +199,7 @@ class TestDownloadResultsCommand(unittest.TestCase):
     def test_execute_invalid_to_date(self, mock_print, mock_exit):
         """Test execution with invalid to date format."""
         args = MagicMock()
-        args.s3_base_prefix = "s3://example-bucket/path/"
+        args.s3_base_prefix = "s3://test-bucket/path/"
         args.dest_base_dir = "/tmp/results"
         args.from_date = "2025-06-01"
         args.to_date = "invalid-date"
@@ -223,7 +223,7 @@ class TestDownloadResultsCommand(unittest.TestCase):
     def test_execute_invalid_date_range(self, mock_print, mock_exit):
         """Test execution with start date after end date."""
         args = MagicMock()
-        args.s3_base_prefix = "s3://example-bucket/path/"
+        args.s3_base_prefix = "s3://test-bucket/path/"
         args.dest_base_dir = "/tmp/results"
         args.from_date = "2025-06-15"
         args.to_date = "2025-06-01"
@@ -256,7 +256,7 @@ class TestDownloadResultsCommand(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as temp_dir:
             args = MagicMock()
-            args.s3_base_prefix = "s3://example-bucket/path/"
+            args.s3_base_prefix = "s3://test-bucket/path/"
             args.dest_base_dir = temp_dir
             args.from_date = "2025-06-01"
             args.to_date = "2025-06-15"
@@ -287,7 +287,7 @@ class TestDownloadResultsCommand(unittest.TestCase):
         mock_downloader_class.return_value = mock_downloader
 
         args = MagicMock()
-        args.s3_base_prefix = "s3://example-bucket/path/"
+        args.s3_base_prefix = "s3://test-bucket/path/"
         args.dest_base_dir = "/nonexistent/results"
         args.from_date = "2025-06-01"
         args.to_date = "2025-06-15"
@@ -310,7 +310,7 @@ class TestDownloadResultsCommand(unittest.TestCase):
     def test_date_range_same_day(self):
         """Test that same start and end date is valid."""
         args = MagicMock()
-        args.s3_base_prefix = "s3://example-bucket/path/"
+        args.s3_base_prefix = "s3://test-bucket/path/"
         args.dest_base_dir = "/tmp/results"
         args.from_date = "2025-06-01"
         args.to_date = "2025-06-01"  # Same date

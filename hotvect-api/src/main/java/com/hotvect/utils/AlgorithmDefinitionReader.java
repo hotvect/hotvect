@@ -44,7 +44,7 @@ public class AlgorithmDefinitionReader {
             throw new IllegalArgumentException("You must specify:algorithm_factory_classname. Full input:" + json);
         }
 
-        return new AlgorithmDefinition(
+        AlgorithmDefinition definition = new AlgorithmDefinition(
                 json,
                 new AlgorithmId(
                         ensureExtract(json, "algorithm_name").asText(),
@@ -67,6 +67,8 @@ public class AlgorithmDefinitionReader {
                 Optional.ofNullable(json.get("train_decoder_parameters")),
                 Optional.ofNullable(json.get("test_decoder_parameters")),
                 Optional.ofNullable(json.get("algorithm_parameters")));
+        definition.requiresLocalStateStorage();
+        return definition;
     }
 
     private Map<String, Optional<JsonNode>> extractDependencies(JsonNode parsed, String fieldName) throws IOException {

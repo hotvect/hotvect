@@ -1,0 +1,8 @@
+{
+  "algorithm_name": "test-algorithm",
+  "algorithm_version": "1.2.3",
+  "decoder_factory_classname": "com.hotvect.offlineutils.commandline.ParityFixtureAlgorithm$ExampleDecoderFactory",
+  "transformer_factory_classname": "com.hotvect.offlineutils.commandline.ParityFixtureAlgorithm$TransformerFactory",
+  "reward_function_factory_classname": "com.hotvect.offlineutils.commandline.ParityFixtureAlgorithm$TestRewardFunctionFactory",
+  "algorithm_factory_classname": "com.hotvect.offlineutils.commandline.ParityFixtureAlgorithm$TestRankerFactory"
+}

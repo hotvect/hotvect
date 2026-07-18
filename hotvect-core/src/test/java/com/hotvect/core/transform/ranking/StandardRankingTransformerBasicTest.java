@@ -105,12 +105,13 @@ class StandardRankingTransformerBasicTest {
 
         StandardRankingTransformer<TestShared, TestAction> transformer = builder.build();
 
-        RankingRequest<TestShared, TestAction> rankingRequest = new RankingRequest<>("exampleId", shared, actions);
+        RankingRequest<TestShared, TestAction> rankingRequest = RankingTestData.rankingRequest("exampleId", shared, actions);
         ComputingRankingRequest<TestShared, TestAction> computingRankingRequest = transformer.prepare(rankingRequest);
 
         // Now use transform instead of apply
         List<TransformedAction<TestAction>> transformedList = transformer.transform(computingRankingRequest);
         assertEquals(2, transformedList.size());
+        assertEquals(List.of("action-0", "action-1"), transformedList.stream().map(TransformedAction::actionId).toList());
 
         for (TransformedAction<TestAction> ta : transformedList) {
             NamespacedRecord<Namespace, Object> record = ta.transformed();
@@ -184,7 +185,7 @@ class StandardRankingTransformerBasicTest {
 
         StandardRankingTransformer<TestShared, TestAction> transformer = builder.build();
 
-        RankingRequest<TestShared, TestAction> rankingRequest = new RankingRequest<>("exampleId", shared, actions);
+        RankingRequest<TestShared, TestAction> rankingRequest = RankingTestData.rankingRequest("exampleId", shared, actions);
         ComputingRankingRequest<TestShared, TestAction> computingRankingRequest = transformer.prepare(rankingRequest);
 
         // Use transform
@@ -247,7 +248,7 @@ class StandardRankingTransformerBasicTest {
 
         StandardRankingTransformer<TestShared, TestAction> transformer = builder.build();
 
-        RankingRequest<TestShared, TestAction> rankingRequest = new RankingRequest<>("exampleId", shared, actions);
+        RankingRequest<TestShared, TestAction> rankingRequest = RankingTestData.rankingRequest("exampleId", shared, actions);
         ComputingRankingRequest<TestShared, TestAction> computingRankingRequest = transformer.prepare(rankingRequest);
 
         List<TransformedAction<TestAction>> transformedList = transformer.transform(computingRankingRequest);

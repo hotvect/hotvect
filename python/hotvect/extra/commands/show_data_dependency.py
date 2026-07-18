@@ -1,5 +1,6 @@
 """Show data dependency command for hv-ext CLI."""
 
+import argparse
 import json
 import logging
 import sys
@@ -25,6 +26,15 @@ class ShowDataDependencyCommand(BaseCommand):
         parser = subparsers.add_parser(
             "show-data-dependency",
             help="Show algorithm data dependencies as JSON for SageMaker InputDataConfig construction",
+            epilog="""
+Examples:
+  # Show evaluation dependencies (default)
+  hv-ext show-data-dependency --repo-url https://github.com/user/algorithm.git --git-reference v77.0.0 --scratch-dir ./temp --last-test-time 2025-04-30
+
+  # Show prediction dependencies for local predict workflows
+  hv-ext show-data-dependency --target predict --repo-url https://github.com/user/algorithm.git --git-reference v77.0.0 --scratch-dir ./temp --last-test-time 2025-04-30
+            """,
+            formatter_class=argparse.RawDescriptionHelpFormatter,
         )
 
         # Required arguments
@@ -38,6 +48,16 @@ class ShowDataDependencyCommand(BaseCommand):
         )
         parser.add_argument("--scratch-dir", required=True, help="Directory for temporary JAR builds (required)")
         parser.add_argument("--last-test-time", required=True, help="Last test time in YYYY-MM-DD format (required)")
+        parser.add_argument(
+            "--target",
+            choices=["parameters", "predict", "evaluate"],
+            default="evaluate",
+            help=(
+                "Dependency target to analyze: 'evaluate' uses test_data_spec, "
+                "'predict' uses prediction_spec, and 'parameters' only includes "
+                "dependencies needed to prepare parameters (default: evaluate)"
+            ),
+        )
 
         # Optional arguments
         parser.add_argument(
@@ -82,7 +102,7 @@ class ShowDataDependencyCommand(BaseCommand):
         for i, git_ref in enumerate(args.git_references):
             override = None
             if i < len(overrides) and overrides[i]:
-                with open(overrides[i], "r") as f:
+                with open(overrides[i]) as f:
                     override = json.load(f)
                 logger.info(f"Applied algorithm override from {overrides[i]} to git reference {git_ref}")
             else:
@@ -92,7 +112,7 @@ class ShowDataDependencyCommand(BaseCommand):
         # Parse last test time
         last_test_time = date.fromisoformat(args.last_test_time)
 
-        logger.info(f"Analyzing {len(git_references)} git references for data dependencies")
+        logger.info(f"Analyzing {len(git_references)} git references for data dependencies (target={args.target})")
 
         # Collect dependencies from all git references
         all_dependencies_by_ref = {}
@@ -115,6 +135,7 @@ class ShowDataDependencyCommand(BaseCommand):
                     git_reference=git_ref,
                     work_dir=temp_path,
                     copy_jar_to=None,  # Keep JAR in temp directory
+                    progress_stream=sys.stderr,
                 )
 
                 algorithm_name = result.algorithm_name
@@ -145,7 +166,7 @@ class ShowDataDependencyCommand(BaseCommand):
                     evaluation_func=None,
                 )
 
-                dependencies = pipeline.data_dependencies()
+                dependencies = pipeline.data_dependencies(target=args.target)
                 logger.info(f"  Found {len(dependencies)} dependencies")
 
                 # Convert dependencies to JSON-serializable format

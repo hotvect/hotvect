@@ -1,0 +1,102 @@
+{
+  "slot_salt": "catalog-slot-salt",
+  "total_number_of_shards": 100,
+  "default_variant": {
+    "variant_id": 1,
+    "algorithm": {
+      "algorithm_name": "algo-default",
+      "algorithm_version": "1.0.0",
+      "latest_algorithm_parameter": "param-default",
+      "absolute_s3_algorithm_jar_path": "s3://bucket/algo-default.jar",
+      "absolute_s3_algorithm_parameter_path": "s3://bucket/param-default.zip"
+    },
+    "created_at": "2026-04-11T10:15:30Z",
+    "is_default": true
+  },
+  "experiments": [
+    {
+      "experiment_id": 42,
+      "experiment_name": "test-exp-1",
+      "created_at": "2026-04-11T10:20:30Z",
+      "ramp_up_percentage": 50,
+      "variants": [
+        {
+          "variant_id": 7,
+          "algorithm": {
+            "algorithm_name": "algo-a",
+            "algorithm_version": "2.0.0",
+            "latest_algorithm_parameter": "param-7",
+            "absolute_s3_algorithm_jar_path": "s3://bucket/algo-a.jar",
+            "absolute_s3_algorithm_parameter_path": "s3://bucket/param-7.zip"
+          },
+          "created_at": "2026-04-11T10:21:30Z",
+          "is_control": true,
+          "shard_allocation_ratio": 1
+        },
+        {
+          "variant_id": 8,
+          "algorithm": {
+            "algorithm_name": "algo-b",
+            "algorithm_version": "2.0.0",
+            "latest_algorithm_parameter": "param-8",
+            "absolute_s3_algorithm_jar_path": "s3://bucket/algo-b.jar",
+            "absolute_s3_algorithm_parameter_path": "s3://bucket/param-8.zip"
+          },
+          "created_at": "2026-04-11T10:22:30Z",
+          "is_control": false,
+          "shard_allocation_ratio": 2
+        }
+      ],
+      "shards": [
+        { "shard_id": 1, "created_at": "2026-04-11T10:23:30Z" },
+        { "shard_id": 2, "created_at": "2026-04-11T10:23:31Z" },
+        { "shard_id": 3, "created_at": "2026-04-11T10:23:32Z" }
+      ]
+    },
+    {
+      "experiment_id": 43,
+      "experiment_name": "test-exp-2",
+      "created_at": "2026-04-11T10:24:30Z",
+      "ramp_up_percentage": 100,
+      "variants": [
+        {
+          "variant_id": 9,
+          "algorithm": {
+            "algorithm_name": "algo-c",
+            "algorithm_version": "3.0.0",
+            "latest_algorithm_parameter": "param-9",
+            "absolute_s3_algorithm_jar_path": "s3://bucket/algo-c.jar",
+            "absolute_s3_algorithm_parameter_path": "s3://bucket/param-9.zip"
+          },
+          "created_at": "2026-04-11T10:25:30Z",
+          "is_control": true,
+          "shard_allocation_ratio": 1
+        },
+        {
+          "variant_id": 10,
+          "algorithm": {
+            "algorithm_name": "algo-d",
+            "algorithm_version": "3.0.0",
+            "latest_algorithm_parameter": "param-10",
+            "absolute_s3_algorithm_jar_path": "s3://bucket/algo-d.jar",
+            "absolute_s3_algorithm_parameter_path": "s3://bucket/param-10.zip"
+          },
+          "created_at": "2026-04-11T10:26:30Z",
+          "is_control": false,
+          "shard_allocation_ratio": 3
+        }
+      ],
+      "shards": [
+        { "shard_id": 11, "created_at": "2026-04-11T10:27:30Z" },
+        { "shard_id": 12, "created_at": "2026-04-11T10:27:31Z" }
+      ]
+    }
+  ],
+  "user_forced_assignments": [
+    { "user_id": "user-1", "variant_id": 8 },
+    { "user_id": "user-2", "variant_id": 10 }
+  ],
+  "campaign_forced_assignments": [
+    { "campaign_id": "campaign-1", "variant_id": 8 }
+  ]
+}

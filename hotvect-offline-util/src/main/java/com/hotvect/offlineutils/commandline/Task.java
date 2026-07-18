@@ -26,6 +26,34 @@ public abstract class Task extends VerboseCallable<Map<String, Object>> {
 
     protected abstract Map<String, Object> perform() throws Exception;
 
+    protected Integer resolveReadQueueSize() {
+        return resolveQueueSize(offlineTaskContext.options().readQueueLength);
+    }
+
+    protected Integer resolveWriteQueueSize() {
+        return resolveQueueSize(offlineTaskContext.options().writeQueueLength);
+    }
+
+    private Integer resolveQueueSize(int splitQueueLength) {
+        if (splitQueueLength > 0) {
+            return splitQueueLength;
+        }
+        return offlineTaskContext.options().queueLength > 0 ? offlineTaskContext.options().queueLength : null;
+    }
+
+    protected boolean resolveOrderedOutput(boolean algorithmDefault, String taskName) {
+        if (offlineTaskContext.options().ordered && offlineTaskContext.options().unordered) {
+            throw new IllegalArgumentException("At most one of ordered or unordered " + taskName + " modes may be enabled.");
+        }
+        if (offlineTaskContext.options().ordered) {
+            return true;
+        }
+        if (offlineTaskContext.options().unordered) {
+            return false;
+        }
+        return algorithmDefault;
+    }
+
     @Override
     protected Map<String, Object> doCall() throws Exception {
         LOGGER.info("Running {} from {} to {}", this.getClass().getSimpleName(), offlineTaskContext.options().sourceFiles, offlineTaskContext.options().destinationFile);

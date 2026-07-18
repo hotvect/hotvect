@@ -1,5 +1,5 @@
 ---
-title: How to Debug Feature Engineering Code
+title: Debug feature engineering in an IDE
 description: Step-by-step guide to debugging algorithm JARs in your IDE using hotvect-offline-util
 tags: [debugging, feature-engineering, algorithms, ide, development]
 difficulty: intermediate
@@ -23,21 +23,18 @@ next_steps:
   - Add unit tests for edge cases
 ---
 
-# How to: Debug feature engineering code (algorithm jars)
+# Debug feature engineering in an IDE
 
-## What do you mean with feature engineering code (algorithm jars)?
-In hotvect, the logic for calculating feature values are written in the "algorithm jars", which are algorithm packages that can be deployed on business applications.
+Hotvect loads algorithm feature code dynamically from the JAR supplied through `--algorithm-jar`. To stop at a
+breakpoint in that code, launch the Hotvect offline utility as the IDE main class and pass the algorithm JAR as a
+program argument.
 
-## Why do I need to know how to debug feature engineering code?
-You can unit test code in the algorithm jar like any other code, but sometimes issues are data dependent (they only happen with certain data). For such cases, it's useful to be able to run the algorithm jar on a large data set, and debug the code when the error occurs.
+Use this only for failures that need an interactive debugger. For value comparison across builds, an ordered
+[feature audit](../feature-audits/index.md) is faster and easier to preserve as evidence.
 
-## Prerequisite knowledge
-Most Java applications work by putting your code in the "classpath" (e.g. `java -cp myjar.jar com.mycompany.MyClass`). Hotvect works slightly different. Instead of the algorithm jar being part of the class path when the JVM is launched, it is loaded dynamically by hotvect using the command line option `--algorithm-jar`. This is similar to how frameworks like Spark, Tomcat works. This means that you cannot debug the algorithm jar by running it directly. Instead, you need to run it using the hotvect-offline-util jar, which is a command line tool for running hotvect algorithms.
+## Locate the offline utility JAR
 
-## How to debug
-
-### Locating the hotvect-offline-util jar
-The hotvect-offline-util jar is located in the maven repository. You can download it from the maven repository, or if you have the python library installed, you can also use the jar that is bundled with it. To locate the bundled jar, execute the following python code:
+The Python package bundles the offline utility JAR:
 
 ```python
 >>> import hotvect.hotvectjar
@@ -45,54 +42,47 @@ The hotvect-offline-util jar is located in the maven repository. You can downloa
 PosixPath('/path/to/hotvect/hotvectjar/hotvect-offline-util-x.y.z-jar-with-dependencies.jar')
 ```
 
-### Running the algorithm jar
-Once you have located the hotvect-offline-util jar, you can run the algorithm jar as follows:
+## Reproduce the task from Java
+
+Use the same algorithm, source, parameters, and task that failed through `hv`:
 ```bash
-java -cp <path-to-hotvect-offline-util-jar>/hotvect-offline-util-x.y.z-jar-with-dependencies.jar \
--XX:MaxRAMPercentage=80 -XX:+ExitOnOutOfMemoryError \
-com.hotvect.offlineutils.commandline.Main encode \
---algorithm-jar <path-to-algorithm-jar>/my-algorithm-a.b.c.jar \
---algorithm-definition <my-algorithm-name> \
---metadata-path <metadata_dir> \
---source <path-to-dataset> \
---dest <path-to-write-output> \
---parameters <path-to-parameter-files>
+java -XX:MaxRAMPercentage=80 -XX:+ExitOnOutOfMemoryError \
+  -cp <path-to-hotvect-offline-util-jar> \
+  com.hotvect.offlineutils.commandline.Main encode \
+  --algorithm-jar <path-to-algorithm-jar>/my-algorithm-a.b.c.jar \
+  --algorithm-definition <my-algorithm-name> \
+  --metadata-path <metadata-dir> \
+  --source <path-to-dataset> \
+  --dest <output-directory> \
+  --parameters <path-to-parameter-zip>
 ```
 
 The parameters are as follows:
  - `--algorithm-jar`: The path to the algorithm jar
  - `--algorithm-definition`: The name of the algorithm. Hotvect uses this to locate the correct algorithm-definition.json to run.
  - `--metadata-path`: The directory where `metadata.json` and `hotvect-offline-utils.log` will be written.
- - `encode`: This subcommand runs the algorithm in encode mode. You can also use other subcommands for debugging, such as `predict`, `audit`.
+- `encode`: Replace this with the failing task, such as `predict` or `audit`.
  - `--source`: The path to the data set on which the algorithm should be run. This can be a file or a directory.
  - `--dest`: The path to write the encoded (or predicted, or audited) data to.
  - `--parameters`: The path to the parameter zip package. Only necessary if the operation requires a parameter (like prediction with a ML model).
 
 **Note**: If you run the same operation via the `hv` CLI wrapper (instead of invoking Java directly), hotvect also writes `hv.log` (Python CLI logs) and `stdout-stderr.log` (raw subprocess output) into `--metadata-path/`.
 
-### Debugging the algorithm jar
-By executing the above command in your IDE, you can debug the algorithm jar. You can set breakpoints, inspect variables, etc. To do this, open the algorithm jar project in your IDE. Then, in the debug configuration, specify the classpath to include the hotvect-offline-util jar, and set the main class to `com.hotvect.offlineutils.commandline.Main`, and the program arguments to the arguments above.
+## Create the IDE run configuration
+
+Open the algorithm project, use `com.hotvect.offlineutils.commandline.Main` as the main class, put the offline utility
+JAR on the run configuration classpath, and use the arguments above as program arguments.
 
 In Intellij, the steps are as follows:
 
  - First, open the algorithm project in Intellij. Then, create a new run configuration as follows:
 
-![create_new_run_config.png](create_new_run_config.png)
-
  - Set the main class to `com.hotvect.offlineutils.commandline.Main` and edit the JVM arguments (like Xmx) as needed.
-
-![set_main_class_jvm_options.png](set_main_class_jvm_options.png)
 
  - Set the program arguments to the arguments above.
 
-![program_arguments.png](program_arguments.png)
-
  - Finally, set the classpath to include the hotvect-offline-util jar.
-
-![modify_classpath.png](modify_classpath.png)
-
-![modify_classpath_include.png](modify_classpath_include.png)
 
 Now you can run and debug the algorithm jar as you would any other Java application.
 
-![final_run_configuration.png](final_run_configuration.png)
+The steps are intentionally shown as text so the documentation remains independent of a developer's local IDE paths and environment.

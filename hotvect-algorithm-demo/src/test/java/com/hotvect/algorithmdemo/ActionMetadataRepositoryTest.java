@@ -1,5 +1,7 @@
 package com.hotvect.algorithmdemo;
 
+import com.hotvect.algorithmserver.ActionMetadataLookup;
+import com.hotvect.algorithmserver.ContractViolationException;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
@@ -125,9 +127,47 @@ public class ActionMetadataRepositoryTest {
 
         try (DemoSqliteCache cache = DemoSqliteCache.openOrBuild(opts)) {
             ActionMetadataRepository repo = cache.actionMetadata();
-            Map<String, ActionMetadataRepository.ActionMetadata> found = repo.getAllIfEnabled(java.util.List.of("a", "missing"));
+            Map<String, ActionMetadataLookup.ActionMetadata> found = repo.getAllIfEnabled(java.util.List.of("a", "missing"));
             assertEquals(1, found.size());
             assertEquals("A", found.get("a").actionName());
+        }
+    }
+
+    @Test
+    void acceptsMetadataRowsWithoutDisplayFields() throws Exception {
+        Path examplesDir = Files.createTempDirectory("examples-test-lenient");
+        Files.writeString(
+                examplesDir.resolve("example.json"),
+                "{\"example_id\":\"x\",\"foo\":1}\n",
+                StandardCharsets.UTF_8
+        );
+
+        Path dir = Files.createTempDirectory("action-metadata-test-lenient");
+        Files.writeString(
+                dir.resolve("metadata.jsonl"),
+                """
+                        {"action_id":"a"}
+                        {"action_id":"b","action_name":"Display only"}
+                        {"action_id":"c","action_image_url":"https://example/c"}
+                        """,
+                StandardCharsets.UTF_8
+        );
+
+        Path dbPath = Files.createTempFile("demo-ui", ".db");
+        Files.delete(dbPath);
+        Options opts = new Options();
+        opts.sourcePath = examplesDir.toFile();
+        opts.actionMetadataPath = dir.toFile();
+        opts.demoSqlitePath = dbPath.toFile();
+
+        try (DemoSqliteCache cache = DemoSqliteCache.openOrBuild(opts)) {
+            ActionMetadataRepository repo = cache.actionMetadata();
+            assertEquals(3, repo.size());
+            assertEquals("a", repo.requireIfEnabled("a").actionId());
+            assertEquals(null, repo.requireIfEnabled("a").actionName());
+            assertEquals(null, repo.requireIfEnabled("a").actionImageUrl());
+            assertEquals("Display only", repo.requireIfEnabled("b").actionName());
+            assertEquals("https://example/c", repo.requireIfEnabled("c").actionImageUrl());
         }
     }
 }

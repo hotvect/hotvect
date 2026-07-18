@@ -4,7 +4,7 @@ import argparse
 import os
 from importlib.resources import as_file
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 from pydantic import BaseModel, ConfigDict
@@ -130,7 +130,7 @@ def _make_resource_reader_fn(repo: DocsRepository, uri: str):
     return _read
 
 
-def main(argv: Optional[list[str]] = None) -> None:
+def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(
         prog="hv-mcp",
         description="Hotvect documentation-only MCP server (stdio, newline-delimited JSON-RPC).",

@@ -5,82 +5,20 @@ It also checks that the version has changed in comparison to a previous revision
 Useful to run from the CI/CD. It only uses built-in libraries to make easy to run it.
 It assumes that git is installed in the system.
 """
-import re
-import subprocess
+
 import sys
-import tomllib
-import xml.etree.ElementTree as ET
 from pathlib import Path
+
+from _version_common import (
+    find_pom_files,
+    get_delivery_yaml_version,
+    get_git_pom_version,
+    get_pom_version,
+    get_pyproject_version,
+)
 
 MAIN_POM_PATH = Path("pom.xml")
 DELIVERY_YAML_PATH = Path("delivery.yaml")
-
-
-def get_pyproject_version(pyproject_path: Path) -> str:
-    with pyproject_path.open("rb") as f:
-        pyproject = tomllib.load(f)
-    return pyproject["project"]["version"]
-
-
-def get_git_pom_version(pom_path: Path, rev: str) -> str:
-    try:
-        result = subprocess.run(
-            ["git", "show", f"{rev}:{pom_path.as_posix()}"],  # noqa: E231
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-        xml_data = result.stdout
-        root = ET.fromstring(xml_data)
-        ns = {"mvn": "http://maven.apache.org/POM/4.0.0"}
-
-        version_elem = root.find("mvn:version", ns)
-        if version_elem is not None:
-            return version_elem.text.strip()
-
-        parent_elem = root.find("mvn:parent", ns)
-        if parent_elem is not None:
-            parent_version_elem = parent_elem.find("mvn:version", ns)
-            if parent_version_elem is not None:
-                return parent_version_elem.text.strip()
-
-        raise ValueError("No version found in git POM")
-    except subprocess.CalledProcessError as e:
-        raise RuntimeError(f"Failed to read {pom_path} at rev {rev}: {e}")
-    except Exception as e:
-        raise RuntimeError(f"Failed to parse POM version from git: {e}")
-
-
-def get_pom_version(pom_path: Path) -> str:
-    tree = ET.parse(pom_path)
-    root = tree.getroot()
-    ns = {"mvn": "http://maven.apache.org/POM/4.0.0"}
-
-    version_elem = root.find("mvn:version", ns)
-    if version_elem is not None:
-        return version_elem.text.strip()
-
-    parent_elem = root.find("mvn:parent", ns)
-    if parent_elem is not None:
-        parent_version_elem = parent_elem.find("mvn:version", ns)
-        if parent_version_elem is not None:
-            return parent_version_elem.text.strip()
-
-    raise ValueError(f"No version found in {pom_path}")
-
-
-def find_pom_files(start_dir: Path) -> list[Path]:
-    # Ignore local scratch dirs that may contain cloned algorithm repos, etc.
-    return [p for p in start_dir.rglob("pom.xml") if ".sagemaker" not in p.parts]
-
-
-def get_delivery_yaml_version(delivery_yaml_path: Path) -> str:
-    """Extract HOTVECT_VERSION from delivery.yaml."""
-    content = delivery_yaml_path.read_text()
-    match = re.search(r'^\s*HOTVECT_VERSION:\s*"([^"]+)"', content, re.MULTILINE)
-    if not match:
-        raise ValueError(f"HOTVECT_VERSION not found in {delivery_yaml_path}")
-    return match.group(1)
 
 
 def main():

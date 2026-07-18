@@ -5,7 +5,7 @@
     <parent>
         <groupId>com.hotvect</groupId>
         <artifactId>hotvect-parent</artifactId>
-        <version>10.13.5</version>
+        <version>10.43.2</version>
     </parent>
 
     <artifactId>hotvect-core</artifactId>
@@ -77,11 +77,6 @@
         <dependency>
             <groupId>org.mockito</groupId>
             <artifactId>mockito-core</artifactId>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>net.jqwik</groupId>
-            <artifactId>jqwik</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>

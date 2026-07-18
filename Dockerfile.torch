@@ -4,10 +4,12 @@ FROM ${HOTVECT_BASE_IMAGE}
 
 # Install PyTorch + torch-based model deps into the existing hotvect venv.
 # Uses uv indexes configured in /opt/hotvect/pyproject.toml.
+# GPU variants rely on the cu12 wheels' bundled user-space CUDA deps; the
+# host runtime still needs the matching NVIDIA driver stack.
 ARG HOTVECT_TORCH_BACKEND=auto
 RUN uv pip install -p /opt/hotvect/.venv/bin/python --torch-backend "${HOTVECT_TORCH_BACKEND}" \
-  "torch==2.10.0" \
-  "torchvision==0.25.0" \
+  "torch==2.5.1" \
+  "torchvision==0.20.1" \
   "open-clip-torch==2.32.0" \
   "transformers==4.57.6" \
   "sentencepiece==0.2.1"

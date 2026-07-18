@@ -22,22 +22,28 @@ Some algorithms need Python at runtime (e.g. PyTorch / transformers). A common f
 
 Hotvect supports a lower-overhead alternative: **long-lived Python worker processes** connected to the JVM via a **Unix Domain Socket (UDS)** and a **framed binary protocol**.
 
+`hotvect-python` supplies the process manager, queueing, shutdown, device assignment, and wire protocol. It does not
+turn an arbitrary Python function into a Hotvect algorithm automatically. The algorithm integration still chooses a
+Python module, converts its typed features into worker payloads, interprets results, and closes the worker manager.
+The current repository contains a TensorFlow worker and a specialized PyTorch text-embedding worker; neither is a
+generic adapter for every TensorFlow or PyTorch model. A different library or payload needs an algorithm-owned worker
+and matching JVM integration.
+
 ## Configuration surface (recommended)
 
-Keep backend selection global and runtime mode scoped:
+For an algorithm integration that supports both the current worker backends and LitServe debugging, keep backend
+selection global and runtime mode scoped:
 
-- `algorithm_parameters.backend` → backend implementation (`tensorflow`, later `torch`)
+- `algorithm_parameters.backend` → backend implementation (`tensorflow` or `torch`)
 - `algorithm_parameters.realtime.litserve` or `algorithm_parameters.realtime.direct_workers`
 - `algorithm_parameters.batch.litserve` or `algorithm_parameters.batch.direct_workers`
-
-Migration note: if you still have older configs or notes that use `algorithm_parameters.workers.backend`, rename that field to `algorithm_parameters.backend`. The worker runtime now treats the top-level key as the canonical backend contract.
 
 Per scope, the relevant runtime block is:
 
 - `litserve`
 - `direct_workers`
 
-Expected runtime JSON shape (see `com.hotvect.python.direct.DirectWorkersConfig#fromJson` for the authoritative schema):
+Expected `direct_workers` JSON shape (see `com.hotvect.python.direct.DirectWorkersConfig#fromJson` for the authoritative schema):
 
 ```json
 {
@@ -68,27 +74,24 @@ Key behaviors:
 
 - `accelerator="auto"` selects CPU unless CUDA devices are available.
 - If the parent process has `CUDA_VISIBLE_DEVICES` set, it acts as a **hard allowlist** for what workers may use.
-- `request_timeout_ms` is preferred; legacy `predict_timeout_ms` may exist in older configs (only one may be set).
+- `request_timeout_ms` controls the per-request timeout.
 
-## Python executable resolution
+## Python executable ownership
 
-Set the interpreter in the selected runtime block:
+For JVM-managed direct workers, the algorithm integration constructs `PythonWorkerCommand` with an explicit Python
+executable and module. `DirectWorkersConfig` validates process-count, timeout, shutdown, and IPC fields; it does not
+select the interpreter or module. If the integration stores `python_executable` beside its `direct_workers` block, that
+field is an algorithm-owned convention which the integration must read.
 
-- `algorithm_parameters.realtime.litserve.python_executable`
-- `algorithm_parameters.batch.direct_workers.python_executable`
-- or the analogous scoped variant you are actually using
-
-Hotvect also supports an env override:
-
-- `HOTVECT_PYTHON_EXECUTABLE=/path/to/python`
-
-For `hv worker serve` local LitServe startup, interpreter resolution order is:
+The `hv worker serve` LitServe debugger does have standard interpreter resolution. Its order is:
 
 1. `HOTVECT_PYTHON_EXECUTABLE`
 2. the selected `litserve.python_executable`
 3. `sys.executable`
 
-Use this for local development when your Python dependencies (e.g. torch) are installed in a specific environment.
+Use `HOTVECT_PYTHON_EXECUTABLE` for local HTTP debugging when model dependencies are installed in a specific
+environment. Do not assume that this environment variable changes a JVM direct-worker integration unless that
+algorithm explicitly implements the same convention.
 
 ## Protocol overview
 
@@ -134,6 +137,25 @@ If your Python worker decodes the wrong fields (for example, reading only one in
 - Keep `max_frame_bytes` conservative; large embeddings/log payloads can exceed defaults.
 - When debugging locally, set `HOTVECT_PYTHON_EXECUTABLE` explicitly and log the resolved executable.
 
+## Integration checklist
+
+Before calling a direct worker from an algorithm factory, verify all of these contracts:
+
+1. The algorithm package includes `hotvect-python`; the Python environment contains the selected worker module and its
+   model-library dependencies.
+2. The factory selects the `realtime.direct_workers` or `batch.direct_workers` block from its `ExecutionContext` rather
+   than assuming one scope.
+3. `PythonWorkerCommand` names the exact interpreter and module; `DirectWorkersConfig.fromJson(...)` validates the
+   selected configuration.
+4. JVM payload encoding and Python `decode_work(...)` agree on payload count, order, tensor/array representation, and
+   result shape.
+5. The algorithm owns `DirectWorkerManager` and closes it from `Algorithm.close()`.
+6. A bounded integration test starts the real Python environment, sends a known batch, verifies numerical output, and
+   confirms shutdown leaves no worker process behind.
+
+The product-search example uses CatBoost in the JVM and does not demonstrate this integration. Treat this page and the
+`hotvect-python` tests as the current worker reference rather than inferring Python-worker behavior from that example.
+
 ## TensorFlow worker payloads (implemented)
 
 The built-in TensorFlow direct worker (`python/hotvect/direct_worker/tensorflow_worker.py`) expects the `WORK.payloads`
@@ -159,9 +181,7 @@ Hotvect now distinguishes between two local debugging surfaces:
 - it expects **worker-ready feature rows** matching `encoded-schema-description`
 - it resolves the backend from `algorithm_parameters.backend` in the algorithm definition
 - it starts a local LitServe process and exposes LitServe directly
-- if the selected scope has no `litserve` block, it falls back to sibling `direct_workers` for overlapping runtime knobs
-
-If an algorithm definition still uses the older `algorithm_parameters.workers.backend` path, migrate it before using `hv worker serve`; the worker-only HTTP path no longer reads the nested key.
+- the selected scope should declare a `litserve` block for this HTTP debugging path
 
 This keeps the transport consistent with direct workers without introducing a second, unrelated serving stack.
 
@@ -176,3 +196,11 @@ The intended contract is:
 
 - Java worker manager + config: `hotvect-python/src/main/java/com/hotvect/python/direct/*`
 - Python framing + codecs: `python/hotvect/direct_worker/ipc.py`
+
+## Related documentation
+
+- [Runtime topologies](../../architecture/runtime-topologies/index.md) compares managed workers with in-JVM and remote
+  offline execution.
+- [Algorithm definitions](../../reference/algorithm-definition/index.md#algorithm_parameters-for-python-workers)
+  documents the `litserve` and `direct_workers` configuration fields.
+- [Command-line interfaces](../../reference/cli/index.md) covers the local `hv worker serve` debugger.

@@ -5,7 +5,13 @@ from .auth import (
     TokenProviderAuth,
     token_provider_from_claude_settings,
 )
-from .client import Environment, ExperimentManagementClient, ExperimentManagementConnection
+from .client import (
+    DEFAULT_CONNECT_TIMEOUT_SECONDS,
+    DEFAULT_READ_TIMEOUT_SECONDS,
+    Environment,
+    ExperimentManagementClient,
+    ExperimentManagementConnection,
+)
 from .models import (
     Algorithm,
     AlgorithmName,
@@ -56,6 +62,8 @@ __all__ = [
     "BearerAuth",
     "CampaignForcedAssignment",
     "CommandTokenProvider",
+    "DEFAULT_CONNECT_TIMEOUT_SECONDS",
+    "DEFAULT_READ_TIMEOUT_SECONDS",
     "Environment",
     "Experiment",
     "ExperimentManagementClient",

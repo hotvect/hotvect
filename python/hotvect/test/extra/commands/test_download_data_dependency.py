@@ -1,8 +1,12 @@
 """Tests for download-data-dependency command."""
 
+import argparse
+import sys
 import unittest
+from datetime import date
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from hotvect.extra.commands.download_data_dependency import (
@@ -194,6 +198,70 @@ class TestResumeLogic(unittest.TestCase):
             self.assertTrue(local_files < target_rel_paths)
 
 
+class TestDataDependencyCommandTarget(unittest.TestCase):
+    def setUp(self):
+        self.command = DataDependencyCommand()
+
+    def _parse_args(self, *extra_args):
+        parser = argparse.ArgumentParser()
+        subparsers = parser.add_subparsers(dest="command")
+        DataDependencyCommand.register_parser(subparsers)
+        return parser.parse_args(
+            [
+                "data-dependency",
+                "--repo-url",
+                "https://github.com/company/example-algorithm.git",
+                "--git-reference",
+                "v77.0.0",
+                "--s3-base-dir",
+                "s3://bucket/tables",
+                "--local-data-dir",
+                "./data",
+                "--scratch-dir",
+                "./scratch",
+                "--last-test-time",
+                "2026-01-03",
+                *extra_args,
+            ]
+        )
+
+    def test_register_parser_defaults_target_to_evaluate(self):
+        args = self._parse_args()
+
+        self.assertEqual(args.target, "evaluate")
+
+    def test_register_parser_accepts_predict_target(self):
+        args = self._parse_args("--target", "predict")
+
+        self.assertEqual(args.target, "predict")
+
+    @patch("hotvect.extra.commands.download_data_dependency.AlgorithmPipeline")
+    @patch("hotvect.extra.commands.download_data_dependency.clone_and_build_algorithm_jar")
+    def test_get_data_dependencies_threads_target_to_pipeline(self, mock_clone, mock_pipeline_cls):
+        mock_clone.return_value = SimpleNamespace(
+            algorithm_name="algo",
+            algorithm_version="1.2.3",
+            algorithm_jar_path=Path("/tmp/algo.jar"),
+        )
+        dependencies = [object()]
+        mock_pipeline = mock_pipeline_cls.return_value
+        mock_pipeline.data_dependencies.return_value = dependencies
+
+        with TemporaryDirectory() as scratch_dir:
+            result = self.command._get_data_dependencies(
+                repo_url="https://github.com/company/example-algorithm.git",
+                git_reference="v77.0.0",
+                scratch_dir=scratch_dir,
+                last_test_time=date(2026, 1, 3),
+                target="predict",
+                algorithm_override=None,
+            )
+
+        self.assertEqual(result, ("algo", "1.2.3", dependencies))
+        mock_pipeline.data_dependencies.assert_called_once_with(target="predict")
+        self.assertIs(mock_clone.call_args.kwargs["progress_stream"], sys.stderr)
+
+
 class _FlakyDownloadS3Client:
     def __init__(self, failures_before_success: int = 0):
         self.failures_before_success = failures_before_success
@@ -203,7 +271,7 @@ class _FlakyDownloadS3Client:
         self.calls += 1
         if self.calls <= self.failures_before_success:
             raise RuntimeError("transient failure")
-        fileobj.write(f"payload:{key}".encode("utf-8"))
+        fileobj.write(f"payload:{key}".encode())
 
 
 class TestDownloadExecution(unittest.TestCase):

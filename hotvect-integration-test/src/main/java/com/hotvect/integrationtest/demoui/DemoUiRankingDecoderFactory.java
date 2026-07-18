@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.hotvect.api.algodefinition.ranking.RankingExampleDecoderFactory;
 import com.hotvect.api.codec.ranking.RankingExampleDecoder;
+import com.hotvect.api.data.AvailableAction;
 import com.hotvect.api.data.FeatureStoreResponseContainer;
 import com.hotvect.api.data.ranking.OfflineRankingRequest;
 import com.hotvect.api.data.ranking.RankingExample;
@@ -41,16 +42,16 @@ public class DemoUiRankingDecoderFactory implements RankingExampleDecoderFactory
                 throw new IllegalArgumentException("Missing required field: actions (must be an array)");
             }
 
-            List<JsonNode> actions = new ArrayList<>(actionsArr.size());
+            List<AvailableAction<JsonNode>> actions = new ArrayList<>(actionsArr.size());
             for (JsonNode a : actionsArr) {
                 if (!a.isObject()) {
                     throw new IllegalArgumentException("Each action must be an object");
                 }
                 String actionId = nonEmptyText(a.get("action_id"), "actions[].action_id");
-                actions.add(a);
+                actions.add(AvailableAction.of(actionId, a));
             }
 
-            var req = OfflineRankingRequest.newOfflineRankingRequest(exampleId, shared, actions, FeatureStoreResponseContainer.empty());
+            var req = OfflineRankingRequest.ofAvailableActions(exampleId, shared, actions, FeatureStoreResponseContainer.empty());
             return List.of(new RankingExample<>(exampleId, req, List.<RankingOutcome<JsonNode, JsonNode>>of()));
         };
     }

@@ -46,6 +46,7 @@ def clean_and_copy_jars():
     print(f"Cleaned {Path(dest_dir).parent} of jars")
     for target_module, target_suffix in [
         ("hotvect-offline-util", "-jar-with-dependencies"),
+        ("hotvect-algorithm-serve", "-jar-with-dependencies"),
         ("hotvect-algorithm-demo", "-jar-with-dependencies"),
     ]:
         src, dest = copy_hotvect_jar(target_module, target_suffix)

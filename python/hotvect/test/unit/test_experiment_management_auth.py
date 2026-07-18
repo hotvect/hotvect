@@ -20,10 +20,10 @@ def test_token_provider_auth_sets_bearer_header():
 
 
 def test_token_provider_auth_keeps_existing_bearer_prefix():
-    auth = TokenProviderAuth(lambda: "Bearer example-token")
+    auth = TokenProviderAuth(lambda: "Bearer abc123")
     request = SimpleNamespace(headers={})
     auth(request)
-    assert request.headers["Authorization"] == "Bearer example-token"
+    assert request.headers["Authorization"] == "Bearer abc123"
 
 
 def test_command_token_provider_caches(monkeypatch):

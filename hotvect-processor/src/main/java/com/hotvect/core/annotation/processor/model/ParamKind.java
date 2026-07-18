@@ -4,5 +4,6 @@ public enum ParamKind {
     SHARED,
     ACTION,
     INJECTED,
+    ALGORITHM,
     CONTEXT
 }

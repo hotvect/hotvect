@@ -111,6 +111,33 @@ public class Main {
         System.exit(exitCode);
     }
 
+    static void validateOutputOrderingOptions(CommandSpec spec, boolean ordered, boolean unordered, int writerNumShards) {
+        if (ordered && unordered) {
+            throw new ParameterException(spec.commandLine(), "At most one of --ordered and --unordered may be specified.");
+        }
+        if (ordered && writerNumShards > 1) {
+            throw new ParameterException(
+                    spec.commandLine(),
+                    "--writer-num-shards > 1 may only be used with --unordered. Ordered output always writes a single part file."
+            );
+        }
+    }
+
+    static void applyExecutionOptions(Options opts, ExecutionOptions execution) {
+        opts.maxThreads = execution.maxThreads;
+        opts.batchSize = execution.batchSize;
+        opts.queueLength = execution.queueLength;
+        opts.readQueueLength = execution.readQueueLength;
+        opts.writeQueueLength = execution.writeQueueLength;
+        opts.samples = execution.samples;
+    }
+
+    static void applyOutputOrderingOptions(Options opts, OutputOrderingOptions ordering) {
+        opts.ordered = ordering.ordered;
+        opts.unordered = ordering.unordered;
+        opts.writerNumShards = ordering.writerNumShards;
+    }
+
     @Command(
             name = "hotvect-offline-util",
             description = "Hotvect offline utility.",
@@ -120,8 +147,7 @@ public class Main {
                     PredictCommand.class,
                     AuditCommand.class,
                     GenerateStateCommand.class,
-                    PerformanceTestCommand.class,
-                    ListTransformationsCommand.class
+                    PerformanceTestCommand.class
             }
     )
     public static final class RootCommand implements Callable<Integer> {
@@ -163,7 +189,6 @@ public class Main {
                 case "generate-state" -> new GenerateStateTask(offlineTaskContext);
                 case "audit" -> new AuditTask<>(offlineTaskContext);
                 case "performance-test" -> new PerformanceTestTask<>(offlineTaskContext);
-                case "list-transformations" -> new ListAvailableTransformationsTask(offlineTaskContext);
                 default -> throw new AssertionError("Unknown task: " + taskName);
             };
 
@@ -223,63 +248,28 @@ public class Main {
 
         LOGGER.info("Original options specified:{}", opts);
 
-        // We now override the options with the values from the algorithm definition
-        // It can be specified at root level, or for each task which overrides root level
-        // config.
-        opts.maxThreads = HyperparamUtils.getOrDefault(
-                rawAlgorithmDef,
-                JsonNode::asInt,
-                HyperparamUtils.getOrDefault(
-                        rawAlgorithmDef,
-                        JsonNode::asInt,
-                        opts.maxThreads,
-                        "hotvect_execution_parameters", "max_threads"
-                ),
-                "hotvect_execution_parameters", taskName, "max_threads"
-        );
+        // Fill unset execution options from the algorithm definition. Explicit CLI values win.
+        opts.maxThreads = resolveExecutionIntOption(rawAlgorithmDef, opts.maxThreads, taskName, "max_threads");
+        opts.queueLength = resolveExecutionIntOption(rawAlgorithmDef, opts.queueLength, taskName, "queue_length");
+        opts.readQueueLength = resolveExecutionIntOption(rawAlgorithmDef, opts.readQueueLength, taskName, "read_queue_length");
+        opts.writeQueueLength = resolveExecutionIntOption(rawAlgorithmDef, opts.writeQueueLength, taskName, "write_queue_length");
+        opts.batchSize = resolveExecutionIntOption(rawAlgorithmDef, opts.batchSize, taskName, "batch_size");
 
-        opts.queueLength = HyperparamUtils.getOrDefault(
-                rawAlgorithmDef,
-                JsonNode::asInt,
-                HyperparamUtils.getOrDefault(
-                        rawAlgorithmDef,
-                        JsonNode::asInt,
-                        opts.queueLength,
-                        "hotvect_execution_parameters", "queue_length"
-                ),
-                "hotvect_execution_parameters", taskName, "queue_length"
-        );
-
-        opts.batchSize = HyperparamUtils.getOrDefault(
-                rawAlgorithmDef,
-                JsonNode::asInt,
-                HyperparamUtils.getOrDefault(
-                        rawAlgorithmDef,
-                        JsonNode::asInt,
-                        opts.batchSize,
-                        "hotvect_execution_parameters", "batch_size"
-                ),
-                "hotvect_execution_parameters", taskName, "batch_size"
-        );
-
-        // For safety reasons, samples can only be overwritten for predict and performance test task
+        // For safety reasons, samples can only be read from the algorithm definition for
+        // predict and performance-test, and only when CLI leaves them unset.
         if ("performance-test".equals(taskName)) {
-            opts.samples = HyperparamUtils.getOrDefault(
+            opts.samples = resolveTaskScopedExecutionIntOption(rawAlgorithmDef, opts.samples, taskName, "samples");
+            opts.samplePoolSize = resolveTaskScopedExecutionIntOption(
                     rawAlgorithmDef,
-                    JsonNode::asInt,
-                    opts.samples,
-                    "hotvect_execution_parameters", taskName, "samples"
+                    opts.samplePoolSize,
+                    taskName,
+                    "sample_pool_size"
             );
             opts.performanceTestWorkloadMode = resolvePerformanceTestWorkloadMode(rawAlgorithmDef, opts.performanceTestWorkloadMode);
         }
 
         if ("predict".equals(taskName)) {
-            opts.samples = HyperparamUtils.getOrDefault(
-                    rawAlgorithmDef,
-                    JsonNode::asInt,
-                    opts.samples,
-                    "hotvect_execution_parameters", taskName, "samples"
-            );
+            opts.samples = resolveTaskScopedExecutionIntOption(rawAlgorithmDef, opts.samples, taskName, "samples");
         }
 
         LOGGER.info("Options after possible overrides:{}", opts);
@@ -296,6 +286,45 @@ public class Main {
                 JsonNode::asText,
                 cliValue,
                 "hotvect_execution_parameters", "performance-test", "workload_mode"
+        );
+    }
+
+    static int resolveExecutionIntOption(
+            Optional<JsonNode> rawAlgorithmDef,
+            int cliValue,
+            String taskName,
+            String optionName
+    ) {
+        if (cliValue != -1) {
+            return cliValue;
+        }
+        return HyperparamUtils.getOrDefault(
+                rawAlgorithmDef,
+                JsonNode::asInt,
+                HyperparamUtils.getOrDefault(
+                        rawAlgorithmDef,
+                        JsonNode::asInt,
+                        cliValue,
+                        "hotvect_execution_parameters", optionName
+                ),
+                "hotvect_execution_parameters", taskName, optionName
+        );
+    }
+
+    static int resolveTaskScopedExecutionIntOption(
+            Optional<JsonNode> rawAlgorithmDef,
+            int cliValue,
+            String taskName,
+            String optionName
+    ) {
+        if (cliValue != -1) {
+            return cliValue;
+        }
+        return HyperparamUtils.getOrDefault(
+                rawAlgorithmDef,
+                JsonNode::asInt,
+                cliValue,
+                "hotvect_execution_parameters", taskName, optionName
         );
     }
 
@@ -334,6 +363,14 @@ public class Main {
         public File parameters;
     }
 
+    public static final class OptionalParametersOption {
+        @Option(
+                names = {"--parameters"},
+                description = "Path to parameter package file to be used when the algorithm requires one."
+        )
+        public File parameters;
+    }
+
     public static final class MetadataOption {
         @Option(
                 names = {"--metadata-path"},
@@ -349,7 +386,7 @@ public class Main {
                 names = {"--dest"},
                 required = true,
                 paramLabel = "DESTINATION_PATH",
-                description = "Destination path. For encode, this is a directory containing shard files (shard_0<ext>, shard_1<ext>, ...; extension comes from the encoder). For predict/audit this is typically a single output file. For generate-state it may be a file or directory depending on the state generator."
+                description = "Destination path. For encode, predict, and audit, this is a directory containing part files (part-00000<ext>, part-00001<ext>, ...). Ordered predict/audit write a single part file (part-00000<ext>). For generate-state it may be a file or directory depending on the state generator."
         )
         public File destinationFile;
     }
@@ -392,8 +429,25 @@ public class Main {
         @Option(names = {"--queue-length"}, description = "Size of the queues used for file IO.", defaultValue = "-1")
         public int queueLength = -1;
 
+        @Option(names = {"--read-queue-length"}, description = "Size of the read queue used for unordered file IO.", defaultValue = "-1")
+        public int readQueueLength = -1;
+
+        @Option(names = {"--write-queue-length"}, description = "Size of the write queue used for unordered file IO.", defaultValue = "-1")
+        public int writeQueueLength = -1;
+
         @Option(names = {"--samples"}, paramLabel = "N", description = "Number of records to process (-1 for all).", defaultValue = "-1")
         public int samples = -1;
+    }
+
+    public static final class OutputOrderingOptions {
+        @Option(names = {"--ordered"}, description = "Whether the order in the output should strictly follow the order in the input.")
+        public boolean ordered;
+
+        @Option(names = {"--unordered"}, description = "Allow unordered internal processing. Output is written as part files under the destination directory, and global row order is not preserved.")
+        public boolean unordered;
+
+        @Option(names = {"--writer-num-shards"}, description = "Number of unordered output part files. <=0: auto-determine count (minimum 1). >=1: explicit count.", defaultValue = "-1")
+        public int writerNumShards = -1;
     }
 
     public static final class SourceFileConsumer implements CommandLine.IParameterConsumer {
@@ -468,38 +522,32 @@ public class Main {
 
     @Command(name = "encode", description = "Extract features from source data files and encode it.", mixinStandardHelpOptions = true)
     public static final class EncodeCommand implements Callable<Integer> {
+        @Spec private CommandSpec spec;
+
         @Mixin public AlgorithmJarAndDefinitionOptions algo = new AlgorithmJarAndDefinitionOptions();
-        @Mixin public ParametersOption parameters = new ParametersOption();
+        @Mixin public OptionalParametersOption parameters = new OptionalParametersOption();
         @Mixin public ExecutionOptions execution = new ExecutionOptions();
+        @Mixin public OutputOrderingOptions ordering = new OutputOrderingOptions();
         @Mixin public SourceFilesOption sources = new SourceFilesOption();
         @Mixin public DestinationOption destination = new DestinationOption();
         @Mixin public MetadataOption metadata = new MetadataOption();
-
-        @Option(names = {"--ordered"}, description = "Whether the order in the output should strictly follow the order in the input.")
-        public boolean ordered;
-
-        @Option(names = {"--writer-num-shards"}, description = "Number of output shards. <=0: auto-determine shard count (minimum 1). >=1: explicit shard count.", defaultValue = "-1")
-        public int writerNumShards = -1;
 
         @Option(names = {"--dest-schema-description"}, paramLabel = "DEST_SCHEMA_DESCRIPTION_FILE", description = "The file to which the schema description of the destination file will be written.")
         public File schemaDescriptionFile;
 
         @Override
         public Integer call() {
+            validateOutputOrderingOptions(spec, ordering.ordered, ordering.unordered, ordering.writerNumShards);
             Options opts = new Options();
             opts.algorithmJar = algo.algorithmJar;
             opts.algorithmDefinition = algo.algorithmDefinition;
             opts.additionalJarFiles = algo.additionalJarFiles;
             opts.parameters = parameters.parameters;
-            opts.maxThreads = execution.maxThreads;
-            opts.batchSize = execution.batchSize;
-            opts.queueLength = execution.queueLength;
-            opts.samples = execution.samples;
+            applyExecutionOptions(opts, execution);
             opts.sourceFiles = sources.sourceFiles.files;
             opts.destinationFile = destination.destinationFile;
             opts.metadataLocation = metadata.metadataLocation;
-            opts.ordered = ordered;
-            opts.writerNumShards = writerNumShards;
+            applyOutputOrderingOptions(opts, ordering);
             opts.schemaDescriptionFile = schemaDescriptionFile;
             return runTask("encode", opts);
         }
@@ -507,9 +555,12 @@ public class Main {
 
     @Command(name = "predict", description = "Perform prediction (test) on the source file.", mixinStandardHelpOptions = true)
     public static final class PredictCommand implements Callable<Integer> {
+        @Spec private CommandSpec spec;
+
         @Mixin public AlgorithmJarAndDefinitionOptions algo = new AlgorithmJarAndDefinitionOptions();
-        @Mixin public ParametersOption parameters = new ParametersOption();
+        @Mixin public OptionalParametersOption parameters = new OptionalParametersOption();
         @Mixin public ExecutionOptions execution = new ExecutionOptions();
+        @Mixin public OutputOrderingOptions ordering = new OutputOrderingOptions();
         @Mixin public SourceFilesOption sources = new SourceFilesOption();
         @Mixin public DestinationOption destination = new DestinationOption();
         @Mixin public MetadataOption metadata = new MetadataOption();
@@ -525,18 +576,17 @@ public class Main {
 
         @Override
         public Integer call() {
+            validateOutputOrderingOptions(spec, ordering.ordered, ordering.unordered, ordering.writerNumShards);
             Options opts = new Options();
             opts.algorithmJar = algo.algorithmJar;
             opts.algorithmDefinition = algo.algorithmDefinition;
             opts.additionalJarFiles = algo.additionalJarFiles;
             opts.parameters = parameters.parameters;
-            opts.maxThreads = execution.maxThreads;
-            opts.batchSize = execution.batchSize;
-            opts.queueLength = execution.queueLength;
-            opts.samples = execution.samples;
+            applyExecutionOptions(opts, execution);
             opts.sourceFiles = sources.sourceFiles.files;
             opts.destinationFile = destination.destinationFile;
             opts.metadataLocation = metadata.metadataLocation;
+            applyOutputOrderingOptions(opts, ordering);
             opts.logFeatures = logFeatures;
             opts.includeFeatureStoreResponses = includeFeatureStoreResponses;
             return runTask("predict", opts);
@@ -545,9 +595,12 @@ public class Main {
 
     @Command(name = "audit", description = "Produce audit output from source file.", mixinStandardHelpOptions = true)
     public static final class AuditCommand implements Callable<Integer> {
+        @Spec private CommandSpec spec;
+
         @Mixin public AlgorithmJarAndDefinitionOptions algo = new AlgorithmJarAndDefinitionOptions();
         @Mixin public ParametersOption parameters = new ParametersOption();
         @Mixin public ExecutionOptions execution = new ExecutionOptions();
+        @Mixin public OutputOrderingOptions ordering = new OutputOrderingOptions();
         @Mixin public SourceFilesOption sources = new SourceFilesOption();
         @Mixin public DestinationOption destination = new DestinationOption();
         @Mixin public MetadataOption metadata = new MetadataOption();
@@ -560,18 +613,17 @@ public class Main {
 
         @Override
         public Integer call() {
+            validateOutputOrderingOptions(spec, ordering.ordered, ordering.unordered, ordering.writerNumShards);
             Options opts = new Options();
             opts.algorithmJar = algo.algorithmJar;
             opts.algorithmDefinition = algo.algorithmDefinition;
             opts.additionalJarFiles = algo.additionalJarFiles;
             opts.parameters = parameters.parameters;
-            opts.maxThreads = execution.maxThreads;
-            opts.batchSize = execution.batchSize;
-            opts.queueLength = execution.queueLength;
-            opts.samples = execution.samples;
+            applyExecutionOptions(opts, execution);
             opts.sourceFiles = sources.sourceFiles.files;
             opts.destinationFile = destination.destinationFile;
             opts.metadataLocation = metadata.metadataLocation;
+            applyOutputOrderingOptions(opts, ordering);
             opts.includeFeatureStoreResponses = includeFeatureStoreResponses;
             return runTask("audit", opts);
         }
@@ -625,6 +677,14 @@ public class Main {
         )
         public String workloadMode;
 
+        @Option(
+                names = {"--sample-pool-size"},
+                description = "Number of decoded requests to keep in the in-memory sample pool before measured repeats. "
+                        + "Defaults to min(--samples, 3000) when --samples is set, otherwise 3000.",
+                defaultValue = "-1"
+        )
+        public int samplePoolSize = -1;
+
         @Override
         public Integer call() {
             Options opts = new Options();
@@ -635,7 +695,10 @@ public class Main {
             opts.maxThreads = execution.maxThreads;
             opts.batchSize = execution.batchSize;
             opts.queueLength = execution.queueLength;
+            opts.readQueueLength = execution.readQueueLength;
+            opts.writeQueueLength = execution.writeQueueLength;
             opts.samples = execution.samples;
+            opts.samplePoolSize = samplePoolSize;
             opts.sourceFiles = sources.sourceFiles.files;
             opts.metadataLocation = metadata.metadataLocation;
             opts.targetRps = targetRps;
@@ -645,27 +708,4 @@ public class Main {
         }
     }
 
-    @Command(name = "list-transformations", description = "List available transformations in the given algorithm jar.", mixinStandardHelpOptions = true)
-    public static final class ListTransformationsCommand implements Callable<Integer> {
-        @Mixin public AlgorithmJarAndDefinitionOptions algo = new AlgorithmJarAndDefinitionOptions();
-        @Mixin public ParametersOption parameters = new ParametersOption();
-        @Mixin public DestinationOption destination = new DestinationOption();
-        @Mixin public MetadataOption metadata = new MetadataOption();
-
-        @Option(names = {"--verbose"}, description = "Increase verbosity of the output.", defaultValue = "false")
-        public boolean verbose;
-
-        @Override
-        public Integer call() {
-            Options opts = new Options();
-            opts.algorithmJar = algo.algorithmJar;
-            opts.algorithmDefinition = algo.algorithmDefinition;
-            opts.additionalJarFiles = algo.additionalJarFiles;
-            opts.parameters = parameters.parameters;
-            opts.destinationFile = destination.destinationFile;
-            opts.metadataLocation = metadata.metadataLocation;
-            opts.verbose = verbose;
-            return runTask("list-transformations", opts);
-        }
-    }
 }

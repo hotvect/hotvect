@@ -3,17 +3,24 @@ package com.hotvect.api.data.hashed;
 import com.hotvect.api.data.HashedValue;
 import com.hotvect.api.data.HashedValueType;
 import com.hotvect.api.data.SparseVector;
-import net.jqwik.api.*;
-import net.jqwik.api.Tuple.Tuple2;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 
 import java.util.Arrays;
+import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 class HashedValueTest {
 
-    @Property
-    void singleCategorical(@ForAll int x) {
+    private record NumericalPair(int[] names, double[] values) {
+    }
+
+    @ParameterizedTest
+    @MethodSource("ints")
+    void singleCategorical(int x) {
         HashedValue subject = HashedValue.singleCategorical(x);
         assertEquals(x, subject.getSingleCategorical());
         assertThrows(IllegalStateException.class, subject::getSingleNumerical);
@@ -22,8 +29,9 @@ class HashedValueTest {
         assertEquals(new SparseVector(new int[]{x}), actualVector);
     }
 
-    @Property
-    void singleNumerical(@ForAll double x) {
+    @ParameterizedTest
+    @MethodSource("doubles")
+    void singleNumerical(double x) {
         HashedValue subject = HashedValue.singleNumerical(x);
         assertEquals(x, subject.getSingleNumerical());
         assertThrows(IllegalStateException.class, subject::getSingleCategorical);
@@ -32,8 +40,9 @@ class HashedValueTest {
         assertEquals(new SparseVector(new int[]{0}, new double[]{x}), actualVector);
     }
 
-    @Property
-    void categoricals(@ForAll("categoricalVectors") int[] x) {
+    @ParameterizedTest
+    @MethodSource("categoricalVectors")
+    void categoricals(int[] x) {
         HashedValue subject = HashedValue.categoricals(x);
         assertArrayEquals(x, subject.getCategoricalIndices());
         assertThrows(IllegalStateException.class, subject::getSingleNumerical);
@@ -45,10 +54,11 @@ class HashedValueTest {
         assertEquals(new SparseVector(x), actualVector);
     }
 
-    @Property
-    void numericals(@ForAll("numericalPairs") Tuple2<int[], double[]> x) {
-        int[] names = x.get1();
-        double[] values = x.get2();
+    @ParameterizedTest
+    @MethodSource("numericalPairs")
+    void numericals(NumericalPair x) {
+        int[] names = x.names();
+        double[] values = x.values();
         assertEquals(names.length, values.length);
         HashedValue subject = HashedValue.numericals(names, values);
         assertArrayEquals(names, subject.getNumericalIndices());
@@ -62,14 +72,14 @@ class HashedValueTest {
         assertEquals(expected, actualVector);
     }
 
-    @Example
+    @Test
     void invalidInputs() {
         assertThrows(NullPointerException.class, () -> HashedValue.categoricals(null));
         assertThrows(NullPointerException.class, () -> HashedValue.numericals(null, null));
         assertThrows(IllegalArgumentException.class, () -> HashedValue.numericals(new int[1], new double[2]));
     }
 
-    @Example
+    @Test
     void getValueType() {
         assertEquals(HashedValueType.CATEGORICAL, HashedValue.singleCategorical(1).getValueType());
         assertEquals(HashedValueType.CATEGORICAL, HashedValue.categoricals(new int[0]).getValueType());
@@ -77,134 +87,131 @@ class HashedValueTest {
         assertEquals(HashedValueType.NUMERICAL, HashedValue.numericals(new int[0], new double[0]).getValueType());
     }
 
-    @Property
-    void equalitySingleCategorical(@ForAll int x, @ForAll int y) {
-        Assume.that(x != y);
+    @ParameterizedTest
+    @MethodSource("differentInts")
+    void equalitySingleCategorical(int x, int y) {
         HashedValue xp = HashedValue.singleCategorical(x);
         HashedValue yp = HashedValue.singleCategorical(y);
-        assertEquals(x == y, xp.equals(yp));
-        if (x == y) {
-            assertEquals(xp.hashCode(), yp.hashCode());
-        }
+        assertNotEquals(xp, yp);
     }
 
-    @Property
-    void equalitySingleCategoricalEquals(@ForAll("equalInts") Tuple2<Integer, Integer> pair) {
-        int x = pair.get1();
-        int y = pair.get2();
+    @ParameterizedTest
+    @MethodSource("ints")
+    void equalitySingleCategoricalEquals(int x) {
         HashedValue xp = HashedValue.singleCategorical(x);
-        HashedValue yp = HashedValue.singleCategorical(y);
-        assertEquals(x == y, xp.equals(yp));
-        if (x == y) {
-            assertEquals(xp.hashCode(), yp.hashCode());
-        }
-    }
-
-    @Property
-    void equalitySingleNumerical(@ForAll double x, @ForAll double y) {
-        Assume.that(Double.compare(x, y) != 0);
-        HashedValue xp = HashedValue.singleNumerical(x);
-        HashedValue yp = HashedValue.singleNumerical(y);
-        assertEquals(Double.compare(x, y) == 0, xp.equals(yp));
-        if (Double.compare(x, y) == 0) {
-            assertEquals(xp.hashCode(), yp.hashCode());
-        }
-    }
-
-    @Property
-    void equalitySingleNumericalEquals(@ForAll("equalDoubles") Tuple2<Double, Double> pair) {
-        double x = pair.get1();
-        double y = pair.get2();
-        HashedValue xp = HashedValue.singleNumerical(x);
-        HashedValue yp = HashedValue.singleNumerical(y);
-        assertEquals(Double.compare(x, y) == 0, xp.equals(yp));
-        if (Double.compare(x, y) == 0) {
-            assertEquals(xp.hashCode(), yp.hashCode());
-        }
-    }
-
-    @Property
-    void equalityCategoricals(@ForAll("categoricalVectors") int[] x, @ForAll("categoricalVectors") int[] y) {
-        Assume.that(!Arrays.equals(x, y));
-        HashedValue xp = HashedValue.categoricals(x);
-        HashedValue yp = HashedValue.categoricals(y);
-        assertEquals(Arrays.equals(x, y), xp.equals(yp));
-        if (Arrays.equals(x, y)) {
-            assertEquals(xp.hashCode(), yp.hashCode());
-        }
-    }
-
-    @Property
-    void equalityCategoricalsEquals(@ForAll("equalIntArrays") Tuple2<int[], int[]> pair) {
-        int[] x = pair.get1();
-        int[] y = pair.get2();
-        HashedValue xp = HashedValue.categoricals(x);
-        HashedValue yp = HashedValue.categoricals(y);
-        assertEquals(Arrays.equals(x, y), xp.equals(yp));
-        if (Arrays.equals(x, y)) {
-            assertEquals(xp.hashCode(), yp.hashCode());
-        }
-    }
-
-    @Property
-    void equalityNumericals(@ForAll("numericalPairs") Tuple2<int[], double[]> x,
-                            @ForAll("numericalPairs") Tuple2<int[], double[]> y) {
-        boolean arraysEqual = Arrays.equals(x.get1(), y.get1()) && Arrays.equals(x.get2(), y.get2());
-        Assume.that(!arraysEqual);
-
-        HashedValue xp = HashedValue.numericals(x.get1(), x.get2());
-        HashedValue yp = HashedValue.numericals(y.get1(), y.get2());
-        assertEquals(arraysEqual, xp.equals(yp));
-        if (arraysEqual) {
-            assertEquals(xp.hashCode(), yp.hashCode());
-        }
-    }
-
-    @Property
-    void equalityNumericalsEquals(@ForAll("equalNumericalPairs") Tuple2<int[], double[]> x) {
-        HashedValue xp = HashedValue.numericals(x.get1(), x.get2());
-        HashedValue yp = HashedValue.numericals(x.get1(), x.get2());
+        HashedValue yp = HashedValue.singleCategorical(x);
         assertEquals(xp, yp);
         assertEquals(xp.hashCode(), yp.hashCode());
     }
 
-    // Provide the required arbitraries
-    @Provide
-    Arbitrary<int[]> categoricalVectors() {
-        return Arbitraries.integers()
-                .array(int[].class)
-                .ofMaxSize(0)
-                .ofMaxSize(10); // Adjust as necessary
+    @ParameterizedTest
+    @MethodSource("differentDoubles")
+    void equalitySingleNumerical(double x, double y) {
+        HashedValue xp = HashedValue.singleNumerical(x);
+        HashedValue yp = HashedValue.singleNumerical(y);
+        assertNotEquals(xp, yp);
     }
 
-    @Provide
-    Arbitrary<Tuple2<int[], double[]>> numericalPairs() {
-        return categoricalVectors().flatMap(ints -> {
-            int length = ints.length;
-            Arbitrary<double[]> doublesArray = Arbitraries.doubles()
-                    .array(double[].class)
-                    .ofSize(length);
-            return doublesArray.map(ds -> Tuple.of(ints, ds));
-        });
+    @ParameterizedTest
+    @MethodSource("doubles")
+    void equalitySingleNumericalEquals(double x) {
+        HashedValue xp = HashedValue.singleNumerical(x);
+        HashedValue yp = HashedValue.singleNumerical(x);
+        assertEquals(xp, yp);
+        assertEquals(xp.hashCode(), yp.hashCode());
     }
 
-    @Provide
-    Arbitrary<Tuple2<Integer, Integer>> equalInts() {
-        return Arbitraries.integers().map(i -> Tuple.of(i, i));
+    @ParameterizedTest
+    @MethodSource("differentCategoricalVectorPairs")
+    void equalityCategoricals(int[] x, int[] y) {
+        HashedValue xp = HashedValue.categoricals(x);
+        HashedValue yp = HashedValue.categoricals(y);
+        assertNotEquals(xp, yp);
     }
 
-    @Provide
-    Arbitrary<Tuple2<Double, Double>> equalDoubles() {
-        return Arbitraries.doubles().map(d -> Tuple.of(d, d));
+    @ParameterizedTest
+    @MethodSource("categoricalVectors")
+    void equalityCategoricalsEquals(int[] x) {
+        int[] y = Arrays.copyOf(x, x.length);
+        HashedValue xp = HashedValue.categoricals(x);
+        HashedValue yp = HashedValue.categoricals(y);
+        assertEquals(xp, yp);
+        assertEquals(xp.hashCode(), yp.hashCode());
     }
 
-    @Provide
-    Arbitrary<Tuple2<int[], int[]>> equalIntArrays() {
-        return categoricalVectors().map(arr -> Tuple.of(arr, arr));
+    @ParameterizedTest
+    @MethodSource("differentNumericalPairPairs")
+    void equalityNumericals(NumericalPair x, NumericalPair y) {
+        HashedValue xp = HashedValue.numericals(x.names(), x.values());
+        HashedValue yp = HashedValue.numericals(y.names(), y.values());
+        assertNotEquals(xp, yp);
     }
 
-    @Provide
-    Arbitrary<Tuple2<int[], double[]>> equalNumericalPairs() {
-        return numericalPairs();
+    @ParameterizedTest
+    @MethodSource("numericalPairs")
+    void equalityNumericalsEquals(NumericalPair x) {
+        HashedValue xp = HashedValue.numericals(x.names(), x.values());
+        HashedValue yp = HashedValue.numericals(
+                Arrays.copyOf(x.names(), x.names().length),
+                Arrays.copyOf(x.values(), x.values().length)
+        );
+        assertEquals(xp, yp);
+        assertEquals(xp.hashCode(), yp.hashCode());
+    }
+
+    private static Stream<Integer> ints() {
+        return Stream.of(Integer.MIN_VALUE, -1, 0, 1, Integer.MAX_VALUE);
+    }
+
+    private static Stream<Double> doubles() {
+        return Stream.of(Double.MIN_VALUE, -1.0, 0.0, 1.0, Math.PI, Double.MAX_VALUE);
+    }
+
+    private static Stream<Arguments> differentInts() {
+        return Stream.of(
+                Arguments.of(0, 1),
+                Arguments.of(-1, 1),
+                Arguments.of(Integer.MIN_VALUE, Integer.MAX_VALUE)
+        );
+    }
+
+    private static Stream<Arguments> differentDoubles() {
+        return Stream.of(
+                Arguments.of(0.0, 1.0),
+                Arguments.of(-1.0, 1.0),
+                Arguments.of(Double.MIN_VALUE, Double.MAX_VALUE)
+        );
+    }
+
+    private static Stream<Arguments> categoricalVectors() {
+        return Stream.of(
+                Arguments.of((Object) new int[]{}),
+                Arguments.of((Object) new int[]{0}),
+                Arguments.of((Object) new int[]{-1, 2, Integer.MAX_VALUE})
+        );
+    }
+
+    private static Stream<NumericalPair> numericalPairs() {
+        return Stream.of(
+                new NumericalPair(new int[]{}, new double[]{}),
+                new NumericalPair(new int[]{0}, new double[]{0.0}),
+                new NumericalPair(new int[]{-1, 2}, new double[]{Double.MIN_VALUE, Math.PI})
+        );
+    }
+
+    private static Stream<Arguments> differentCategoricalVectorPairs() {
+        return Stream.of(
+                Arguments.of(new int[]{}, new int[]{0}),
+                Arguments.of(new int[]{0}, new int[]{1}),
+                Arguments.of(new int[]{1, 2}, new int[]{2, 1})
+        );
+    }
+
+    private static Stream<Arguments> differentNumericalPairPairs() {
+        return Stream.of(
+                Arguments.of(new NumericalPair(new int[]{}, new double[]{}), new NumericalPair(new int[]{0}, new double[]{0.0})),
+                Arguments.of(new NumericalPair(new int[]{0}, new double[]{0.0}), new NumericalPair(new int[]{0}, new double[]{1.0})),
+                Arguments.of(new NumericalPair(new int[]{0}, new double[]{1.0}), new NumericalPair(new int[]{1}, new double[]{1.0}))
+        );
     }
 }

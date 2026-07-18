@@ -1,57 +1,55 @@
 ---
 title: Configuration reference
-description: Reference for ~/.hotvect/config.json used by hv/hv-ext
+description: Reference for ~/.hotvect/config.json used by hv, hv-ext, and hv-exp
 tags: [reference, config]
 ---
 
 # Configuration reference (`~/.hotvect/config.json`)
 
-Hotvect CLIs (`hv`, `hv-ext`) read `~/.hotvect/config.json` for common defaults (paths, SageMaker template location).
+Hotvect CLIs (`hv`, `hv-ext`, `hv-exp`) read `~/.hotvect/config.json` for common defaults such as paths,
+SageMaker template location, and experiment-management settings.
 
 If a CLI flag is provided, it takes precedence over config.
 
 ## Create the file (recommended)
 
-The easiest way to create a valid config is:
+For a new config, initialize all directory values together:
 
 ```bash
-hv-ext config init
-```
-
-You can also run it non-interactively by passing all three directories:
-
-```bash
+test ! -e ~/.hotvect/config.json
 hv-ext config init \
   --data-base-dir /path/to/data \
   --output-base-dir /path/to/output \
   --scratch-dir /path/to/scratch
 ```
 
-You can optionally also configure experiment-management (formerly “EMS”) defaults at the same time:
+`hv-ext config init` refuses to overwrite an existing file. Inspect and edit that file, or pass `--force` only when you
+intend to replace the whole configuration; the command does not merge. Running `config init` without the three
+directory flags prompts for them interactively.
+
+You can optionally also configure experiment-management defaults at the same time:
 
 ```bash
 hv-ext config init \
   --data-base-dir /path/to/data \
   --output-base-dir /path/to/output \
   --scratch-dir /path/to/scratch \
-  --experiment-management-url https://ems.example.com \
-  --experiment-management-token-provider-command "bash -lc 'echo $EMS_TOKEN'" \
-  --experiment-management-token-provider-ttl-ms 3600000
+  --experiment-management-url https://experiments.example.com \
+  --experiment-management-token-provider-command "printenv EXAMPLE_TOKEN" \
+  --experiment-management-token-provider-ttl-ms 3600000 \
+  --experiment-management-online-results-slot example-slot-a=s3://example-bucket-a/path/to/results/ \
+  --experiment-management-online-results-slot example-slot-b=s3://example-bucket-b/path/to/results/
 ```
 
 !!! note "Config existence"
-    `hv train` and `hv backtest` do **not** behave the same here.
+    `hv train` and `hv backtest` use `~/.hotvect/config.json` only when a required directory is not supplied explicitly.
+    `hv train` can read `data_base_dir` and `output_base_dir`; `hv backtest` can also read `scratch_dir`. No config file is
+    required when every required directory is present on the command line.
 
-    - `hv train` uses `~/.hotvect/config.json` only as a fallback when `--data-base-dir` or `--output-base-dir` is missing.
-    - `hv backtest` still loads `~/.hotvect/config.json` unconditionally today, even if you pass all three directory flags explicitly.
+## Canonical JSON shape
 
-    Creating the file via `hv-ext config init` avoids that backtest footgun and keeps CLI behavior predictable across commands.
-
-## Accepted JSON shapes
-
-Hotvect accepts either:
-
-1) The config object directly:
+Use the config object directly. This is required when `hv train` or `hv backtest` must resolve a SageMaker template
+from `sagemaker.sagemaker_config_template`:
 
 ```json
 {
@@ -63,48 +61,45 @@ Hotvect accepts either:
 }
 ```
 
-2) A wrapper object with top-level key `config` (some tools output this shape):
-
-```json
-{
-  "config": {
-    "directories": {
-      "data_base_dir": "/path/to/data",
-      "output_base_dir": "/path/to/output",
-      "scratch_dir": "/path/to/scratch"
-    }
-  }
-}
-```
-
-## Minimal example
-
-```json
-{
-  "directories": {
-    "data_base_dir": "/path/to/data",
-    "output_base_dir": "/path/to/output",
-    "scratch_dir": "/path/to/scratch"
-  }
-}
-```
+`hv-ext config show` returns a status envelope for machine-readable display. It is not a shared config file; use
+`hv-ext config init` to create the file.
 
 ## `experiment_management` (optional)
 
-Used when Hotvect needs to call the experiment-management service (formerly “EMS”) and you want to provide
-an external token provider (a command that prints a bearer token).
+Used when Hotvect needs to call an experiment-management service and you want to provide
+an external token provider (a command that prints a bearer token). `hv-exp experiment results ...` also uses
+this section to resolve slot-specific online-results S3 prefixes.
 
 Example:
 
 ```json
 {
   "experiment_management": {
-    "url": "https://ems.example.com",
-    "token_provider_command": "bash -lc 'echo $EMS_TOKEN'",
-    "token_provider_ttl_ms": 3600000
+    "url": "https://experiments.example.com",
+    "token_provider_command": "printenv EXAMPLE_TOKEN",
+    "token_provider_ttl_ms": 3600000,
+    "connect_timeout_seconds": 5.0,
+    "read_timeout_seconds": 15.0,
+    "online_results": {
+      "slots": {
+        "example-slot-a": {
+          "s3_base_prefix": "s3://example-bucket-a/path/to/results/"
+        },
+        "example-slot-b": {
+          "s3_base_prefix": "s3://example-bucket-b/path/to/results/"
+        }
+      }
+    }
   }
 }
 ```
+
+The timeout fields are optional. If omitted, Hotvect uses a 5 second connect timeout and a 15 second read timeout
+for service calls.
+
+The `online_results.slots` mapping is optional unless you want to use `hv-exp experiment results ...` without
+passing `--s3-base-prefix`. In that case, Hotvect resolves `experiment_id -> slot ->
+experiment_management.online_results.slots.<slot>.s3_base_prefix`.
 
 ## `directories`
 
@@ -135,5 +130,8 @@ Example:
 
 ## Environment variables (common in automation)
 
-- `AWS_DEFAULT_REGION`: required when using SageMaker APIs (typical: `eu-central-1`)
+- `AWS_DEFAULT_REGION`: region used for SageMaker APIs
 - `AWS_PROFILE`: select a named profile (if you have multiple roles/accounts configured)
+
+Related: [Install Hotvect](../../guides/quickstart/index.md) for initial setup and
+[Command-line interfaces](../cli/index.md) for precedence and command-specific flags.

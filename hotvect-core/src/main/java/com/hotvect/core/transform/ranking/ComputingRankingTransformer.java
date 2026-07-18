@@ -25,6 +25,13 @@ public interface ComputingRankingTransformer<SHARED, ACTION> extends RankingTran
     @Override
     SortedSet<Namespace> getUsedFeatures();
 
+    /**
+     * Retains the v9 prepare signature implemented by existing algorithms. This overload cannot
+     * carry stable action ids; use {@link #prepare(RankingRequest)} for id-aware requests.
+     *
+     * @deprecated Use {@link #prepare(RankingRequest)}.
+     */
+    @Deprecated(forRemoval = true)
     ComputingRankingRequest<SHARED, ACTION> prepare(String exampleId, SHARED shared, List<Computable<ACTION>> actions);
 
     ComputingRankingRequest<SHARED, ACTION> prepare(RankingRequest<SHARED, ACTION> rankingRequest);
@@ -34,4 +41,3 @@ public interface ComputingRankingTransformer<SHARED, ACTION> extends RankingTran
     List<TransformationMetadata> getTransformationMetadata();
 
 }
-

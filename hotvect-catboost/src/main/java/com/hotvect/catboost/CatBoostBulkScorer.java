@@ -17,6 +17,9 @@ import java.util.Objects;
 import java.util.concurrent.RecursiveTask;
 import java.util.function.Function;
 
+import static com.google.common.base.Preconditions.checkArgument;
+import static com.hotvect.utils.AdditionalProperties.mergeAdditionalProperties;
+
 public class CatBoostBulkScorer<SHARED, ACTION> implements ComputingBulkScorer<SHARED, ACTION> {
     private final ComputingRankingTransformer<SHARED, ACTION> transformer;
     private final CatBoostTransformedActionScorer<ACTION> transformedActionScorer;
@@ -60,7 +63,11 @@ public class CatBoostBulkScorer<SHARED, ACTION> implements ComputingBulkScorer<S
 
     @Override
     public BulkScoreResponse<ACTION> score(RankingRequest<SHARED, ACTION> rankingRequest) {
-        return score(transformer.prepare(rankingRequest));
+        ComputingRankingRequest<SHARED, ACTION> preparedRankingRequest = transformer.prepare(rankingRequest);
+        return BulkScoreResponse.of(
+                doApply(preparedRankingRequest),
+                featureStoreResponseContainer(preparedRankingRequest)
+        );
     }
 
     @Override
@@ -71,13 +78,9 @@ public class CatBoostBulkScorer<SHARED, ACTION> implements ComputingBulkScorer<S
 
     @Override
     public BulkScoreResponse<ACTION> score(ComputingRankingRequest<SHARED, ACTION> rankingRequest) {
-        ComputingRankingRequest<SHARED, ACTION> preparedRankingRequest = transformer.prepare(rankingRequest);
-        FeatureStoreResponseContainer featureStoreResponseContainer = featureStoreResponseContainerProvider.apply(
-                preparedRankingRequest
-        );
         return BulkScoreResponse.of(
-                doApply(preparedRankingRequest),
-                featureStoreResponseContainer
+                doApply(rankingRequest),
+                featureStoreResponseContainer(rankingRequest)
         );
     }
 
@@ -94,6 +97,12 @@ public class CatBoostBulkScorer<SHARED, ACTION> implements ComputingBulkScorer<S
         } else {
             return CommonPool.commonForkJoinPool().invoke(new RecursiveScoringTask(rankingRequest));
         }
+    }
+
+    private FeatureStoreResponseContainer featureStoreResponseContainer(
+            ComputingRankingRequest<SHARED, ACTION> rankingRequest
+    ) {
+        return featureStoreResponseContainerProvider.apply(rankingRequest);
     }
 
 
@@ -137,7 +146,40 @@ public class CatBoostBulkScorer<SHARED, ACTION> implements ComputingBulkScorer<S
     }
 
     private List<ScoringDecision<ACTION>> process(ComputingRankingRequest<SHARED, ACTION> rankingRequest) {
-        return transformedActionScorer.scoreTransformed(transformer.transform(rankingRequest));
+        List<ScoringDecision<ACTION>> decisions = transformedActionScorer.scoreTransformed(transformer.transform(rankingRequest));
+        return mergeCandidateAdditionalProperties(decisions, rankingRequest.candidates());
+    }
+
+    private List<ScoringDecision<ACTION>> mergeCandidateAdditionalProperties(
+            List<ScoringDecision<ACTION>> decisions,
+            List<ComputingCandidate<SHARED, ACTION>> candidates
+    ) {
+        checkArgument(
+                decisions.size() == candidates.size(),
+                "CatBoost scorer returned %s decisions for %s actions",
+                decisions.size(),
+                candidates.size()
+        );
+
+        List<ScoringDecision<ACTION>> ret = new ArrayList<>(decisions.size());
+        for (int i = 0; i < decisions.size(); i++) {
+            ScoringDecision<ACTION> decision = decisions.get(i);
+            ComputingCandidate<SHARED, ACTION> candidate = candidates.get(i);
+            checkArgument(
+                    decision.actionId().equals(candidate.actionId()),
+                    "CatBoost scorer returned action id %s at position %s, expected %s",
+                    decision.actionId(),
+                    i,
+                    candidate.actionId()
+            );
+            ret.add(ScoringDecision.of(
+                    decision.actionId(),
+                    decision.action(),
+                    decision.score(),
+                    mergeAdditionalProperties(candidate.additionalProperties(), decision.additionalProperties())
+            ));
+        }
+        return ret;
     }
 
     @Override

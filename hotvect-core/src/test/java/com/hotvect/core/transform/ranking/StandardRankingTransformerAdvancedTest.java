@@ -84,7 +84,7 @@ class StandardRankingTransformerAdvancedTest {
         TestAction action2 = new TestAction();
         List<TestAction> actions = Arrays.asList(action1, action2);
 
-        RankingRequest<TestShared, TestAction> rankingRequest = new RankingRequest<>("id", shared, actions);
+        RankingRequest<TestShared, TestAction> rankingRequest = RankingTestData.rankingRequest("id", shared, actions);
         ComputingRankingRequest<TestShared, TestAction> computingRankingRequest = transformer.prepare(rankingRequest);
 
         // First transform
@@ -118,7 +118,7 @@ class StandardRankingTransformerAdvancedTest {
         TestAction action = new TestAction();
         List<TestAction> actions = Collections.singletonList(action);
 
-        RankingRequest<TestShared, TestAction> rankingRequest = new RankingRequest<>("id", shared, actions);
+        RankingRequest<TestShared, TestAction> rankingRequest = RankingTestData.rankingRequest("id", shared, actions);
         ComputingRankingRequest<TestShared, TestAction> computingRankingRequest = transformer.prepare(rankingRequest);
 
         assertThrows(RuntimeException.class, () -> transformer.transform(computingRankingRequest));
@@ -141,7 +141,7 @@ class StandardRankingTransformerAdvancedTest {
         TestAction action = new TestAction();
         List<TestAction> actions = Collections.singletonList(action);
 
-        RankingRequest<TestShared, TestAction> rankingRequest = new RankingRequest<>("id", shared, actions);
+        RankingRequest<TestShared, TestAction> rankingRequest = RankingTestData.rankingRequest("id", shared, actions);
         ComputingRankingRequest<TestShared, TestAction> computingRankingRequest = transformer.prepare(rankingRequest);
 
         List<TransformedAction<TestAction>> result = transformer.transform(computingRankingRequest);
@@ -183,7 +183,7 @@ class StandardRankingTransformerAdvancedTest {
         TestAction action = new TestAction();
         List<TestAction> actions = Collections.singletonList(action);
 
-        RankingRequest<TestShared, TestAction> rankingRequest = new RankingRequest<>("id", shared, actions);
+        RankingRequest<TestShared, TestAction> rankingRequest = RankingTestData.rankingRequest("id", shared, actions);
         ComputingRankingRequest<TestShared, TestAction> computingRankingRequest = transformer.prepare(rankingRequest);
 
         List<TransformedAction<TestAction>> result = transformer.transform(computingRankingRequest);
@@ -212,7 +212,7 @@ class StandardRankingTransformerAdvancedTest {
         TestShared shared = new TestShared();
         List<TestAction> actions = Collections.emptyList();
 
-        RankingRequest<TestShared, TestAction> rankingRequest = new RankingRequest<>("id", shared, actions);
+        RankingRequest<TestShared, TestAction> rankingRequest = RankingTestData.rankingRequest("id", shared, actions);
         ComputingRankingRequest<TestShared, TestAction> computingRankingRequest = transformer.prepare(rankingRequest);
 
         List<TransformedAction<TestAction>> result = transformer.transform(computingRankingRequest);
@@ -249,7 +249,7 @@ class StandardRankingTransformerAdvancedTest {
         action.actionField = "actionData";
         List<TestAction> actions = Collections.singletonList(action);
 
-        RankingRequest<TestShared, TestAction> rankingRequest = new RankingRequest<>("id", shared, actions);
+        RankingRequest<TestShared, TestAction> rankingRequest = RankingTestData.rankingRequest("id", shared, actions);
         ComputingRankingRequest<TestShared, TestAction> computingRankingRequest = transformer.prepare(rankingRequest);
 
         List<TransformedAction<TestAction>> result = transformer.transform(computingRankingRequest);

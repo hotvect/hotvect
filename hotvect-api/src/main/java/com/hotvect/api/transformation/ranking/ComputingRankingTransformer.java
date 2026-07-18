@@ -37,10 +37,23 @@ public interface ComputingRankingTransformer<SHARED, ACTION> extends RankingTran
     }
 
     default List<TransformedAction<ACTION>> transform(ComputingRankingRequest<SHARED, ACTION> rankingRequest){
+        RankingRequest<SHARED, ACTION> request = rankingRequest.rankingRequest();
         List<NamespacedRecord<Namespace, Object>> records = this.apply(rankingRequest);
+        int requestActionCount = request.actions().size();
+        if (records.size() != requestActionCount) {
+            throw new IllegalArgumentException(
+                    "RankingTransformer returned " + records.size() + " transformed actions for " + requestActionCount + " actions"
+            );
+        }
+        var actions = request.actions();
         List<TransformedAction<ACTION>> ret = new ArrayList<>(records.size());
         for (int i = 0; i < records.size(); i++) {
-            ret.add(TransformedAction.of(rankingRequest.rankingRequest().availableActions().get(i), records.get(i)));
+            ret.add(TransformedAction.of(
+                    actions.get(i).actionId(),
+                    actions.get(i).action(),
+                    records.get(i),
+                    actions.get(i).additionalProperties()
+            ));
         }
 
         return ret;
@@ -50,7 +63,18 @@ public interface ComputingRankingTransformer<SHARED, ACTION> extends RankingTran
     @Override
     SortedSet<Namespace> getUsedFeatures();
 
-    ComputingRankingRequest<SHARED, ACTION> prepare(String exampleId, SHARED shared, List<Computing<ACTION>> actions);
+    /**
+     * Retains the v9 prepare signature implemented by existing algorithms. This overload cannot
+     * carry stable action ids; use {@link #prepare(RankingRequest)} for id-aware requests.
+     *
+     * @deprecated Use {@link #prepare(RankingRequest)}.
+     */
+    @Deprecated(forRemoval = true)
+    ComputingRankingRequest<SHARED, ACTION> prepare(
+            String exampleId,
+            SHARED shared,
+            List<Computing<ACTION>> actions
+    );
 
     ComputingRankingRequest<SHARED, ACTION> prepare(RankingRequest<SHARED, ACTION> rankingRequest);
 
@@ -59,4 +83,3 @@ public interface ComputingRankingTransformer<SHARED, ACTION> extends RankingTran
     List<TransformationMetadata> getTransformationMetadata();
 
 }
-

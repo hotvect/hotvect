@@ -4,6 +4,7 @@ import collections.abc
 import glob
 import json
 import logging
+import math
 import os
 import pathlib
 import platform
@@ -17,14 +18,16 @@ import time
 import traceback
 import zipfile
 from asyncio.subprocess import PIPE
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, NamedTuple, Optional, Tuple
+from typing import TYPE_CHECKING, Any, NamedTuple
 from urllib.parse import unquote, urlparse
 
 import boto3
 import psutil
+from boto3.s3.transfer import TransferConfig
 from pebble import ProcessFuture, ProcessPool
 
 if TYPE_CHECKING:
@@ -34,6 +37,10 @@ MAX_CONCURRENT_GIT_REF = 6.0
 MAX_CONCURRENT_BACKTEST_ITERATION_PER_PIPELINE = 6.0
 MAX_HOTVECT_TASK_THREADS = 6.0
 QUEUE_LENGTH_PER_HOTVECT_TASK_THREAD = 4.0
+S3_DIRECTORY_TRANSFER_VCPUS_PER_WORKER = 1.5
+S3_DIRECTORY_TRANSFER_MAX_WORKERS = 32
+S3_DIRECTORY_TRANSFER_CONFIG = TransferConfig(use_threads=False)
+S3_DIRECTORY_TRANSFER_ACCELERATOR = "s5cmd"
 
 logger = logging.getLogger(__name__)
 
@@ -108,7 +115,7 @@ class AlgorithmSpec(NamedTuple):
     git_commit_hash: str
 
 
-def write_data(data: Dict[str, Any], dest: str) -> Path:
+def write_data(data: dict[str, Any], dest: str) -> Path:
     with open(dest, "w") as fp:
         json.dump(data, fp)
     return Path(dest)
@@ -139,14 +146,13 @@ def capture_output(command, shell: bool = False, cwd: str | os.PathLike | None =
         p = subprocess.run(
             command,
             shell=shell,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            capture_output=True,
             executable="/bin/bash",
             cwd=cwd,
             env=env,
         )
     else:
-        p = subprocess.run(command, shell=shell, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=cwd, env=env)
+        p = subprocess.run(command, shell=shell, capture_output=True, cwd=cwd, env=env)
     stdout = p.stdout.decode("utf-8")
     stderr = p.stderr.decode("utf-8")
     ret_code = p.returncode
@@ -192,7 +198,7 @@ def trydelete(file):
         return False
 
 
-def read_json(file) -> Dict[Any, Any]:
+def read_json(file) -> dict[Any, Any]:
     with open(file) as f:
         return json.load(f)
 
@@ -212,7 +218,7 @@ def _has_7z() -> bool:
         return False
 
 
-def _to_zip_archive_with_7z(to_archive: List[Tuple[str, str]], dest: str) -> None:
+def _to_zip_archive_with_7z(to_archive: list[tuple[str, str]], dest: str) -> None:
     """
     Create a zip archive using 7z with parallel compression and hard links.
 
@@ -254,7 +260,7 @@ def _to_zip_archive_with_7z(to_archive: List[Tuple[str, str]], dest: str) -> Non
         # We need to run from within tmpdir to get correct archive paths
         dest_abs = os.path.abspath(dest)
         cmd = ["7z", "a", "-tzip", "-mmt", dest_abs, "."]
-        result = subprocess.run(cmd, cwd=tmpdir, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        result = subprocess.run(cmd, cwd=tmpdir, capture_output=True)
 
         if result.returncode != 0:
             raise RuntimeError(
@@ -264,7 +270,7 @@ def _to_zip_archive_with_7z(to_archive: List[Tuple[str, str]], dest: str) -> Non
             )
 
 
-def _expand_directories(to_archive: List[Tuple[str, str]]) -> List[Tuple[str, str]]:
+def _expand_directories(to_archive: list[tuple[str, str]]) -> list[tuple[str, str]]:
     """
     Expand any directories in to_archive to individual file entries.
 
@@ -294,7 +300,7 @@ def _expand_directories(to_archive: List[Tuple[str, str]]) -> List[Tuple[str, st
     return expanded
 
 
-def to_zip_archive(to_archive: List[Tuple[str, str]], dest: str, compress_type=zipfile.ZIP_DEFLATED):
+def to_zip_archive(to_archive: list[tuple[str, str]], dest: str, compress_type=zipfile.ZIP_DEFLATED):
     """
     Create a zip archive from a list of (source, archive_name) tuples.
 
@@ -374,8 +380,8 @@ def is_iterable(x: Any) -> bool:
 
 
 def read_algorithm_definition_from_jar(
-    algorithm_name: str, algorithm_jar_path: Path, additional_jars: Optional[List[Path]] = None
-) -> Dict[str, Any]:
+    algorithm_name: str, algorithm_jar_path: Path, additional_jars: list[Path] | None = None
+) -> dict[str, Any]:
     jars = [algorithm_jar_path] if additional_jars is None else additional_jars + [algorithm_jar_path]
     algo_def_filename = f"{algorithm_name}-algorithm-definition.json"
 
@@ -423,7 +429,7 @@ def try_max(li):
         return "NA"
 
 
-def to_local_paths(data_base_dir: str, dates: List[date], fail_if_unavailable: bool = True) -> List[str]:
+def to_local_paths(data_base_dir: str, dates: list[date], fail_if_unavailable: bool = True) -> list[str]:
     # Retrieve all directories that start with "dt="
     all_available_date_paths = glob.glob(os.path.join(data_base_dir, "dt=*"))
 
@@ -446,10 +452,12 @@ def to_local_paths(data_base_dir: str, dates: List[date], fail_if_unavailable: b
     # If fail_if_unavailable is True, ensure all requested dates are present.
     if fail_if_unavailable:
         asked_dates = set(dates)
-        assert asked_dates.issubset(all_available_dates), (
-            f"Was asked for dates between {min(asked_dates)} and {max(asked_dates)} but these "
-            f"dates were not available: {sorted(asked_dates - all_available_dates)}. Looked in: {data_base_dir}"
-        )
+        missing_dates = sorted(asked_dates - all_available_dates)
+        if missing_dates:
+            raise ValueError(
+                f"Was asked for dates between {min(asked_dates)} and {max(asked_dates)} but these "
+                f"dates were not available: {missing_dates}. Looked in: {data_base_dir}"
+            )
 
     # Filter and return only the paths that correspond to the requested dates.
     specified_dt_dirs = [x for x in all_available_date_paths if to_dt(x) in dates]
@@ -458,11 +466,11 @@ def to_local_paths(data_base_dir: str, dates: List[date], fail_if_unavailable: b
 
 @dataclass(frozen=True)
 class InputDataDates:
-    training_dates: List[date]
-    test_dates: List[date]
+    training_dates: list[date]
+    test_dates: list[date]
 
 
-def to_required_data_dates(backtest_specs: List[InputDataDates]) -> InputDataDates:
+def to_required_data_dates(backtest_specs: list[InputDataDates]) -> InputDataDates:
     all_training_dates = list(sorted({d for backtest_spec in backtest_specs for d in backtest_spec.training_dates}))
     all_test_dates = list(sorted({d for backtest_spec in backtest_specs for d in backtest_spec.test_dates}))
     return InputDataDates(all_training_dates, all_test_dates)
@@ -476,7 +484,7 @@ class ConcurrencySetting(NamedTuple):
 
 
 def recommend_concurrency(
-    num_git_ref: int, num_runs: int, remote_execution: bool, available_physical_cores: Optional[int] = None
+    num_git_ref: int, num_runs: int, remote_execution: bool, available_physical_cores: int | None = None
 ) -> ConcurrencySetting:
     num_git_ref = float(num_git_ref)
     num_runs = float(num_runs)
@@ -514,7 +522,73 @@ def recommend_concurrency(
     )
 
 
-def get_result(future: ProcessFuture) -> Dict[str, Any]:
+def recommend_s3_directory_transfer_workers(num_files: int, available_logical_cores: int | None = None) -> int:
+    if num_files <= 0:
+        return 1
+
+    if available_logical_cores is None:
+        available_logical_cores = psutil.cpu_count(logical=True) or 1
+
+    if available_logical_cores <= 0:
+        return 1
+
+    machine_workers = math.ceil(available_logical_cores / S3_DIRECTORY_TRANSFER_VCPUS_PER_WORKER)
+    return min(num_files, machine_workers, S3_DIRECTORY_TRANSFER_MAX_WORKERS)
+
+
+def _s3_prefix_uri(bucket: str, prefix: str) -> str:
+    if prefix and not prefix.endswith("/"):
+        prefix += "/"
+    return f"s3://{bucket}/{prefix}" if prefix else f"s3://{bucket}/"
+
+
+def _run_s5cmd_directory_download(bucket: str, prefix: str, local_dir_path: str, num_files: int) -> bool:
+    if num_files <= 0:
+        return True
+
+    s5cmd_path = shutil.which(S3_DIRECTORY_TRANSFER_ACCELERATOR)
+    if not s5cmd_path:
+        return False
+
+    subprocess.run(
+        [
+            s5cmd_path,
+            "--numworkers",
+            str(recommend_s3_directory_transfer_workers(num_files)),
+            "cp",
+            "--concurrency",
+            "1",
+            f"{_s3_prefix_uri(bucket, prefix)}*",
+            os.path.join(local_dir_path, ""),
+        ],
+        check=True,
+    )
+    return True
+
+
+def _run_s5cmd_directory_upload(src: str, bucket: str, prefix: str, num_files: int) -> bool:
+    if num_files <= 0:
+        return True
+
+    s5cmd_path = shutil.which(S3_DIRECTORY_TRANSFER_ACCELERATOR)
+    if not s5cmd_path:
+        return False
+
+    subprocess.run(
+        [
+            s5cmd_path,
+            "--numworkers",
+            str(recommend_s3_directory_transfer_workers(num_files)),
+            "cp",
+            os.path.join(src, ""),
+            _s3_prefix_uri(bucket, prefix),
+        ],
+        check=True,
+    )
+    return True
+
+
+def get_result(future: ProcessFuture) -> dict[str, Any]:
     try:
         return future.result()  # blocks until results are ready
     except Exception as ex:
@@ -546,7 +620,7 @@ class DirectProcessPool(ProcessPool):
         raise ValueError("Not supported")
 
 
-def recursive_dict_update(base_dict: Dict[Any, Any], update: Dict[Any, Any]) -> Dict[Any, Any]:
+def recursive_dict_update(base_dict: dict[Any, Any], update: dict[Any, Any]) -> dict[Any, Any]:
     if isinstance(base_dict, list):
         # This element is defined as a list in the base, but is given as a dict in the update
         # Hence convert the base into a dict first
@@ -648,7 +722,7 @@ async def _read_stream_and_display(stream, display, max_lines=1000):
     max_capture_bytes = _env_int("HOTVECT_STREAM_MAX_CAPTURE_BYTES", 2 * 1024 * 1024, min_value=1)
     max_line_bytes = _env_int("HOTVECT_STREAM_MAX_LINE_BYTES", 256 * 1024, min_value=1024, max_value=max_capture_bytes)
 
-    truncation_marker = f"[hotvect] output line exceeded {max_line_bytes} bytes; kept tail only\n".encode("utf-8")
+    truncation_marker = f"[hotvect] output line exceeded {max_line_bytes} bytes; kept tail only\n".encode()
 
     output: deque[bytes] = deque()
     output_bytes = 0
@@ -906,7 +980,7 @@ def execute_command_with_live_output(cmd, display_fun):
     return stream_output(cmd, display_fun)
 
 
-def as_locally_available_content(cache_path: Optional[str], local_cache_path: str) -> Optional[str]:
+def as_locally_available_content(cache_path: str | None, local_cache_path: str) -> str | None:
     """
     This function checks if the provided cache_path is an S3 path or a local file/directory path.
     If it's an S3 path, it downloads the file to the local_cache_path.
@@ -945,30 +1019,14 @@ def as_locally_available_content(cache_path: Optional[str], local_cache_path: st
             key_hash = hashlib.sha256(key.encode("utf-8")).hexdigest()
             return os.path.join(local_base_dir, ".hotvect_s3_cache", bucket, key_hash, os.path.basename(key))
 
-        def _normalize_dir_prefix(prefix: str) -> str:
-            return prefix if prefix.endswith("/") else prefix + "/"
-
-        def _dir_cache_metadata_path(local_dir_path: str) -> str:
-            return os.path.join(local_dir_path, ".hotvect_s3_cache.json")
-
-        def _try_load_dir_cache_metadata(local_dir_path: str) -> Optional[Dict[str, Any]]:
-            metadata_path = _dir_cache_metadata_path(local_dir_path)
-            if not os.path.exists(metadata_path):
-                return None
-            try:
-                with open(metadata_path, "r") as f:
-                    return json.load(f)
-            except Exception:
-                return None
-
         # List all objects with this prefix
         objects = list(bucket.objects.filter(Prefix=key_prefix))
 
         if not objects:
             return None
 
-        # Check if it's a single file (exact key match)
-        is_single_file = any(obj.key == key_prefix for obj in objects)
+        # Paths ending in "/" are directory requests even when S3 has a marker object at that exact key.
+        is_single_file = not key_prefix.endswith("/") and any(obj.key == key_prefix for obj in objects)
 
         if is_single_file:
             # Download single file
@@ -982,26 +1040,15 @@ def as_locally_available_content(cache_path: Optional[str], local_cache_path: st
             # Download directory tree
             # Ensure key_prefix ends with / for proper prefix matching
             if not key_prefix.endswith("/"):
-                key_prefix = _normalize_dir_prefix(key_prefix)
+                key_prefix = key_prefix + "/"
                 objects = list(bucket.objects.filter(Prefix=key_prefix))
 
             if not objects:
                 return None
 
-            # Create local directory (reuse when safe)
+            # Create local directory
             local_dir_name = os.path.basename(key_prefix.rstrip("/"))
             local_dir_path = os.path.join(local_cache_path, local_dir_name)
-
-            # If a previous download exists for the same bucket/prefix, reuse it.
-            expected_prefix = _normalize_dir_prefix(key_prefix)
-            cached_metadata = _try_load_dir_cache_metadata(local_dir_path)
-            if (
-                cached_metadata
-                and cached_metadata.get("bucket") == bucket_name
-                and cached_metadata.get("prefix") == expected_prefix
-                and os.path.isdir(local_dir_path)
-            ):
-                return local_dir_path
 
             # Remove existing path, handling symlinks (including broken ones)
             if os.path.exists(local_dir_path) or os.path.islink(local_dir_path):
@@ -1013,7 +1060,9 @@ def as_locally_available_content(cache_path: Optional[str], local_cache_path: st
                     os.remove(local_dir_path)  # Remove file
             os.makedirs(local_dir_path)
 
-            # Download all files preserving structure
+            # Download all files preserving structure. Directory caches can contain many shards, so do the
+            # object transfers concurrently instead of serializing the whole cache materialization.
+            downloads = []
             for obj in objects:
                 # Skip if this is a directory marker (key ends with /)
                 if obj.key.endswith("/"):
@@ -1025,15 +1074,19 @@ def as_locally_available_content(cache_path: Optional[str], local_cache_path: st
 
                 # Create parent directories
                 os.makedirs(os.path.dirname(local_file_path), exist_ok=True)
+                downloads.append((obj.key, local_file_path))
 
-                # Download file using bucket's download_file to match test mocks
-                bucket.download_file(obj.key, local_file_path)
+            if not _run_s5cmd_directory_download(bucket_name, key_prefix, local_dir_path, len(downloads)):
+                s3_client = boto3.client("s3")
 
-            # Write cache metadata (written only after a successful download).
-            metadata_tmp = _dir_cache_metadata_path(local_dir_path) + ".tmp"
-            with open(metadata_tmp, "w") as f:
-                json.dump({"schema": 1, "bucket": bucket_name, "prefix": expected_prefix}, f)
-            os.replace(metadata_tmp, _dir_cache_metadata_path(local_dir_path))
+                def download_one(item):
+                    obj_key, local_file_path = item
+                    s3_client.download_file(bucket_name, obj_key, local_file_path, Config=S3_DIRECTORY_TRANSFER_CONFIG)
+
+                with ThreadPoolExecutor(
+                    max_workers=recommend_s3_directory_transfer_workers(len(downloads))
+                ) as executor:
+                    list(executor.map(download_one, downloads))
 
             return local_dir_path
 
@@ -1089,8 +1142,6 @@ def store_file(src: str, dest: str):
     """
     # Check if the destination is an S3 path
     if dest.startswith("s3://"):
-        s3 = boto3.client("s3")
-
         # Parse out the bucket and key from the destination
         parsed = urlparse(dest)
         bucket = parsed.netloc
@@ -1098,13 +1149,25 @@ def store_file(src: str, dest: str):
 
         if os.path.isdir(src):
             # Recursively upload directory to S3
+            uploads = []
             for root, dirs, files in os.walk(src):
                 for file in files:
                     full_path = os.path.join(root, file)
                     rel_path = os.path.relpath(full_path, src)
                     s3_key = os.path.join(base_key, rel_path).replace("\\", "/")
-                    s3.upload_file(full_path, bucket, s3_key)
+                    uploads.append((full_path, s3_key))
+
+            if not _run_s5cmd_directory_upload(src, bucket, base_key, len(uploads)):
+                s3 = boto3.client("s3")
+
+                def upload_one(item):
+                    full_path, s3_key = item
+                    s3.upload_file(full_path, bucket, s3_key, Config=S3_DIRECTORY_TRANSFER_CONFIG)
+
+                with ThreadPoolExecutor(max_workers=recommend_s3_directory_transfer_workers(len(uploads))) as executor:
+                    list(executor.map(upload_one, uploads))
         else:
+            s3 = boto3.client("s3")
             # Upload single file (no need to clear, will overwrite)
             s3.upload_file(src, bucket, base_key)
     else:
@@ -1124,7 +1187,8 @@ def store_file(src: str, dest: str):
         dest_dir = os.path.dirname(dest)
 
         # Create any missing intermediate directories
-        os.makedirs(dest_dir, exist_ok=True)
+        if dest_dir:
+            os.makedirs(dest_dir, exist_ok=True)
 
         if os.path.isdir(src):
             # Copy directory tree (dirs_exist_ok for Python 3.8+)
@@ -1132,6 +1196,27 @@ def store_file(src: str, dest: str):
         else:
             # Copy single file
             shutil.copy(src, dest)
+
+
+def assert_s3_directory_uri_empty(s3_uri: str):
+    """
+    Fail if the given S3 directory-style destination already contains objects.
+
+    Args:
+        s3_uri: Destination S3 URI interpreted as a directory/prefix.
+    """
+    bucket, prefix = parse_s3_uri(s3_uri)
+    directory_prefix = f"{prefix.rstrip('/')}/" if prefix else ""
+
+    s3 = boto3.client("s3")
+    response = s3.list_objects_v2(Bucket=bucket, Prefix=directory_prefix, MaxKeys=1)
+    contents = response.get("Contents", [])
+    if contents:
+        existing_key = contents[0]["Key"]
+        raise ValueError(
+            f"S3 destination prefix must be empty before publish: {s3_uri}. "
+            f"Found existing object s3://{bucket}/{existing_key}"
+        )
 
 
 # ============================================================================
@@ -1142,8 +1227,8 @@ def store_file(src: str, dest: str):
 def resolve_data_dependency_s3_uri(
     dependency: "DataDependency",
     environment: str = "production",
-    default_s3_base: Optional[str] = None,
-) -> Optional[str]:
+    default_s3_base: str | None = None,
+) -> str | None:
     """
     Resolve S3 URI for a data dependency from algorithm definition.
 
@@ -1175,10 +1260,10 @@ def resolve_data_dependency_s3_uri(
 
         # Dict form with production
         >>> dep = DataDependency(..., additional_properties={
-        ...     "s3_uri": {"production": "s3://example-bucket/", "staging": "s3://example-bucket/"}
+        ...     "s3_uri": {"production": "s3://prod/", "staging": "s3://stage/"}
         ... })
         >>> resolve_data_dependency_s3_uri(dep, environment="production")
-        "s3://example-bucket/"
+        "s3://prod/"
 
         # Dict form - fails if environment not found
         >>> resolve_data_dependency_s3_uri(dep, environment="test")
@@ -1213,7 +1298,7 @@ def resolve_data_dependency_s3_uri(
     return None
 
 
-def parse_s3_uri(s3_uri: str) -> Tuple[str, str]:
+def parse_s3_uri(s3_uri: str) -> tuple[str, str]:
     """
     Parse S3 URI into bucket and prefix components.
 
@@ -1226,8 +1311,8 @@ def parse_s3_uri(s3_uri: str) -> Tuple[str, str]:
         - prefix: Path prefix with leading/trailing slashes stripped
 
     Examples:
-        >>> parse_s3_uri("s3://example-bucket/data/path/")
-        ("example-bucket", "data/path")
+        >>> parse_s3_uri("s3://my-bucket/data/path/")
+        ("my-bucket", "data/path")
 
         >>> parse_s3_uri("s3://bucket/")
         ("bucket", "")

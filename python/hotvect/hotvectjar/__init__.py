@@ -12,6 +12,14 @@ def _extract_version_from_jar_name(jar_name: str) -> str | None:
     return match.group(1)
 
 
+def _normalize_version_for_sorting(version_str: str) -> str:
+    # CDP snapshot builds produce JARs like `10.13.4-SNAPSHOT`; normalize them so they
+    # sort after older releases but before the exact same released version.
+    if version_str.endswith("-SNAPSHOT"):
+        return version_str.removesuffix("-SNAPSHOT") + ".dev0"
+    return version_str
+
+
 def find_hotvect_jar(pattern: str, *, jar_dir: Path | None = None) -> Path:
     """
     Find the bundled `hotvect-offline-util-...-jar-with-dependencies.jar`.
@@ -35,7 +43,7 @@ def find_hotvect_jar(pattern: str, *, jar_dir: Path | None = None) -> Path:
         if version_str is None:
             return (0, Version("0"), path.name)
         try:
-            return (1, Version(version_str), path.name)
+            return (1, Version(_normalize_version_for_sorting(version_str)), path.name)
         except InvalidVersion:
             return (0, Version("0"), path.name)
 
@@ -45,4 +53,5 @@ def find_hotvect_jar(pattern: str, *, jar_dir: Path | None = None) -> Path:
 
 
 HOTVECT_JAR_PATH = find_hotvect_jar("hotvect-offline-util-*-jar-with-dependencies.jar").absolute()
+HOTVECT_ALGORITHM_SERVE_JAR_PATH = find_hotvect_jar("hotvect-algorithm-serve-*-jar-with-dependencies.jar").absolute()
 HOTVECT_ALGORITHM_DEMO_JAR_PATH = find_hotvect_jar("hotvect-algorithm-demo-*-jar-with-dependencies.jar").absolute()

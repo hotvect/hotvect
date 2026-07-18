@@ -8,6 +8,7 @@ import javax.lang.model.util.Types;
 
 public record ProcessingContext(Messager messager, Filer filer, Elements elements, Types types,
                                 TypeElement sharedFeatureAnnotation, TypeElement featureAnnotation,
-                                TypeElement injectAnnotation, TypeElement specAnnotation,
+                                TypeElement injectAnnotation, TypeElement injectAlgorithmAnnotation,
+                                TypeElement specAnnotation,
                                 TypeElement sharedContextType) {
 }

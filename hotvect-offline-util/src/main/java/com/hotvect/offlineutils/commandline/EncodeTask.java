@@ -8,6 +8,7 @@ import com.hotvect.api.data.OfflineRequest;
 import com.hotvect.offlineutils.hotdeploy.AlgorithmOfflineSupporterFactory;
 import com.hotvect.onlineutils.concurrency.fileutils.OrderedFileMapper;
 import com.hotvect.onlineutils.concurrency.fileutils.UnorderedFileMapper;
+import com.hotvect.onlineutils.concurrency.fileutils.UnorderedFileWriter;
 import com.hotvect.utils.ListTransform;
 
 import java.io.File;
@@ -15,6 +16,7 @@ import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.Function;
@@ -25,7 +27,6 @@ import static java.lang.Math.max;
 import static java.lang.Math.min;
 
 public class EncodeTask<EXAMPLE extends Example<? extends OfflineRequest, ?>> extends Task {
-
     protected EncodeTask(OfflineTaskContext offlineTaskContext) {
         super(offlineTaskContext);
     }
@@ -44,7 +45,7 @@ public class EncodeTask<EXAMPLE extends Example<? extends OfflineRequest, ?>> ex
             extension = exampleEncoder.encodedFileExtension();
         } catch (UnsupportedOperationException e) {
             LOGGER.warn(
-                    "Legacy encoder {} does not implement encodedFileExtension(); writing shard files without an extension.",
+                    "Legacy encoder {} does not implement encodedFileExtension(); writing part files without an extension.",
                     exampleEncoder.getClass().getName()
             );
             extension = "";
@@ -98,15 +99,21 @@ public class EncodeTask<EXAMPLE extends Example<? extends OfflineRequest, ?>> ex
                 "Only one source file type is supported for encode tasks"
         );
 
+        boolean orderedOutput = resolveOrderedOutput(
+                orderingSpec.map("ordered"::equalsIgnoreCase).orElse(false),
+                "encode"
+        );
 
-
-        if (orderingSpec.map("ordered"::equalsIgnoreCase).orElse(offlineTaskContext.options().ordered)) {
+        if (orderedOutput) {
             int nRecommendedComputationThread = min(
                     8,
                     max(Runtime.getRuntime().availableProcessors() - 1, 1)
             );
 
-            File orderedDest = new File(destinationDir, "shard_0" + extension);
+            File orderedDest = new File(
+                    destinationDir,
+                    String.format(Locale.ROOT, UnorderedFileWriter.DEFAULT_OUTPUT_FILE_PATTERN, 0, extension)
+            );
             OrderedFileMapper processor = OrderedFileMapper.mapper(
                     this.offlineTaskContext.meterRegistry(),
                     this.offlineTaskContext.options().sourceFiles.values().iterator().next(),
@@ -146,10 +153,13 @@ public class EncodeTask<EXAMPLE extends Example<? extends OfflineRequest, ?>> ex
                     .batchSize(this.offlineTaskContext.options().batchSize)
                     .extension(extension)
                     .numberOfShards(effectiveWriterNumShards);
-            if (this.offlineTaskContext.options().queueLength > 0) {
-                mapperBuilder = mapperBuilder
-                        .readQueueSize(this.offlineTaskContext.options().queueLength)
-                        .writeQueueSize(this.offlineTaskContext.options().queueLength);
+            Integer readQueueSize = resolveReadQueueSize();
+            Integer writeQueueSize = resolveWriteQueueSize();
+            if (readQueueSize != null) {
+                mapperBuilder = mapperBuilder.readQueueSize(readQueueSize);
+            }
+            if (writeQueueSize != null) {
+                mapperBuilder = mapperBuilder.writeQueueSize(writeQueueSize);
             }
             UnorderedFileMapper<String> mapper = mapperBuilder.build();
             metadata = callUnorderedFileMapper(mapper);

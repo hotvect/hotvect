@@ -1,7 +1,6 @@
 package com.hotvect.integrationtest.iris;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.google.common.collect.Streams;
 import com.hotvect.api.algodefinition.AlgorithmInstance;
 import com.hotvect.api.algodefinition.ranking.CompositeRankerFactory;
 import com.hotvect.api.algorithms.Ranker;
@@ -11,11 +10,11 @@ import com.hotvect.api.data.ranking.RankingRequest;
 import com.hotvect.api.data.ranking.RankingResponse;
 
 import java.io.InputStream;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
@@ -29,12 +28,20 @@ public class IrisRankerFactory implements CompositeRankerFactory<String, Map<Str
         return new Ranker<>() {
             @Override
             public RankingResponse<Map<String, String>> rank(RankingRequest<String, Map<String, String>> rankingRequest) {
-                List<RankingDecision<Map<String, String>>> scored = Streams.mapWithIndex(rankingRequest.availableActions().stream(), (from, index) -> {
-                    assertEquals(from.get("iris.model.parameter.id"), algoInstance.algorithmParameterMetadata().parameterId());
-
-                    var score = irisModel.applyAsDouble(from);
-                    return RankingDecision.builder((int) index, from).withScore(score).build();
-                }).sorted(Comparator.comparingDouble(RankingDecision::score)).collect(Collectors.toList());
+                var actions = rankingRequest.actions();
+                List<RankingDecision<Map<String, String>>> scored = new ArrayList<>(actions.size());
+                for (int i = 0; i < actions.size(); i++) {
+                    var action = actions.get(i);
+                    var rawAction = action.action();
+                    assertEquals(rawAction.get("iris.model.parameter.id"), algoInstance.algorithmParameterMetadata().parameterId());
+                    var score = irisModel.applyAsDouble(rawAction);
+                    scored.add(
+                            RankingDecision.builder(action.actionId(), i, rawAction)
+                                    .withScore(score)
+                                    .build()
+                    );
+                }
+                scored.sort(Comparator.comparingDouble(RankingDecision::score));
                 return RankingResponse.newResponse(scored);
             }
         };

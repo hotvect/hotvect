@@ -27,13 +27,16 @@ import java.util.concurrent.atomic.AtomicReference;
 import static com.google.common.base.Preconditions.checkState;
 
 /**
- * Concurrent writer that consumes ByteBuffers from a shared queue and writes them to file shard(s).
+ * Concurrent writer that consumes ByteBuffers from a shared queue and writes them to output part files.
  *
- * <p>Shard naming is fixed to {@code shard_%d<extension>} inside the destination directory. Caller
- * provides the destination directory and file extension; numberOfShards &lt;= 0 is clamped to 1.
+ * <p>Output file naming defaults to zero-padded {@code part-%05d<extension>} inside the destination directory.
+ * Caller provides the destination directory and file extension; numberOfShards &lt;= 0 is clamped to 1.
+ * Empty part files are intentionally omitted: a shard file is created only after its writer thread
+ * receives the first record to write.
  */
 public class UnorderedFileWriter {
     private static final Logger log = LoggerFactory.getLogger(UnorderedFileWriter.class);
+    public static final String DEFAULT_OUTPUT_FILE_PATTERN = "part-%05d%s";
     private final LongAdder lineCounter;
     private final ExecutorService writer;
     private final int numberOfShards;
@@ -45,12 +48,13 @@ public class UnorderedFileWriter {
     private volatile long startTime;
 
     /**
-     * Creates a new UnorderedFileWriter with specified number of shards and fixed shard naming ({@code shard_%d<extension>}).
+     * Creates a new UnorderedFileWriter with specified number of shards and default part-file naming
+     * ({@code part-%05d<extension>}).
      *
      * @param state the shared state containing the write queue
      * @param dest the destination directory (will be created if missing)
      * @param extension file extension including leading dot (e.g., ".tfrecord")
-     * @param numberOfShards number of output shards ({@code <=0} auto =&gt; 1, {@code >=1} explicit)
+     * @param numberOfShards number of output part files ({@code <=0} auto =&gt; 1, {@code >=1} explicit)
      */
     public UnorderedFileWriter(UnorderedFileMapper.MultiFileState<?, ByteBuffer> state, File dest, String extension, int numberOfShards) {
         if (extension == null) {
@@ -67,7 +71,7 @@ public class UnorderedFileWriter {
                         UnorderedFileWriter.class.getSimpleName() + "-writer"
                 ).build()
         );
-        log.info("Created UnorderedFileWriter with {} shards", this.numberOfShards);
+        log.info("Created UnorderedFileWriter with {} output part files", this.numberOfShards);
     }
 
     void start() {
@@ -75,13 +79,12 @@ public class UnorderedFileWriter {
         List<Future<?>> handles = new ArrayList<>();
         int actualShards = this.numberOfShards;
         for (int i = 0; i < actualShards; i++) {
-            File shardDest = generateShardFilename(dest, extension, i);
-            OutputStream out = newBufferedOutputStream(shardDest);
-            WritableByteChannel channel = Channels.newChannel(out);
+            File shardDest = generateOutputFilename(dest, extension, i);
 
             Future<?> handle = this.writer.submit(new VerboseRunnable() {
                 @Override
                 protected void doRun() throws Exception {
+                    WritableByteChannel channel = null;
                     try {
                         while (true) {
                             boolean isProcessingDone = state.isProcessingDone();
@@ -89,11 +92,14 @@ public class UnorderedFileWriter {
                             if (line == null) {
                                 // No new data to write, see if we are done
                                 if (isProcessingDone) {
-                                    // We are done
-                                    out.close();
                                     return;
                                 }
                             } else {
+                                if (channel == null) {
+                                    // Lazily create the shard file so unused writer threads do not leave
+                                    // behind empty part files.
+                                    channel = Channels.newChannel(newBufferedOutputStream(shardDest));
+                                }
                                 // Received data. Write
                                 writeFully(channel, line);
                                 lineCounter.increment();
@@ -102,6 +108,10 @@ public class UnorderedFileWriter {
                     } catch (Throwable e) {
                         state.setError(e);
                         throw new RuntimeException(Throwables.getRootCause(e));
+                    } finally {
+                        if (channel != null) {
+                            channel.close();
+                        }
                     }
                 }
             });
@@ -124,7 +134,7 @@ public class UnorderedFileWriter {
             // Create parent directories if they don't exist (required for directory-based sharding)
             File parentDir = shardDest.getParentFile();
             if (parentDir != null && !parentDir.exists()) {
-                if (!parentDir.mkdirs()) {
+                if (!parentDir.mkdirs() && !parentDir.isDirectory()) {
                     throw new IOException("Failed to create directory: " + parentDir);
                 }
             }
@@ -136,12 +146,12 @@ public class UnorderedFileWriter {
         }
     }
 
-    private static File generateShardFilename(File destDir, String extension, int shardId) {
+    private static File generateOutputFilename(File destDir, String extension, int shardId) {
         File dir = destDir;
         if (destDir.isFile()) {
             dir = destDir.getParentFile();
         }
-        String fileName = String.format(Locale.ROOT, "shard_%d%s", shardId, extension);
+        String fileName = String.format(Locale.ROOT, DEFAULT_OUTPUT_FILE_PATTERN, shardId, extension);
         return dir == null ? new File(fileName) : new File(dir, fileName);
     }
 

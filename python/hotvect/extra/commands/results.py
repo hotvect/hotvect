@@ -8,14 +8,14 @@ import tarfile
 import tempfile
 from datetime import date, timezone
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 from hotvect.utils import resolve_path_within_base, safe_extract_tar_archive
 
 from .base import BaseCommand
 
 
-def _parse_day(day_s: Optional[str]) -> Optional[date]:
+def _parse_day(day_s: str | None) -> date | None:
     if not day_s:
         return None
     return date.fromisoformat(day_s)
@@ -31,7 +31,7 @@ def _iso_z(dt) -> str:
     return s.replace("+00:00", "Z")
 
 
-def _parse_algorithm_id(algorithm_id: str) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+def _parse_algorithm_id(algorithm_id: str) -> tuple[str | None, str | None, str | None]:
     if "@" not in algorithm_id:
         return None, None, None
     algorithm_name, rest = algorithm_id.split("@", 1)
@@ -75,7 +75,7 @@ class ResultsLsCommand(BaseCommand):
             "ls",
             help="List result.json runs under a local meta dir or s3:// prefix (latest-only; JSON output only)",
         )
-        parser.add_argument("location", help="Local meta dir path or an s3://example-bucket prefix")
+        parser.add_argument("location", help="Local meta dir path or an s3://... prefix")
         parser.add_argument("--from-date", default="", help="Only include runs on/after this date (YYYY-MM-DD)")
         parser.add_argument("--to-date", default="", help="Only include runs on/before this date (YYYY-MM-DD)")
         parser.add_argument("--algorithm-name-regex", default="", help="Regex to filter algorithm name (optional)")
@@ -133,18 +133,18 @@ class ResultsLsCommand(BaseCommand):
         self,
         *,
         location: str,
-        from_date: Optional[date],
-        to_date: Optional[date],
-        algorithm_name_re: Optional[re.Pattern[str]],
-        algorithm_version_re: Optional[re.Pattern[str]],
-    ) -> list[Dict[str, Any]]:
+        from_date: date | None,
+        to_date: date | None,
+        algorithm_name_re: re.Pattern[str] | None,
+        algorithm_version_re: re.Pattern[str] | None,
+    ) -> list[dict[str, Any]]:
         meta_dir = Path(location)
         if not meta_dir.exists():
             raise FileNotFoundError(f"meta dir does not exist: {meta_dir}")
         if not meta_dir.is_dir():
             raise NotADirectoryError(f"meta dir is not a directory: {meta_dir}")
 
-        best: Dict[Tuple[str, str], Dict[str, Any]] = {}
+        best: dict[tuple[str, str], dict[str, Any]] = {}
 
         for algo_dir in sorted([p for p in meta_dir.iterdir() if p.is_dir()]):
             algorithm_id = algo_dir.name
@@ -198,13 +198,13 @@ class ResultsLsCommand(BaseCommand):
         self,
         *,
         location: str,
-        from_date: Optional[date],
-        to_date: Optional[date],
-        algorithm_name_re: Optional[re.Pattern[str]],
-        algorithm_version_re: Optional[re.Pattern[str]],
+        from_date: date | None,
+        to_date: date | None,
+        algorithm_name_re: re.Pattern[str] | None,
+        algorithm_version_re: re.Pattern[str] | None,
         job_name_regex: str,
         role_arn: str,
-    ) -> list[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         # Reuse the existing SageMaker result matching logic (but do not download).
         from hotvect.backtest import SageMakerBacktestResultsDownloader
 
@@ -263,7 +263,7 @@ class ResultsDownloadCommand(BaseCommand):
             "download",
             help="Download result artifacts from an s3:// prefix into a local dir (latest-only; JSON output only)",
         )
-        parser.add_argument("s3_prefix", help="S3 base prefix where backtest results are stored (s3://example-bucket)")
+        parser.add_argument("s3_prefix", help="S3 base prefix where backtest results are stored (s3://...)")
         parser.add_argument("--dest-base-dir", required=True, help="Local destination directory for downloaded results")
 
         parser.add_argument("--from-date", default="", help="Only include runs on/after this date (YYYY-MM-DD)")

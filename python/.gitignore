@@ -1,2 +1,5 @@
 *.audit.metadata.json
 *.audit.output.schema
+
+# Temporary files from hypothesis test package
+.hypothesis

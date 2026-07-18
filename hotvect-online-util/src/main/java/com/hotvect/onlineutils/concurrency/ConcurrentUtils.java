@@ -31,7 +31,7 @@ public class ConcurrentUtils {
             return specifiedBatchSize.get();
         } else {
             // The specified input is invalid, or absent. Come up with a recommendation
-            return 250;
+            return 32;
         }
     }
 

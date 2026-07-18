@@ -16,17 +16,29 @@ import java.util.stream.Stream;
  */
 public interface StreamingRankingTransformer<SHARED, ACTION> extends RankingTransformer<SHARED, ACTION> {
     /**
-     * Returns a stream of transformed action batches.
+     * Returns a stream of transformed actions, one per action in the request.
      *
      * <p>Implementations are expected to compute shared features once (per request) before per-action
      * streaming begins.</p>
      */
     Stream<TransformedAction<ACTION>> transformStream(RankingRequest<SHARED, ACTION> request);
 
-    Stream<List<TransformedAction<ACTION>>> transformBatchStream(RankingRequest<SHARED, ACTION> request);
+    /**
+     * Returns a batch stream together with any feature store responses collected during transformation.
+     *
+     * <p>Implementations that use feature stores should return actual responses in the result.</p>
+     */
+    PreparedBatchStream<ACTION> prepareBatchStream(RankingRequest<SHARED, ACTION> request);
 
     @Override
     default List<TransformedAction<ACTION>> transform(RankingRequest<SHARED, ACTION> request) {
-        return transformStream(request).toList();
+        List<TransformedAction<ACTION>> transformedActions = transformStream(request).toList();
+        int requestActionCount = request.actions().size();
+        if (transformedActions.size() != requestActionCount) {
+            throw new IllegalArgumentException(
+                    "RankingTransformer returned " + transformedActions.size() + " transformed actions for " + requestActionCount + " actions"
+            );
+        }
+        return transformedActions;
     }
 }

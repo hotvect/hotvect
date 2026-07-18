@@ -21,6 +21,8 @@ class FileFormatTest {
         assertEquals(FileFormat.TEXT, FileFormat.detectFormat(new File("test.txt.gz")));
         assertEquals(FileFormat.TEXT, FileFormat.detectFormat(new File("test.json.gz")));
         assertEquals(FileFormat.TEXT, FileFormat.detectFormat(new File("test.jsonl.gz")));
+        assertEquals(FileFormat.TEXT, FileFormat.detectFormat(new File("part-00000")));
+        assertEquals(FileFormat.TEXT, FileFormat.detectFormat(new File("part-00000.gz")));
     }
 
     @Test
@@ -35,6 +37,16 @@ class FileFormatTest {
                 FileFormat.detectFormat(new File("test.xml")));
         assertThrows(IllegalArgumentException.class, () ->
                 FileFormat.detectFormat(new File("test.parquet")));
+        assertThrows(IllegalArgumentException.class, () ->
+                FileFormat.detectFormat(new File("part-")));
+        assertThrows(IllegalArgumentException.class, () ->
+                FileFormat.detectFormat(new File("part-.gz")));
+        assertThrows(IllegalArgumentException.class, () ->
+                FileFormat.detectFormat(new File("part-00000.parquet")));
+        assertThrows(IllegalArgumentException.class, () ->
+                FileFormat.detectFormat(new File("part-00000.parquet.gz")));
+        assertThrows(IllegalArgumentException.class, () ->
+                FileFormat.detectFormat(new File("test.xml")));
     }
 
     @Test

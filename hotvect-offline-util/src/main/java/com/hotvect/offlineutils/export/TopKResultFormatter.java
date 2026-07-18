@@ -16,7 +16,6 @@ import java.nio.ByteBuffer;
 import java.util.*;
 import java.util.function.BiFunction;
 import java.util.function.Function;
-import java.util.stream.Collectors;
 
 public class TopKResultFormatter<SHARED, ACTION, OUTCOME> implements BiFunction<RewardFunction<OUTCOME>, TopK<SHARED, ACTION>, Function<TopKExample<SHARED, ACTION, OUTCOME>, ByteBuffer>> {
 
@@ -60,11 +59,14 @@ public class TopKResultFormatter<SHARED, ACTION, OUTCOME> implements BiFunction<
 
         // Build result array
         ArrayNode rankToReward = objectMapper.createArrayNode();
-        Map<String, OUTCOME> actionIdToOutcome = ex.outcomes().stream()
-                .collect(Collectors.toMap(
-                        x -> x.topKDecision().actionId(),
-                        TopKOutcome::outcome
-                ));
+        Map<String, OUTCOME> actionIdToOutcome = new HashMap<>();
+        for (TopKOutcome<OUTCOME, ACTION> outcome : ex.outcomes()) {
+            String actionId = outcome.topKDecision().actionId();
+            if (actionIdToOutcome.containsKey(actionId)) {
+                throw new IllegalArgumentException("Example contains duplicate outcome for action id: " + actionId);
+            }
+            actionIdToOutcome.put(actionId, outcome.outcome());
+        }
 
         List<TopKDecision<ACTION>> decisions = topKResult.decisions();
         for (int i = 0; i < decisions.size(); i++) {
@@ -73,8 +75,6 @@ public class TopKResultFormatter<SHARED, ACTION, OUTCOME> implements BiFunction<
             Double score = topKDecision.score();
             Double probability = topKDecision.probability();
             OUTCOME outcome = actionIdToOutcome.get(actionId);
-
-            double reward = (outcome != null) ? rewardFunction.applyAsDouble(outcome) : 0.0;
 
             ObjectNode result = objectMapper.createObjectNode();
             result.put("action_id", actionId);
@@ -85,7 +85,10 @@ public class TopKResultFormatter<SHARED, ACTION, OUTCOME> implements BiFunction<
             if (probability != null) {
                 result.put("probability", probability);
             }
-            result.put("reward", reward);
+            if (outcome != null) {
+                double reward = rewardFunction.applyAsDouble(outcome);
+                result.put("reward", reward);
+            }
 
             Map<String, Object> outcomeAdditionalProperties = getAdditionalProperties(outcome);
             Map<String, Object> actionAdditionalProperties = getAdditionalProperties(topKDecision.action());

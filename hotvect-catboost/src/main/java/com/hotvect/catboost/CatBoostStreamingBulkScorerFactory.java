@@ -5,6 +5,7 @@ import com.hotvect.api.algodefinition.ranking.BulkScorerFactory;
 import com.hotvect.core.transform.ranking.StreamingRankingTransformer;
 import com.hotvect.api.algorithms.BulkScorer;
 import com.hotvect.onlineutils.nativelibraries.catboost.HotvectCatBoostModel;
+import com.hotvect.utils.HyperparamUtils;
 
 import java.io.InputStream;
 import java.util.Map;
@@ -30,11 +31,18 @@ public class CatBoostStreamingBulkScorerFactory<SHARED, ACTION>
         );
         HotvectCatBoostModel hotvectCatBoostModel = HotvectCatBoostModel.loadModel(modelStream);
         String taskType = CatBoostFactoryUtils.getTaskType(hyperparameter);
+        boolean parallelBatchScoring = HyperparamUtils.getOrDefault(
+                hyperparameter,
+                JsonNode::asBoolean,
+                true,
+                "parallel_batch_scoring"
+        );
 
         return new CatBoostStreamingBulkScorer<>(
                 rankingTransformer,
                 hotvectCatBoostModel,
-                taskType
+                taskType,
+                parallelBatchScoring
         );
     }
 }

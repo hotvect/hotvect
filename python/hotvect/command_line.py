@@ -3,9 +3,9 @@ import logging
 import subprocess
 import sys
 from pathlib import Path
-from typing import List
 
 import hotvect.hotvectjar
+from hotvect.jvm_args import normalize_runtime_jvm_args
 from hotvect.utils import stream_output
 
 logger = logging.getLogger(__name__)
@@ -18,15 +18,13 @@ def run_performance_test(
     source_path: Path,
     parameter: Path,
     samples: int,
-    java_args: List[str],
+    sample_pool_size: int,
+    java_args: list[str],
 ):
     cmd = ["java"]
-    cmd.extend(java_args)
-    if not any(arg.startswith("-Xmx") or arg.startswith("-XX:MaxRAMPercentage") for arg in java_args):
-        cmd.append("-XX:MaxRAMPercentage=80")
-    if "-XX:+ExitOnOutOfMemoryError" not in java_args:
-        cmd.append("-XX:+ExitOnOutOfMemoryError")
-    if "-cp" not in java_args:
+    normalized_java_args = normalize_runtime_jvm_args(java_args)
+    cmd.extend(normalized_java_args)
+    if "-cp" not in normalized_java_args:
         cmd.extend(["-cp", str(hotvect.hotvectjar.HOTVECT_JAR_PATH)])
 
     cmd.extend(
@@ -46,6 +44,8 @@ def run_performance_test(
     if parameter is not None:
         cmd.extend(["--parameters", str(parameter)])
     cmd.extend(["--samples", str(samples)])
+    if sample_pool_size != -1:
+        cmd.extend(["--sample-pool-size", str(sample_pool_size)])
 
     try:
         rc = stream_output(cmd, sys.stdout.write)
@@ -74,6 +74,12 @@ def get_arg_parser(
         "--dest_path", required=require_destination_file, help="Path to the destination file", default=None
     )
     parser.add_argument("--samples", type=int, default=-1, help="Number of samples to process")
+    parser.add_argument(
+        "--sample-pool-size",
+        type=int,
+        default=-1,
+        help="Number of decoded candidate examples retained in memory for performance-test replay",
+    )
     return parser
 
 
@@ -87,6 +93,12 @@ def main():
     parser.add_argument("--source_path", required=True, help="Path to the source data")
     parser.add_argument("--parameter", required=True, help="Path to the parameters file", default=None)
     parser.add_argument("--samples", type=int, default=-1, help="Number of samples to process")
+    parser.add_argument(
+        "--sample-pool-size",
+        type=int,
+        default=-1,
+        help="Number of decoded candidate examples retained in memory for performance-test replay",
+    )
 
     args, java_args = parser.parse_known_args()
     metadata_dir = Path(args.metadata_path)
@@ -98,6 +110,7 @@ def main():
         Path(args.source_path),
         Path(args.parameter) if args.parameter else None,
         args.samples,
+        args.sample_pool_size,
         java_args,
     )
 

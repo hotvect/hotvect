@@ -5,11 +5,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterators;
 import com.google.common.io.MoreFiles;
 import com.google.common.io.RecursiveDeleteOption;
-import net.jqwik.api.AfterFailureMode;
-import net.jqwik.api.Arbitraries;
-import net.jqwik.api.ForAll;
-import net.jqwik.api.Property;
-import net.jqwik.api.constraints.IntRange;
 import org.junit.jupiter.api.Test;
 
 import java.io.BufferedWriter;
@@ -61,9 +56,9 @@ class FileReducerTest {
         return tmpSource;
     }
 
-    @Property(afterFailure = AfterFailureMode.SAMPLE_FIRST, tries = 3)
-    void testLargerFiles(@ForAll @IntRange(min = 2000000, max = 3000000) int size) throws Exception {
-        List<Integer> ints = Arbitraries.integers().list().ofMinSize(size).sample();
+    @Test
+    void testLargerFiles() throws Exception {
+        List<Integer> ints = IntStream.range(0, 2_000_000).boxed().collect(Collectors.toList());
         Path tmpSource = writeIntsAsMultiFiles(ints);
         try {
             SimpleMeterRegistry mr = new SimpleMeterRegistry();
@@ -83,25 +78,27 @@ class FileReducerTest {
         }
     }
 
-    @Property(afterFailure = AfterFailureMode.SAMPLE_FIRST)
-    void testSmallerFiles(@ForAll @IntRange(max = 5) int size) throws Exception {
-        List<Integer> ints = Arbitraries.integers().list().ofSize(size).sample();
-        Path tmpSource = writeIntsAsMultiFiles(ints);
-        try {
-            SimpleMeterRegistry mr = new SimpleMeterRegistry();
-            FileReducer<Integer> subject = FileReducer.reducer(
-                    mr,
-                    ImmutableList.of(tmpSource.toFile()),
-                    () -> 0,
-                    (acc, inputString) -> acc + Integer.parseInt(inputString),
-                    Integer::sum,
-                    2,
-                    1000
-            );
-            Integer result = subject.call();
-            assertEquals(ints.stream().mapToInt(i -> i).sum(), result);
-        } finally {
-            MoreFiles.deleteRecursively(tmpSource, RecursiveDeleteOption.ALLOW_INSECURE);
+    @Test
+    void testSmallerFiles() throws Exception {
+        for (int size = 0; size <= 5; size++) {
+            List<Integer> ints = IntStream.range(0, size).boxed().collect(Collectors.toList());
+            Path tmpSource = writeIntsAsMultiFiles(ints);
+            try {
+                SimpleMeterRegistry mr = new SimpleMeterRegistry();
+                FileReducer<Integer> subject = FileReducer.reducer(
+                        mr,
+                        ImmutableList.of(tmpSource.toFile()),
+                        () -> 0,
+                        (acc, inputString) -> acc + Integer.parseInt(inputString),
+                        Integer::sum,
+                        2,
+                        1000
+                );
+                Integer result = subject.call();
+                assertEquals(ints.stream().mapToInt(i -> i).sum(), result);
+            } finally {
+                MoreFiles.deleteRecursively(tmpSource, RecursiveDeleteOption.ALLOW_INSECURE);
+            }
         }
     }
 

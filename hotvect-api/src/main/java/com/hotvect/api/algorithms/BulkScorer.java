@@ -10,8 +10,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Function;
 
-import static com.hotvect.utils.AdditionalProperties.getAdditionalProperties;
-
 public interface BulkScorer<SHARED, ACTION> extends Function<RankingRequest<SHARED, ACTION>, DoubleList>, Algorithm {
 
     @Deprecated(forRemoval = true)
@@ -24,6 +22,9 @@ public interface BulkScorer<SHARED, ACTION> extends Function<RankingRequest<SHAR
     /**
      * Bulk score actions for the provided request.
      *
+     * <p>The returned decisions must preserve {@link RankingRequest#actions()} order: one score per
+     * request action, at the same index. Rankers may reorder candidates after scoring.</p>
+     *
      * @deprecated Prefer {@link #score(RankingRequest)} which can also carry feature-store responses and
      * additional properties.
      */
@@ -32,11 +33,21 @@ public interface BulkScorer<SHARED, ACTION> extends Function<RankingRequest<SHAR
         // Default implementation for backward compatibility: call the legacy apply method
         DoubleList scores = apply(rankingRequest);
         List<ScoringDecision<ACTION>> decisions = new ArrayList<>(scores.size());
-        List<ACTION> actions = rankingRequest.availableActions();
-        
-        for (int i = 0; i < scores.size() && i < actions.size(); i++) {
-            ACTION action = actions.get(i);
-            decisions.add(ScoringDecision.of(action, scores.getDouble(i), getAdditionalProperties(action)));
+        var actions = rankingRequest.actions();
+        if (scores.size() != actions.size()) {
+            throw new IllegalArgumentException(
+                    "BulkScorer returned " + scores.size() + " scores for " + actions.size() + " actions"
+            );
+        }
+
+        for (int i = 0; i < scores.size(); i++) {
+            var action = actions.get(i);
+            decisions.add(ScoringDecision.of(
+                    action.actionId(),
+                    action.action(),
+                    scores.getDouble(i),
+                    action.additionalProperties()
+            ));
         }
         return decisions;
     }

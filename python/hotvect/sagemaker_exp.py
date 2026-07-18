@@ -1,9 +1,7 @@
 import copy
-import glob
 import json
 import logging
 import os
-import re
 import secrets
 import shutil
 import signal
@@ -16,15 +14,15 @@ import time
 from dataclasses import dataclass
 from datetime import date, timedelta
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 from urllib.parse import urlparse
-from xml.etree import ElementTree
 
 import boto3
 from mypy_boto3_s3 import S3Client
 from mypy_boto3_sagemaker import SageMakerClient
 
 from hotvect import utils
+from hotvect.build_utils import parse_pom_xml, select_algorithm_jar
 from hotvect.utils import (
     capture_output,
     get_boto_session_after_assuming_role,
@@ -36,7 +34,7 @@ from hotvect.utils import (
 logger = logging.getLogger(__name__)
 
 
-def runshell(command, shell: bool = False, env: Optional[Dict[str, str]] = None):
+def runshell(command, shell: bool = False, env: dict[str, str] | None = None):
     return capture_output(command, shell=shell, env=env)
 
 
@@ -55,25 +53,8 @@ def _prepare_jar(repo_url: str, work_dir: str, git_reference: str) -> Path:
     # `-DskipTests` skips running tests but still compiles them.
     # For training we only need the algorithm JAR, so skip test compilation as well.
     stream_output(["mvn", "clean", "package", "-Dmaven.test.skip=true", "-B"], sys.stdout.write, cwd=str(cloned_path))
-    pom_path = f"{cloned_path}/pom.xml"
-    xml_root = ElementTree.parse(pom_path).getroot()
-    ns = re.match(r"{.*}", xml_root.tag).group(0)
-    artifact_name = xml_root.find(ns + "artifactId").text.strip()
-    artifact_version = xml_root.find(ns + "version").text.strip()
-    jars = [
-        file
-        for file in glob.glob(
-            os.path.join(
-                cloned_path,
-                "target",
-                f"{artifact_name}-{artifact_version}*.jar",
-            )
-        )
-        if os.path.isfile(file)
-    ]
-    if len(jars) != 1:
-        raise ValueError(f"JAR not found or there are more than one! {jars}")
-    return Path(jars[0])
+    artifact = parse_pom_xml(Path(cloned_path) / "pom.xml")
+    return select_algorithm_jar(Path(cloned_path) / "target", artifact)
 
 
 def run_remote_using_git_reference(
@@ -81,11 +62,11 @@ def run_remote_using_git_reference(
     local_work_dir: str,
     repo_url: str,
     git_reference: str,
-    sagemaker_training_job_definition: Dict[str, Any],
+    sagemaker_training_job_definition: dict[str, Any],
     last_target_time: date,
     number_of_runs: int,
-    role_arn_to_assume: Optional[str] = None,
-    hyperparameters: Optional[Dict[str, Any]] = None,
+    role_arn_to_assume: str | None = None,
+    hyperparameters: dict[str, Any] | None = None,
 ):
     # Local import to avoid importing heavy Hotvect modules (and requiring the bundled JAR) at import time.
     from hotvect.sagemaker import _upload_file_to_s3
@@ -107,7 +88,7 @@ def run_remote_using_git_reference(
     sagemaker_training_job_definition["HyperParameters"]["s3_uri_custom_jar"] = destination
     sagemaker_client: SageMakerClient = session.client("sagemaker")
 
-    def updated_sagemaker_training_job_definition(target_day: str) -> Dict[str, Any]:
+    def updated_sagemaker_training_job_definition(target_day: str) -> dict[str, Any]:
         copy_of_sagemaker_training_job_definition = copy.deepcopy(sagemaker_training_job_definition)
         job_name = copy_of_sagemaker_training_job_definition["TrainingJobName"]
         job_name += f"-{hexigest_as_alphanumeric(secrets.token_hex(4))}"
@@ -127,7 +108,7 @@ def run_remote_using_git_reference(
 
 
 class SageMakerScriptExecutor:
-    def __init__(self, *, sagemaker_env: Optional[Any] = None, s3_client: Optional[S3Client] = None):
+    def __init__(self, *, sagemaker_env: Any | None = None, s3_client: S3Client | None = None):
         self.sagemaker_env = sagemaker_env
         self._s3_client: S3Client = s3_client or boto3.client("s3")
 
@@ -142,7 +123,7 @@ class SageMakerScriptExecutor:
 
             self.sagemaker_env = Environment()
 
-    def run(self) -> Dict[str, Any]:
+    def run(self) -> dict[str, Any]:
         if self.sagemaker_env is None:
             raise ModuleNotFoundError(
                 "SageMakerScriptExecutor requires `sagemaker-training` (sagemaker_training) or an injected "
@@ -174,7 +155,7 @@ class SageMakerScriptExecutor:
 
     @dataclass(frozen=True)
     class _LocalTracingContext:
-        env: Dict[str, str]
+        env: dict[str, str]
         jaeger_proc: subprocess.Popen
         output_dir: Path
         log_path: Path
@@ -186,7 +167,7 @@ class SageMakerScriptExecutor:
     _SERVICE_NAME_KEY = "otel_service_name"
     _TRACE_RATIO_KEY = "otel_trace_ratio"
 
-    def _maybe_start_local_tracing(self, *, hyperparameters: Dict[str, Any]) -> Optional["_LocalTracingContext"]:
+    def _maybe_start_local_tracing(self, *, hyperparameters: dict[str, Any]) -> Optional["_LocalTracingContext"]:
         trace_mode = str(hyperparameters.get(self._TRACE_MODE_KEY, "")).strip()
         if trace_mode != self._TRACE_MODE_LOCAL_JAEGER:
             return None
@@ -282,7 +263,7 @@ class SageMakerScriptExecutor:
 
         return self._LocalTracingContext(env=env, jaeger_proc=jaeger_proc, output_dir=output_dir, log_path=log_path)
 
-    def _finalize_local_tracing(self, *, tracing_ctx: "_LocalTracingContext", hyperparameters: Dict[str, Any]) -> None:
+    def _finalize_local_tracing(self, *, tracing_ctx: "_LocalTracingContext", hyperparameters: dict[str, Any]) -> None:
         self._stop_process(tracing_ctx.jaeger_proc)
 
         archive_path = tracing_ctx.output_dir / "otel-jaeger-traces.tgz"
@@ -295,7 +276,7 @@ class SageMakerScriptExecutor:
 
     def _wait_for_tcp(self, host: str, port: int, timeout_s: float) -> None:
         deadline = time.time() + timeout_s
-        last_err: Optional[Exception] = None
+        last_err: Exception | None = None
         while time.time() < deadline:
             try:
                 with socket.create_connection((host, port), timeout=1.0):
@@ -355,7 +336,7 @@ class SageMakerScriptExecutor:
 
         self._s3_client.upload_file(Filename=local_file_path, Bucket=s3_target_bucket, Key=s3_target_key)
 
-    def hyperparameters_as_file(self, hyperparameters: Dict[str, Any]):
+    def hyperparameters_as_file(self, hyperparameters: dict[str, Any]):
         class StringEncoder(json.JSONEncoder):
             def default(self, o):
                 return str(o)

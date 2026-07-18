@@ -3,24 +3,46 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>Hotvect Demo UI</title>
+  <title>🌶️ Hotvect Demo UI</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23b93d1e'/%3E%3Cpath d='M8 9v14M24 9v14M8 16h16' stroke='%23fff' stroke-width='3'/%3E%3C/svg%3E"/>
   <style>
     :root {
-      --bg: #f6f7fb;
-      --text: #0f172a;
-      --muted: #64748b;
-      --border: #e5e7eb;
-      --card: #ffffff;
-      --radius: 10px;
-      --shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+      /* Keep these in sync with the Hotvect docsite's default color scheme. */
+      --hv-bg: #fbfaf7;
+      --hv-surface: #ffffff;
+      --hv-surface-2: #f2f0ea;
+      --hv-surface-3: #e9e5dc;
+      --hv-ink: #181614;
+      --hv-muted: #6d6862;
+      --hv-faint: #908a83;
+      --hv-border: rgba(24, 22, 20, 0.14);
+      --hv-border-subtle: rgba(24, 22, 20, 0.08);
+      --hv-accent: #d9532f;
+      --hv-accent-strong: #b93d1e;
+      --hv-accent-soft: rgba(217, 83, 47, 0.11);
+      --hv-accent-softer: rgba(217, 83, 47, 0.055);
+      --hv-link: #a9381c;
+      --hv-link-hover: #7f2814;
+      --hv-code-bg: #f0ede7;
+      --hv-shadow-sm: 0 1px 2px rgba(24, 22, 20, 0.05);
+      --hv-shadow: 0 18px 50px rgba(64, 42, 31, 0.10);
 
-      --dev-bg: #0b1020;
-      --dev-surface: #101a33;
-      --dev-text: #dce1ff;
-      --dev-muted: #9aa7d6;
-      --dev-border: rgba(220, 225, 255, 0.14);
-      --dev-accent-bg: rgba(138, 164, 255, 0.16);
-      --dev-focus: rgba(138, 164, 255, 0.45);
+      --bg: var(--hv-bg);
+      --text: var(--hv-ink);
+      --muted: var(--hv-muted);
+      --border: var(--hv-border);
+      --card: var(--hv-surface);
+      --radius-sm: 10px;
+      --radius: 16px;
+      --shadow: var(--hv-shadow-sm);
+
+      --panel-bg: var(--hv-surface);
+      --panel-subtle: var(--hv-surface-2);
+      --panel-text: var(--hv-ink);
+      --panel-muted: var(--hv-muted);
+      --panel-border: var(--hv-border-subtle);
+      --panel-selected: var(--hv-accent-soft);
+      --panel-focus: rgba(217, 83, 47, 0.48);
 
       --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New";
       --sans: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
@@ -30,7 +52,7 @@
       --io-height: 320px;
       --io-left-width: 50%;
       --resizer-size: 10px;
-      --split-line: rgba(148, 163, 184, 0.35);
+      --split-line: var(--hv-border);
     }
 
     * { box-sizing: border-box; }
@@ -50,14 +72,16 @@
       align-items: baseline;
       gap: 10px;
       padding: 8px 12px;
-      border-bottom: 1px solid var(--dev-border);
-      background: var(--dev-bg);
-      color: var(--dev-text);
+      border-bottom: 1px solid var(--hv-border-subtle);
+      background: color-mix(in srgb, var(--hv-bg) 94%, transparent);
+      color: var(--hv-ink);
+      backdrop-filter: blur(16px);
     }
-    #appTitle { font-size: 13px; font-weight: 650; letter-spacing: 0.2px; }
+    #appTitle { color: var(--hv-accent-strong); font-size: 13px; font-weight: 760; letter-spacing: -0.01em; }
+    #appTitle .brandPepper { margin-right: 4px; font-size: 14px; }
     #appMeta {
       font-size: 12px;
-      color: var(--dev-muted);
+      color: var(--hv-muted);
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
@@ -65,26 +89,53 @@
       min-width: 0;
       display: block;
     }
-	    #appMeta > span { display: inline; }
-	    #metaSep { opacity: 0.85; padding: 0 6px; }
+	    #appMeta > * { display: inline; }
+	    #appMeta .metaValue {
+	      color: color-mix(in srgb, var(--hv-accent-strong) 62%, var(--hv-muted));
+	      font-weight: 600;
+	    }
+	    #appMeta .metaTrigger {
+	      appearance: none;
+	      border: 0;
+	      border-radius: 4px;
+	      padding: 0;
+	      background: transparent;
+	      color: inherit;
+	      font: inherit;
+	      text-align: left;
+	      cursor: pointer;
+	      vertical-align: baseline;
+	    }
+	    #appMeta .metaTrigger:not(:disabled):hover .metaValue {
+	      color: var(--hv-accent-strong);
+	      text-decoration: underline;
+	      text-underline-offset: 2px;
+	    }
+	    #appMeta .metaTrigger:focus-visible {
+	      outline: 2px solid var(--panel-focus);
+	      outline-offset: 2px;
+	    }
+	    #appMeta .metaTrigger:disabled { cursor: default; }
+	    #appMeta .metaDot { opacity: 0.72; }
+	    #metaSep { opacity: 0.72; padding: 0 6px; }
 	    /* Separator visibility is controlled by JS (hide if either side is empty). */
 
 	    #app { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: var(--sidebar-width) var(--resizer-size) 1fr; }
 
-    /* Dev panels (dark) */
+    /* Editor panels */
     #sidebar {
       display: grid;
       grid-template-rows: auto 1fr var(--resizer-size) var(--sidebar-bottom-height);
       overflow: hidden;
-      background: var(--dev-bg);
-      color: var(--dev-text);
+      background: var(--panel-bg);
+      color: var(--panel-text);
     }
     #sidebarTop {
       padding: 10px 12px 12px 12px;
       display: grid;
       gap: 10px;
-      border-bottom: 1px solid var(--dev-border);
-      background: linear-gradient(to bottom, rgba(255,255,255,0.04), rgba(255,255,255,0));
+      border-bottom: 1px solid var(--panel-border);
+      background: linear-gradient(to bottom, var(--hv-accent-softer), transparent 120px);
     }
     #sidebarBottom {
       padding: 12px;
@@ -111,32 +162,56 @@
 
     #sidebar input, #sidebar textarea, #sidebar button { font: inherit; }
     #sidebar button {
-      border: 1px solid transparent;
-      border-radius: 8px;
       cursor: pointer;
-      background: var(--dev-surface);
-      color: var(--dev-text);
     }
-    #sidebar button:hover { border-color: var(--dev-border); }
+    #sidebar #run,
+    #sidebar #clearOverride {
+      border: 1px solid var(--panel-border);
+      border-radius: var(--radius-sm);
+      background: var(--panel-subtle);
+      color: var(--panel-text);
+      transition: background-color 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+    }
+    #sidebar #run:hover:not(:disabled),
+    #sidebar #clearOverride:hover:not(:disabled) {
+      background: var(--hv-surface);
+      border-color: color-mix(in srgb, var(--hv-accent) 40%, var(--hv-border));
+      transform: translateY(-1px);
+    }
     #sidebar button:disabled { opacity: 0.55; cursor: default; }
-    #sidebar button:focus-visible { outline: 2px solid var(--dev-focus); outline-offset: 2px; }
+    #sidebar button:focus-visible { outline: 2px solid var(--panel-focus); outline-offset: 2px; }
     #sidebar input, #sidebar textarea {
-      border-radius: 8px;
-      border: 1px solid var(--dev-border);
-      background: rgba(255,255,255,0.03);
-      color: var(--dev-text);
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--hv-border);
+      background: var(--hv-surface);
+      color: var(--panel-text);
     }
-    #sidebar input::placeholder, #sidebar textarea::placeholder { color: rgba(220, 225, 255, 0.55); }
-    #sidebar input:focus-visible, #sidebar textarea:focus-visible { outline: 2px solid var(--dev-focus); outline-offset: 2px; }
+    #sidebar input::placeholder, #sidebar textarea::placeholder { color: var(--hv-faint); }
+    #sidebar input:focus-visible, #sidebar textarea:focus-visible {
+      border-color: var(--hv-accent);
+      outline: 2px solid var(--panel-focus);
+      outline-offset: 1px;
+    }
 
-    #run { background: var(--dev-accent-bg); border-color: var(--dev-border); }
+    #sidebar #run {
+      background: var(--hv-accent-strong);
+      border-color: var(--hv-accent-strong);
+      color: #ffffff;
+      font-weight: 700;
+    }
+    #sidebar #run:hover:not(:disabled) { background: var(--hv-accent); border-color: var(--hv-accent); }
+    #sidebar #run:disabled {
+      background: var(--hv-surface-2);
+      border-color: var(--hv-border-subtle);
+      color: var(--hv-faint);
+    }
 	    #status {
-	      color: var(--dev-muted);
+	      color: var(--panel-muted);
 	      font-size: 12px;
 	      padding: 2px 8px;
 	      border-radius: 999px;
-	      border: 1px solid var(--dev-border);
-	      background: rgba(255,255,255,0.03);
+	      border: 1px solid var(--hv-border);
+	      background: var(--hv-surface-2);
 	      line-height: 18px;
 	      height: 20px;
 	      display: inline-flex;
@@ -144,34 +219,74 @@
 	    }
 	    #status:empty { display: none; }
 	    #status[data-level="ok"] {
-	      color: rgba(187, 247, 208, 0.95);
-	      border-color: rgba(34, 197, 94, 0.35);
-	      background: rgba(34, 197, 94, 0.16);
+	      color: #2f6b46;
+	      border-color: rgba(47, 107, 70, 0.28);
+	      background: rgba(47, 107, 70, 0.09);
 	    }
 	    #status[data-level="warn"] {
-	      color: rgba(254, 243, 199, 0.95);
-	      border-color: rgba(245, 158, 11, 0.35);
-	      background: rgba(245, 158, 11, 0.14);
+	      color: #815411;
+	      border-color: rgba(129, 84, 17, 0.28);
+	      background: rgba(181, 121, 29, 0.10);
 	    }
 	    #status[data-level="error"] {
-	      color: rgba(254, 202, 202, 0.95);
-	      border-color: rgba(239, 68, 68, 0.35);
-	      background: rgba(239, 68, 68, 0.14);
+	      color: #9a3027;
+	      border-color: rgba(154, 48, 39, 0.28);
+	      background: rgba(154, 48, 39, 0.09);
 	    }
 
     #matchesWrap { overflow: hidden; display: grid; grid-template-rows: auto 1fr; min-height: 0; }
-    #matchesHeader { padding: 10px 12px; display: grid; gap: 8px; border-top: 1px solid var(--dev-border); border-bottom: 1px solid var(--dev-border); }
-    #matchesTitle { padding: 0; font-size: 12px; color: var(--dev-muted); }
+    #matchesHeader { padding: 10px 12px; display: grid; gap: 8px; border-top: 1px solid var(--panel-border); border-bottom: 1px solid var(--panel-border); }
+    #examplesHeading { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+    #matchesTitle { padding: 0; font-size: 12px; color: var(--panel-muted); }
+    #exampleQuery { width: 100%; padding: 7px 9px; }
     #matches { overflow: auto; }
-    .match { padding: 10px 16px; border-bottom: 1px solid var(--dev-border); cursor: pointer; display: flex; gap: 10px; align-items: baseline; }
-    .match:hover { background: rgba(255,255,255,0.03); }
-    .match .primary { font-size: 13px; }
-    .match .secondary { color: var(--dev-muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .match .mono { font-family: var(--mono); font-size: 11px; color: var(--dev-muted); }
-    .match.selected { background: var(--dev-accent-bg); }
+    .match { width: 100%; padding: 10px 16px; border: 0; border-bottom: 1px solid var(--panel-border); cursor: pointer; display: grid; gap: 3px; text-align: left; font: inherit; color: inherit; background: transparent; }
+    .match:hover { background: var(--hv-surface-2); }
+    .match:focus-visible, .pathMatch:focus-visible { outline: 2px solid var(--panel-focus); outline-offset: -2px; }
+    .match .primary { font-size: 13px; font-weight: 650; }
+    .match .secondary { color: var(--panel-muted); font-size: 11px; line-height: 1.35; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .match .mono { font-family: var(--mono); font-size: 11px; color: var(--panel-muted); }
+    .match.selected { background: var(--panel-selected); color: var(--hv-accent-strong); }
+    .match.selected .primary { font-weight: 700; }
 
-    .sectionTitle { font-size: 12px; color: var(--dev-text); font-weight: 600; letter-spacing: 0.2px; }
-    .sectionSubtitle { font-size: 12px; color: var(--dev-muted); }
+    .sectionTitle { font-size: 12px; color: var(--panel-text); font-weight: 700; letter-spacing: 0.1px; }
+    .sectionSubtitle { font-size: 12px; color: var(--panel-muted); }
+
+    #primaryInputWrap {
+      display: grid;
+      grid-template-columns: max-content minmax(0, 1fr);
+      align-items: center;
+      column-gap: 8px;
+      row-gap: 3px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--hv-border);
+    }
+    #primaryInputWrap[hidden] { display: none; }
+    #primaryInputLabel { color: var(--panel-text); font-size: 12px; font-weight: 650; }
+    #primaryInputRow { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 5px; }
+    #primaryInput {
+      width: 100%;
+      min-width: 0;
+      padding: 7px 9px;
+      font-size: 13px;
+    }
+    #primaryInputRun {
+      border: 1px solid var(--hv-accent);
+      border-radius: var(--radius-sm);
+      padding: 6px 10px;
+      background: var(--hv-surface);
+      color: var(--hv-accent-strong);
+      font-weight: 680;
+    }
+    #primaryInputRun:hover:not(:disabled) { background: var(--hv-accent-soft); border-color: var(--hv-accent-strong); }
+    #primaryInputRun:disabled { opacity: 0.52; cursor: default; }
+    #primaryInputHint {
+      grid-column: 2;
+      color: var(--panel-muted);
+      font-family: var(--mono);
+      font-size: 9px;
+    }
+    #jsonPathTitle { margin-top: 0; }
 
     #pathQuery { width: 100%; padding: 8px 10px; }
     #overrideText {
@@ -181,30 +296,61 @@
       font-family: var(--mono);
       font-size: 12px;
     }
-    #pathMatches { border: 1px solid var(--dev-border); border-radius: 8px; max-height: 140px; overflow: auto; margin: 6px 0; }
-    .pathMatch { padding: 6px 8px; border-bottom: 1px solid var(--dev-border); cursor: pointer; font-family: var(--mono); font-size: 12px; }
+    #pathMatches { border: 1px solid var(--hv-border); border-radius: var(--radius-sm); max-height: 140px; overflow: auto; margin: 6px 0; background: var(--hv-surface); }
+    .pathMatch { width: 100%; padding: 6px 8px; border: 0; border-bottom: 1px solid var(--panel-border); cursor: pointer; font-family: var(--mono); font-size: 12px; text-align: left; color: inherit; background: transparent; }
     .pathMatch:last-child { border-bottom: 0; }
-    .pathMatch:hover { background: rgba(255,255,255,0.03); }
-    .pathMatch.selected { background: var(--dev-accent-bg); }
-    .hint { font-size: 12px; color: var(--dev-muted); margin-top: 6px; }
+    .pathMatch:hover { background: var(--hv-surface-2); }
+    .pathMatch.selected { background: var(--panel-selected); color: var(--hv-accent-strong); }
+    .hint { font-size: 12px; color: var(--panel-muted); margin-top: 6px; }
 
-	    /* Customer area (light) */
-	    #grids { display: grid; grid-template-columns: 1fr 12px 1fr; min-height: 0; min-width: 0; }
-	    .gridPanel { display: grid; grid-template-rows: auto 1fr; overflow: hidden; min-height: 0; min-width: 0; }
-	    #gridsDivider {
-	      background: rgba(15, 23, 42, 0.18);
-	      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.55);
+	    /* Result area */
+	    #grids {
+	      display: grid;
+	      grid-template-columns: repeat(2, minmax(0, 1fr));
+	      min-height: 0;
+	      min-width: 0;
+	      overflow: hidden;
 	    }
-		    .gridPanel.left { background: rgba(255, 228, 225, 0.55); } /* pastel salmon */
-		    .gridPanel.right { background: rgba(219, 234, 254, 0.55); } /* pastel blue */
+	    #grids[data-columns="1"] { grid-template-columns: minmax(0, 1fr); }
+	    .gridPanel {
+	      display: grid;
+	      grid-template-rows: auto 1fr;
+	      overflow: hidden;
+	      min-height: 0;
+	      min-width: 0;
+	      border-right: 1px solid var(--hv-border);
+	      background: var(--hv-bg);
+	    }
 		    .gridTitle { padding: 10px 12px 0 12px; font-size: 12px; color: var(--muted); }
-		    .gridTitleRow { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-		    .gridToggle { display: inline-flex; align-items: center; gap: 8px; user-select: none; }
-		    .gridToggle input { accent-color: rgba(15, 23, 42, 0.85); }
-		    .gridToggle span { color: var(--muted); }
+		    .gridTitleRow { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: baseline; gap: 8px; }
+		    .columnRole {
+		      color: var(--hv-accent-strong);
+		      font-size: 11px;
+		      font-weight: 750;
+		      letter-spacing: 0.04em;
+		      text-transform: uppercase;
+		    }
+		    .viewSelect {
+		      min-width: 0;
+		      width: 100%;
+		      border: 1px solid var(--border);
+		      border-radius: var(--radius-sm);
+		      background: var(--card);
+		      color: var(--text);
+		      padding: 6px 8px;
+		      font: inherit;
+		      font-size: 12px;
+		    }
+		    .viewSelect:focus-visible {
+		      border-color: var(--hv-accent);
+		      outline: 2px solid var(--panel-focus);
+		      outline-offset: 1px;
+		    }
 		    .grid { padding: 12px; overflow: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; align-content: start; min-height: 0; min-width: 0; }
-		    .card { border: 1px solid var(--border); border-radius: var(--radius); overflow: visible; background: var(--card); box-shadow: var(--shadow); }
-		    .card .thumb { width: 100%; height: 160px; background: #f1f5f9; background-position: center; background-size: cover; border-top-left-radius: var(--radius); border-top-right-radius: var(--radius); position: relative; }
+		    .card { width: 100%; padding: 0; border: 1px solid var(--border); border-radius: var(--radius); overflow: visible; background: var(--card); box-shadow: none; color: var(--text); text-align: left; font: inherit; cursor: pointer; transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease; }
+		    .card:hover { border-color: color-mix(in srgb, var(--hv-accent) 42%, var(--hv-border)); box-shadow: var(--shadow); transform: translateY(-2px); }
+		    .card:focus-visible { outline: 3px solid var(--panel-focus); outline-offset: 2px; }
+		    .card .thumb { width: 100%; height: 160px; background: var(--hv-surface-2); background-position: center; background-size: cover; border-top-left-radius: var(--radius); border-top-right-radius: var(--radius); position: relative; }
 		    .card .meta { padding: 8px 10px; }
 	    .card .meta .name { font-size: 13px; line-height: 1.2; margin: 0 0 4px 0; }
 	    .card .meta .id { font-family: var(--mono); font-size: 11px; color: var(--muted); }
@@ -217,27 +363,43 @@
 	      border-radius: 999px;
 	      font-size: 11px;
 	      font-family: var(--mono);
-	      background: rgba(255, 255, 255, 0.9);
-	      border: 1px solid rgba(15, 23, 42, 0.12);
-	      color: rgba(15, 23, 42, 0.9);
+	      background: #5c5954;
+	      border: 1px solid #5c5954;
+	      color: #ffffff;
+	      font-weight: 700;
 	      backdrop-filter: blur(6px);
 	    }
+	    .movementBadge {
+	      position: absolute;
+	      top: 8px;
+	      right: 8px;
+	      padding: 2px 6px;
+	      border-radius: 999px;
+	      border: 1px solid var(--hv-border);
+	      background: color-mix(in srgb, var(--hv-surface) 92%, transparent);
+	      color: var(--hv-muted);
+	      font-family: var(--mono);
+	      font-size: 10px;
+	      backdrop-filter: blur(6px);
+	    }
+	    .movementBadge.up { color: #2f6b46; border-color: rgba(47, 107, 70, 0.28); }
+	    .movementBadge.down { color: #9a3027; border-color: rgba(154, 48, 39, 0.28); }
 
-    /* Dev IO (dark) */
+	    /* Input and output */
 	    #io {
 	      display: grid;
 	      grid-template-columns: var(--io-left-width) var(--resizer-size) 1fr;
 	      overflow: hidden;
-	      background: var(--dev-bg);
-	      color: var(--dev-text);
+	      background: var(--hv-code-bg);
+	      color: var(--hv-ink);
 	      min-height: 0;
 	    }
 			    .panel { overflow: hidden; display: grid; grid-template-rows: auto 1fr; }
-			    .panel .title { padding: 10px 10px 0 10px; font-size: 12px; color: var(--dev-muted); }
+			    .panel .title { padding: 10px 10px 0 10px; font-size: 12px; color: var(--panel-muted); }
 			    .panel .titleRow { padding: 10px 10px 0 10px; display: flex; gap: 10px; align-items: center; min-width: 0; }
-			    .panel .titleRow .label { flex: 0 0 auto; color: var(--dev-muted); font-size: 12px; }
+			    .panel .titleRow .label { flex: 0 0 auto; color: var(--panel-muted); font-size: 12px; font-weight: 700; }
 			    .panel .body { padding: 10px; overflow: auto; }
-			    #inputJson, #raw { background: transparent; color: var(--dev-text); font-family: var(--mono); font-size: 12px; }
+			    #inputJson, #raw { background: transparent; color: var(--hv-ink); font-family: var(--mono); font-size: 12px; }
 
 			    .jsonTree { font-family: var(--mono); font-size: 12px; line-height: 1.35; }
 			    .jsonTree details { margin: 0; padding: 0; }
@@ -253,27 +415,27 @@
 			    .jsonTree .children {
 			      margin-left: 12px;
 			      padding-left: 10px;
-			      border-left: 1px solid rgba(220, 225, 255, 0.14);
+			      border-left: 1px solid var(--hv-border);
 			    }
 			    .jsonTree .jsonRow { display: flex; gap: 6px; align-items: baseline; padding: 2px 0; }
-			    .jsonTree .jsonKey { color: rgba(220, 225, 255, 0.92); }
-			    .jsonTree .jsonPunct { color: rgba(154, 167, 214, 0.9); }
-			    .jsonTree .jsonType { color: rgba(154, 167, 214, 0.9); font-size: 11px; }
-			    .jsonTree .jsonScalar.str { color: rgba(187, 247, 208, 0.95); }
-			    .jsonTree .jsonScalar.num { color: rgba(191, 219, 254, 0.95); }
-			    .jsonTree .jsonScalar.bool { color: rgba(254, 243, 199, 0.95); }
-			    .jsonTree .jsonScalar.null { color: rgba(248, 113, 113, 0.95); }
+			    .jsonTree .jsonKey { color: #4b413a; }
+			    .jsonTree .jsonPunct { color: var(--hv-faint); }
+			    .jsonTree .jsonType { color: var(--hv-faint); font-size: 11px; }
+			    .jsonTree .jsonScalar.str { color: #356248; }
+			    .jsonTree .jsonScalar.num { color: #245f78; }
+			    .jsonTree .jsonScalar.bool { color: var(--hv-accent-strong); }
+			    .jsonTree .jsonScalar.null { color: #9a3027; }
 
 			    /* Back-compat for the existing tree renderer classes */
 			    .jsonTree .row { display: flex; gap: 6px; align-items: baseline; padding: 2px 0; }
-			    .jsonTree .k { color: rgba(220, 225, 255, 0.92); }
-			    .jsonTree .sep { color: rgba(154, 167, 214, 0.9); }
-			    .jsonTree .v { color: rgba(220, 225, 255, 0.92); }
-			    .jsonTree .v.str { color: rgba(187, 247, 208, 0.95); }
-			    .jsonTree .v.num { color: rgba(191, 219, 254, 0.95); }
-			    .jsonTree .v.bool { color: rgba(254, 243, 199, 0.95); }
-			    .jsonTree .v.null { color: rgba(248, 113, 113, 0.95); }
-			    .jsonTree .hint { color: rgba(154, 167, 214, 0.9); font-size: 11px; }
+			    .jsonTree .k { color: #4b413a; }
+			    .jsonTree .sep { color: var(--hv-faint); }
+			    .jsonTree .v { color: var(--hv-ink); }
+			    .jsonTree .v.str { color: #356248; }
+			    .jsonTree .v.num { color: #245f78; }
+			    .jsonTree .v.bool { color: var(--hv-accent-strong); }
+			    .jsonTree .v.null { color: #9a3027; }
+			    .jsonTree .hint { color: var(--hv-faint); font-size: 11px; }
 
     /* Action details modal (PDP-like) */
     #actionModal {
@@ -284,15 +446,16 @@
       align-items: center;
       justify-content: center;
       padding: 20px;
-      background: rgba(15, 23, 42, 0.55);
+      background: rgba(24, 22, 20, 0.48);
+      backdrop-filter: blur(4px);
     }
     #actionModal.open { display: flex; }
     #actionModalCard {
       width: min(1180px, 96vw);
       height: min(880px, 90vh);
-      border-radius: 14px;
+      border-radius: var(--radius);
       overflow: hidden;
-      box-shadow: 0 20px 50px rgba(15, 23, 42, 0.35);
+      box-shadow: var(--hv-shadow);
       display: grid;
       grid-template-columns: 360px 1fr;
       background: var(--card);
@@ -319,7 +482,7 @@
       border: 1px solid var(--border);
       background: var(--card);
       color: var(--text);
-      border-radius: 10px;
+      border-radius: var(--radius-sm);
       padding: 6px 10px;
       cursor: pointer;
       flex: 0 0 auto;
@@ -329,20 +492,20 @@
       width: 100%;
       aspect-ratio: 1 / 1;
       border-radius: 12px;
-      background: #e5e7eb;
+      background: var(--hv-surface-2);
       border: 1px solid var(--border);
       object-fit: cover;
     }
     #actionModalImgLink {
       font-size: 12px;
-      color: #2563eb;
+      color: var(--hv-link);
       text-decoration: none;
       word-break: break-all;
     }
-    #actionModalImgLink:hover { text-decoration: underline; }
+    #actionModalImgLink:hover { color: var(--hv-link-hover); text-decoration: underline; }
     #actionModalRight {
-      background: var(--dev-bg);
-      color: var(--dev-text);
+      background: var(--hv-code-bg);
+      color: var(--hv-ink);
       overflow: hidden;
       min-width: 0;
       display: grid;
@@ -350,8 +513,8 @@
     }
     #actionModalRightHeader {
       padding: 10px 12px;
-      border-bottom: 1px solid var(--dev-border);
-      color: var(--dev-muted);
+      border-bottom: 1px solid var(--hv-border-subtle);
+      color: var(--hv-muted);
       font-size: 12px;
     }
     #actionModalJson {
@@ -361,6 +524,70 @@
     }
     #actionModalJson.jsonTree .v,
     #actionModalJson.jsonTree .k {
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+    }
+
+    #runtimeMetadataModal {
+      position: fixed;
+      inset: 0;
+      z-index: 10000;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      background: rgba(24, 22, 20, 0.48);
+      backdrop-filter: blur(4px);
+    }
+    #runtimeMetadataModal.open { display: flex; }
+    #runtimeMetadataModalCard {
+      width: min(920px, 96vw);
+      height: min(760px, 90vh);
+      border: 1px solid var(--hv-border-subtle);
+      border-radius: var(--radius);
+      overflow: hidden;
+      box-shadow: var(--hv-shadow);
+      display: grid;
+      grid-template-rows: auto 1fr;
+      background: var(--card);
+    }
+    #runtimeMetadataModalHeader {
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--hv-border-subtle);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      background: linear-gradient(to right, var(--hv-accent-softer), transparent 70%);
+    }
+    #runtimeMetadataModalTitle { font-size: 15px; font-weight: 680; }
+    #runtimeMetadataModalSubtitle {
+      margin-top: 2px;
+      color: var(--hv-muted);
+      font-family: var(--mono);
+      font-size: 11px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    #runtimeMetadataModalClose {
+      border: 1px solid var(--border);
+      background: var(--card);
+      color: var(--text);
+      border-radius: var(--radius-sm);
+      padding: 6px 10px;
+      cursor: pointer;
+      flex: 0 0 auto;
+    }
+    #runtimeMetadataModalClose:hover { box-shadow: var(--shadow); }
+    #runtimeMetadataModalJson {
+      padding: 14px 16px;
+      overflow: auto;
+      min-height: 0;
+      background: var(--hv-code-bg);
+    }
+    #runtimeMetadataModalJson.jsonTree .v,
+    #runtimeMetadataModalJson.jsonTree .k {
       white-space: pre-wrap;
       overflow-wrap: anywhere;
     }
@@ -378,7 +605,7 @@
       content: "";
       position: absolute;
       inset: 0;
-      background: rgba(220, 225, 255, 0.10);
+      background: var(--hv-accent-soft);
       opacity: 0;
       transition: opacity 120ms ease;
     }
@@ -390,17 +617,25 @@
 </head>
 <body>
 	  <div id="topbar">
-	    <div id="appTitle">Algorithm Demo UI</div>
+	    <div id="appTitle"><span class="brandPepper" aria-hidden="true">🌶️</span>Algorithm Demo UI</div>
 	    <div id="appMeta">
-	      <span id="algoMeta"></span><span id="metaSep">|</span><span id="paramMeta"></span>
+	      <button id="algoMeta" class="metaTrigger" type="button" aria-haspopup="dialog" aria-controls="runtimeMetadataModal" disabled></button><span id="metaSep">|</span><button id="paramMeta" class="metaTrigger" type="button" aria-haspopup="dialog" aria-controls="runtimeMetadataModal" disabled></button>
 	    </div>
 	  </div>
 
 		  <div id="app">
 		    <div id="sidebar">
 			      <div id="sidebarTop">
-			        <div class="sectionTitle">Select JSON path</div>
-			        <div class="sectionSubtitle">Pick a path for editing and search scoping.</div>
+			        <div id="primaryInputWrap" hidden>
+			          <label id="primaryInputLabel" for="primaryInput">Query</label>
+			          <div id="primaryInputRow">
+			            <input id="primaryInput" type="text" placeholder="Enter a query" disabled/>
+			            <button id="primaryInputRun" type="button" disabled>Run</button>
+			          </div>
+			          <div id="primaryInputHint">Updates .shared.query · press Enter to run</div>
+			        </div>
+			        <div id="jsonPathTitle" class="sectionTitle">Advanced JSON editing</div>
+			        <div class="sectionSubtitle">Select any JSON path to inspect or override it.</div>
 			        <div class="row">
 			          <input id="pathQuery" placeholder="JSON path search (e.g. .foo.bar or .items[0])"/>
 			        </div>
@@ -418,12 +653,16 @@
 
 		      <div id="matchesWrap">
 		        <div id="matchesHeader">
+		          <div id="examplesHeading">
+		            <div class="sectionTitle">Browse examples</div>
+		            <div id="matchesTitle">Examples</div>
+		          </div>
+		          <input id="exampleQuery" type="search" aria-label="Search examples" placeholder="Search ID or request preview"/>
 		          <div class="row">
 		            <button id="run" disabled>Run</button>
 		            <button id="clearOverride" title="Reset the current example JSON" disabled>Reset example</button>
 		            <span id="status"></span>
 		          </div>
-		          <div id="matchesTitle">Examples</div>
 		        </div>
 		        <div id="matches"></div>
 		      </div>
@@ -432,25 +671,7 @@
 	    <div id="sidebarResizer" class="resizer resizer-x" role="separator" aria-label="Resize sidebar"></div>
 
 	    <div id="content">
-	      <div id="grids">
-	        <div class="gridPanel left">
-	          <div class="gridTitle">Algorithm output</div>
-	          <div id="grid" class="grid"></div>
-	        </div>
-		        <div id="gridsDivider" aria-hidden="true"></div>
-		        <div class="gridPanel right">
-		          <div class="gridTitle">
-		            <div class="gridTitleRow">
-		              <span>Customer saw</span>
-		              <label class="gridToggle" title="Hide candidates where impression_count is present and <= 0">
-		                <input type="checkbox" id="hideZeroImpressions"/>
-		                <span>Hide ≤0 impressions</span>
-		              </label>
-		            </div>
-		          </div>
-		          <div id="shownGrid" class="grid"></div>
-		        </div>
-		      </div>
+	      <div id="grids"></div>
 	      <div id="contentResizer" class="resizer resizer-y" role="separator" aria-label="Resize bottom panel"></div>
 			      <div id="io">
 			        <div class="panel" id="inputPanel">
@@ -497,33 +718,56 @@
       </div>
     </div>
 
+    <div id="runtimeMetadataModal" aria-hidden="true">
+      <div id="runtimeMetadataModalCard" role="dialog" aria-modal="true" aria-labelledby="runtimeMetadataModalTitle">
+        <div id="runtimeMetadataModalHeader">
+          <div style="min-width: 0;">
+            <div id="runtimeMetadataModalTitle">Runtime metadata</div>
+            <div id="runtimeMetadataModalSubtitle"></div>
+          </div>
+          <button id="runtimeMetadataModalClose" type="button">Close</button>
+        </div>
+        <div id="runtimeMetadataModalJson" class="jsonTree"></div>
+      </div>
+    </div>
+
 	  <script>
 		    let selectedExampleIndex = null;
 			    let originalExampleJson = null;
 			    let workingExampleJson = null;
 			    let selectedPath = null;
 			    let selectablePaths = [];
-			    let stickyPath = localStorage.getItem('hv.demoUi.stickyJsonPath') || '.';
+			    let stickyPath = localStorage.getItem('hv.demoUi.stickyJsonPath');
 				    let hasEdits = false;
 				    let overrideDirty = false;
+	    let overrideJsonPatch = null;
+	    let fullExampleJsonRequired = false;
 				    let lastRunSignature = null; // { exampleIndex: number, exampleJson: string }
 				    let autoRunOnBoot = true;
 			    let examplesAbort = null;
-			    let lastShownCandidates = [];
+			    let loadedExamples = [];
+			    let totalExamples = 0;
+			    let availableViews = [];
+			    let selectedViewIds = [];
+			    let lastRuns = [];
+			    let defaultSelectJsonPath = null;
+			    const primaryQueryPath = '.shared.query';
 
 			    const matchesEl = document.getElementById('matches');
+			    const exampleQueryEl = document.getElementById('exampleQuery');
 			    const runEl = document.getElementById('run');
 		    const clearOverrideEl = document.getElementById('clearOverride');
 		    const overrideEl = document.getElementById('overrideText');
 			    const rawEl = document.getElementById('raw');
 			    const statusEl = document.getElementById('status');
-			    const gridEl = document.getElementById('grid');
-			    const shownGridEl = document.getElementById('shownGrid');
+			    const gridsEl = document.getElementById('grids');
 			    const inputEl = document.getElementById('inputJson');
 			    const pathQueryEl = document.getElementById('pathQuery');
 			    const pathMatchesEl = document.getElementById('pathMatches');
 			    const pathHintEl = document.getElementById('pathHint');
-			    const hideZeroImpressionsEl = document.getElementById('hideZeroImpressions');
+    const primaryInputWrapEl = document.getElementById('primaryInputWrap');
+    const primaryInputEl = document.getElementById('primaryInput');
+    const primaryInputRunEl = document.getElementById('primaryInputRun');
     const matchesTitleEl = document.getElementById('matchesTitle');
     const sidebarResizerEl = document.getElementById('sidebarResizer');
     const sidebarContentResizerEl = document.getElementById('sidebarContentResizer');
@@ -541,6 +785,14 @@
     const actionModalImgLinkEl = document.getElementById('actionModalImgLink');
     const actionModalJsonEl = document.getElementById('actionModalJson');
     let actionModalAbort = null;
+    const runtimeMetadataModalEl = document.getElementById('runtimeMetadataModal');
+    const runtimeMetadataModalCloseEl = document.getElementById('runtimeMetadataModalClose');
+    const runtimeMetadataModalTitleEl = document.getElementById('runtimeMetadataModalTitle');
+    const runtimeMetadataModalSubtitleEl = document.getElementById('runtimeMetadataModalSubtitle');
+    const runtimeMetadataModalJsonEl = document.getElementById('runtimeMetadataModalJson');
+    let runtimeMetadataDetails = null;
+    let runtimeMetadataAbort = null;
+    let runtimeMetadataReturnFocus = null;
 
 		    function setStatus(text, level) {
 		      statusEl.textContent = text || '';
@@ -555,56 +807,157 @@
 		      statusEl.setAttribute('data-level', level);
 		    }
 
-	    function loadBoolFromLocalStorage(key, defaultValue) {
-	      const v = localStorage.getItem(key);
-	      if (v === 'true') return true;
-	      if (v === 'false') return false;
-	      return defaultValue;
+		    function currentSignatureOrNull() {
+		      if (selectedExampleIndex === null) return null;
+		      if (!workingExampleJson) return null;
+		      try {
+		        return {
+		          exampleIndex: selectedExampleIndex,
+	          exampleJson: hasEdits
+	            ? (fullExampleJsonRequired ? JSON.stringify(workingExampleJson) : JSON.stringify(overrideJsonPatch || {}))
+	            : null,
+		          viewIds: JSON.stringify(selectedViewIds)
+		        };
+		      } catch {
+		        return null;
+		      }
+		    }
+
+		    function collectJsonInStringErrors(root) {
+		      const out = [];
+		      function walk(node, path) {
+		        if (node === null || typeof node !== 'object') return;
+		        if (Array.isArray(node)) {
+		          for (let i = 0; i < node.length; i++) {
+		            walk(node[i], joinTreePath(path, `[${i}]`));
+		          }
+		          return;
+		        }
+		        for (const [k, v] of Object.entries(node)) {
+		          if (typeof k === 'string' && k.endsWith('__json_error')) {
+		            const base = k.substring(0, k.length - '__json_error'.length);
+		            const displayPath = joinTreePath(path, base);
+		            const message = (v && typeof v === 'object' && !Array.isArray(v) && typeof v.message === 'string')
+		              ? v.message
+		              : 'JSON-in-string expansion error';
+		            const details = (v && typeof v === 'object' && !Array.isArray(v) && typeof v.details === 'string')
+		              ? v.details
+		              : null;
+		            out.push({ path: displayPath, message, details });
+		            continue;
+		          }
+		          walk(v, joinTreePath(path, k));
+		        }
+		      }
+		      walk(root, '.');
+		      return out;
+		    }
+
+		    function jsonInStringErrorSummaryOrNull(root) {
+		      const errors = collectJsonInStringErrors(root);
+		      if (!errors.length) return null;
+		      return {
+		        count: errors.length,
+		        first: errors[0]
+		      };
+		    }
+
+		    function applyJsonInStringErrorStatus(defaultText, defaultLevel) {
+		      const summary = jsonInStringErrorSummaryOrNull(workingExampleJson);
+		      if (!summary) {
+		        setStatus(defaultText, defaultLevel);
+		        return false;
+		      }
+		      const suffix = summary.count > 1 ? ` (${summary.count} fields)` : '';
+		      const details = summary.first.details ? `: ${summary.first.details}` : '';
+		      setStatus(`Error: JSON-in-string expansion failed${suffix}`, 'error');
+		      if (!pathHintEl.textContent || pathHintEl.textContent.startsWith('Selected ') || pathHintEl.textContent.startsWith('Applied ')) {
+		        pathHintEl.textContent = `Cannot run while ${summary.first.path} has a JSON-in-string expansion error (${summary.first.message}${details}).`;
+		      }
+		      return true;
+		    }
+
+		    function computeNeedsRun() {
+		      if (selectedExampleIndex === null) return false;
+		      if (!workingExampleJson) return false;
+		      if (jsonInStringErrorSummaryOrNull(workingExampleJson)) return false;
+		      if (overrideDirty) return true; // pending edit to apply on Run
+		      const sig = currentSignatureOrNull();
+		      if (!sig) return true;
+		      if (!lastRunSignature) return true;
+	      return sig.exampleIndex !== lastRunSignature.exampleIndex ||
+	        sig.exampleJson !== lastRunSignature.exampleJson ||
+	        sig.viewIds !== lastRunSignature.viewIds;
 	    }
 
-	    function initUiToggles() {
-	      if (!hideZeroImpressionsEl) return;
-	      const initial = loadBoolFromLocalStorage('hv.demoUi.hideZeroImpressions', true);
-	      hideZeroImpressionsEl.checked = initial;
-	      hideZeroImpressionsEl.addEventListener('change', () => {
-	        localStorage.setItem('hv.demoUi.hideZeroImpressions', String(hideZeroImpressionsEl.checked));
-	        renderShownCandidates(lastShownCandidates);
-	      });
-	    }
-
-	    function currentSignatureOrNull() {
-	      if (selectedExampleIndex === null) return null;
-	      if (!workingExampleJson) return null;
-	      try {
-	        return { exampleIndex: selectedExampleIndex, exampleJson: JSON.stringify(workingExampleJson) };
-	      } catch {
-	        return null;
-	      }
-	    }
-
-	    function computeNeedsRun() {
-	      if (selectedExampleIndex === null) return false;
-	      if (!workingExampleJson) return false;
-	      if (overrideDirty) return true; // pending edit to apply on Run
-	      const sig = currentSignatureOrNull();
-	      if (!sig) return true;
-	      if (!lastRunSignature) return true;
-	      return sig.exampleIndex !== lastRunSignature.exampleIndex || sig.exampleJson !== lastRunSignature.exampleJson;
-	    }
-
-			    function updateRunButtonState() {
-			      runEl.disabled = !computeNeedsRun();
-			    }
+		    function updateRunButtonState() {
+		      runEl.disabled = !computeNeedsRun();
+		      primaryInputRunEl.disabled = primaryInputWrapEl.hidden || runEl.disabled;
+		    }
 
 		    async function loadAppMetadata() {
 		      try {
 		        const resp = await fetch('/api/metadata');
-		        const body = await resp.json();
+        const body = await resp.json();
         if (!resp.ok) return;
+        defaultSelectJsonPath = normalizeJsonPath(body.default_select_json_path);
         renderAppMetadata(body);
       } catch {
         // Metadata is optional for rendering; ignore fetch errors.
       }
+    }
+
+		    function normalizeJsonPath(path) {
+		      if (typeof path !== 'string') return null;
+		      const trimmed = path.trim();
+		      if (!trimmed) return null;
+		      return trimmed.startsWith('.') ? trimmed : `.${trimmed}`;
+		    }
+
+    function syncPrimaryInputFromExample() {
+      if (!workingExampleJson) {
+        primaryInputWrapEl.hidden = true;
+        primaryInputEl.value = '';
+        primaryInputEl.disabled = true;
+        return;
+      }
+      const tokens = parsePath(primaryQueryPath);
+      if (!pathExists(workingExampleJson, tokens)) {
+        primaryInputWrapEl.hidden = true;
+        primaryInputEl.value = '';
+        primaryInputEl.disabled = true;
+        return;
+      }
+      const value = resolvePath(workingExampleJson, tokens);
+      if (typeof value !== 'string') {
+        throw new Error(`${primaryQueryPath} must contain a string when present`);
+      }
+      primaryInputWrapEl.hidden = false;
+      primaryInputEl.value = value;
+      primaryInputEl.disabled = false;
+    }
+
+    function applyPrimaryInputValue() {
+      if (!workingExampleJson || primaryInputWrapEl.hidden) return;
+      const tokens = parsePath(primaryQueryPath);
+      const currentValue = resolvePath(workingExampleJson, tokens);
+      if (typeof currentValue !== 'string') {
+        throw new Error(`${primaryQueryPath} must contain a string when present`);
+      }
+      const newValue = primaryInputEl.value;
+      setValueAtPathStrict(workingExampleJson, tokens, newValue);
+      const patch = overridePatchForPath(tokens, newValue);
+      if (!overrideJsonPatch) overrideJsonPatch = {};
+      mergeOverridePatch(overrideJsonPatch, patch);
+      hasEdits = true;
+      if (selectedPath === primaryQueryPath) {
+        overrideEl.value = JSON.stringify(newValue);
+        overrideDirty = false;
+      }
+      renderJson(inputEl, workingExampleJson);
+      lastRunSignature = null;
+      updateRunButtonState();
+      applyJsonInStringErrorStatus('Not run', 'warn');
     }
 
 	    function fmtInstantMinute(iso) {
@@ -626,6 +979,23 @@
 	      }
 	    }
 
+	    function appendMetaField(container, label, value) {
+	      const labelEl = document.createElement('span');
+	      labelEl.className = 'metaLabel';
+	      labelEl.textContent = label;
+	      const valueEl = document.createElement('span');
+	      valueEl.className = 'metaValue';
+	      valueEl.textContent = value;
+	      container.append(labelEl, document.createTextNode(' '), valueEl);
+	    }
+
+	    function appendMetaDot(container) {
+	      const dot = document.createElement('span');
+	      dot.className = 'metaDot';
+	      dot.textContent = ' · ';
+	      container.appendChild(dot);
+	    }
+
 	    function renderAppMetadata(meta) {
 	      const algo = meta && meta.algorithm ? meta.algorithm : {};
 	      const params = meta && meta.parameters ? meta.parameters : null;
@@ -637,14 +1007,17 @@
 	      const gitDescribe = algo.git_describe || null;
 
 	      let algoLine = '';
+	      let algoValue = '';
 	      if (algoName && algoVersion) {
-	        document.title = `Algorithm Demo UI · ${algoName}@${algoVersion}`;
-	        algoLine = `Algo: ${algoName}@${algoVersion}${hpVersion ? `-${hpVersion}` : ''}`;
+        document.title = `🌶️ Algorithm Demo UI · ${algoName}@${algoVersion}`;
+	        algoValue = `${algoName}@${algoVersion}${hpVersion ? `-${hpVersion}` : ''}`;
+	        algoLine = `Algo: ${algoValue}`;
 	      } else if (algoName) {
-	        document.title = `Algorithm Demo UI · ${algoName}`;
-	        algoLine = `Algo: ${algoName}${hpVersion ? `-${hpVersion}` : ''}`;
+        document.title = `🌶️ Algorithm Demo UI · ${algoName}`;
+	        algoValue = `${algoName}${hpVersion ? `-${hpVersion}` : ''}`;
+	        algoLine = `Algo: ${algoValue}`;
 	      } else {
-	        document.title = 'Algorithm Demo UI';
+        document.title = '🌶️ Algorithm Demo UI';
 	      }
 
 	      if (gitDescribe) {
@@ -652,18 +1025,49 @@
 	      }
 
 	      let paramLine = '';
+	      const parameterFields = [];
 	      if (params) {
 	        const p = [];
-	        if (params.parameter_id) p.push(`Params: id: ${params.parameter_id}`);
+	        if (params.parameter_id) {
+	          p.push(`Params: id: ${params.parameter_id}`);
+	          parameterFields.push({ label: 'Params: id:', value: params.parameter_id });
+	        }
 	        const lastTest = fmtDate(params.last_test_time);
-	        if (lastTest) p.push(`last_test: ${lastTest}`);
+	        if (lastTest) {
+	          p.push(`last_test: ${lastTest}`);
+	          parameterFields.push({ label: 'last_test:', value: lastTest });
+	        }
 	        const ran = fmtInstantMinute(params.ran_at);
-	        if (ran) p.push(`generated: ${ran}`);
+	        if (ran) {
+	          p.push(`generated: ${ran}`);
+	          parameterFields.push({ label: 'generated:', value: ran });
+	        }
 	        paramLine = p.join(' · ');
 	      }
 
-	      if (algoMetaEl) algoMetaEl.textContent = algoLine;
-	      if (paramMetaEl) paramMetaEl.textContent = paramLine;
+	      if (algoMetaEl) {
+	        algoMetaEl.replaceChildren();
+	        if (algoValue) appendMetaField(algoMetaEl, 'Algo:', algoValue);
+	        if (gitDescribe) {
+	          if (algoValue) appendMetaDot(algoMetaEl);
+	          appendMetaField(algoMetaEl, 'git:', gitDescribe);
+	        }
+	        algoMetaEl.disabled = !algoValue;
+	        algoMetaEl.title = algoValue ? 'Show effective algorithm definition' : '';
+	        if (algoValue) algoMetaEl.setAttribute('aria-label', `Show effective algorithm definition for ${algoValue}`);
+	        else algoMetaEl.removeAttribute('aria-label');
+	      }
+	      if (paramMetaEl) {
+	        paramMetaEl.replaceChildren();
+	        parameterFields.forEach((field, index) => {
+	          if (index > 0) appendMetaDot(paramMetaEl);
+	          appendMetaField(paramMetaEl, field.label, field.value);
+	        });
+	        paramMetaEl.disabled = parameterFields.length === 0;
+	        paramMetaEl.title = parameterFields.length ? 'Show parameter metadata' : '';
+	        if (parameterFields.length) paramMetaEl.setAttribute('aria-label', 'Show parameter metadata');
+	        else paramMetaEl.removeAttribute('aria-label');
+	      }
 	      if (metaSepEl) metaSepEl.style.display = (algoLine && paramLine) ? 'inline' : 'none';
 
 	      if (algoLine) allParts.push(algoLine);
@@ -671,8 +1075,69 @@
 	      appMetaEl.title = allParts.join(' | ');
 	    }
 
+    function closeRuntimeMetadata() {
+      if (runtimeMetadataAbort) {
+        try { runtimeMetadataAbort.abort(); } catch {}
+        runtimeMetadataAbort = null;
+      }
+      runtimeMetadataModalEl.classList.remove('open');
+      runtimeMetadataModalEl.setAttribute('aria-hidden', 'true');
+      runtimeMetadataModalTitleEl.textContent = 'Runtime metadata';
+      runtimeMetadataModalSubtitleEl.textContent = '';
+      runtimeMetadataModalJsonEl.innerHTML = '';
+      const returnFocus = runtimeMetadataReturnFocus;
+      runtimeMetadataReturnFocus = null;
+      if (returnFocus && returnFocus.isConnected) returnFocus.focus();
+    }
+
+    async function loadRuntimeMetadataDetails(signal) {
+      if (runtimeMetadataDetails) return runtimeMetadataDetails;
+      const resp = await fetch('/api/demo/runtime-metadata', { signal });
+      const body = await resp.json();
+      if (!resp.ok) throw new Error(body && body.error ? body.error.message : `HTTP ${resp.status}`);
+      if (!body || typeof body !== 'object') throw new Error('Invalid runtime metadata response');
+      runtimeMetadataDetails = body;
+      return runtimeMetadataDetails;
+    }
+
+    async function openRuntimeMetadata(kind, trigger) {
+      if (runtimeMetadataAbort) {
+        try { runtimeMetadataAbort.abort(); } catch {}
+      }
+      const controller = new AbortController();
+      runtimeMetadataAbort = controller;
+      runtimeMetadataReturnFocus = trigger;
+      const isAlgorithm = kind === 'algorithm';
+      const responseField = isAlgorithm ? 'effective_algorithm_definition' : 'parameter_metadata';
+
+      runtimeMetadataModalEl.classList.add('open');
+      runtimeMetadataModalEl.setAttribute('aria-hidden', 'false');
+      runtimeMetadataModalTitleEl.textContent = isAlgorithm
+        ? 'Effective algorithm definition'
+        : 'Parameter metadata';
+      runtimeMetadataModalSubtitleEl.textContent = isAlgorithm
+        ? 'Merged definition used to construct this runtime'
+        : 'algorithm-parameters.json from the loaded parameter archive';
+      renderJson(runtimeMetadataModalJsonEl, { status: 'loading' });
+      runtimeMetadataModalCloseEl.focus();
+
+      try {
+        const details = await loadRuntimeMetadataDetails(controller.signal);
+        if (!Object.prototype.hasOwnProperty.call(details, responseField)) {
+          throw new Error(`Runtime metadata response is missing ${responseField}`);
+        }
+        runtimeMetadataModalSubtitleEl.textContent = details.algorithm_runtime_id || '';
+        renderJson(runtimeMetadataModalJsonEl, details[responseField]);
+      } catch (e) {
+        if (e && e.name === 'AbortError') return;
+        renderJson(runtimeMetadataModalJsonEl, { error: String(e && e.message ? e.message : e) });
+      } finally {
+        if (runtimeMetadataAbort === controller) runtimeMetadataAbort = null;
+      }
+    }
+
 			    async function loadExamples() {
-			      const url = new URL('/api/examples', window.location.origin);
+			      const url = new URL('/api/demo/examples', window.location.origin);
 			      url.searchParams.set('limit', '100');
 			      setStatus('Loading examples...', 'warn');
 		      if (examplesAbort) {
@@ -703,14 +1168,11 @@
 		        return;
 		      }
 		      const list = body.examples || [];
+		      loadedExamples = list;
+		      totalExamples = Number.isFinite(body.count) ? body.count : list.length;
 		      renderMatches(list);
-		      const total = Number.isFinite(body.count) ? body.count : list.length;
-		      setStatus(`Examples: ${total}`, 'ok');
-		      if (total > list.length) {
-		        matchesTitleEl.textContent = `Examples (${list.length}/${total})`;
-		      } else {
-		        matchesTitleEl.textContent = `Examples (${total})`;
-		      }
+		      setStatus(`Examples: ${totalExamples}`, 'ok');
+		      updateExamplesTitle(list.length, false);
 		      await maybeAutoRunFirstExample();
 		    }
 
@@ -723,27 +1185,73 @@
 		      selectablePaths = [];
 		      hasEdits = false;
 		      overrideDirty = false;
+	      overrideJsonPatch = null;
+	      fullExampleJsonRequired = false;
 		      lastRunSignature = null;
-		      lastShownCandidates = [];
+		      availableViews = [];
+		      selectedViewIds = [];
+		      lastRuns = [];
 		      runEl.disabled = true;
+		      primaryInputRunEl.disabled = true;
 		      clearOverrideEl.disabled = true;
 		      inputEl.textContent = '';
-			      gridEl.innerHTML = '';
-			      shownGridEl.innerHTML = '';
+			      gridsEl.innerHTML = '';
 				      pathQueryEl.value = '';
 				      pathMatchesEl.innerHTML = '';
 				      overrideEl.value = '';
-				      pathHintEl.textContent = '';
+			      pathHintEl.textContent = '';
+			      syncPrimaryInputFromExample();
 
-	      for (const c of examples) {
-        const div = document.createElement('div');
-        div.className = 'match';
-        div.dataset.exampleIndex = String(c.example_index);
-        const label = c.example_id ? escapeHtml(c.example_id) : '(missing example_id)';
-        div.innerHTML = `<div class="primary">${label}</div>`;
-        div.onclick = () => { void selectExample(c.example_index, div); };
-        matchesEl.appendChild(div);
+	      renderExampleButtons(examples);
+    }
+
+    function examplePreviewLabel(example) {
+      const raw = String(example.preview || '');
+      const parts = [];
+      const ignoredKeys = new Set(['example_id', 'occurred_at']);
+      const pairPattern = /"([^"\\]+)"\s*:\s*"([^"\\]{1,80})"/g;
+      let match;
+      while ((match = pairPattern.exec(raw)) !== null && parts.length < 2) {
+        if (ignoredKeys.has(match[1])) continue;
+        parts.push(`${match[1].replaceAll('_', ' ')}: ${match[2]}`);
       }
+      return parts.length ? parts.join(' · ') : String(example.source || raw || 'Recorded request');
+    }
+
+    function renderExampleButtons(examples) {
+      matchesEl.innerHTML = '';
+	      for (const c of examples) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'match';
+        button.dataset.exampleIndex = String(c.example_index);
+        const label = c.example_id ? escapeHtml(c.example_id) : '(missing example_id)';
+        const preview = escapeHtml(examplePreviewLabel(c));
+        button.innerHTML = `<span class="primary">${label}</span><span class="secondary">${preview}</span>`;
+        if (c.example_index === selectedExampleIndex) button.classList.add('selected');
+        button.onclick = () => { void selectExample(c.example_index, button); };
+        matchesEl.appendChild(button);
+      }
+    }
+
+    function updateExamplesTitle(visibleCount, filtered) {
+      if (filtered) {
+        matchesTitleEl.textContent = `Examples (${visibleCount}/${loadedExamples.length})`;
+      } else if (totalExamples > loadedExamples.length) {
+        matchesTitleEl.textContent = `Examples (${loadedExamples.length}/${totalExamples})`;
+      } else {
+        matchesTitleEl.textContent = `Examples (${totalExamples})`;
+      }
+    }
+
+    function filterExamples() {
+      const query = exampleQueryEl.value.trim().toLowerCase();
+      const visible = query
+        ? loadedExamples.filter(example => [example.example_id, example.source, example.preview, examplePreviewLabel(example)]
+            .some(value => String(value || '').toLowerCase().includes(query)))
+        : loadedExamples;
+      renderExampleButtons(visible);
+      updateExamplesTitle(visible.length, Boolean(query));
     }
 
 	    async function selectExample(exampleIndex, selectedEl) {
@@ -751,9 +1259,10 @@
 	      for (const el of matchesEl.querySelectorAll('.match')) el.classList.remove('selected');
 	      if (selectedEl) selectedEl.classList.add('selected');
 		      selectedExampleIndex = exampleIndex;
-		      gridEl.innerHTML = '';
-		      shownGridEl.innerHTML = '';
-		      lastShownCandidates = [];
+		      gridsEl.innerHTML = '';
+		      availableViews = [];
+		      selectedViewIds = [];
+		      lastRuns = [];
 		      rawEl.textContent = '';
 		      setStatus('Loading example...', 'warn');
 		      updateRunButtonState();
@@ -822,10 +1331,17 @@
 	      return row;
 	    }
 
+    function jsonInStringBaseKey(actualKey) {
+      if (typeof actualKey !== 'string') return null;
+      if (actualKey.endsWith('__json')) return actualKey.substring(0, actualKey.length - '__json'.length);
+      if (actualKey.endsWith('__json_error')) return actualKey.substring(0, actualKey.length - '__json_error'.length);
+      return null;
+    }
+
     function displayKeyForJsonInStringSibling(obj, actualKey) {
       if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return actualKey;
-      if (!actualKey.endsWith('__json')) return actualKey;
-      const base = actualKey.substring(0, actualKey.length - '__json'.length);
+      const base = jsonInStringBaseKey(actualKey);
+      if (!base) return actualKey;
       if (!(base in obj)) return actualKey;
       const baseVal = obj[base];
       if (typeof baseVal !== 'string') return actualKey;
@@ -834,8 +1350,8 @@
 
     function shouldHideJsonStringField(obj, key) {
       if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return false;
-      if (key.endsWith('__json')) return false;
-      return (`${key}__json` in obj);
+      if (key.endsWith('__json') || key.endsWith('__json_error')) return false;
+      return (`${key}__json` in obj) || (`${key}__json_error` in obj);
     }
 
     function joinTreePath(parentPath, segment) {
@@ -912,26 +1428,45 @@
 		    async function runSelected() {
 		      if (selectedExampleIndex === null) return;
 		      if (!workingExampleJson) return;
-		      if (!applyPendingEditBeforeRun()) {
+		      if (applyJsonInStringErrorStatus('', null)) {
+	        return;
+	      }
+	      if (!applyPendingEditBeforeRun()) {
 	        setStatus('Error', 'error');
 	        return;
 	      }
-	      gridEl.innerHTML = '';
+	      renderComparisonColumns([]);
 	      rawEl.textContent = '';
 	      setStatus('Running...', 'warn');
-				      const resp = await fetch('/api/run', {
+	      const requestBody = {
+	        example_index: selectedExampleIndex,
+	        view_ids: selectedViewIds
+	      };
+	      // Preserve the exact raw fixture unless the reviewer actually edited it.
+	      // Some production-like examples contain JSON-in-string payloads where
+	      // browser parse/stringify can alter numeric shapes that older algorithms expect.
+	      if (hasEdits) {
+	        if (fullExampleJsonRequired) {
+	          requestBody.example_json = workingExampleJson;
+	        } else {
+	          requestBody.override_json = JSON.stringify(overrideJsonPatch || {});
+	        }
+	      }
+				      const resp = await fetch('/api/demo/compare', {
 				        method: 'POST',
 				        headers: { 'Content-Type': 'application/json' },
-				        body: JSON.stringify({ example_index: selectedExampleIndex, example_json: workingExampleJson })
+	        body: JSON.stringify(requestBody)
 				      });
 				      const body = await resp.json();
-				      renderJson(rawEl, body);
+				      renderJson(rawEl, resp.ok && body.response ? body.response : body);
 				      if (!resp.ok) {
 				        setStatus('Error', 'error');
 				        return;
-				      }
+	      }
 	      setStatus('OK', 'ok');
-	      renderDecisions(body.decisions || []);
+	      setAvailableViews(body.views || availableViews, body.default_view_ids || []);
+	      lastRuns = Array.isArray(body.runs) ? body.runs : [];
+	      renderComparisonColumns(lastRuns);
 	      const sig = currentSignatureOrNull();
 	      if (sig) lastRunSignature = sig;
 	      updateRunButtonState();
@@ -939,7 +1474,7 @@
 
 		    async function loadSelectedExample() {
 		      if (selectedExampleIndex === null) return;
-		      const resp = await fetch(`/api/examples/${selectedExampleIndex}`);
+		      const resp = await fetch(`/api/demo/examples/${selectedExampleIndex}`);
 			      const body = await resp.json();
 			      if (!resp.ok) {
 			        inputEl.textContent = '';
@@ -951,20 +1486,23 @@
 			      workingExampleJson = JSON.parse(JSON.stringify(body.json));
 				      hasEdits = false;
 				      overrideDirty = false;
+		      overrideJsonPatch = null;
+		      fullExampleJsonRequired = false;
 				      clearOverrideEl.disabled = false;
 					      renderJson(inputEl, workingExampleJson);
 					      selectablePaths = buildSelectablePaths(workingExampleJson);
-					      selectedPath = null;
+			      selectedPath = null;
 			      pathQueryEl.value = '';
 			      pathMatchesEl.innerHTML = '';
 			      overrideEl.value = '';
 			      pathHintEl.textContent = '';
 			      initSelectedPathFromSticky();
 			      updatePathMatches();
-				      lastShownCandidates = Array.isArray(body.shown_candidates) ? body.shown_candidates : [];
-				      renderShownCandidates(lastShownCandidates);
+			      syncPrimaryInputFromExample();
+				      setAvailableViews(body.views || [], body.default_view_ids || []);
+				      renderComparisonColumns([]);
 				      updateRunButtonState();
-				      setStatus(runEl.disabled ? `Selected` : `Not run`, runEl.disabled ? null : 'warn');
+				      applyJsonInStringErrorStatus(runEl.disabled ? `Selected` : `Not run`, runEl.disabled ? null : 'warn');
 				    }
 
 				    function resetExample() {
@@ -972,6 +1510,8 @@
 				      workingExampleJson = JSON.parse(JSON.stringify(originalExampleJson));
 				      hasEdits = false;
 				      overrideDirty = false;
+		      overrideJsonPatch = null;
+		      fullExampleJsonRequired = false;
 			      selectedPath = null;
 			      pathQueryEl.value = '';
 					      pathMatchesEl.innerHTML = '';
@@ -979,23 +1519,136 @@
 					      pathHintEl.textContent = '';
 					      renderJson(inputEl, workingExampleJson);
 					      selectablePaths = buildSelectablePaths(workingExampleJson);
-					      initSelectedPathFromSticky();
-				      updatePathMatches();
-				      lastRunSignature = null;
+				      initSelectedPathFromSticky();
+		      updatePathMatches();
+		      syncPrimaryInputFromExample();
+		      lastRunSignature = null;
 			      updateRunButtonState();
-			      setStatus('Not run', 'warn');
+			      applyJsonInStringErrorStatus('Not run', 'warn');
 			    }
 
-    function renderDecisions(decisions) {
-      gridEl.innerHTML = '';
-      for (const d of decisions) {
-        const card = document.createElement('div');
+    function setAvailableViews(views, preferredViewIds) {
+      availableViews = Array.isArray(views) ? views.filter(v => v && v.view_id) : [];
+      const ids = new Set(availableViews.map(v => v.view_id));
+      const preserved = selectedViewIds.filter(id => ids.has(id));
+      const preferred = Array.isArray(preferredViewIds) ? preferredViewIds.filter(id => ids.has(id)) : [];
+      const desiredCount = Math.min(2, availableViews.length);
+      const nextSelected = [];
+      for (const viewId of [...preserved, ...preferred, ...availableViews.map(view => view.view_id)]) {
+        if (!nextSelected.includes(viewId)) nextSelected.push(viewId);
+        if (nextSelected.length === desiredCount) break;
+      }
+      selectedViewIds = nextSelected;
+    }
+
+    function renderComparisonColumns(runs) {
+      gridsEl.innerHTML = '';
+      gridsEl.dataset.columns = String(selectedViewIds.length);
+      const runByView = new Map((Array.isArray(runs) ? runs : []).map(run => [run.view_id, run]));
+      const baselineDecisions = (runByView.get(selectedViewIds[0]) || {}).decisions || [];
+      const baselineRanks = new Map(baselineDecisions.map(decision => [decision.action_id, decision.rank]));
+      const actionColors = buildActionColorMap(runByView);
+      for (let i = 0; i < selectedViewIds.length; i++) {
+        const viewId = selectedViewIds[i];
+        const panel = document.createElement('div');
+        panel.className = 'gridPanel';
+        const title = document.createElement('div');
+        title.className = 'gridTitle';
+        const row = document.createElement('div');
+        row.className = 'gridTitleRow';
+        const role = document.createElement('span');
+        role.className = 'columnRole';
+        role.textContent = i === 0 ? 'Baseline' : 'Compare';
+        const select = document.createElement('select');
+        select.className = 'viewSelect';
+        select.setAttribute('aria-label', i === 0 ? 'Baseline algorithm version' : 'Comparison algorithm version');
+        select.disabled = !availableViews.length;
+        select.value = viewId;
+        for (const view of availableViews) {
+          const option = document.createElement('option');
+          option.value = view.view_id;
+          option.textContent = view.title || view.view_id;
+          option.selected = view.view_id === viewId;
+          select.appendChild(option);
+        }
+        select.addEventListener('change', () => selectComparisonView(i, select.value));
+        row.appendChild(role);
+        row.appendChild(select);
+        title.appendChild(row);
+        panel.appendChild(title);
+        const grid = document.createElement('div');
+        grid.className = 'grid';
+        renderDecisionCards(grid, (runByView.get(viewId) || {}).decisions || [], baselineRanks, i > 0, actionColors);
+        panel.appendChild(grid);
+        gridsEl.appendChild(panel);
+      }
+    }
+
+    function buildActionColorMap(runByView) {
+      const palette = [
+        '#a33d2d', '#2f6b46', '#245f78', '#74538c',
+        '#9b4c72', '#6d5b21', '#3f6f68', '#8a542e',
+        '#4d5fa3', '#7a3f55', '#356b7a', '#715d9a',
+        '#4f6b2e', '#9a4a3f', '#2e6671', '#7b5726'
+      ];
+      const colors = new Map();
+      for (const viewId of selectedViewIds) {
+        const decisions = (runByView.get(viewId) || {}).decisions || [];
+        for (const decision of decisions) {
+          if (!colors.has(decision.action_id)) colors.set(decision.action_id, palette[colors.size % palette.length]);
+        }
+      }
+      return colors;
+    }
+
+    function selectComparisonView(index, nextViewId) {
+      const previousViewId = selectedViewIds[index];
+      const otherIndex = index === 0 ? 1 : 0;
+      selectedViewIds[index] = nextViewId;
+      if (selectedViewIds[otherIndex] === nextViewId) selectedViewIds[otherIndex] = previousViewId;
+      lastRunSignature = null;
+      updateRunButtonState();
+      void runSelected();
+    }
+
+    function renderDecisionCards(container, decisions, baselineRanks, showMovement, actionColors) {
+      container.innerHTML = '';
+      for (const d of decisions || []) {
+        const card = document.createElement('button');
+        card.type = 'button';
         card.className = 'card';
+        card.setAttribute('aria-haspopup', 'dialog');
         card.addEventListener('click', () => openActionDetails(d.action_id));
         const thumb = document.createElement('div');
         thumb.className = 'thumb';
         if (d.action_image_url) {
           thumb.style.backgroundImage = `url("${d.action_image_url}")`;
+        }
+        if (Number.isFinite(d.rank)) {
+          const badge = document.createElement('div');
+          badge.className = 'badge';
+          badge.textContent = `#${Math.round(d.rank)}`;
+          const badgeColor = actionColors.get(d.action_id);
+          if (badgeColor) {
+            badge.style.backgroundColor = badgeColor;
+            badge.style.borderColor = badgeColor;
+          }
+          badge.title = `${d.action_id} · matching color in both columns`;
+          thumb.appendChild(badge);
+        }
+        if (showMovement && Number.isFinite(d.rank)) {
+          const baselineRank = baselineRanks.get(d.action_id);
+          const movement = document.createElement('div');
+          movement.className = 'movementBadge';
+          if (!Number.isFinite(baselineRank)) {
+            movement.textContent = 'new';
+          } else {
+            const delta = baselineRank - d.rank;
+            movement.textContent = delta > 0 ? `↑${delta}` : delta < 0 ? `↓${Math.abs(delta)}` : 'same';
+            if (delta > 0) movement.classList.add('up');
+            if (delta < 0) movement.classList.add('down');
+          }
+          thumb.appendChild(movement);
         }
         const meta = document.createElement('div');
         meta.className = 'meta';
@@ -1005,41 +1658,7 @@
         meta.innerHTML = `<div class="name">${escapeHtml(name)}</div><div class="id">${escapeHtml(d.action_id)}</div>${scoreLine}`;
         card.appendChild(thumb);
         card.appendChild(meta);
-        gridEl.appendChild(card);
-      }
-    }
-
-    function renderShownCandidates(shownCandidates) {
-      shownGridEl.innerHTML = '';
-      const hideZero = !!(hideZeroImpressionsEl && hideZeroImpressionsEl.checked);
-      for (const c of shownCandidates) {
-        const impressions = c && typeof c === 'object' ? c.impression_count : null;
-        if (hideZero && Number.isFinite(impressions) && impressions <= 0.0) {
-          continue;
-        }
-        const card = document.createElement('div');
-        card.className = 'card';
-        card.addEventListener('click', () => openActionDetails(c.action_id));
-        const thumb = document.createElement('div');
-        thumb.className = 'thumb';
-        if (c.action_image_url) {
-          thumb.style.backgroundImage = `url("${c.action_image_url}")`;
-        }
-        if (Number.isFinite(c.shown_position)) {
-          const badge = document.createElement('div');
-          badge.className = 'badge';
-          badge.textContent = `#${Math.round(c.shown_position)}`;
-          thumb.appendChild(badge);
-        }
-        const meta = document.createElement('div');
-        meta.className = 'meta';
-        const name = c.action_name || c.action_id;
-        const score = Number.isFinite(c.score) ? c.score : null;
-        const scoreLine = score === null ? '' : `<div class="score">score=${escapeHtml(score.toFixed(6))}</div>`;
-        meta.innerHTML = `<div class="name">${escapeHtml(name)}</div><div class="id">${escapeHtml(c.action_id)}</div>${scoreLine}`;
-        card.appendChild(thumb);
-        card.appendChild(meta);
-        shownGridEl.appendChild(card);
+        container.appendChild(card);
       }
     }
 
@@ -1055,6 +1674,16 @@
       actionModalImageEl.removeAttribute('src');
       actionModalImgLinkEl.setAttribute('href', '#');
       actionModalJsonEl.innerHTML = '';
+    }
+
+    function actionMetadataForDisplay(metadata) {
+      const displayed = { ...metadata };
+      const imageUrl = displayed.action_image_url;
+      if (typeof imageUrl === 'string' && imageUrl.startsWith('data:')) {
+        const headerEnd = imageUrl.indexOf(',');
+        displayed.action_image_url = `${imageUrl.slice(0, headerEnd + 1)}… (${imageUrl.length - headerEnd - 1} encoded characters)`;
+      }
+      return displayed;
     }
 
     async function openActionDetails(actionId) {
@@ -1076,7 +1705,7 @@
       let resp;
       let body;
       try {
-        resp = await fetch(`/api/action-metadata/${encodeURIComponent(id)}`, { signal: actionModalAbort.signal });
+        resp = await fetch(`/api/demo/action-metadata/${encodeURIComponent(id)}`, { signal: actionModalAbort.signal });
         body = await resp.json();
       } catch (e) {
         renderJson(actionModalJsonEl, { error: String(e) });
@@ -1095,22 +1724,37 @@
         actionModalTitleEl.textContent = 'Error';
         return;
       }
-      if (!body.action_id || !body.action_name || !body.action_image_url) {
-        renderJson(actionModalJsonEl, { error: 'Action metadata missing required fields', body });
+      if (!body.action_id) {
+        renderJson(actionModalJsonEl, { error: 'Action metadata missing required field: action_id', body });
         actionModalTitleEl.textContent = 'Error';
         return;
       }
 
-      actionModalTitleEl.textContent = body.action_name;
+      const actionName = typeof body.action_name === 'string' && body.action_name.trim()
+        ? body.action_name
+        : body.action_id;
+      const actionImageUrl = typeof body.action_image_url === 'string' && body.action_image_url.trim()
+        ? body.action_image_url
+        : null;
+
+      actionModalTitleEl.textContent = actionName;
       actionModalSkuEl.textContent = body.action_id;
-      actionModalImageEl.src = body.action_image_url;
-      actionModalImgLinkEl.textContent = body.action_image_url;
-      actionModalImgLinkEl.setAttribute('href', body.action_image_url);
-      renderJson(actionModalJsonEl, body);
+      if (actionImageUrl) {
+        actionModalImageEl.src = actionImageUrl;
+        actionModalImgLinkEl.textContent = 'Open image in a new tab';
+        actionModalImgLinkEl.setAttribute('href', actionImageUrl);
+      } else {
+        actionModalImageEl.removeAttribute('src');
+        actionModalImgLinkEl.textContent = 'No image URL';
+        actionModalImgLinkEl.setAttribute('href', '#');
+      }
+      renderJson(actionModalJsonEl, actionMetadataForDisplay(body));
     }
 
     function buildSelectablePaths(root) {
       const out = [];
+      const maxPaths = 1000;
+      const maxArrayItems = 50;
       function typeOf(x) {
         if (x === null) return 'null';
         if (Array.isArray(x)) return 'array';
@@ -1118,7 +1762,7 @@
         return typeof x;
       }
       function walk(node, path, depth) {
-        if (depth > 12) return;
+        if (depth > 12 || out.length >= maxPaths) return;
         const t = typeOf(node);
         out.push({ path: path || '.', type: t });
         if (t === 'object') {
@@ -1127,7 +1771,9 @@
             walk(v, (path ? `${path}.${k}` : `.${k}`), depth + 1);
           }
         } else if (t === 'array') {
-          // For strictness/no heuristics: we index the array itself, but we don't enumerate indices.
+          for (let index = 0; index < Math.min(node.length, maxArrayItems); index++) {
+            walk(node[index], `${path}[${index}]`, depth + 1);
+          }
         }
       }
       walk(root, '', 0);
@@ -1190,6 +1836,19 @@
       return cur;
     }
 
+    function canCreateMissingPath(path) {
+      return defaultSelectJsonPath && path === defaultSelectJsonPath;
+    }
+
+    function pathExists(root, tokens) {
+      try {
+        resolvePath(root, tokens);
+        return true;
+      } catch {
+        return false;
+      }
+    }
+
     function jsonType(x) {
       if (x === null) return 'null';
       if (Array.isArray(x)) return 'array';
@@ -1237,10 +1896,84 @@
 	      throw new Error('Failed to set value');
 	    }
 
+    function containerForNextToken(tokens, nextIndex) {
+      const next = tokens[nextIndex];
+      return next && next.kind === 'index' ? [] : {};
+    }
+
+    function setValueAtPathCreatingObjects(root, tokens, newValue) {
+      if (!tokens.length) throw new Error('Path is empty');
+      if (root === null || typeof root !== 'object' || Array.isArray(root)) {
+        throw new Error('Root must be an object');
+      }
+      let cur = root;
+      for (let idx = 0; idx < tokens.length; idx++) {
+        const t = tokens[idx];
+        const isLast = idx === tokens.length - 1;
+        if (t.kind === 'key') {
+          if (cur === null || typeof cur !== 'object' || Array.isArray(cur)) {
+            throw new Error(`Path expects object at key "${t.key}"`);
+          }
+          if (isLast) {
+            cur[t.key] = newValue;
+            return;
+          }
+          if (!(t.key in cur) || cur[t.key] === null) {
+            cur[t.key] = containerForNextToken(tokens, idx + 1);
+          }
+          cur = cur[t.key];
+        } else {
+          if (!Array.isArray(cur)) {
+            throw new Error(`Path expects array at index [${t.index}]`);
+          }
+          if (isLast) {
+            cur[t.index] = newValue;
+            return;
+          }
+          if (cur[t.index] === undefined || cur[t.index] === null) {
+            cur[t.index] = containerForNextToken(tokens, idx + 1);
+          }
+          cur = cur[t.index];
+        }
+      }
+      throw new Error('Failed to set value');
+    }
+
+    function overridePatchForPath(tokens, newValue) {
+      if (!tokens.length) throw new Error('Path is empty');
+      if (tokens.some(t => t.kind === 'index')) return null;
+      const root = {};
+      let cur = root;
+      for (let idx = 0; idx < tokens.length; idx++) {
+        const t = tokens[idx];
+        const isLast = idx === tokens.length - 1;
+        if (isLast) {
+          cur[t.key] = newValue;
+        } else {
+          cur[t.key] = {};
+          cur = cur[t.key];
+        }
+      }
+      return root;
+    }
+
+    function mergeOverridePatch(target, patch) {
+      for (const [key, value] of Object.entries(patch)) {
+        if (value && typeof value === 'object' && !Array.isArray(value)) {
+          if (!target[key] || typeof target[key] !== 'object' || Array.isArray(target[key])) {
+            target[key] = {};
+          }
+          mergeOverridePatch(target[key], value);
+        } else {
+          target[key] = value;
+        }
+      }
+    }
+
 		    function initSelectedPathFromSticky() {
 		      if (!workingExampleJson) return;
 		      if (!selectablePaths.length) return;
-		      const wanted = stickyPath || '.';
+		      const wanted = stickyPath || defaultSelectJsonPath || '.';
 		      const exists = selectablePaths.some(p => p.path === wanted);
 		      const fallback = selectablePaths.some(p => p.path === '.') ? '.' : null;
 		      const initial = exists ? wanted : fallback;
@@ -1257,16 +1990,25 @@
 		          overrideEl.disabled = true;
 		          overrideDirty = false;
 		          updateRunButtonState();
-		          pathHintEl.textContent = 'Selected . (root). Editing is disabled for the root; search will cover the whole JSON.';
+		          pathHintEl.textContent = 'Selected . (root). Editing is disabled for the root; the whole JSON remains in scope.';
 		          return;
 		        }
 		        overrideEl.disabled = false;
 		        const tokens = parsePath(selectedPath);
-		        const value = resolvePath(workingExampleJson, tokens);
-		        overrideDirty = false;
-		        overrideEl.value = JSON.stringify(value, null, 2);
-		        updateRunButtonState();
-		        pathHintEl.textContent = `Selected ${selectedPath} (${jsonType(value)}). Edit the value; it will be applied on Run.`;
+		        if (pathExists(workingExampleJson, tokens)) {
+		          const value = resolvePath(workingExampleJson, tokens);
+		          overrideDirty = false;
+		          overrideEl.value = JSON.stringify(value, null, 2);
+		          updateRunButtonState();
+		          pathHintEl.textContent = `Selected ${selectedPath} (${jsonType(value)}). Edit the value; it will be applied on Run.`;
+		        } else if (canCreateMissingPath(selectedPath)) {
+		          overrideDirty = false;
+		          overrideEl.value = '""';
+		          updateRunButtonState();
+		          pathHintEl.textContent = `Selected ${selectedPath} (missing). Edit the JSON value; missing objects will be created on Run.`;
+		        } else {
+		          throw new Error(`Path does not exist: ${selectedPath}`);
+		        }
 		      } catch (e) {
 		        pathHintEl.textContent = `Error: ${e.message || e}`;
 		      }
@@ -1276,40 +2018,56 @@
 		      if (!workingExampleJson) return;
 		      const q = (pathQueryEl.value || '').trim().replace(/^\\./, '');
 		      const qLower = q.toLowerCase();
-		      const matches = selectablePaths
+		      const options = selectablePaths.slice();
+		      if (defaultSelectJsonPath && !options.some(p => p.path === defaultSelectJsonPath)) {
+		        options.unshift({ path: defaultSelectJsonPath, type: 'missing' });
+		      }
+		      const matches = options
 		        .filter(p => p.path.toLowerCase().includes(qLower))
-		        .slice(0, 80);
+            .sort((left, right) => pathDepth(left.path) - pathDepth(right.path) || left.path.localeCompare(right.path))
+		        .slice(0, 160);
 		      pathMatchesEl.innerHTML = '';
 
-		      const highlightPath = selectedPath || stickyPath || '.';
+		      const highlightPath = selectedPath || defaultSelectJsonPath || stickyPath || '.';
 		      for (const m of matches) {
-		        const div = document.createElement('div');
-		        div.className = 'pathMatch';
-		        div.dataset.path = m.path;
-		        div.textContent = `${m.path} (${m.type})`;
-		        if (m.path === highlightPath) div.classList.add('selected');
-		        div.onclick = () => {
+		        const button = document.createElement('button');
+            button.type = 'button';
+		        button.className = 'pathMatch';
+		        button.dataset.path = m.path;
+		        button.textContent = `${m.path} (${m.type})`;
+		        if (m.path === highlightPath) button.classList.add('selected');
+		        button.onclick = () => {
 		          for (const el of pathMatchesEl.querySelectorAll('.pathMatch')) el.classList.remove('selected');
-		          div.classList.add('selected');
+		          button.classList.add('selected');
 		          selectPath(m.path);
 		        };
-		        pathMatchesEl.appendChild(div);
+		        pathMatchesEl.appendChild(button);
 		      }
 		    }
+
+        function pathDepth(path) {
+          return (path.match(/[.[]/g) || []).length;
+        }
 
 	    function applyPendingEditBeforeRun() {
 	      if (!workingExampleJson) return true;
 	      if (!selectedPath) return true;
 	      if (selectedPath === '.') return true;
+	      if (!overrideDirty) return true;
 	      if ((overrideEl.value || '').trim() === '') return true;
 	      let tokens;
       let currentValue;
+      let existingPath = true;
       try {
         tokens = parsePath(selectedPath);
         currentValue = resolvePath(workingExampleJson, tokens);
       } catch (e) {
-        pathHintEl.textContent = `Error: ${e.message || e}`;
-        return false;
+        if (!canCreateMissingPath(selectedPath)) {
+          pathHintEl.textContent = `Error: ${e.message || e}`;
+          return false;
+        }
+        existingPath = false;
+        currentValue = undefined;
       }
 
       let newValue;
@@ -1320,15 +2078,28 @@
         return false;
       }
 
-      const expectedCategory = scalarCategory(jsonType(currentValue));
-      const actualCategory = scalarCategory(jsonType(newValue));
-      if (expectedCategory !== actualCategory) {
-        pathHintEl.textContent = `Type mismatch at ${selectedPath}: expected ${expectedCategory}, got ${actualCategory}`;
-        return false;
+      if (existingPath) {
+        const expectedCategory = scalarCategory(jsonType(currentValue));
+        const actualCategory = scalarCategory(jsonType(newValue));
+        if (expectedCategory !== actualCategory) {
+          pathHintEl.textContent = `Type mismatch at ${selectedPath}: expected ${expectedCategory}, got ${actualCategory}`;
+          return false;
+        }
       }
 
       try {
-        setValueAtPathStrict(workingExampleJson, tokens, newValue);
+        if (existingPath) {
+          setValueAtPathStrict(workingExampleJson, tokens, newValue);
+        } else {
+          setValueAtPathCreatingObjects(workingExampleJson, tokens, newValue);
+        }
+        const patch = overridePatchForPath(tokens, newValue);
+        if (patch == null) {
+          fullExampleJsonRequired = true;
+        } else {
+          if (!overrideJsonPatch) overrideJsonPatch = {};
+          mergeOverridePatch(overrideJsonPatch, patch);
+        }
       } catch (e) {
         pathHintEl.textContent = `Error: ${e.message || e}`;
         return false;
@@ -1336,6 +2107,7 @@
 
 				      renderJson(inputEl, workingExampleJson);
 				      selectablePaths = buildSelectablePaths(workingExampleJson);
+				      syncPrimaryInputFromExample();
 				      hasEdits = true;
 			      overrideDirty = false;
 			      pathHintEl.textContent = `Applied in-memory change at ${selectedPath}.`;
@@ -1388,7 +2160,7 @@
 
       const minIo = 220;
       const minGrid = 220;
-      const maxIo = Math.max(minIo, contentEl.getBoundingClientRect().height - resizerPx - minGrid);
+	      const maxIo = Math.max(minIo, contentEl.getBoundingClientRect().height - resizerPx - minGrid);
       setCssPxVar('--io-height', clamp(ioEl.getBoundingClientRect().height, minIo, maxIo));
 
       const ioWidth = ioEl.getBoundingClientRect().width;
@@ -1542,28 +2314,48 @@
 
 				    runEl.addEventListener('click', runSelected);
 		    clearOverrideEl.addEventListener('click', () => resetExample());
-			    overrideEl.addEventListener('input', () => {
-		      overrideDirty = true;
-		      updateRunButtonState();
-		      if (selectedExampleIndex !== null) {
-		        setStatus('Not run', 'warn');
-		      }
-		    });
+				    overrideEl.addEventListener('input', () => {
+			      overrideDirty = true;
+			      updateRunButtonState();
+			      if (selectedExampleIndex !== null) {
+			        applyJsonInStringErrorStatus('Not run', 'warn');
+			      }
+			    });
 
 			    pathQueryEl.addEventListener('input', () => updatePathMatches());
+			    exampleQueryEl.addEventListener('input', () => filterExamples());
+			    primaryInputEl.addEventListener('input', () => applyPrimaryInputValue());
+			    primaryInputEl.addEventListener('keydown', (event) => {
+			      if (event.key !== 'Enter') return;
+			      event.preventDefault();
+			      void runSelected();
+			    });
+			    primaryInputRunEl.addEventListener('click', () => { void runSelected(); });
 
 			    applyInitialPaneSizes();
-			    initUiToggles();
 			    initResizers();
     actionModalCloseEl.addEventListener('click', () => closeActionDetails());
     actionModalEl.addEventListener('click', (ev) => {
       if (ev.target === actionModalEl) closeActionDetails();
     });
-    window.addEventListener('keydown', (ev) => {
-      if (ev.key === 'Escape' && actionModalEl.classList.contains('open')) closeActionDetails();
+    algoMetaEl.addEventListener('click', () => openRuntimeMetadata('algorithm', algoMetaEl));
+    paramMetaEl.addEventListener('click', () => openRuntimeMetadata('parameters', paramMetaEl));
+    runtimeMetadataModalCloseEl.addEventListener('click', () => closeRuntimeMetadata());
+    runtimeMetadataModalEl.addEventListener('click', (ev) => {
+      if (ev.target === runtimeMetadataModalEl) closeRuntimeMetadata();
     });
-			    loadAppMetadata();
-			    loadExamples().catch(err => {
+    window.addEventListener('keydown', (ev) => {
+      if (ev.key !== 'Escape') return;
+      if (runtimeMetadataModalEl.classList.contains('open')) {
+        closeRuntimeMetadata();
+      } else if (actionModalEl.classList.contains('open')) {
+        closeActionDetails();
+      }
+    });
+			    (async function boot() {
+			      await loadAppMetadata();
+			      await loadExamples();
+			    })().catch(err => {
 			      rawEl.textContent = String(err);
 			      setStatus('Error', 'error');
 			    });

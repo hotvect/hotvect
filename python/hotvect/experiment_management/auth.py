@@ -5,9 +5,9 @@ import os
 import shlex
 import subprocess
 import time
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Sequence
 
 import boto3
 from requests.auth import AuthBase

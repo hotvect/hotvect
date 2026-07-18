@@ -1,0 +1,6 @@
+{
+  "algorithm_name": "local-state-storage-test",
+  "algorithm_version": "1",
+  "algorithm_factory_classname": "example.Factory",
+  "requires_local_state_storage": true
+}

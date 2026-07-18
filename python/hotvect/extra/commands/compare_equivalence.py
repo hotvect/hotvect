@@ -6,10 +6,11 @@ import json
 import math
 import os
 import sys
+from collections.abc import Iterable
 from dataclasses import dataclass
 from itertools import zip_longest
 from pathlib import Path
-from typing import Any, Dict, Iterable, List
+from typing import Any
 
 from .base import BaseCommand
 
@@ -21,15 +22,15 @@ class EquivalenceInputError(ValueError):
 @dataclass(frozen=True)
 class ParsedRecord:
     example_id: str
-    order: List[str]
-    score_by_action_id: Dict[str, float]
+    order: list[str]
+    score_by_action_id: dict[str, float]
 
 
 def _is_number(value: Any) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
-def _extract_action_id(item: Dict[str, Any], line_number: int, side: str) -> str:
+def _extract_action_id(item: dict[str, Any], line_number: int, side: str) -> str:
     additional_properties = item.get("additional_properties")
     action_id: Any = None
     if isinstance(additional_properties, dict) and additional_properties.get("action_id") is not None:
@@ -62,8 +63,8 @@ def _parse_record(payload: Any, line_number: int, side: str) -> ParsedRecord:
     if not isinstance(result, list):
         raise EquivalenceInputError(f"line {line_number}: {side}.result must be an array")
 
-    order: List[str] = []
-    score_by_action_id: Dict[str, float] = {}
+    order: list[str] = []
+    score_by_action_id: dict[str, float] = {}
     for item_index, item in enumerate(result):
         if not isinstance(item, dict):
             raise EquivalenceInputError(
@@ -84,9 +85,9 @@ def _parse_record(payload: Any, line_number: int, side: str) -> ParsedRecord:
     return ParsedRecord(example_id=example_id, order=order, score_by_action_id=score_by_action_id)
 
 
-def _build_tie_groups(order: Iterable[str], score_by_action_id: Dict[str, float], eps: float) -> List[List[str]]:
-    grouped: List[List[str]] = []
-    current_group: List[str] = []
+def _build_tie_groups(order: Iterable[str], score_by_action_id: dict[str, float], eps: float) -> list[list[str]]:
+    grouped: list[list[str]] = []
+    current_group: list[str] = []
     anchor_score: float | None = None
     for action_id in order:
         score = score_by_action_id[action_id]
@@ -124,18 +125,18 @@ def _rank_equivalent_with_tie_breaking(control: ParsedRecord, treatment: ParsedR
 
 def compare_predict_jsonl(
     baseline_file: str, treatment_file: str, score_eps: float, allow_non_deterministic_tie_breaking: bool
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     if score_eps < 0:
         raise EquivalenceInputError("score_eps must be >= 0")
 
-    mismatches: List[Dict[str, Any]] = []
+    mismatches: list[dict[str, Any]] = []
     processed_lines = 0
     line_count_mismatch = False
     score_mismatch_count = 0
     rank_mismatch_count = 0
     max_abs_delta = 0.0
 
-    with open(baseline_file, "r") as baseline, open(treatment_file, "r") as treatment:
+    with open(baseline_file) as baseline, open(treatment_file) as treatment:
         for line_number, (baseline_line, treatment_line) in enumerate(zip_longest(baseline, treatment), start=1):
             if baseline_line is None or treatment_line is None:
                 line_count_mismatch = True
@@ -263,8 +264,8 @@ def compare_predict_jsonl(
 
 def _error_payload(
     message: str, error_code: str = "invalid_input", processed_lines: int | None = None
-) -> Dict[str, Any]:
-    payload: Dict[str, Any] = {
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
         "status": "error",
         "error_code": error_code,
         "message": message,

@@ -1,145 +1,61 @@
 ---
-title: Parent-Child Algorithm Pattern
-description: Understanding and working with composite algorithms with parent-child dependencies
-tags: [patterns, algorithms, dependencies, architecture, parent-child]
-difficulty: intermediate
-estimated_time: 20 minutes
-prerequisites:
-  - Understanding of hotvect algorithms
-  - Familiarity with algorithm definitions
-  - Basic knowledge of training workflow
+title: Parent and child algorithms
+description: Target, configure, and inspect composite Hotvect algorithms without assuming the role of a dependency
+tags: [patterns, algorithms, dependencies, architecture]
 related_docs:
   - ../../../concepts/index.md
-  - ../../develop-algorithms/index.md
-  - ../../../reference/faq/index.md
   - ../override-files/index.md
-related_commands:
-  - hv train
-  - hv backtest
+  - ../data-dependencies/index.md
 ---
 
-# Parent-Child Algorithm Pattern
+# Parent and child algorithms
 
-## Overview
+A composite algorithm declares other algorithms under `dependencies`. The declaring algorithm is the parent (or
+outer algorithm); each declared dependency is a child (or inner algorithm).
 
-Hotvect supports composite algorithms where a **parent algorithm** (also called an **outer algorithm**) orchestrates one or more **child algorithms** (the **inner** or **training** algorithms) as dependencies. This pattern enables separation of concerns between evaluation/testing logic and ML model training.
+Nesting describes composition, not behavior. A parent is not necessarily evaluation-only, and a child is not
+necessarily a trainable model. Inspect each embedded definition to find the transformer, encoder, training command,
+state generator, and execution settings it owns.
 
-## Architecture
+## Choose the command target by ownership
 
-```
-┌─────────────────────────────────────────┐
-│   Parent Algorithm                      │
-│   - Orchestrates evaluation/testing     │
-│   - May have no vectorizer/transformer  │
-│   - Declares children in dependencies   │
-│   - Uses child outputs for evaluation   │
-└───────────────┬─────────────────────────┘
-                │
-                │ depends on
-                │
-┌───────────────▼─────────────────────────┐
-│   Child Algorithm(s)                    │
-│   - Implements ML model training        │
-│   - Has vectorizer/transformer          │
-│   - Produces prediction parameters      │
-│   - Independent training logic          │
-└─────────────────────────────────────────┘
-```
+| Task | Target |
+| --- | --- |
+| End-to-end train or backtest | Usually the public parent; Hotvect prepares its dependency graph |
+| Feature audit | The algorithm that exposes the relevant transformer; the current audit task rejects vectorizers |
+| Encode debugging | The algorithm that exposes the encoder |
+| State generation | The algorithm with the state generator |
+| Focused child train | The child itself, with a child-specific override |
 
-## Example: product-ranker
+Start at the parent when the question is about public behavior. Target a child only to isolate a contract that child
+owns.
 
-**Parent**: `product-ranker`
-- **Role**: Orchestrates evaluation and testing
-- **Test Data**: `evaluation_test_data`
-- **Has Vectorizer**: No (delegates to child)
-- **Algorithm Definition**: Contains `dependencies` section
-
-**Child**: `product-ranker-model`
-- **Role**: Trains ML model
-- **Training Data**: `training_data`
-- **Test Data**: `model_test_data`
-- **Has Vectorizer**: Yes (implements feature engineering)
-- **Algorithm Definition**: No dependencies
-
-### Directory Structure After Training
-
-```
-training-output/
-├── product-ranker@1.0.0/
-│   └── last_test_date_2025-08-09/
-│       ├── product-ranker@1.0.0@last_test_date_2025-08-09.parameters.zip
-│       ├── evaluation.json
-│       └── prediction.jsonl
-├── product-ranker-model@1.0.0/
-│   └── last_test_date_2025-08-09/
-│       ├── product-ranker-model@1.0.0@last_test_date_2025-08-09.parameters.zip
-│       ├── model.cbm
-│       ├── training.log
-│       └── evaluation.json
-└── metadata/
-    ├── product-ranker@1.0.0/
-    └── product-ranker-model@1.0.0/
-```
-
-## Training Workflow
-
-### Correct Approach: Train Parent
+## Training and artifacts
 
 ```bash
 hv train \
-  --algorithm-name product-ranker \
+  --algorithm-name example-ranker \
+  --algorithm-jar /path/to/example-ranker.jar \
   --data-base-dir /path/to/data \
   --output-base-dir ./training-output \
-  --algorithm-jar ~/.m2/repository/.../product-ranker-1.0.0.jar \
-  --last-test-time 2025-08-09
+  --last-test-time 2000-01-01
 ```
 
-**What happens**:
-1. Parent algorithm definition is loaded
-2. System identifies child dependencies
-3. Child algorithm is trained first (automatically)
-4. Child parameters are produced
-5. Parent uses child parameters for evaluation
-6. Parent produces final evaluation results
+Hotvect recursively prepares dependencies before the parent continues. A dependency may train, generate state, reuse
+pinned parameters, or do no parameter work; read `result.json` instead of assuming every child trained.
 
-### Incorrect Approach: Train Child Directly
+For `hv train`, inspect:
 
-```bash
-# WRONG - causes self-dependency bug
-hv train \
-  --algorithm-name product-ranker-model \
-  --algorithm-override parent-override.json \
-  ...
+```text
+<output-base-dir>/metadata/<algorithm-id>/<parameter-version>/result.json
 ```
 
-**Why this fails**:
-- Override file designed for parent contains `dependencies` section
-- When applied to child, child thinks it depends on itself
-- Results in "Duplicate key algorithm-parameters.json" error
+For `hv backtest`, the corresponding metadata root is `meta`. Parent and child runs each have their own algorithm and
+parameter-version directory.
 
-## How to Identify Parent vs Child
+## Override a child through the parent
 
-### Parent Characteristics
-- Has `dependencies` section in algorithm-definition.json
-- May lack `vectorizer_factory_classname` (delegates to child)
-- Focuses on evaluation and testing logic
-- Uses child outputs but doesn't train models itself
-
-**Check if algorithm is parent**:
-```bash
-unzip -p algorithm.jar '*/algorithm-definition.json' | jq '.dependencies'
-# If non-empty, this is a parent
-```
-
-### Child Characteristics
-- No `dependencies` section (or empty)
-- Has `vectorizer_factory_classname` (feature engineering)
-- Implements ML model training
-- Produces trained model parameters
-
-## Using Override Files with Parent-Child
-
-Override files are designed for **parent algorithms** and specify overrides for children in the `dependencies` section:
+Apply the override to the parent and nest child fields under the declared child name:
 
 ```json
 {
@@ -148,7 +64,7 @@ Override files are designed for **parent algorithms** and specify overrides for 
     "performance-test": {"enabled": false}
   },
   "dependencies": {
-    "product-ranker-model": {
+    "example-model": {
       "number_of_training_days": 2,
       "hotvect_execution_parameters": {
         "performance-test": {"enabled": false}
@@ -158,165 +74,60 @@ Override files are designed for **parent algorithms** and specify overrides for 
 }
 ```
 
-**Key points**:
-- Parent-level settings apply to parent
-- `dependencies.<child-name>` settings apply to specific child
-- Parent automatically passes overrides to children
-- Never apply parent's override file to child directly
+Rules:
 
-See [Override Files Pattern](../override-files/index.md) for more details.
+- a parent-level field patches the parent;
+- `dependencies.<child-name>` patches that child;
+- unspecified siblings remain unchanged;
+- an unknown child name fails;
+- an override cannot add a new dependency.
 
-## Data Requirements
+Do not apply a parent override directly to a child target. Create a fragment whose root fields are valid for that
+child.
 
-Both parent and child need their own data dependencies:
+## Dependency targets and data
 
-**Parent Data**:
-- Test data for evaluation
-- Specified in parent's `test_data_spec` (or `test_data_prefix`)
-- Example: `evaluation_test_data`
+By default, a child used as a dependency runs with target `parameters`. It runs with target `evaluate` only when the
+child explicitly enables `predict`, `evaluate`, or `performance-test` in its own execution parameters. A parent with a
+pre-v10 `training_container` is a compatibility exception that selects child evaluation.
 
-**Child Data**:
-- Training data for ML model
-- Test data for child-level evaluation
-- Specified in child's `train_data_spec` / `test_data_spec` (or `train_data_prefix` / `test_data_prefix`)
-- Example: `example_training_data`
+This affects data requirements:
 
-All data must be available for dates calculated based on:
-- `--last-test-time`
-- `training_lag_days` in algorithm definitions
-- `number_of_training_days` (from override or algorithm definition)
+- training and source data are needed to prepare child parameters;
+- child test data is needed only when that child is evaluated;
+- parent test data remains separate;
+- each dependency resolves its dates from the shared `last_test_time` and its own lag/window settings.
 
-See [Data Dependencies Pattern](../data-dependencies/index.md) for date calculation details.
+Use `hv-ext data-dependency` with the same target and override as the planned run. See
+[Data dependencies](../data-dependencies/index.md).
 
-## Common Pitfalls
+## Multiple children and deeper graphs
 
-### Pitfall 1: Training Child with Parent's Override
-
-**Symptom**: "Duplicate key algorithm-parameters.json" error
-
-**Cause**: Parent's override file applied to child makes child depend on itself
-
-**Solution**: Always train the parent, which cascades correctly
-
-### Pitfall 2: Missing Child Test Data
-
-**Symptom**: Training completes but no child evaluation
-
-**Cause**: Child's test data not available for required dates
-
-**Solution**: Ensure child's test data exists:
-```bash
-ls -la /path/to/data-base-dir/child_test_data_prefix/dt=YYYY-MM-DD
-```
-
-## Benefits of Parent-Child Pattern
-
-1. **Separation of Concerns**
-   - Child focuses on ML model training
-   - Parent focuses on evaluation logic
-   - Each can be developed/tested independently
-
-2. **Reusability**
-   - Same child can be used by multiple parents
-   - Child can be tested standalone
-   - Parent can swap different child implementations
-
-3. **Flexible Evaluation**
-   - Parent can evaluate child on different test sets
-   - Parent can combine multiple children (ensembles)
-   - Parent can add business logic on top of ML predictions
-
-4. **Clear Dependencies**
-   - Explicit dependency declaration in algorithm definition
-   - Automatic dependency resolution during training
-   - Clear data flow from child to parent
-
-## Advanced: Multiple Children
-
-A parent can have multiple child dependencies:
+`dependencies` can contain multiple children, and those children can declare dependencies of their own. Treat the
+result as a dependency graph, not a fixed two-level tree.
 
 ```json
 {
   "dependencies": {
-    "child-model-a": {...},
-    "child-model-b": {...},
-    "child-model-c": {...}
+    "candidate-state": {},
+    "example-model": {},
+    "policy-model": {}
   }
 }
 ```
 
-All children are trained in order, and parent can use outputs from all of them.
+The parent packages or consumes dependency artifacts according to its algorithm factories. The presence of three
+children does not by itself define their order or data flow; that comes from the definitions and runtime wiring.
 
-## Advanced: Sharing computed values across the dependency DAG (Computing + memoization)
+!!! warning "Nested parameter artifacts"
+    A child can declare its own children, and those grandchildren are resolved recursively from the same parameter
+    ZIP. The current construction path nevertheless gives the nested composite factory itself an empty parameter map.
+    Do not make that nested composite depend on its own parameter files without verifying a changed loader path.
 
-Parent/child composition is not just about *training orchestration*; it also affects *inference-time computation*.
-In Hotvect, an algorithm can call into dependency algorithms, and the whole structure can form a dependency **DAG**
-(parents → children → grandchildren …).
+## Failure checklist
 
-### The key idea: pass a `ComputingRankingRequest` down the DAG
-
-Hotvect supports two ways of invoking a dependency scorer:
-- With a plain `RankingRequest` (no shared compute context is reused across boundaries)
-- With a `ComputingRankingRequest` (reuses the existing `Computing` contexts)
-
-When you call a dependency algorithm with a `ComputingRankingRequest`, the dependency algorithm sees the same
-`Computing.shared()` instance as its caller. This enables “compute once, reuse everywhere” across the whole DAG.
-
-### Memoized (lazy) computations: compute once by `Namespace`
-
-Transformations are addressed by `Namespace`. If a transformation is registered as memoized, then:
-- it will run at most once per request, and
-- the computed value is cached inside `Computing`.
-
-Any code (parent, child, grandchild) that calls `shared.compute(namespace)` will reuse that cached value.
-
-This is the preferred pattern for sharing derived values across dependency boundaries.
-
-### Eager transformations: prefetch once, then reuse
-
-Some work is intentionally eager (run up-front), for example:
-- fetching Feature Store views (one network call, available for multiple downstream computations)
-
-Hotvect supports registering one or more eager steps on a `StandardRankingTransformer` via:
-
-```java
-builder.withEagerTransformation(eagerId, eagerTransformation);
-```
-
-Where:
-- `eagerId` is a marker `Namespace` (not a feature namespace; it has no feature `ValueType`) used only to store `true` and indicate the eager step already ran.
-- `eagerTransformation` returns a map of namespaces (also not feature namespaces) containing “prefetched” values (e.g. Feature Store responses) for downstream computations.
-
-When a dependency algorithm is prepared using `prepare(ComputingRankingRequest)`:
-- for each registered eager step (in insertion order):
-  - if `eagerId` is already present as a shared precalculated value, the eager step is skipped
-  - otherwise, the eager step is executed, its results are stored as shared precalculated values, and `eagerId` is set to `true`
-
-Fail-fast behavior:
-- registering the same `eagerId` twice throws
-- if an eager step attempts to write to a namespace that already exists as a shared precalculated value, Hotvect throws
-- eager steps cannot produce ML feature namespaces directly (register a memoized/lazy computation that reads the eager output)
-
-#### Note on correctness: “same namespace” must mean “same value”
-
-Hotvect reuses eager results by checking whether `eagerId` is already present. This assumes the eager step’s output is
-correct for all downstream consumers (child algorithms, grandchildren, etc.). If the output content depends on
-configuration (for example: a Feature Store response that depends on which feature names were requested), then callers
-must ensure either:
-- all consumers agree on the same configuration, or
-- the eager producer computes a superset that satisfies all consumers.
-
-### Practical guidance
-
-- If you are writing a wrapper ranker/scorer that needs expensive shared data (e.g. Feature Store), fetch it once in the
-  wrapper and call the dependency scorer using the *Computing* APIs so reuse is possible.
-- Prefer memoized transformations for derived values and eager transformations for batch/prefetch-style external calls.
-- If you see duplicate external calls across dependency layers, check whether you are accidentally invoking a dependency
-  algorithm with a plain `RankingRequest` instead of a `ComputingRankingRequest`.
-
-## See Also
-
-- [Override Files Pattern](../override-files/index.md) - Configure parent-child training
-- [Data Dependencies Pattern](../data-dependencies/index.md) - Calculate required data dates
-- [FAQ: Outer (parent) vs inner (child) algorithms](../../../reference/faq/index.md#q-whats-the-difference-between-outer-parent-and-inner-child-algorithms-and-which-cli-commands-can-i-run-on-each)
-- [Troubleshooting: TRAIN-003](../../../reference/troubleshooting/index.md#train-003-duplicate-key-algorithm-parametersjson)
+- Unknown dependency in an override: compare the key with the parent's embedded definition.
+- Missing child test data: check whether that child explicitly enables an evaluation stage.
+- Missing child artifact: inspect the child's nested entry in the parent `result.json`.
+- Nested composite parameter file not found: the current loader does not pass parameter streams to the nested
+  composite factory itself; move that state to a declared child or use a supported one-level boundary.

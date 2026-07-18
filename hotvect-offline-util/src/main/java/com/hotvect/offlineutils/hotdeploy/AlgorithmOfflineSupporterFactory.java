@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.hotvect.api.algodefinition.AlgorithmDefinition;
 import com.hotvect.api.algodefinition.AlgorithmInstance;
 import com.hotvect.api.algodefinition.common.ExampleDecoderFactory;
+import com.hotvect.api.algodefinition.common.ExampleEncoderFactory;
 import com.hotvect.api.algodefinition.common.RewardFunction;
 import com.hotvect.api.algodefinition.common.RewardFunctionFactory;
 import com.hotvect.api.codec.common.ExampleDecoder;
@@ -17,9 +18,11 @@ import com.hotvect.onlineutils.hotdeploy.AlgorithmInstanceFactory;
 import com.hotvect.onlineutils.hotdeploy.util.MalformedAlgorithmException;
 
 import java.io.File;
+import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.Optional;
-import java.util.function.BiFunction;
+import java.util.function.Function;
 
 public class AlgorithmOfflineSupporterFactory extends AlgorithmInstanceFactory implements AlgorithmOfflineInstantiator {
     private static final ExecutionContext EXECUTION_CONTEXT = ExecutionContext.of(WorkloadMode.BATCH, InputSemantic.OFFLINE);
@@ -46,7 +49,7 @@ public class AlgorithmOfflineSupporterFactory extends AlgorithmInstanceFactory i
         String factoryName = algorithmDefinition.decoderFactoryName();
         Optional<JsonNode> parameter = algorithmDefinition.trainDecoderParameter();
         ExampleDecoderFactory<EXAMPLE> decoderFactory = instantiate(factoryName);
-        return decoderFactory.apply(algorithmDefinition.trainDecoderParameter());
+        return decoderFactory.create(parameter);
     }
 
     @Override
@@ -63,15 +66,74 @@ public class AlgorithmOfflineSupporterFactory extends AlgorithmInstanceFactory i
         RewardFunction<?> rewardFunction = this.getRewardFunction(algorithmDefinition);
 
         Object dependency = loadFeatureExtractionDependency(algorithmDefinition, parameters, Map.of());
-        BiFunction encoderFactory = instantiate(factoryName);
+        ExampleEncoderFactory encoderFactory = instantiate(factoryName);
+        Object rawEncoder = encoderFactory.create(dependency, rewardFunction);
 
-        return (ExampleEncoder<EXAMPLE>) encoderFactory.apply(dependency, rewardFunction);
+        return adaptTrainEncoder(rawEncoder);
     }
 
     public <EXAMPLE extends Example<? extends OfflineRequest, ?>> ExampleDecoder<EXAMPLE> getTestDecoder(AlgorithmDefinition algorithmDefinition) throws MalformedAlgorithmException {
         String factoryName = algorithmDefinition.decoderFactoryName();
         Optional<JsonNode> hyperparameter = algorithmDefinition.testDecoderParameter();
         ExampleDecoderFactory<EXAMPLE> factory = instantiate(factoryName);
-        return factory.apply(hyperparameter);
+        return factory.create(hyperparameter);
+    }
+
+    @SuppressWarnings("unchecked")
+    static <EXAMPLE extends Example<? extends OfflineRequest, ?>> ExampleEncoder<EXAMPLE> adaptTrainEncoder(Object rawEncoder) {
+        if (!(rawEncoder instanceof ExampleEncoder<?> encoder)) {
+            throw new IllegalStateException(
+                    "Encoder " + rawEncoder.getClass().getName() + " must implement ExampleEncoder."
+            );
+        }
+        if (hasEncodedFileExtension(encoder)) {
+            return (ExampleEncoder<EXAMPLE>) encoder;
+        }
+        return wrapLegacyTrainEncoder(encoder);
+    }
+
+    static boolean hasEncodedFileExtension(ExampleEncoder<?> encoder) {
+        try {
+            String extension = encoder.encodedFileExtension();
+            return extension != null && !extension.isEmpty();
+        } catch (UnsupportedOperationException ignored) {
+            return false;
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    static <EXAMPLE extends Example<? extends OfflineRequest, ?>> ExampleEncoder<EXAMPLE> wrapLegacyTrainEncoder(ExampleEncoder<?> rawEncoder) {
+        Function<EXAMPLE, Object> encodingFunction = (Function<EXAMPLE, Object>) (Function<?, ?>) rawEncoder;
+        ExampleEncoder<EXAMPLE> currentEncoder = (ExampleEncoder<EXAMPLE>) rawEncoder;
+
+        return new ExampleEncoder<>() {
+            @Override
+            public ByteBuffer apply(EXAMPLE example) {
+                return normalizeEncodedRecord(encodingFunction.apply(example), rawEncoder);
+            }
+
+            @Override
+            public Optional<String> schemaDescription() {
+                return currentEncoder.schemaDescription();
+            }
+
+            @Override
+            public String encodedFileExtension() {
+                return currentEncoder.encodedFileExtension();
+            }
+        };
+    }
+
+    static ByteBuffer normalizeEncodedRecord(Object encodedRecord, Object rawEncoder) {
+        if (encodedRecord instanceof String encodedString) {
+            return ByteBuffer.wrap((encodedString + "\n").getBytes(StandardCharsets.UTF_8));
+        }
+        throw new IllegalStateException(
+                "Unsupported legacy encoded record type from encoder "
+                        + rawEncoder.getClass().getName()
+                        + ": "
+                        + (encodedRecord == null ? "null" : encodedRecord.getClass().getName())
+                        + ". Expected java.lang.String."
+        );
     }
 }

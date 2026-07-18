@@ -10,6 +10,8 @@ public class Options {
     public int batchSize = -1;
 
     public int queueLength = -1;
+    public int readQueueLength = -1;
+    public int writeQueueLength = -1;
 
     public File algorithmJar;
 
@@ -26,6 +28,8 @@ public class Options {
 
     public boolean ordered;
 
+    public boolean unordered;
+
     public int writerNumShards = -1;
 
     public Map<String, List<File>> sourceFiles = new HashMap<>();
@@ -37,6 +41,7 @@ public class Options {
     public File metadataLocation = new File("metadata");
 
     public int samples = -1;
+    public int samplePoolSize = -1;
 
     public double targetRps = -1.0;
     public double targetThroughputFraction = 0.8;
@@ -49,6 +54,8 @@ public class Options {
                 ", additionalJarFiles=" + additionalJarFiles +
                 ", batchSize=" + batchSize +
                 ", queueLength=" + queueLength +
+                ", readQueueLength=" + readQueueLength +
+                ", writeQueueLength=" + writeQueueLength +
                 ", algorithmJar=" + algorithmJar +
                 ", algorithmDefinition='" + algorithmDefinition + '\'' +
                 ", parameters=" + parameters +
@@ -56,12 +63,14 @@ public class Options {
                 ", logFeatures=" + logFeatures +
                 ", includeFeatureStoreResponses=" + includeFeatureStoreResponses +
                 ", ordered=" + ordered +
+                ", unordered=" + unordered +
                 ", writerNumShards=" + writerNumShards +
                 ", sourceFiles=" + sourceFiles +
                 ", schemaDescriptionFile=" + schemaDescriptionFile +
                 ", destinationFile=" + destinationFile +
                 ", metadataLocation=" + metadataLocation +
                 ", samples=" + samples +
+                ", samplePoolSize=" + samplePoolSize +
                 ", targetRps=" + targetRps +
                 ", targetThroughputFraction=" + targetThroughputFraction +
                 ", performanceTestWorkloadMode='" + performanceTestWorkloadMode + '\'' +
