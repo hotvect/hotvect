@@ -184,7 +184,7 @@ class TestHvExtCLI(unittest.TestCase):
                 main()
 
             # Check that output file was created with correct data
-            with open(output_path, "r") as f:
+            with open(output_path) as f:
                 lines = f.readlines()
 
             self.assertEqual(len(lines), 3)  # 3 data rows

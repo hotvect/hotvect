@@ -1,8 +1,13 @@
 package com.hotvect.algorithmdemo;
 
+import com.hotvect.algorithmserver.ActionMetadataLookup;
+import com.hotvect.algorithmserver.AlgorithmServerApp;
+import com.hotvect.algorithmserver.ServerExtension;
+import com.hotvect.algorithmserver.ServerOptions;
 import picocli.CommandLine;
 
 import java.io.File;
+import java.util.List;
 import java.util.concurrent.Callable;
 
 @CommandLine.Command(
@@ -10,19 +15,7 @@ import java.util.concurrent.Callable;
         mixinStandardHelpOptions = true,
         description = "Local HTTP server for algorithm debugging; add --ui to enable the browser UI"
 )
-public class Options implements Callable<Integer> {
-    @CommandLine.Option(names = {"--algorithm-jar"}, required = true, description = "Path to the algorithm JAR (required)")
-    public File algorithmJar;
-
-    @CommandLine.Option(names = {"--algorithm-name"}, required = true, description = "Algorithm name (matches algorithm definition in JAR) (required)")
-    public String algorithmName;
-
-    @CommandLine.Option(names = {"--algorithm-override"}, description = "Path to JSON file with algorithm definition overrides (optional)")
-    public File algorithmOverride;
-
-    @CommandLine.Option(names = {"--parameter-path"}, required = true, description = "Path to parameters ZIP (required)")
-    public File parameterPath;
-
+public class Options extends ServerOptions implements Callable<Integer> {
     @CommandLine.Option(
             names = {"--source-path"},
             description = "Directory scanned recursively for *.jsonl/*.json and gz variants (*.jsonl.gz/*.json.gz) demo examples (required with --ui)"
@@ -42,33 +35,40 @@ public class Options implements Callable<Integer> {
     public File demoSqlitePath;
 
     @CommandLine.Option(
+            names = {"--default-select-json-path"},
+            description = "JSON path selected by default in the input editor (optional)"
+    )
+    public String defaultSelectJsonPath;
+
+    @CommandLine.Option(
             names = {"--ui"},
             description = "Enable the browser UI routes and static assets (requires --source-path)"
     )
     public boolean ui;
 
-    @CommandLine.Option(
-            names = {"--max-request-mib"},
-            defaultValue = "256",
-            description = "Max HTTP request size in MiB (default: ${DEFAULT-VALUE})"
-    )
-    public long maxRequestMiB;
-
-    @CommandLine.Option(names = {"--host"}, defaultValue = "127.0.0.1", description = "Bind host (default: ${DEFAULT-VALUE})")
-    public String host;
-
-    @CommandLine.Option(names = {"--port"}, defaultValue = "12000", description = "Bind port (default: ${DEFAULT-VALUE})")
-    public int port;
-
     @Override
     public Integer call() throws Exception {
-        try (DemoUiApp app = new DemoUiApp(this)) {
-            app.start();
-            Thread.sleep(Long.MAX_VALUE);
-            return 0;
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            return 0;
+        if (!ui) {
+            if (sourcePath != null) {
+                throw new IllegalArgumentException("--source-path is only supported with --ui");
+            }
+            if (actionMetadataPath != null) {
+                throw new IllegalArgumentException("--action-metadata-path is only supported with --ui");
+            }
+            if (demoSqlitePath != null) {
+                throw new IllegalArgumentException("--demo-sqlite-path is only supported with --ui");
+            }
+            if (defaultSelectJsonPath != null) {
+                throw new IllegalArgumentException("--default-select-json-path is only supported with --ui");
+            }
         }
+        DemoUiExtension demoUiExtension = ui ? new DemoUiExtension(this) : null;
+        ActionMetadataLookup actionMetadata = demoUiExtension == null
+                ? ActionMetadataLookup.empty()
+                : demoUiExtension.actionMetadata();
+        List<ServerExtension> extensions = demoUiExtension == null
+                ? List.of()
+                : List.of(demoUiExtension);
+        return AlgorithmServerApp.runUntilInterrupted(this, actionMetadata, extensions);
     }
 }

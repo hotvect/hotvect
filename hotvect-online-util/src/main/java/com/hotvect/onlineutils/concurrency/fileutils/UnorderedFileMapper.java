@@ -210,6 +210,12 @@ public class UnorderedFileMapper<T> extends VerboseCallable<Map<String, Object>>
         metadata.putAll(reader.awaitTermination());
         metadata.putAll(processor.awaitTermination());
         metadata.putAll(writer.awaitTermination());
+        metadata.put("unordered_mapper_computation_threads", this.nComputationThreads);
+        metadata.put("unordered_mapper_batch_size", this.batchSize);
+        metadata.put("unordered_mapper_read_queue_size", actualReadQueueSize);
+        metadata.put("unordered_mapper_write_queue_size", actualWriteQueueSize);
+        metadata.put("unordered_mapper_reader_threads", actualNReaderThreads);
+        metadata.put("unordered_mapper_writer_shards", this.numberOfShards != null ? this.numberOfShards : 1);
 
 
         long end = System.nanoTime();
@@ -402,8 +408,7 @@ public class UnorderedFileMapper<T> extends VerboseCallable<Map<String, Object>>
         }
 
         /**
-         * Sets the file extension for shard naming (e.g., ".tfrecord", ".tsv", ".jsonl").
-         * When provided, UnorderedFileWriter will generate files as {@code shard_%d<extension>} inside the dest directory.
+         * Sets the file extension for output naming (e.g., ".tfrecord", ".tsv", ".jsonl").
          */
         public Builder<T> extension(String extension) {
             this.extension = extension;
@@ -411,14 +416,13 @@ public class UnorderedFileMapper<T> extends VerboseCallable<Map<String, Object>>
         }
 
         /**
-         * Sets the number of writer shards.
-         * The destination filename must include a %d placeholder (e.g., "shard_%d.tfrecord").
+         * Sets the number of output part files.
          * <ul>
-         *   <li>numberOfShards &lt;= 0: Auto-determine shard count (minimum 1)</li>
-         *   <li>numberOfShards &gt;= 1: Explicit shard count</li>
+         *   <li>numberOfShards &lt;= 0: Auto-determine count (minimum 1)</li>
+         *   <li>numberOfShards &gt;= 1: Explicit count</li>
          * </ul>
          *
-         * @param numberOfShards the number of writer shards
+         * @param numberOfShards the number of output part files
          * @return the Builder instance
          */
         public Builder<T> numberOfShards(int numberOfShards) {

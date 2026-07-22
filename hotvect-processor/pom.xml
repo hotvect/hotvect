@@ -7,7 +7,7 @@
     <parent>
         <groupId>com.hotvect</groupId>
         <artifactId>hotvect-parent</artifactId>
-        <version>10.13.5</version>
+        <version>10.43.2</version>
     </parent>
 
     <artifactId>hotvect-processor</artifactId>
@@ -38,6 +38,23 @@
             <groupId>com.squareup</groupId>
             <artifactId>javapoet</artifactId>
             <version>1.13.0</version>
+        </dependency>
+        <dependency>
+            <groupId>com.hotvect</groupId>
+            <artifactId>hotvect-catboost</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.hotvect</groupId>
+            <artifactId>hotvect-tensorflow</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
         </dependency>
     </dependencies>
 

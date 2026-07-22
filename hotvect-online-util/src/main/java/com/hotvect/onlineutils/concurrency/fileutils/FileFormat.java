@@ -42,6 +42,10 @@ public enum FileFormat {
     public static FileFormat detectFormat(File file) {
         String fileName = file.getName().toLowerCase();
 
+        if (isExtensionlessSparkTextPartFile(fileName)) {
+            return TEXT;
+        }
+
         for (FileFormat format : FileFormat.values()) {
             for (String extension : format.extensions) {
                 if (fileName.endsWith(extension)) {
@@ -51,6 +55,32 @@ public enum FileFormat {
         }
 
         throw new IllegalArgumentException("Unsupported file format: " + file.getName());
+    }
+
+    static boolean isSupportedFileName(String fileName) {
+        String lowerCaseFileName = fileName.toLowerCase();
+        if (isExtensionlessSparkTextPartFile(lowerCaseFileName)) {
+            return true;
+        }
+
+        for (FileFormat format : FileFormat.values()) {
+            for (String extension : format.extensions) {
+                if (lowerCaseFileName.endsWith(extension)) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    static boolean isExtensionlessSparkTextPartFile(String fileName) {
+        if (!fileName.startsWith("part-")) {
+            return false;
+        }
+
+        String uncompressedFileName = fileName.endsWith(".gz") ? fileName.substring(0, fileName.length() - 3) : fileName;
+        return uncompressedFileName.length() > "part-".length() && !uncompressedFileName.contains(".");
     }
 
     /**

@@ -3,6 +3,7 @@ package com.hotvect.core.transform.ranking;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Maps;
+import com.hotvect.api.data.AvailableAction;
 import com.hotvect.api.data.Namespace;
 import com.hotvect.api.data.ValueType;
 import com.hotvect.api.data.common.Mapping;
@@ -183,7 +184,10 @@ public class StandardRankingTransformer<SHARED, ACTION> implements ComputingRank
         /**
          * Backward-compatible overload kept to support older algorithm JARs compiled against hotvect versions that did not
          * require an explicit eager transformation id.
+         *
+         * @deprecated Use {@link #withEagerTransformation(Namespace, EagerRankingTransformation)} with an explicit id.
          */
+        @Deprecated(forRemoval = true)
         public Builder<SHARED, ACTION> withEagerTransformation(EagerRankingTransformation<SHARED, ACTION> eagerTransformation) {
             checkNotNull(eagerTransformation, "eagerTransformation");
             Namespace eagerId = Namespaces.declareNamespace("hotvect_internal_eager_transformation_" + this.eagerTransformations.size());
@@ -454,7 +458,9 @@ public class StandardRankingTransformer<SHARED, ACTION> implements ComputingRank
         for (ComputingCandidate<SHARED, ACTION> candidate : input.candidates()) {
             NamespacedRecord<Namespace, Object> transformed = new NamespacedRecordImpl<>();
 
-            Map<String, Object> additionalProperties = null;
+            Map<String, Object> additionalProperties = candidate.additionalProperties().isEmpty()
+                    ? null
+                    : new HashMap<>(candidate.additionalProperties());
 
             if (this.computationFeatures != null) {
                 Namespace[] sharedFeatures = this.computationFeatures.get(RankingFeatureComputationDependency.SHARED);
@@ -525,7 +531,12 @@ public class StandardRankingTransformer<SHARED, ACTION> implements ComputingRank
                 additionalProperties.put("features", featureAuditMap);
             }
 
-            ret.add(TransformedAction.of(candidate.getAction().getOriginalInput(), transformed, additionalProperties == null ? ImmutableMap.of() : additionalProperties));
+            ret.add(TransformedAction.of(
+                    candidate.actionId(),
+                    candidate.getAction().getOriginalInput(),
+                    transformed,
+                    additionalProperties == null ? ImmutableMap.of() : additionalProperties
+            ));
         }
         return ret;
     }
@@ -552,13 +563,36 @@ public class StandardRankingTransformer<SHARED, ACTION> implements ComputingRank
     }
 
     @Override
-    public ComputingRankingRequest<SHARED, ACTION> prepare(String exampleId, SHARED shared, List<Computable<ACTION>> actions) {
+    public ComputingRankingRequest<SHARED, ACTION> prepare(
+            String exampleId,
+            SHARED shared,
+            List<Computable<ACTION>> actions
+    ) {
+        // Legacy prepare overload has no stable action ids, so it synthesizes positional ids.
         RankingRequest<SHARED, ACTION> rankingRequest = new RankingRequest<>(
                 exampleId,
                 shared,
                 ListTransform.map(actions, Computable::getOriginalInput)
         );
+        List<AvailableAction<Computable<ACTION>>> computingActions = new ArrayList<>(actions.size());
+        for (int i = 0; i < actions.size(); i++) {
+            computingActions.add(AvailableAction.of(
+                    rankingRequest.actions().get(i).actionId(),
+                    actions.get(i),
+                    rankingRequest.actions().get(i).additionalProperties()
+            ));
+        }
 
+        return prepare(
+                rankingRequest,
+                computingActions
+        );
+    }
+
+    private ComputingRankingRequest<SHARED, ACTION> prepare(
+            RankingRequest<SHARED, ACTION> rankingRequest,
+            List<AvailableAction<Computable<ACTION>>> actions
+    ) {
         NamespacedRecord<Namespace, Holder<Object>> precomputed;
         if (this.eagerTransformations.isEmpty()) {
             // No eager transformation, so we can just use the precomputations
@@ -598,7 +632,7 @@ public class StandardRankingTransformer<SHARED, ACTION> implements ComputingRank
             }
             precomputed = toPopulate;
         }
-        Computing<RankingRequest<SHARED, ACTION>> computingShared = Computing.builder(new RankingRequest<>(exampleId, shared, ListTransform.map(actions, Computable::getOriginalInput)))
+        Computing<RankingRequest<SHARED, ACTION>> computingShared = Computing.builder(rankingRequest)
                 .withPrecalculated(precomputed)
                 .withMemoizedComputations((Mapping<Namespace, Computation<RankingRequest<SHARED, ACTION>, Object>>)(Mapping)sharedMemoizedComputations)
                 .withOnDemandComputations((NamespacedRecord<Namespace,Computation<RankingRequest<SHARED, ACTION>, Object>>)(NamespacedRecord)sharedNonMemoizedComputations)
@@ -662,12 +696,16 @@ public class StandardRankingTransformer<SHARED, ACTION> implements ComputingRank
                 .withMemoizedComputations((Mapping<Namespace,Computation<RankingRequest<SHARED, ACTION>, Object>>)(Mapping)sharedMemoizedComputations)
                 .withOnDemandComputations((NamespacedRecord<Namespace,Computation<RankingRequest<SHARED, ACTION>, Object>>)(NamespacedRecord)sharedNonMemoizedComputations)
                 .build();
-        List<Computable<ACTION>> computingActions = ListTransform.map(
-                rankingRequest.availableActions(),
-                action -> Computing.builder(action)
-                        .withMemoizedComputations(actionMemoizedComputations)
-                        .withOnDemandComputations(actionNonMemoizedComputations)
-                        .build()
+        List<AvailableAction<Computable<ACTION>>> computingActions = ListTransform.map(
+                rankingRequest.actions(),
+                action -> AvailableAction.of(
+                        action.actionId(),
+                        Computing.builder(action.action())
+                                .withMemoizedComputations(actionMemoizedComputations)
+                                .withOnDemandComputations(actionNonMemoizedComputations)
+                                .build(),
+                        action.additionalProperties()
+                )
         );
         return prepareInternal(
                 precomputed,
@@ -760,7 +798,7 @@ public class StandardRankingTransformer<SHARED, ACTION> implements ComputingRank
             NamespacedRecord<Namespace, Holder<Object>> precomputed,
             RankingRequest<SHARED, ACTION> rankingRequest,
             Computable<RankingRequest<SHARED, ACTION>> computingShared,
-            List<Computable<ACTION>> computingActions
+            List<AvailableAction<Computable<ACTION>>> computingActions
     ) {
         NamespacedRecord<Namespace, RankingFeatureComputationDependency> updatedDependencyMap = this.dependencyLookupMap.shallowCopy();
         for (Namespace namespace : precomputed.asMap().keySet()) {
@@ -770,11 +808,13 @@ public class StandardRankingTransformer<SHARED, ACTION> implements ComputingRank
         List<ComputingCandidate<SHARED, ACTION>> computingCandidates = ListTransform.map(
                 computingActions,
                 computingAction -> new ComputingCandidate<>(
+                        computingAction.actionId(),
                         computingShared,
-                        computingAction,
+                        computingAction.action(),
                         updatedDependencyMap,
                         this.interactionMemoizedComputations,
-                        this.interactionNonMemoizedComputations
+                        this.interactionNonMemoizedComputations,
+                        computingAction.additionalProperties()
                 )
         );
         return new ComputingRankingRequest<>(

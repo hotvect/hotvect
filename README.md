@@ -1,124 +1,113 @@
-hotvect
-=======
-A feature engineering and ML serving library for machine learning applications, especially for personalization and recommendation systems.
+# Hotvect
 
-Hotvect allows you to:
-1. Develop feature engineering code that can be shared across offline and online environments.
-2. Integrate machine learning libraries like CatBoost and TensorFlow into ML applications.
-3. Define ML-enabled models and policies, packaging them into reusable, modular forms that can easily be shared, combined, and deployed into production.
-4. Perform offline testing and hyperparameter optimization of models and policies, with built-in bookkeeping of test results.
-5. Integrate with Amazon SageMaker for running offline tests and hyperparameter optimization at scale.
+**Build the decision system. Run it from training to serving.**
 
-The same data transformation code will be used for training and prediction, ensuring consistency without discrepancies.
+Hotvect is an application framework and runtime for the code around developer-chosen ML libraries. Use CatBoost,
+TensorFlow, PyTorch, or custom ML code for the model; Hotvect connects it to typed request handling, feature
+computation, reusable components, rules, and final ranking or selection logic. Together, those parts form one callable,
+versioned algorithm.
 
-Hotvect has characteristics that work well with typical machine learning use cases:
-1. **Out-of-core:** Processing happens without reading all data into memory, allowing processing of large datasets.
-2. **Multi-threaded:** Processing is multi-threaded, reducing processing time.
-3. **Efficient:** The library is coded with efficiency in mind. Using the JVM makes it easy to write efficient feature transformations.
+Algorithm authors build an **algorithm package** containing the implementation and definition. Offline tooling trains
+or generates state and creates a separate **parameter package** when needed. A containing application loads the
+selected packages and calls the algorithm. Today, those packages are distributed as a JVM JAR and a ZIP respectively.
 
-Feature interaction is natively supported, although exploring interaction features requires a separate step.
+## The mental model
 
-## Getting Started
+```text
+algorithm implementation + embedded definition
+  → algorithm package
+  → optional training, evaluation, or state generation
+  → optional parameter package
+  → application loads AlgorithmInstance
+  → request → decision
+```
 
-### 1. Install dependencies
+The same implementation is exercised during offline prediction, evaluation, and application integration. Sharing the
+algorithm and parameter packages removes one source of offline/online drift; it does not make inputs, external
+services, or execution settings automatically identical.
 
-- Java 21
-- Maven
-- Python 3.11+
-- `uv`
+Hotvect currently provides:
 
-### 2. Build and install Hotvect (source checkout)
+- public decision contracts for ranking, bulk scoring, TopK, and themed TopK;
+- JVM feature transformation, including compile-time generated ranking transformers;
+- simple and composite algorithm factories with named child dependencies;
+- integration with CatBoost, TensorFlow, managed Python workers, and algorithm-owned custom runtimes;
+- local and SageMaker train, audit, predict, evaluate, performance-test, and backtest workflows;
+- dynamic algorithm-package and parameter-package loading for containing Java applications;
+- optional read integration with an external Experiment Management Service for refreshed slot state and local variant
+  assignment;
+- local HTTP and browser debugging surfaces.
+
+## Start here
+
+You need JDK 21, Maven, Make, Python 3.11–3.13, and `uv`.
+
+From a source checkout:
 
 ```bash
 cd python
 make init
 source .venv/bin/activate
+hv --version
 ```
 
-For faster iteration while developing locally (skips Java tests):
+Then follow the documentation in this order:
+
+1. [Install and verify Hotvect](python/hotvect/mcp/bundled_docs/docs/guides/quickstart/index.md)
+2. [Run the example product algorithms](python/hotvect/mcp/bundled_docs/docs/guides/first-run/index.md)
+3. [Understand how Hotvect works](python/hotvect/mcp/bundled_docs/docs/concepts/how-hotvect-works/index.md)
+4. [Build your first algorithm](python/hotvect/mcp/bundled_docs/docs/guides/first-algorithm/index.md), or
+   [tour an existing algorithm](python/hotvect/mcp/bundled_docs/docs/guides/first-workflow/index.md)
+
+The complete documentation starts at
+[Hotvect documentation](python/hotvect/mcp/bundled_docs/docs/index.md). The same version-matched Markdown is searchable
+from the installed CLI:
 
 ```bash
-cd python
-make quick
+hv docs search "build first algorithm" --limit 3
+hv docs read concepts/how-hotvect-works/index.md
 ```
 
-### 3. Configure local paths (optional, but recommended)
+## Typical development loop
 
-Hotvect uses `~/.hotvect/config.json` to find default base directories.
+For an existing algorithm:
 
-```bash
-hv-ext config init
+```text
+inspect definition and factories
+  → build the algorithm package
+  → resolve data and child artifacts
+  → run the smallest relevant audit, predict, train, or backtest
+  → inspect result.json and stage outputs
+  → expand only after the bounded proof succeeds
 ```
 
-### 4. Use the CLIs
+Use `hv --help`, `hv-ext --help`, and the
+[CLI reference](python/hotvect/mcp/bundled_docs/docs/reference/cli/index.md) for exact commands. `hv serve` and
+`hv worker serve` are local debugging tools; production use embeds the online runtime in a containing application.
 
-```bash
-hv --help
-hv-ext --help
-```
+## Project boundaries
 
-Two local HTTP debugging surfaces are available:
+Hotvect owns the algorithm contract, artifact loading, feature/runtime integration, and offline lifecycle for one
+decision algorithm. It does not replace:
 
-```bash
-# Full algorithm HTTP server (Java runtime, including feature extraction)
-hv serve --algorithm-jar /path/to/algo.jar --algorithm-name my-algo --parameter-path /path/to/params.zip --port 8080
+- a general data or job scheduler;
+- a feature store or artifact registry;
+- a model library;
+- the external EMS control-plane server, release governance, or production monitoring;
+- the HTTP, event, authentication, and traffic layers of a serving application.
 
-# Same server, with browser UI enabled
-hv serve --ui --algorithm-jar /path/to/algo.jar --algorithm-name my-algo --parameter-path /path/to/params.zip --source-path /path/to/examples --port 8080
+Those systems can surround Hotvect or satisfy explicit algorithm dependencies while keeping their own operational
+contracts.
 
-# Worker-only HTTP server (LitServe-backed worker runtime, expects worker-ready feature rows)
-# Native LitServe `/predict` and compatibility `/v2/...` endpoints are both exposed.
-# Use --algorithm-override when the algorithm definition does not already declare backend
-# and a scoped litserve block.
-hv worker serve --algorithm-jar /path/to/algo.jar --algorithm-name my-model --parameter-path /path/to/params.zip --port 8081 --algorithm-override worker-http-override.json
-```
+## Repository modules
 
-Example: download a specific algorithm version's SageMaker backtest results (regex filters):
-
-```bash
-hv-ext results download \
-  "s3://example-bucket/temp/<user>/sagemaker_output/" \
-  --dest-base-dir "./results" \
-  --from-date "2026-02-15" --to-date "2026-02-15" \
-  --algorithm-name-regex "example-algorithm" \
-  --algorithm-version-regex "74\\.4\\..*" \
-  --job-name-regex "ml-exp-.*" \
-  --include-metadata
-```
-
-### 5. (Optional) Use the docs MCP server
-
-Hotvect ships a **read-only** MCP server for documentation search and retrieval over stdio (NDJSON JSON-RPC).
-
-If you installed Hotvect, run:
-
-```bash
-hv-mcp --help
-```
-
-From a source checkout, run it using the repo venv Python:
-
-```bash
-"$(pwd)/python/.venv/bin/python" "$(pwd)/python/bin/hv-mcp" --help
-```
-
-See `python/hotvect/mcp/bundled_docs/docs/guides/docs-mcp/index.md` for details and Codex integration.
-
-## What does it not provide?
-
-Hotvect does not include:
-
-1. **Machine learning algorithms themselves** - It is intended to be combined with existing ML libraries.
-2. **Orchestration of ML pipelines** - Requires other frameworks like Airflow.
-3. **Life-cycle management of models and policies** - Supported by an external Experiment Management Service.
-4. **Creation, management, and execution of online experiments** - Provided by the Experiment Management Service.
-5. **Monitoring of ML applications and evaluation of online experiment results** - Requires separate solutions.
-
-## Notes
-
-Hotvect is designed to be library-agnostic:
-
-- Feature engineering runs in the **JVM** (Java/Kotlin/Scala), so offline and online feature computation can share the same code.
-- Model inference can run in the JVM (e.g. JNI, or pure-Java implementations like [H2O.ai's xgboost-predictor](https://github.com/h2oai/xgboost-predictor)), **or** in a separate Python process via direct workers (v10+).
-
-Feature engineering should be implemented in a JVM language (e.g., Java, Kotlin, Scala), while APIs for triggering tasks like offline testing are provided as a Python library.
+| Area | Modules |
+| --- | --- |
+| Public contracts | `hotvect-api` |
+| Feature runtime and code generation | `hotvect-core`, `hotvect-processor` |
+| Model backends | `hotvect-catboost`, `hotvect-tensorflow`, `hotvect-python` |
+| Online loading | `hotvect-online-util` |
+| Offline JVM tasks | `hotvect-offline-util` |
+| Python lifecycle and CLIs | `python/` |
+| Local debugging | `hotvect-algorithm-serve`, `hotvect-algorithm-demo` |
+| Runnable product search and ranking example | `examples/product-search-and-ranking/` |

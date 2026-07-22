@@ -12,6 +12,7 @@ import java.util.Map;
 import java.util.Set;
 
 import javax.annotation.processing.Filer;
+import javax.annotation.processing.FilerException;
 import javax.lang.model.element.TypeElement;
 import javax.tools.Diagnostic;
 import javax.tools.FileObject;
@@ -24,6 +25,7 @@ import com.hotvect.core.annotation.processor.ProcessingContext;
 import com.hotvect.core.annotation.processor.model.Analysis;
 import com.hotvect.core.annotation.processor.model.FeatureNode;
 import com.hotvect.core.annotation.processor.model.FeatureScanResult;
+import com.hotvect.core.annotation.processor.model.FeatureSpec;
 import com.hotvect.core.annotation.processor.model.TransformerSpec;
 
 public final class MarkdownReportWriter {
@@ -45,7 +47,7 @@ public final class MarkdownReportWriter {
                 specName = base;
             }
         }
-        String filename = specElement.getSimpleName() + ".md";
+        String filename = specElement.getQualifiedName().toString().replace('.', '-') + ".md";
 
         StringBuilder out = new StringBuilder();
         out.append("# Declarative Transformer Report\n\n");
@@ -57,14 +59,19 @@ public final class MarkdownReportWriter {
         if (spec.algorithmDefinitionResource() != null && !spec.algorithmDefinitionResource().isBlank()) {
             out.append("- Algorithm definition: ").append(spec.algorithmDefinitionResource()).append("\n");
         }
+        out.append("- Backend: ").append(spec.backend()).append("\n");
         out.append("- Feature classes:\n");
         for (TypeElement clazz : scanResult.nodesByClass().keySet()) {
             out.append("  - ").append(clazz.getQualifiedName()).append("\n");
         }
         if (spec.outputFeatures() != null && !spec.outputFeatures().isEmpty()) {
             out.append("- Output features (from algorithm definition):\n");
-            for (String feature : spec.outputFeatures()) {
-                out.append("  - ").append(feature).append("\n");
+            for (FeatureSpec feature : spec.outputFeatures()) {
+                out.append("  - ").append(feature.name());
+                if (feature.type() != null) {
+                    out.append(" (type: ").append(feature.type()).append(")");
+                }
+                out.append("\n");
             }
         }
         out.append("\n");
@@ -174,6 +181,9 @@ public final class MarkdownReportWriter {
             }
             context.messager().printMessage(Diagnostic.Kind.NOTE,
                     "Wrote declarative transformer report to " + file.toUri());
+        } catch (FilerException ex) {
+            context.messager().printMessage(Diagnostic.Kind.ERROR,
+                    "Failed to write report (file conflict): " + ex.getMessage(), specElement);
         } catch (IOException ex) {
             context.messager().printMessage(Diagnostic.Kind.ERROR,
                     "Failed to write report: " + ex.getMessage(), specElement);

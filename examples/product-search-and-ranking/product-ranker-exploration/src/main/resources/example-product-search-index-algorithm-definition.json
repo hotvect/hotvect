@@ -1,0 +1,14 @@
+{
+  "hotvect_version": "${project.version}",
+  "algorithm_name": "example-product-search-index",
+  "algorithm_version": "${baseline.algorithm.version}",
+  "generator_factory_classname": "com.hotvect.example.product.ProductCatalogStateGeneratorFactory",
+  "algorithm_factory_classname": "com.hotvect.example.product.ProductCatalogStateFactory",
+  "source_data": {
+    "product_catalog": {
+      "data_prefix": "example_product_catalog",
+      "number_of_days": 1,
+      "lag_days": 1
+    }
+  }
+}

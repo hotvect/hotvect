@@ -1,9 +1,12 @@
 """Unit tests for build_utils module."""
 
+from io import StringIO
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from hotvect.build_utils import clone_and_build_algorithm_jar, parse_pom_xml
+import pytest
+
+from hotvect.build_utils import MavenArtifact, clone_and_build_algorithm_jar, parse_pom_xml, select_algorithm_jar
 
 
 def test_parse_pom_xml(tmp_path):
@@ -26,10 +29,7 @@ def test_parse_pom_xml(tmp_path):
 @patch("hotvect.build_utils.stream_output")
 @patch("hotvect.build_utils.get_immediate_subdirectories")
 @patch("hotvect.build_utils.ElementTree.parse")
-@patch("hotvect.build_utils.glob.glob")
-def test_clone_and_build_algorithm_jar(
-    mock_glob, mock_parse, mock_get_dirs, mock_stream_output, mock_capture_output, tmp_path
-):
+def test_clone_and_build_algorithm_jar(mock_parse, mock_get_dirs, mock_stream_output, mock_capture_output, tmp_path):
     """Test complete clone and build workflow."""
     # Setup mocks
     cloned_path = tmp_path / "algo_source" / "my-repo"
@@ -51,7 +51,7 @@ def test_clone_and_build_algorithm_jar(
     jar_file = cloned_path / "target" / "test-algo-2.0.0.jar"
     jar_file.parent.mkdir(parents=True)
     jar_file.touch()
-    mock_glob.return_value = [str(jar_file)]
+    progress_stream = StringIO()
 
     # Execute
     result = clone_and_build_algorithm_jar(
@@ -59,6 +59,7 @@ def test_clone_and_build_algorithm_jar(
         git_reference="v2.0.0",
         work_dir=tmp_path,
         copy_jar_to=None,
+        progress_stream=progress_stream,
     )
 
     # Verify
@@ -69,6 +70,7 @@ def test_clone_and_build_algorithm_jar(
 
     # Verify git commands were called
     assert mock_stream_output.call_count >= 3  # clone, checkout, mvn
+    assert all(call.kwargs["display_fun"].__self__ is progress_stream for call in mock_stream_output.call_args_list)
     mock_capture_output.assert_called_once()  # git rev-parse
 
 
@@ -76,9 +78,8 @@ def test_clone_and_build_algorithm_jar(
 @patch("hotvect.build_utils.stream_output")
 @patch("hotvect.build_utils.get_immediate_subdirectories")
 @patch("hotvect.build_utils.ElementTree.parse")
-@patch("hotvect.build_utils.glob.glob")
 def test_clone_and_build_handles_string_paths(
-    mock_glob, mock_parse, mock_get_dirs, mock_stream_output, mock_capture_output, tmp_path
+    mock_parse, mock_get_dirs, mock_stream_output, mock_capture_output, tmp_path
 ):
     """Test that function handles string paths from get_immediate_subdirectories."""
     # Setup: get_immediate_subdirectories returns strings, not Path objects
@@ -101,7 +102,7 @@ def test_clone_and_build_handles_string_paths(
     jar_file = Path(cloned_path_str) / "target" / "test-1.0.jar"
     jar_file.parent.mkdir(parents=True)
     jar_file.touch()
-    mock_glob.return_value = [str(jar_file)]
+    progress_stream = StringIO()
 
     # Execute - should not raise TypeError when doing cloned_path / "pom.xml"
     result = clone_and_build_algorithm_jar(
@@ -109,8 +110,67 @@ def test_clone_and_build_handles_string_paths(
         git_reference="v1.0",
         work_dir=tmp_path,
         copy_jar_to=None,
+        progress_stream=progress_stream,
     )
 
     # Verify cloned_repo_path is a Path object
     assert isinstance(result.cloned_repo_path, Path)
     assert "my-repo" in str(result.cloned_repo_path)
+
+
+def test_select_algorithm_jar_prefers_attached_shaded_jar(tmp_path):
+    target_dir = tmp_path / "target"
+    target_dir.mkdir()
+    thin_jar = target_dir / "article-ranker-2.0.0.jar"
+    shaded_jar = target_dir / "article-ranker-2.0.0-shaded.jar"
+    thin_jar.touch()
+    shaded_jar.touch()
+
+    selected = select_algorithm_jar(target_dir, MavenArtifact("article-ranker", "2.0.0"))
+
+    assert selected == shaded_jar
+
+
+def test_select_algorithm_jar_accepts_replaced_shaded_artifact(tmp_path):
+    target_dir = tmp_path / "target"
+    target_dir.mkdir()
+    shaded_replacement = target_dir / "article-search-topk-4.1.1.jar"
+    original_jar = target_dir / "original-article-search-topk-4.1.1.jar"
+    shaded_replacement.touch()
+    original_jar.touch()
+
+    selected = select_algorithm_jar(target_dir, MavenArtifact("article-search-topk", "4.1.1"))
+
+    assert selected == shaded_replacement
+
+
+def test_select_algorithm_jar_ignores_non_runtime_jars(tmp_path):
+    target_dir = tmp_path / "target"
+    target_dir.mkdir()
+    runtime_jar = target_dir / "demo-algo-1.2.3.jar"
+    runtime_jar.touch()
+    (target_dir / "demo-algo-1.2.3-sources.jar").touch()
+    (target_dir / "demo-algo-1.2.3-javadoc.jar").touch()
+
+    selected = select_algorithm_jar(target_dir, MavenArtifact("demo-algo", "1.2.3"))
+
+    assert selected == runtime_jar
+
+
+def test_select_algorithm_jar_rejects_ambiguous_runtime_classifiers(tmp_path):
+    target_dir = tmp_path / "target"
+    target_dir.mkdir()
+    (target_dir / "demo-algo-1.2.3.jar").touch()
+    (target_dir / "demo-algo-1.2.3-all.jar").touch()
+
+    with pytest.raises(ValueError, match="Could not choose one algorithm JAR"):
+        select_algorithm_jar(target_dir, MavenArtifact("demo-algo", "1.2.3"))
+
+
+def test_select_algorithm_jar_rejects_missing_runtime_jar(tmp_path):
+    target_dir = tmp_path / "target"
+    target_dir.mkdir()
+    (target_dir / "demo-algo-1.2.3-sources.jar").touch()
+
+    with pytest.raises(ValueError, match="No algorithm JAR file found"):
+        select_algorithm_jar(target_dir, MavenArtifact("demo-algo", "1.2.3"))

@@ -2,6 +2,7 @@ package com.hotvect.tensorflow;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.hotvect.api.data.AvailableAction;
 import com.hotvect.api.data.Namespace;
 import com.hotvect.api.data.ValueType;
 import com.hotvect.api.data.common.NamespacedRecord;
@@ -84,7 +85,7 @@ class TFRecordRankingEncoderSimpleTest {
             new TFRecordRankingEncoder<>(testTransformer, outcome -> outcome);
 
         // Create empty ranking example
-        OfflineRankingRequest<String, String> request = OfflineRankingRequest.newOfflineRankingRequest(
+        OfflineRankingRequest<String, String> request = OfflineRankingRequest.ofAvailableActions(
             "empty_example", "shared_data", Collections.emptyList());
 
         RankingExample<String, String, Double> example = new RankingExample<>(
@@ -106,11 +107,13 @@ class TFRecordRankingEncoderSimpleTest {
 
         // Create single action ranking example
         List<String> actions = Arrays.asList("action_0");
-        OfflineRankingRequest<String, String> request = OfflineRankingRequest.newOfflineRankingRequest(
-            "single_action", "shared_data", actions);
+        OfflineRankingRequest<String, String> request = OfflineRankingRequest.ofAvailableActions(
+            "single_action", "shared_data", actions.stream()
+                    .map(action -> AvailableAction.of(action, action))
+                    .toList());
 
         List<RankingOutcome<Double, String>> outcomes = Arrays.asList(
-            new RankingOutcome<>(new RankingDecision<>(0, "action_0"), 0.0)
+            new RankingOutcome<>(RankingDecision.builder("action_0", "action_0").build(), 0.0)
         );
 
         RankingExample<String, String, Double> example = new RankingExample<>(
@@ -134,6 +137,103 @@ class TFRecordRankingEncoderSimpleTest {
         // Should be no more records
         assertNull(codec.read(channel));
     }
+
+    @Test
+    void usesOutcomePosition() throws Exception {
+        ComputingRankingTransformer<String, String> testTransformer = createSimpleTransformer();
+        TFRecordRankingEncoder<String, String, Double> encoder =
+            new TFRecordRankingEncoder<>(testTransformer, outcome -> outcome);
+
+        OfflineRankingRequest<String, String> request = OfflineRankingRequest.ofAvailableActions(
+            "two_actions",
+            "shared_data",
+            List.of(
+                    AvailableAction.of("action_0", "action_0"),
+                    AvailableAction.of("action_1", "action_1")
+            ));
+
+        List<RankingOutcome<Double, String>> outcomes = List.of(
+            new RankingOutcome<>(RankingDecision.builder("action_0", "action_0").build(), 0.0),
+            new RankingOutcome<>(RankingDecision.builder("action_1", "action_1").build(), 1.0)
+        );
+
+        RankingExample<String, String, Double> example = new RankingExample<>(
+            "two_actions", request, outcomes);
+
+        ByteBuffer result = encoder.apply(example);
+
+        TFRecordCodec codec = new TFRecordCodec();
+        ByteArrayInputStream bais = new ByteArrayInputStream(result.array(), result.position(), result.remaining());
+        ReadableByteChannel channel = Channels.newChannel(bais);
+
+        Example first = Example.parseFrom(codec.read(channel));
+        Example second = Example.parseFrom(codec.read(channel));
+
+        assertEquals(0L, label(first));
+        assertEquals(1L, label(second));
+        assertNull(codec.read(channel));
+    }
+
+    @Test
+    void rejectsOutcomeOrderMismatch() {
+        ComputingRankingTransformer<String, String> testTransformer = createSimpleTransformer();
+        TFRecordRankingEncoder<String, String, Double> encoder =
+            new TFRecordRankingEncoder<>(testTransformer, outcome -> outcome);
+
+        OfflineRankingRequest<String, String> request = OfflineRankingRequest.ofAvailableActions(
+            "two_actions",
+            "shared_data",
+            List.of(
+                    AvailableAction.of("action_0", "action_0"),
+                    AvailableAction.of("action_1", "action_1")
+            ));
+
+        List<RankingOutcome<Double, String>> outcomes = List.of(
+            new RankingOutcome<>(RankingDecision.builder("action_1", "action_1").build(), 1.0),
+            new RankingOutcome<>(RankingDecision.builder("action_0", "action_0").build(), 0.0)
+        );
+
+        RankingExample<String, String, Double> example = new RankingExample<>(
+            "two_actions", request, outcomes);
+
+        RuntimeException error = assertThrows(RuntimeException.class, () -> encoder.apply(example));
+        assertInstanceOf(IllegalArgumentException.class, error.getCause());
+        assertEquals(
+                "RankingExample outcome action id action_1 at position 0, expected action_0",
+                error.getCause().getMessage()
+        );
+    }
+
+    @Test
+    void rejectsTransformedActionOrderMismatch() {
+        ComputingRankingTransformer<String, String> testTransformer = transformerReorderingWithActionIds();
+        TFRecordRankingEncoder<String, String, Double> encoder =
+            new TFRecordRankingEncoder<>(testTransformer, outcome -> outcome);
+
+        OfflineRankingRequest<String, String> request = OfflineRankingRequest.ofAvailableActions(
+            "two_actions",
+            "shared_data",
+            List.of(
+                    AvailableAction.of("action_0", "action_0"),
+                    AvailableAction.of("action_1", "action_1")
+            ));
+
+        List<RankingOutcome<Double, String>> outcomes = List.of(
+            new RankingOutcome<>(RankingDecision.builder("action_0", "action_0").build(), 0.0),
+            new RankingOutcome<>(RankingDecision.builder("action_1", "action_1").build(), 1.0)
+        );
+
+        RankingExample<String, String, Double> example = new RankingExample<>(
+            "two_actions", request, outcomes);
+
+        RuntimeException error = assertThrows(RuntimeException.class, () -> encoder.apply(example));
+        assertInstanceOf(IllegalArgumentException.class, error.getCause());
+        assertEquals(
+                "RankingTransformer returned transformed action id action_1 at position 0, expected action_0",
+                error.getCause().getMessage()
+        );
+    }
+
 
     @Test
     void testFeatureValidationInConstructor() {
@@ -173,7 +273,11 @@ class TFRecordRankingEncoderSimpleTest {
             }
 
             @Override
-            public ComputingRankingRequest<String, String> prepare(String exampleId, String shared, List<Computable<String>> actions) {
+            public ComputingRankingRequest<String, String> prepare(
+                    String exampleId,
+                    String shared,
+                    List<Computable<String>> actions
+            ) {
                 return null;
             }
 
@@ -213,7 +317,11 @@ class TFRecordRankingEncoderSimpleTest {
             }
 
             @Override
-            public ComputingRankingRequest<String, String> prepare(String exampleId, String shared, List<Computable<String>> actions) {
+            public ComputingRankingRequest<String, String> prepare(
+                    String exampleId,
+                    String shared,
+                    List<Computable<String>> actions
+            ) {
                 return null; // Not used in our tests
             }
 
@@ -234,14 +342,15 @@ class TFRecordRankingEncoderSimpleTest {
             @Override
             public List<TransformedAction<String>> transform(ComputingRankingRequest<String, String> rankingRequest) {
                 List<TransformedAction<String>> results = new ArrayList<>();
-                List<String> actions = rankingRequest.rankingRequest().availableActions();
+                List<AvailableAction<String>> actions = rankingRequest.rankingRequest().actions();
 
                 for (int i = 0; i < actions.size(); i++) {
+                    AvailableAction<String> action = actions.get(i);
                     NamespacedRecord<Namespace, Object> record = new NamespacedRecordImpl<>();
                     Namespace testFeature = createTestNamespace("test_feature", TensorFlowFeatureType.NUMERICAL);
                     record.put(testFeature, (float) i); // Mock feature value
 
-                    results.add(TransformedAction.of(actions.get(i), record));
+                    results.add(TransformedAction.of(action.actionId(), action.action(), record));
                 }
 
                 return results;
@@ -267,7 +376,11 @@ class TFRecordRankingEncoderSimpleTest {
             }
 
             @Override
-            public ComputingRankingRequest<String, String> prepare(String exampleId, String shared, List<Computable<String>> actions) {
+            public ComputingRankingRequest<String, String> prepare(
+                    String exampleId,
+                    String shared,
+                    List<Computable<String>> actions
+            ) {
                 return null;
             }
 
@@ -288,19 +401,69 @@ class TFRecordRankingEncoderSimpleTest {
             @Override
             public List<TransformedAction<String>> transform(ComputingRankingRequest<String, String> rankingRequest) {
                 List<TransformedAction<String>> results = new ArrayList<>();
-                List<String> actions = rankingRequest.rankingRequest().availableActions();
+                List<AvailableAction<String>> actions = rankingRequest.rankingRequest().actions();
 
-                for (String action : actions) {
+                for (AvailableAction<String> action : actions) {
                     NamespacedRecord<Namespace, Object> record = new NamespacedRecordImpl<>();
                     record.put(createTestNamespace("categorical_feature", TensorFlowFeatureType.CATEGORICAL), 1);
                     record.put(createTestNamespace("numerical_feature", TensorFlowFeatureType.NUMERICAL), 1.0f);
                     record.put(createTestNamespace("categorical_sequence", TensorFlowFeatureType.categoricalSequence(3)), new int[]{1, 2, 3});
                     record.put(createTestNamespace("numerical_sequence", TensorFlowFeatureType.numericalSequence(2)), new float[]{1.0f, 2.0f});
 
-                    results.add(TransformedAction.of(action, record));
+                    results.add(TransformedAction.of(action.actionId(), action.action(), record));
                 }
 
                 return results;
+            }
+
+            @Override
+            public List<TransformationMetadata> getTransformationMetadata() {
+                return Collections.emptyList();
+            }
+        };
+    }
+
+    private ComputingRankingTransformer<String, String> transformerReorderingWithActionIds() {
+        return new ComputingRankingTransformer<String, String>() {
+            @Override
+            public SortedSet<Namespace> getUsedFeatures() {
+                SortedSet<Namespace> features = new TreeSet<>(Comparator.comparing(Namespace::getName));
+                features.add(createTestNamespace("test_feature", TensorFlowFeatureType.NUMERICAL));
+                return features;
+            }
+
+            @Override
+            public ComputingRankingRequest<String, String> prepare(
+                    String exampleId,
+                    String shared,
+                    List<Computable<String>> actions
+            ) {
+                return null;
+            }
+
+            @Override
+            public ComputingRankingRequest<String, String> prepare(RankingRequest<String, String> rankingRequest) {
+                return new ComputingRankingRequest<>(
+                    rankingRequest,
+                    Computing.builder(rankingRequest).build(),
+                    Collections.emptyList()
+                );
+            }
+
+            @Override
+            public ComputingRankingRequest<String, String> prepare(ComputingRankingRequest<String, String> computingRankingRequest) {
+                return computingRankingRequest;
+            }
+
+            @Override
+            public List<TransformedAction<String>> transform(ComputingRankingRequest<String, String> rankingRequest) {
+                var actions = rankingRequest.rankingRequest().actions();
+                return List.of(actions.get(1), actions.get(0)).stream().map(action -> {
+                    NamespacedRecord<Namespace, Object> record = new NamespacedRecordImpl<>();
+                    Namespace testFeature = createTestNamespace("test_feature", TensorFlowFeatureType.NUMERICAL);
+                    record.put(testFeature, 1.0f);
+                    return TransformedAction.of(action.actionId(), action.action(), record);
+                }).toList();
             }
 
             @Override
@@ -338,5 +501,13 @@ class TFRecordRankingEncoderSimpleTest {
                 return getName().hashCode();
             }
         };
+    }
+
+    private long label(Example example) {
+        return example.getFeatures()
+                .getFeatureMap()
+                .get("Label")
+                .getInt64List()
+                .getValue(0);
     }
 }

@@ -10,8 +10,6 @@ import it.unimi.dsi.fastutil.doubles.DoubleList;
 import java.util.ArrayList;
 import java.util.List;
 
-import static com.hotvect.utils.AdditionalProperties.getAdditionalProperties;
-
 @Deprecated(forRemoval = true)
 public interface ComputingBulkScorer<SHARED, ACTION> extends BulkScorer<SHARED, ACTION> {
     @Deprecated(forRemoval = true)
@@ -28,11 +26,16 @@ public interface ComputingBulkScorer<SHARED, ACTION> extends BulkScorer<SHARED, 
     default List<ScoringDecision<ACTION>> bulkScore(ComputingRankingRequest<SHARED, ACTION> rankingRequest){
         DoubleList scores = apply(rankingRequest);
         List<ScoringDecision<ACTION>> decisions = new ArrayList<>(scores.size());
-        List<ACTION> actions = rankingRequest.rankingRequest().availableActions();
+        var actions = rankingRequest.rankingRequest().actions();
 
         for (int i = 0; i < scores.size() && i < actions.size(); i++) {
-            ACTION action = actions.get(i);
-            decisions.add(ScoringDecision.of(action, scores.getDouble(i), getAdditionalProperties(action)));
+            var action = actions.get(i);
+            decisions.add(ScoringDecision.of(
+                    action.actionId(),
+                    action.action(),
+                    scores.getDouble(i),
+                    action.additionalProperties()
+            ));
         }
         return decisions;
     }

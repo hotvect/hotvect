@@ -3,20 +3,37 @@
 from __future__ import annotations
 
 import json
+import sys
+from datetime import date
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
+
+import boto3
 
 from hotvect.experiment_management import (
+    DEFAULT_CONNECT_TIMEOUT_SECONDS,
+    DEFAULT_READ_TIMEOUT_SECONDS,
     CommandTokenProvider,
     ExperimentManagementClient,
     ExperimentManagementConnection,
     TokenProviderAuth,
 )
 from hotvect.experiment_management.hotvect_config import load_experiment_management_hotvect_config
+from hotvect.experiment_management.online_results import OnlineEvaluationResultsStore
 from hotvect.extra import config as hv_config
+from hotvect.utils import get_boto_session_after_assuming_role
 
 
-def _load_config_from_path(path: Path) -> Dict[str, Any]:
+def _resolve_timeout_seconds(value: Any, *, arg_name: str, default: float) -> float:
+    if value is None:
+        return float(default)
+    resolved = float(value)
+    if resolved <= 0:
+        raise ValueError(f"{arg_name} must be > 0")
+    return resolved
+
+
+def _load_config_from_path(path: Path) -> dict[str, Any]:
     data = json.loads(path.read_text(encoding="utf-8"))
     if isinstance(data, dict) and "config" in data and isinstance(data["config"], dict):
         return data["config"]
@@ -25,12 +42,22 @@ def _load_config_from_path(path: Path) -> Dict[str, Any]:
     raise ValueError(f"Invalid config JSON (expected object): {path}")
 
 
+def _load_hotvect_config_from_args(args) -> dict[str, Any]:
+    config_path = getattr(args, "config_path", None)
+    if config_path:
+        cfg_path = Path(str(config_path)).expanduser()
+        if not cfg_path.exists():
+            raise FileNotFoundError(f"Config not found: {cfg_path}")
+        return _load_config_from_path(cfg_path)
+    return hv_config.load_config()
+
+
 def _create_client_from_args(args) -> ExperimentManagementClient:
     url = getattr(args, "url", None)
     token_provider_command = getattr(args, "token_provider_command", None)
     token_provider_ttl_ms = getattr(args, "token_provider_ttl_ms", None)
-    config_path = getattr(args, "config_path", None)
-
+    connect_timeout_seconds = getattr(args, "connect_timeout_seconds", None)
+    read_timeout_seconds = getattr(args, "read_timeout_seconds", None)
     if (url is None) ^ (token_provider_command is None):
         raise ValueError("Provide both --url and --token-provider-command, or omit both.")
 
@@ -38,25 +65,43 @@ def _create_client_from_args(args) -> ExperimentManagementClient:
         ttl_ms = int(token_provider_ttl_ms or 3600_000)
         provider = CommandTokenProvider(command=str(token_provider_command), ttl_seconds=ttl_ms / 1000.0)
         auth = TokenProviderAuth(provider)
-        conn = ExperimentManagementConnection(environment=str(url), bearer_auth=auth)
+        conn = ExperimentManagementConnection(
+            environment=str(url),
+            connect_timeout=_resolve_timeout_seconds(
+                connect_timeout_seconds,
+                arg_name="--connect-timeout-seconds",
+                default=DEFAULT_CONNECT_TIMEOUT_SECONDS,
+            ),
+            read_timeout=_resolve_timeout_seconds(
+                read_timeout_seconds,
+                arg_name="--read-timeout-seconds",
+                default=DEFAULT_READ_TIMEOUT_SECONDS,
+            ),
+            bearer_auth=auth,
+        )
         return ExperimentManagementClient(conn)
 
-    cfg: Optional[Dict[str, Any]] = None
-    if config_path:
-        cfg_path = Path(str(config_path)).expanduser()
-        if not cfg_path.exists():
-            raise FileNotFoundError(f"Config not found: {cfg_path}")
-        cfg = _load_config_from_path(cfg_path)
-    else:
-        cfg = hv_config.load_config()
-
+    cfg: dict[str, Any] | None = _load_hotvect_config_from_args(args)
     em_cfg = load_experiment_management_hotvect_config(config=cfg)
     provider = CommandTokenProvider(
         command=em_cfg.token_provider_command,
         ttl_seconds=em_cfg.token_provider_ttl_ms / 1000.0,
     )
     auth = TokenProviderAuth(provider)
-    conn = ExperimentManagementConnection(environment=em_cfg.url, bearer_auth=auth)
+    conn = ExperimentManagementConnection(
+        environment=em_cfg.url,
+        connect_timeout=_resolve_timeout_seconds(
+            connect_timeout_seconds,
+            arg_name="--connect-timeout-seconds",
+            default=em_cfg.connect_timeout_seconds,
+        ),
+        read_timeout=_resolve_timeout_seconds(
+            read_timeout_seconds,
+            arg_name="--read-timeout-seconds",
+            default=em_cfg.read_timeout_seconds,
+        ),
+        bearer_auth=auth,
+    )
     return ExperimentManagementClient(conn)
 
 
@@ -92,6 +137,70 @@ def _sorted_slot_names_for_list_in_use(client: ExperimentManagementClient, *, sl
     return sorted(s.name for s in slots)
 
 
+def _validate_analysis_date(value: str) -> str:
+    try:
+        return date.fromisoformat(value).isoformat()
+    except ValueError as exc:
+        raise ValueError(f"Invalid analysis date {value!r}; expected YYYY-MM-DD") from exc
+
+
+def _resolve_online_results_s3_base_prefix_from_args(
+    args,
+    *,
+    client: ExperimentManagementClient | None = None,
+    experiment_id: int,
+) -> str:
+    s3_base_prefix = str(getattr(args, "s3_base_prefix", "") or "").strip()
+    if s3_base_prefix:
+        return s3_base_prefix
+
+    cfg = _load_hotvect_config_from_args(args)
+    em_cfg = load_experiment_management_hotvect_config(config=cfg)
+    slot_name = _resolve_slot_name_for_experiment_id(
+        client or _create_client_from_args(args),
+        experiment_id=experiment_id,
+    )
+    resolved = (em_cfg.online_results_s3_base_prefixes_by_slot or {}).get(slot_name)
+    if resolved:
+        return resolved
+    raise ValueError(
+        "Config missing "
+        f"'experiment_management.online_results.slots.{slot_name}.s3_base_prefix' for experiment results."
+    )
+
+
+def _create_online_results_store_from_args(
+    args,
+    *,
+    client: ExperimentManagementClient | None = None,
+    experiment_id: int,
+) -> OnlineEvaluationResultsStore:
+    role_arn = str(getattr(args, "role_arn", "") or "").strip()
+    s3_base_prefix = _resolve_online_results_s3_base_prefix_from_args(
+        args,
+        client=client,
+        experiment_id=experiment_id,
+    )
+    session = get_boto_session_after_assuming_role(role_arn) if role_arn else boto3.Session()
+    return OnlineEvaluationResultsStore(s3_client=session.client("s3"), s3_base_prefix=s3_base_prefix)
+
+
+def _resolve_online_results_root_from_args(args) -> Path:
+    output_base_dir = str(getattr(args, "output_base_dir", "") or "").strip()
+    if output_base_dir:
+        base_dir = Path(output_base_dir).expanduser()
+    else:
+        cfg = _load_hotvect_config_from_args(args)
+        directories = cfg.get("directories") if isinstance(cfg, dict) else None
+        if not isinstance(directories, dict):
+            raise ValueError("Config missing 'directories' object")
+        resolved_output_base_dir = directories.get("output_base_dir")
+        if not isinstance(resolved_output_base_dir, str) or not resolved_output_base_dir:
+            raise ValueError("Config missing 'directories.output_base_dir'")
+        base_dir = Path(resolved_output_base_dir).expanduser()
+    return base_dir / "meta" / "online-evaluation-results"
+
+
 class ExperimentCommand:
     @classmethod
     def register_parser(cls, parser: Any) -> Any:
@@ -116,6 +225,18 @@ class ExperimentCommand:
             default=3600_000,
             help="Token cache TTL in ms when using --token-provider-command (default: 3600000).",
         )
+        parser.add_argument(
+            "--connect-timeout-seconds",
+            type=float,
+            default=None,
+            help="Override EMS connect timeout in seconds (default from config or client default).",
+        )
+        parser.add_argument(
+            "--read-timeout-seconds",
+            type=float,
+            default=None,
+            help="Override EMS read timeout in seconds (default from config or client default).",
+        )
 
         top = parser.add_subparsers(dest="subcommand", required=True, metavar="<subcommand>")
 
@@ -136,6 +257,52 @@ class ExperimentCommand:
 
         exp_rampup = exp_sub.add_parser("rampup-log", help="Get experiment ramp-up log")
         exp_rampup.add_argument("--experiment-id", type=int, required=True)
+
+        exp_results = exp_sub.add_parser("results", help="Online evaluation result operations")
+        exp_results_sub = exp_results.add_subparsers(
+            dest="experiment_results_subcommand", required=True, metavar="<subcommand>"
+        )
+
+        exp_results_list = exp_results_sub.add_parser("list", help="List available analysis dates from online results")
+        exp_results_list.add_argument("--experiment-id", type=int, required=True)
+        exp_results_list.add_argument(
+            "--s3-base-prefix",
+            default="",
+            help="Override S3 base prefix for online evaluation results",
+        )
+        exp_results_list.add_argument("--role-arn", default="", help="AWS role ARN to assume for S3 access")
+
+        exp_results_show = exp_results_sub.add_parser("show", help="Stream one online result partition to stdout")
+        exp_results_show.add_argument("--experiment-id", type=int, required=True)
+        exp_results_show.add_argument("--analysis-date", required=True, help="Analysis date in YYYY-MM-DD format")
+        exp_results_show.add_argument(
+            "--s3-base-prefix",
+            default="",
+            help="Override S3 base prefix for online evaluation results",
+        )
+        exp_results_show.add_argument("--role-arn", default="", help="AWS role ARN to assume for S3 access")
+
+        exp_results_download = exp_results_sub.add_parser(
+            "download",
+            help="Download online result partitions into output-base-dir/meta/online-evaluation-results",
+        )
+        exp_results_download.add_argument("--experiment-id", type=int, required=True)
+        exp_results_download.add_argument(
+            "--analysis-date",
+            default="",
+            help="Optional analysis date in YYYY-MM-DD format; if omitted, download all available dates",
+        )
+        exp_results_download.add_argument(
+            "--output-base-dir",
+            default="",
+            help="Optional output base dir; defaults to directories.output_base_dir from config",
+        )
+        exp_results_download.add_argument(
+            "--s3-base-prefix",
+            default="",
+            help="Override S3 base prefix for online evaluation results",
+        )
+        exp_results_download.add_argument("--role-arn", default="", help="AWS role ARN to assume for S3 access")
 
         default_variant = top.add_parser("default-variant", help="Default-variant operations")
         dv_sub = default_variant.add_subparsers(
@@ -176,9 +343,8 @@ class ExperimentCommand:
         return parser
 
     def execute(self, args: Any) -> None:
-        client = _create_client_from_args(args)
-
         if args.subcommand == "slot":
+            client = _create_client_from_args(args)
             if args.slot_subcommand == "list":
                 slots = client.get_slots() or []
                 out = {"ok": True, "slots": [s.model_dump(mode="json") for s in slots]}
@@ -194,6 +360,53 @@ class ExperimentCommand:
             raise ValueError(f"Unknown slot subcommand: {args.slot_subcommand}")
 
         if args.subcommand == "experiment":
+            if args.experiment_subcommand == "results":
+                experiment_id = int(args.experiment_id)
+                store = _create_online_results_store_from_args(args, experiment_id=experiment_id)
+
+                if args.experiment_results_subcommand == "list":
+                    out = {
+                        "ok": True,
+                        "experiment_id": experiment_id,
+                        "s3_base_prefix": store.s3_base_prefix,
+                        "analysis_dates": store.list_analysis_dates(experiment_id=experiment_id),
+                    }
+                    print(json.dumps(out, indent=2))
+                    return
+
+                if args.experiment_results_subcommand == "show":
+                    analysis_date = _validate_analysis_date(str(args.analysis_date))
+                    store.stream_analysis_date(
+                        experiment_id=experiment_id,
+                        analysis_date=analysis_date,
+                        output_stream=sys.stdout.buffer,
+                    )
+                    return
+
+                if args.experiment_results_subcommand == "download":
+                    analysis_date_raw = str(getattr(args, "analysis_date", "") or "").strip()
+                    analysis_date = _validate_analysis_date(analysis_date_raw) if analysis_date_raw else None
+                    results_root = _resolve_online_results_root_from_args(args)
+                    download_result = store.download_analysis_dates(
+                        experiment_id=experiment_id,
+                        experiment_root=results_root / f"experiment_id={experiment_id}",
+                        analysis_date=analysis_date,
+                    )
+                    out = {
+                        "ok": True,
+                        "experiment_id": experiment_id,
+                        "analysis_date": analysis_date,
+                        "s3_base_prefix": store.s3_base_prefix,
+                        "results_root": download_result["download_root"],
+                        "manifest_path": download_result["manifest_path"],
+                        "analysis_dates": download_result["analysis_dates"],
+                    }
+                    print(json.dumps(out, indent=2))
+                    return
+
+                raise ValueError(f"Unknown experiment results subcommand: {args.experiment_results_subcommand}")
+
+            client = _create_client_from_args(args)
             if args.experiment_subcommand == "list":
                 slot_name = str(getattr(args, "slot_name", "") or "").strip()
                 items: list[dict[str, Any]] = []
@@ -237,6 +450,7 @@ class ExperimentCommand:
             raise ValueError(f"Unknown experiment subcommand: {args.experiment_subcommand}")
 
         if args.subcommand == "default-variant":
+            client = _create_client_from_args(args)
             if args.default_variant_subcommand != "list":
                 raise ValueError(f"Unknown default-variant subcommand: {args.default_variant_subcommand}")
 
@@ -263,6 +477,7 @@ class ExperimentCommand:
             return
 
         if args.subcommand == "algorithm":
+            client = _create_client_from_args(args)
             if args.algorithm_subcommand == "list":
                 slot_name = str(getattr(args, "slot_name", "") or "").strip()
                 algos = client.get_algorithms() or []

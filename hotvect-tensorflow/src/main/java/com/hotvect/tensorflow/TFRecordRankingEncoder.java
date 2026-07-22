@@ -3,15 +3,14 @@ package com.hotvect.tensorflow;
 import com.google.common.base.Strings;
 import com.google.common.base.Throwables;
 import com.hotvect.api.algodefinition.common.RewardFunction;
+import com.hotvect.api.algodefinition.ranking.RankingTransformer;
 import com.hotvect.api.codec.ranking.RankingExampleEncoder;
+import com.hotvect.api.data.AvailableAction;
 import com.hotvect.api.data.Namespace;
 import com.hotvect.api.data.common.NamespacedRecord;
 import com.hotvect.api.data.ranking.RankingExample;
 import com.hotvect.api.data.ranking.RankingOutcome;
 import com.hotvect.api.data.ranking.TransformedAction;
-import com.hotvect.core.transform.ranking.ComputingRankingRequest;
-import com.hotvect.core.transform.ranking.ComputingRankingTransformer;
-import com.hotvect.utils.ListTransform;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.tensorflow.proto.Example;
@@ -42,12 +41,12 @@ import static java.util.stream.Collectors.toSet;
 public class TFRecordRankingEncoder<SHARED, ACTION, OUTCOME> implements RankingExampleEncoder<SHARED, ACTION, OUTCOME> {
     private static final Logger logger = LoggerFactory.getLogger(TFRecordRankingEncoder.class);
 
-    private final ComputingRankingTransformer<SHARED, ACTION> transformer;
+    private final RankingTransformer<SHARED, ACTION> transformer;
     private final RewardFunction<OUTCOME> rewardFunction;
     private final TFRecordWriter tfRecordWriter;
     private final TensorFlowJsonFeatureSchemaGenerator schemaGenerator;
 
-    public TFRecordRankingEncoder(ComputingRankingTransformer<SHARED, ACTION> transformer, RewardFunction<OUTCOME> rewardFunction) {
+    public TFRecordRankingEncoder(RankingTransformer<SHARED, ACTION> transformer, RewardFunction<OUTCOME> rewardFunction) {
         this.transformer = transformer;
         this.rewardFunction = rewardFunction;
 
@@ -82,18 +81,45 @@ public class TFRecordRankingEncoder<SHARED, ACTION, OUTCOME> implements RankingE
     @Override
     public ByteBuffer apply(RankingExample<SHARED, ACTION, OUTCOME> toEncode) {
         try {
-            ComputingRankingRequest<SHARED, ACTION> memoized = transformer.prepare(toEncode.request());
-            List<TransformedAction<ACTION>> transformedActions = transformer.transform(memoized);
-            List<NamespacedRecord<Namespace, Object>> transformed = ListTransform.map(transformedActions, TransformedAction::transformed);
+            List<TransformedAction<ACTION>> transformedActions = transformer.transform(toEncode.request());
+            List<AvailableAction<ACTION>> actions = toEncode.request().actions();
+            checkArgument(
+                    transformedActions.size() == actions.size(),
+                    "RankingTransformer returned %s transformed actions for %s actions",
+                    transformedActions.size(),
+                    actions.size()
+            );
+            checkArgument(
+                    toEncode.outcomes().size() == actions.size(),
+                    "RankingExample has %s outcomes for %s actions",
+                    toEncode.outcomes().size(),
+                    actions.size()
+            );
 
             List<ByteBuffer> buffers = new ArrayList<>();
 
-            for (int i = 0; i < transformed.size(); i++) {
+            for (int i = 0; i < actions.size(); i++) {
+                String actionId = actions.get(i).actionId();
+                TransformedAction<ACTION> transformedAction = transformedActions.get(i);
                 RankingOutcome<OUTCOME, ACTION> outcome = toEncode.outcomes().get(i);
+                checkArgument(
+                        transformedAction.actionId().equals(actionId),
+                        "RankingTransformer returned transformed action id %s at position %s, expected %s",
+                        transformedAction.actionId(),
+                        i,
+                        actionId
+                );
+                checkArgument(
+                        outcome.rankingDecision().actionId().equals(actionId),
+                        "RankingExample outcome action id %s at position %s, expected %s",
+                        outcome.rankingDecision().actionId(),
+                        i,
+                        actionId
+                );
                 double reward = rewardFunction.applyAsDouble(outcome.outcome());
-                NamespacedRecord<Namespace, Object> record = transformed.get(i);
+                NamespacedRecord<Namespace, Object> record = transformedAction.transformed();
 
-                Example example = convertToTensorFlowExample(record, reward, toEncode.exampleId(), i);
+                Example example = convertToTensorFlowExample(record, reward, toEncode.exampleId());
                 buffers.add(ByteBuffer.wrap(example.toByteArray()));
             }
 
@@ -105,15 +131,13 @@ public class TFRecordRankingEncoder<SHARED, ACTION, OUTCOME> implements RankingE
         }
     }
 
-
     /**
      * Converts a single record to a TensorFlow Example proto.
      * Feature names are important because they map to TensorFlow model inputs.
      */
     private Example convertToTensorFlowExample(NamespacedRecord<Namespace, Object> record,
                                               double reward,
-                                              String exampleId,
-                                              int actionIndex) {
+                                              String exampleId) {
         Features.Builder featuresBuilder = Features.newBuilder();
 
         // Add label as binarized int64 (>0 is 1, <=0 is 0)

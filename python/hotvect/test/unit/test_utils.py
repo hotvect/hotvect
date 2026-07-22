@@ -1,6 +1,6 @@
 import hashlib
 import io
-import json
+import os
 import pathlib
 import tarfile
 import tempfile
@@ -15,6 +15,7 @@ from hotvect import utils
 from hotvect.pyhotvect import DataDependency
 from hotvect.utils import (
     as_locally_available_content,
+    assert_s3_directory_uri_empty,
     build_s3_date_path,
     execute_command_with_live_output,
     format_s3_uri,
@@ -79,6 +80,26 @@ def test_recommend_concurrency(num_git_ref, num_runs, available_physical_cores):
     assert actual_core_use >= 0.6 * target_core_use
 
 
+@pytest.mark.parametrize(
+    ("num_files", "available_logical_cores", "expected"),
+    [
+        (0, 48, 1),
+        (2, 48, 2),
+        (16, 48, 16),
+        (100, 48, 32),
+        (100, 96, 32),
+        (100, 8, 6),
+    ],
+)
+def test_recommend_s3_directory_transfer_workers(num_files, available_logical_cores, expected):
+    actual = utils.recommend_s3_directory_transfer_workers(
+        num_files=num_files,
+        available_logical_cores=available_logical_cores,
+    )
+
+    assert actual == expected
+
+
 def create_dt_directory(base: pathlib.Path, dirname: str) -> str:
     """
     Helper function which creates a directory named 'dirname' under the base path.
@@ -102,7 +123,7 @@ def test_valid_dirs(tmp_path):
 def test_missing_date_fail(tmp_path):
     create_dt_directory(tmp_path, "dt=2023-01-01")
     requested = [date(2023, 1, 1), date(2023, 1, 2)]
-    with pytest.raises(AssertionError):
+    with pytest.raises(ValueError, match="dates were not available"):
         to_local_paths(str(tmp_path), requested, fail_if_unavailable=True)
 
 
@@ -199,6 +220,39 @@ def test_store_file_s3_root_level(mock_boto3):
     mock_s3_client.upload_file.assert_called_once_with("/local/file.txt", "my-bucket", "file.txt")
 
 
+@patch("hotvect.utils.boto3")
+def test_assert_s3_directory_uri_empty_accepts_empty_prefix(mock_boto3):
+    mock_s3_client = MagicMock()
+    mock_s3_client.list_objects_v2.return_value = {"KeyCount": 0}
+    mock_boto3.client.return_value = mock_s3_client
+
+    assert_s3_directory_uri_empty("s3://my-bucket/path/to/prediction/")
+
+    mock_boto3.client.assert_called_once_with("s3")
+    mock_s3_client.list_objects_v2.assert_called_once_with(
+        Bucket="my-bucket",
+        Prefix="path/to/prediction/",
+        MaxKeys=1,
+    )
+
+
+@patch("hotvect.utils.boto3")
+def test_assert_s3_directory_uri_empty_rejects_existing_objects(mock_boto3):
+    mock_s3_client = MagicMock()
+    mock_s3_client.list_objects_v2.return_value = {"Contents": [{"Key": "path/to/prediction/part-00000.jsonl"}]}
+    mock_boto3.client.return_value = mock_s3_client
+
+    with pytest.raises(ValueError, match="must be empty before publish"):
+        assert_s3_directory_uri_empty("s3://my-bucket/path/to/prediction/")
+
+    mock_boto3.client.assert_called_once_with("s3")
+    mock_s3_client.list_objects_v2.assert_called_once_with(
+        Bucket="my-bucket",
+        Prefix="path/to/prediction/",
+        MaxKeys=1,
+    )
+
+
 def test_store_file_local_path(tmp_path):
     """Test local file path copying"""
     src_file = tmp_path / "source.txt"
@@ -224,6 +278,57 @@ def test_store_file_local_creates_intermediate_dirs(tmp_path):
     assert dest_file.exists()
     assert dest_file.read_text() == "test content"
     assert dest_file.parent.exists()
+
+
+@patch("hotvect.utils.boto3")
+def test_store_file_s3_directory_uploads_all_files(mock_boto3, tmp_path):
+    mock_s3_client = MagicMock()
+    mock_boto3.client.return_value = mock_s3_client
+
+    src_dir = tmp_path / "encoded"
+    (src_dir / "nested").mkdir(parents=True)
+    (src_dir / "part-00000").write_text("a")
+    (src_dir / "nested" / "part-00001").write_text("b")
+
+    with patch("hotvect.utils.shutil.which", return_value=None):
+        store_file(str(src_dir), "s3://my-bucket/cache/encoded")
+
+    assert {call.args for call in mock_s3_client.upload_file.call_args_list} == {
+        (str(src_dir / "part-00000"), "my-bucket", "cache/encoded/part-00000"),
+        (str(src_dir / "nested" / "part-00001"), "my-bucket", "cache/encoded/nested/part-00001"),
+    }
+    assert all(
+        call.kwargs == {"Config": utils.S3_DIRECTORY_TRANSFER_CONFIG}
+        for call in mock_s3_client.upload_file.call_args_list
+    )
+
+
+def test_store_file_s3_directory_uses_s5cmd_when_available(tmp_path):
+    src_dir = tmp_path / "encoded"
+    (src_dir / "nested").mkdir(parents=True)
+    (src_dir / "part-00000").write_text("a")
+    (src_dir / "nested" / "part-00001").write_text("b")
+
+    with (
+        patch("hotvect.utils.boto3") as mock_boto3,
+        patch("hotvect.utils.shutil.which", return_value="/usr/bin/s5cmd"),
+        patch("hotvect.utils.recommend_s3_directory_transfer_workers", return_value=7),
+        patch("hotvect.utils.subprocess.run") as mock_run,
+    ):
+        store_file(str(src_dir), "s3://my-bucket/cache/encoded")
+
+    mock_boto3.client.assert_not_called()
+    mock_run.assert_called_once_with(
+        [
+            "/usr/bin/s5cmd",
+            "--numworkers",
+            "7",
+            "cp",
+            os.path.join(str(src_dir), ""),
+            "s3://my-bucket/cache/encoded/",
+        ],
+        check=True,
+    )
 
 
 def test_sanitize_path_component_removes_separators():
@@ -310,7 +415,7 @@ def test_as_locally_available_content_exact_match(mock_boto3, tmp_path):
     local_cache = str(tmp_path)
 
     # Request the exact file (not the metadata)
-    result = as_locally_available_content("s3://example-bucket/path/to/predict-parameters.zip", local_cache)
+    result = as_locally_available_content("s3://test-bucket/path/to/predict-parameters.zip", local_cache)
 
     # Verify: Should download only the exact match (predict-parameters.zip, not the .metadata file)
     mock_bucket.download_file.assert_called_once_with("path/to/predict-parameters.zip", result)
@@ -331,11 +436,11 @@ def test_as_locally_available_content_exact_match_uses_local_cache(mock_boto3, t
     mock_bucket.objects.filter.return_value = [mock_file]
 
     local_cache = tmp_path
-    expected_path = _expected_single_file_cache_path(local_cache, "example-bucket", "path/to/predict-parameters.zip")
+    expected_path = _expected_single_file_cache_path(local_cache, "test-bucket", "path/to/predict-parameters.zip")
     expected_path.parent.mkdir(parents=True, exist_ok=True)
     expected_path.write_text("already downloaded")
 
-    result = as_locally_available_content("s3://example-bucket/path/to/predict-parameters.zip", str(local_cache))
+    result = as_locally_available_content("s3://test-bucket/path/to/predict-parameters.zip", str(local_cache))
 
     assert result == str(expected_path)
     mock_bucket.download_file.assert_not_called()
@@ -368,8 +473,8 @@ def test_as_locally_available_content_single_file_cache_avoids_basename_collisio
     mock_bucket.objects.filter.side_effect = filter_side_effect
 
     local_cache = tmp_path
-    result1 = as_locally_available_content(f"s3://example-bucket/{key1}", str(local_cache))
-    result2 = as_locally_available_content(f"s3://example-bucket/{key2}", str(local_cache))
+    result1 = as_locally_available_content(f"s3://test-bucket/{key1}", str(local_cache))
+    result2 = as_locally_available_content(f"s3://test-bucket/{key2}", str(local_cache))
 
     assert result1 is not None
     assert result2 is not None
@@ -377,8 +482,8 @@ def test_as_locally_available_content_single_file_cache_avoids_basename_collisio
     assert result1.endswith("file.zip")
     assert result2.endswith("file.zip")
 
-    expected1 = _expected_single_file_cache_path(local_cache, "example-bucket", key1)
-    expected2 = _expected_single_file_cache_path(local_cache, "example-bucket", key2)
+    expected1 = _expected_single_file_cache_path(local_cache, "test-bucket", key1)
+    expected2 = _expected_single_file_cache_path(local_cache, "test-bucket", key2)
     assert result1 == str(expected1)
     assert result2 == str(expected2)
 
@@ -389,37 +494,11 @@ def test_as_locally_available_content_single_file_cache_avoids_basename_collisio
 
 
 @patch("hotvect.utils.boto3")
-def test_as_locally_available_content_directory_uses_local_cache(mock_boto3, tmp_path):
-    """Test that as_locally_available_content reuses existing local downloads for S3 directories."""
+def test_as_locally_available_content_directory_replaces_existing_local_path(mock_boto3, tmp_path):
     mock_s3_resource = MagicMock()
     mock_boto3.resource.return_value = mock_s3_resource
-
-    mock_bucket = MagicMock()
-    mock_s3_resource.Bucket.return_value = mock_bucket
-
-    mock_obj = MagicMock()
-    mock_obj.key = "path/to/state-cache/file.txt"
-    mock_bucket.objects.filter.return_value = [mock_obj]
-
-    local_cache = tmp_path
-    local_dir_path = local_cache / "state-cache"
-    local_dir_path.mkdir(parents=True)
-    (local_dir_path / "file.txt").write_text("cached")
-    (local_dir_path / ".hotvect_s3_cache.json").write_text(
-        json.dumps({"schema": 1, "bucket": "example-bucket", "prefix": "path/to/state-cache/"})
-    )
-
-    result = as_locally_available_content("s3://example-bucket/path/to/state-cache/", str(local_cache))
-
-    assert result == str(local_dir_path)
-    mock_bucket.download_file.assert_not_called()
-
-
-@patch("hotvect.utils.boto3")
-def test_as_locally_available_content_directory_redownloads_on_metadata_mismatch(mock_boto3, tmp_path):
-    """Test that as_locally_available_content redownloads when cached directory metadata doesn't match."""
-    mock_s3_resource = MagicMock()
-    mock_boto3.resource.return_value = mock_s3_resource
+    mock_s3_client = MagicMock()
+    mock_boto3.client.return_value = mock_s3_client
 
     mock_bucket = MagicMock()
     mock_s3_resource.Bucket.return_value = mock_bucket
@@ -432,17 +511,115 @@ def test_as_locally_available_content_directory_redownloads_on_metadata_mismatch
     local_dir_path = local_cache / "state-cache"
     local_dir_path.mkdir(parents=True)
     (local_dir_path / "stale.txt").write_text("stale")
-    (local_dir_path / ".hotvect_s3_cache.json").write_text(
-        json.dumps({"schema": 1, "bucket": "test-bucket", "prefix": "path/to/other-cache/"})
-    )
 
-    result = as_locally_available_content("s3://example-bucket/path/to/state-cache/", str(local_cache))
+    with patch("hotvect.utils.shutil.which", return_value=None):
+        result = as_locally_available_content("s3://test-bucket/path/to/state-cache/", str(local_cache))
 
     assert result == str(local_dir_path)
-    mock_bucket.download_file.assert_called_once()
-    # Ensure metadata is rewritten to match the new prefix
-    metadata = json.loads((local_dir_path / ".hotvect_s3_cache.json").read_text())
-    assert metadata["prefix"] == "path/to/state-cache/"
+    mock_s3_client.download_file.assert_called_once_with(
+        "test-bucket",
+        "path/to/state-cache/file.txt",
+        str(local_dir_path / "file.txt"),
+        Config=utils.S3_DIRECTORY_TRANSFER_CONFIG,
+    )
+    assert not (local_dir_path / "stale.txt").exists()
+
+
+@patch("hotvect.utils.boto3")
+def test_as_locally_available_content_directory_downloads_all_files(mock_boto3, tmp_path):
+    mock_s3_resource = MagicMock()
+    mock_boto3.resource.return_value = mock_s3_resource
+    mock_s3_client = MagicMock()
+    mock_boto3.client.return_value = mock_s3_client
+
+    mock_bucket = MagicMock()
+    mock_s3_resource.Bucket.return_value = mock_bucket
+
+    first = MagicMock()
+    first.key = "path/to/state-cache/a.txt"
+    second = MagicMock()
+    second.key = "path/to/state-cache/nested/b.txt"
+    mock_bucket.objects.filter.return_value = [first, second]
+
+    with patch("hotvect.utils.shutil.which", return_value=None):
+        result = as_locally_available_content("s3://test-bucket/path/to/state-cache/", str(tmp_path))
+
+    assert result == str(tmp_path / "state-cache")
+    assert {call.args for call in mock_s3_client.download_file.call_args_list} == {
+        ("test-bucket", "path/to/state-cache/a.txt", str(tmp_path / "state-cache" / "a.txt")),
+        ("test-bucket", "path/to/state-cache/nested/b.txt", str(tmp_path / "state-cache" / "nested" / "b.txt")),
+    }
+    assert all(
+        call.kwargs == {"Config": utils.S3_DIRECTORY_TRANSFER_CONFIG}
+        for call in mock_s3_client.download_file.call_args_list
+    )
+
+
+@patch("hotvect.utils.boto3")
+def test_as_locally_available_content_trailing_slash_treats_s3_marker_as_directory(mock_boto3, tmp_path):
+    mock_s3_resource = MagicMock()
+    mock_boto3.resource.return_value = mock_s3_resource
+    mock_s3_client = MagicMock()
+    mock_boto3.client.return_value = mock_s3_client
+
+    mock_bucket = MagicMock()
+    mock_s3_resource.Bucket.return_value = mock_bucket
+
+    marker = MagicMock()
+    marker.key = "path/to/state-cache/"
+    child = MagicMock()
+    child.key = "path/to/state-cache/file.txt"
+    mock_bucket.objects.filter.return_value = [marker, child]
+
+    with patch("hotvect.utils.shutil.which", return_value=None):
+        result = as_locally_available_content("s3://test-bucket/path/to/state-cache/", str(tmp_path))
+
+    assert result == str(tmp_path / "state-cache")
+    mock_bucket.download_file.assert_not_called()
+    mock_s3_client.download_file.assert_called_once_with(
+        "test-bucket",
+        "path/to/state-cache/file.txt",
+        str(tmp_path / "state-cache" / "file.txt"),
+        Config=utils.S3_DIRECTORY_TRANSFER_CONFIG,
+    )
+
+
+def test_as_locally_available_content_directory_uses_s5cmd_when_available(tmp_path):
+    with (
+        patch("hotvect.utils.boto3") as mock_boto3,
+        patch("hotvect.utils.shutil.which", return_value="/usr/bin/s5cmd"),
+        patch("hotvect.utils.recommend_s3_directory_transfer_workers", return_value=9),
+        patch("hotvect.utils.subprocess.run") as mock_run,
+    ):
+        mock_s3_resource = MagicMock()
+        mock_boto3.resource.return_value = mock_s3_resource
+
+        mock_bucket = MagicMock()
+        mock_s3_resource.Bucket.return_value = mock_bucket
+
+        first = MagicMock()
+        first.key = "path/to/state-cache/a.txt"
+        second = MagicMock()
+        second.key = "path/to/state-cache/nested/b.txt"
+        mock_bucket.objects.filter.return_value = [first, second]
+
+        result = as_locally_available_content("s3://test-bucket/path/to/state-cache/", str(tmp_path))
+
+    assert result == str(tmp_path / "state-cache")
+    mock_boto3.client.assert_not_called()
+    mock_run.assert_called_once_with(
+        [
+            "/usr/bin/s5cmd",
+            "--numworkers",
+            "9",
+            "cp",
+            "--concurrency",
+            "1",
+            "s3://test-bucket/path/to/state-cache/*",
+            os.path.join(str(tmp_path / "state-cache"), ""),
+        ],
+        check=True,
+    )
 
 
 @patch("hotvect.utils.boto3")
@@ -473,7 +650,7 @@ def test_as_locally_available_content_no_exact_match(mock_boto3, tmp_path):
     local_cache = str(tmp_path)
 
     # Request exact file that doesn't exist (only .metadata exists)
-    result = as_locally_available_content("s3://example-bucket/path/to/predict-parameters.zip", local_cache)
+    result = as_locally_available_content("s3://test-bucket/path/to/predict-parameters.zip", local_cache)
 
     # Verify: Should return None since exact key doesn't exist
     assert result is None
@@ -494,7 +671,7 @@ def test_as_locally_available_content_no_files(mock_boto3, tmp_path):
 
     local_cache = str(tmp_path)
 
-    result = as_locally_available_content("s3://example-bucket/path/to/nonexistent.zip", local_cache)
+    result = as_locally_available_content("s3://test-bucket/path/to/nonexistent.zip", local_cache)
 
     assert result is None
     mock_bucket.download_file.assert_not_called()
@@ -541,12 +718,12 @@ def test_as_locally_available_content_nonexistent_cache_dir(mock_boto3, tmp_path
     assert not nonexistent_cache.exists(), "Cache directory should not exist yet"
 
     # Request the file - should create the directory and download
-    result = as_locally_available_content("s3://example-bucket/path/to/file.zip", str(nonexistent_cache))
+    result = as_locally_available_content("s3://test-bucket/path/to/file.zip", str(nonexistent_cache))
 
     # Verify: Should create the directory and download the file
     assert nonexistent_cache.exists(), "Cache directory should have been created"
     mock_bucket.download_file.assert_called_once_with("path/to/file.zip", result)
-    assert result == str(_expected_single_file_cache_path(nonexistent_cache, "example-bucket", "path/to/file.zip"))
+    assert result == str(_expected_single_file_cache_path(nonexistent_cache, "test-bucket", "path/to/file.zip"))
 
 
 def test_execute_command_multiple_calls():
@@ -626,10 +803,10 @@ def test_resolve_data_dependency_s3_uri_dict_form_production():
         data_prefix="my_data",
         data_dates={date(2025, 10, 23)},
         data_type="test",
-        additional_properties={"s3_uri": {"production": "s3://example-bucket/", "staging": "s3://example-bucket/"}},
+        additional_properties={"s3_uri": {"production": "s3://prod-bucket/", "staging": "s3://stage-bucket/"}},
     )
     result = resolve_data_dependency_s3_uri(dep, environment="production")
-    assert result == "s3://example-bucket/"
+    assert result == "s3://prod-bucket/"
 
 
 def test_resolve_data_dependency_s3_uri_dict_form_staging():
@@ -640,10 +817,10 @@ def test_resolve_data_dependency_s3_uri_dict_form_staging():
         data_prefix="my_data",
         data_dates={date(2025, 10, 23)},
         data_type="test",
-        additional_properties={"s3_uri": {"production": "s3://example-bucket/", "staging": "s3://example-bucket/"}},
+        additional_properties={"s3_uri": {"production": "s3://prod-bucket/", "staging": "s3://stage-bucket/"}},
     )
     result = resolve_data_dependency_s3_uri(dep, environment="staging")
-    assert result == "s3://example-bucket/"
+    assert result == "s3://stage-bucket/"
 
 
 def test_resolve_data_dependency_s3_uri_dict_form_case_sensitive():
@@ -654,11 +831,11 @@ def test_resolve_data_dependency_s3_uri_dict_form_case_sensitive():
         data_prefix="my_data",
         data_dates={date(2025, 10, 23)},
         data_type="test",
-        additional_properties={"s3_uri": {"Production": "s3://example-bucket/", "STAGING": "s3://example-bucket/"}},
+        additional_properties={"s3_uri": {"Production": "s3://prod-bucket/", "STAGING": "s3://stage-bucket/"}},
     )
 
-    assert resolve_data_dependency_s3_uri(dep, environment="Production") == "s3://example-bucket/"
-    assert resolve_data_dependency_s3_uri(dep, environment="STAGING") == "s3://example-bucket/"
+    assert resolve_data_dependency_s3_uri(dep, environment="Production") == "s3://prod-bucket/"
+    assert resolve_data_dependency_s3_uri(dep, environment="STAGING") == "s3://stage-bucket/"
 
     with pytest.raises(ValueError, match=r"Environment 'production' not found"):
         resolve_data_dependency_s3_uri(dep, environment="production")
@@ -672,7 +849,7 @@ def test_resolve_data_dependency_s3_uri_dict_form_missing_environment():
         data_prefix="my_data",
         data_dates={date(2025, 10, 23)},
         data_type="test",
-        additional_properties={"s3_uri": {"production": "s3://example-bucket/", "staging": "s3://example-bucket/"}},
+        additional_properties={"s3_uri": {"production": "s3://prod-bucket/", "staging": "s3://stage-bucket/"}},
     )
 
     with pytest.raises(ValueError) as exc_info:
@@ -713,8 +890,8 @@ def test_resolve_data_dependency_s3_uri_no_resolution():
 
 def test_parse_s3_uri():
     """Test parsing S3 URI into bucket and prefix."""
-    bucket, prefix = parse_s3_uri("s3://example-bucket/data/path/")
-    assert bucket == "example-bucket"
+    bucket, prefix = parse_s3_uri("s3://my-bucket/data/path/")
+    assert bucket == "my-bucket"
     assert prefix == "data/path"
 
     bucket2, prefix2 = parse_s3_uri("s3://bucket/")

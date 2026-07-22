@@ -2,15 +2,22 @@
 
 This changelog focuses on user-visible changes. For a complete history, see `git log`.
 
-## Unreleased
+## Unreleased from the 10.43.1 source line
 
+- Java API: provide algorithms that own local state with a private local-storage allocator, while keeping runtime paths and namespacing inside Hotvect.
+- Offline pipeline: dependency pipelines now derive their data-dependency target from runtime context instead of always using `parameters`. A dependency is prepared/declared with `evaluate` (so its `test` data is included) when the child enables a downstream stage (`predict`/`evaluate`/`performance-test`) via `hotvect_execution_parameters`, or when the parent runs on a Hotvect 9 training image (which always evaluates child algorithms). This fixes missing child `test` data dependencies on the Hotvect 9 fleet.
+- Ranking transformers: remove the transform-time candidate/action count check so existing chunked ranking scorers keep working while the deprecated request path is still supported.
 - Docs: add a guide for the offline pipeline stages (`generate-state`, `encode`, `train`, `predict`, `evaluate`, `performance-test`).
 - Security: remove `shell=True` usage from dependency inspection tooling and avoid shell execution in build helpers.
 - Algorithm definitions: reject self-dependencies (fail fast with a clear error).
 - Java API: restore `score(ComputingRankingRequest)` on `ComputingBulkScorer`, including CatBoost feature-store response propagation, so downstream algorithms can use the score-first API again without rebuilding `BulkScoreResponse` manually.
 - CatBoost: standardize model parameter path resolution (and keep the decompression pipeline consistent).
+- Offline CLI: add unordered sharded `audit` output alongside sharded `predict`, and reject meaningless ordered multi-shard combinations.
+- Evaluation: speed up Python `evaluate` and allow one-shot SageMaker evaluation from cached prediction outputs.
 - CLI: rewire `hv serve` onto the unified algorithm server, add `hv serve --ui` for the browser debugger on the same backend, and add `hv worker serve` for worker-only HTTP debugging.
-- Python packaging: remove the unused LitServe-based serving stack and its dependency footprint.
+- CLI: add `hv docs` and `hv prompts` for JSON-only bundled-doc and prompt lookup without MCP setup; default docs search to scan-based and keep SQLite indexing opt-in.
+- Python packaging: remove the unused Python-hosted full-algorithm LitServe stack and its dependency footprint. The
+  worker-only `hv worker serve` debugger remains available.
 - Docs: add a performance benchmarking and optimization guide covering benchmark taxonomy, calibration-first realtime perf testing, optimization ordering, and machine-type guidance.
 - CatBoost: align null TEXT encoding between training and scoring by using the standard missing-text sentinel; retrain CatBoost models with TEXT features if you need exact null-text parity from training through serving.
 
@@ -31,7 +38,6 @@ This changelog focuses on user-visible changes. For a complete history, see `git
 
 ## 10.4.6
 
-- `hv list-transformations`: output now includes `name`, `returnTypeHint`, and `featureValueType`, and supports `ComputingRankingTransformer`.
 - Build: refresh Python lockfile for the released version.
 
 ## 10.4.5

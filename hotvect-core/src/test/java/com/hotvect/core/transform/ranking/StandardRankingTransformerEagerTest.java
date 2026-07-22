@@ -1,5 +1,6 @@
 package com.hotvect.core.transform.ranking;
 
+import com.hotvect.api.data.AvailableAction;
 import com.hotvect.api.data.Namespace;
 import com.hotvect.api.data.RawValueType;
 import com.hotvect.api.data.ValueType;
@@ -79,7 +80,7 @@ class StandardRankingTransformerEagerTest {
 
         StandardRankingTransformer<TestShared, TestAction> transformer = builder.build();
 
-        RankingRequest<TestShared, TestAction> rankingRequest = new RankingRequest<>("exampleId", shared, actions);
+        RankingRequest<TestShared, TestAction> rankingRequest = RankingTestData.rankingRequest("exampleId", shared, actions);
         ComputingRankingRequest<TestShared, TestAction> computingRankingRequest = transformer.prepare(rankingRequest);
 
         List<TransformedAction<TestAction>> transformedList = transformer.transform(computingRankingRequest);
@@ -119,7 +120,7 @@ class StandardRankingTransformerEagerTest {
 
         StandardRankingTransformer<TestShared, TestAction> transformer = builder.build();
 
-        RankingRequest<TestShared, TestAction> rankingRequest = new RankingRequest<>("exampleId", shared, actions);
+        RankingRequest<TestShared, TestAction> rankingRequest = RankingTestData.rankingRequest("exampleId", shared, actions);
         ComputingRankingRequest<TestShared, TestAction> computingRankingRequest = transformer.prepare(rankingRequest);
 
         List<TransformedAction<TestAction>> transformedList = transformer.transform(computingRankingRequest);
@@ -140,6 +141,26 @@ class StandardRankingTransformerEagerTest {
         ComputingRankingRequest<TestShared, TestAction> computingRankingRequest2 = transformer.prepare(rankingRequest);
         transformer.transform(computingRankingRequest2);
         assertEquals(2, eagerCallCount.get()); // Called again during second prepare()
+    }
+
+    @Test
+    void transformPropagatesAvailableActionAdditionalProperties() {
+        TestShared shared = new TestShared();
+        TestAction action = new TestAction();
+
+        RankingRequest<TestShared, TestAction> rankingRequest = RankingRequest.ofAvailableActions(
+                "exampleId",
+                shared,
+                List.of(AvailableAction.of("action-1", action, Map.of("source", "request")))
+        );
+
+        StandardRankingTransformer<TestShared, TestAction> transformer = StandardRankingTransformer
+                .<TestShared, TestAction>builder()
+                .build();
+
+        List<TransformedAction<TestAction>> transformed = transformer.transform(transformer.prepare(rankingRequest));
+
+        assertEquals(Map.of("source", "request"), transformed.get(0).additionalProperties());
     }
 
     @Test
@@ -167,7 +188,7 @@ class StandardRankingTransformerEagerTest {
 
         StandardRankingTransformer<TestShared, TestAction> transformer = builder.build();
 
-        RankingRequest<TestShared, TestAction> rankingRequest = new RankingRequest<>("exampleId", shared, actions);
+        RankingRequest<TestShared, TestAction> rankingRequest = RankingTestData.rankingRequest("exampleId", shared, actions);
         ComputingRankingRequest<TestShared, TestAction> computingRankingRequest = transformer.prepare(rankingRequest);
 
         List<TransformedAction<TestAction>> transformedList = transformer.transform(computingRankingRequest);
@@ -202,7 +223,7 @@ class StandardRankingTransformerEagerTest {
 
         StandardRankingTransformer<TestShared, TestAction> transformer = builder.build();
 
-        RankingRequest<TestShared, TestAction> rankingRequest = new RankingRequest<>("exampleId", shared, actions);
+        RankingRequest<TestShared, TestAction> rankingRequest = RankingTestData.rankingRequest("exampleId", shared, actions);
         assertThrows(IllegalStateException.class, () -> transformer.prepare(rankingRequest));
     }
 
@@ -228,7 +249,7 @@ class StandardRankingTransformerEagerTest {
 
         StandardRankingTransformer<TestShared, TestAction> transformer = builder.build();
 
-        RankingRequest<TestShared, TestAction> rankingRequest = new RankingRequest<>("exampleId", shared, actions);
+        RankingRequest<TestShared, TestAction> rankingRequest = RankingTestData.rankingRequest("exampleId", shared, actions);
         ComputingRankingRequest<TestShared, TestAction> firstPrepare = transformer.prepare(rankingRequest);
 
         assertEquals(1, eagerCallCount.get());
@@ -292,7 +313,7 @@ class StandardRankingTransformerEagerTest {
 
         StandardRankingTransformer<TestShared, TestAction> transformer = builder.build();
 
-        RankingRequest<TestShared, TestAction> rankingRequest = new RankingRequest<>("exampleId", shared, actions);
+        RankingRequest<TestShared, TestAction> rankingRequest = RankingTestData.rankingRequest("exampleId", shared, actions);
         ComputingRankingRequest<TestShared, TestAction> firstPrepare = transformer.prepare(rankingRequest);
         assertEquals(2, eagerCalls.get());
         assertEquals(List.of(EagerId.EAGER_STEP, EagerId.EAGER_STEP_2), callOrder);
@@ -325,7 +346,7 @@ class StandardRankingTransformerEagerTest {
                 .withFeature(TestNamespace.EAGER_FEATURE.getName());
 
         StandardRankingTransformer<TestShared, TestAction> transformer = builder.build();
-        RankingRequest<TestShared, TestAction> rankingRequest = new RankingRequest<>("exampleId", shared, actions);
+        RankingRequest<TestShared, TestAction> rankingRequest = RankingTestData.rankingRequest("exampleId", shared, actions);
         assertThrows(IllegalStateException.class, () -> transformer.prepare(rankingRequest));
     }
 
@@ -344,7 +365,7 @@ class StandardRankingTransformerEagerTest {
         builder.withEagerTransformation(EagerId.EAGER_STEP, eagerTransformation);
 
         StandardRankingTransformer<TestShared, TestAction> transformer = builder.build();
-        RankingRequest<TestShared, TestAction> rankingRequest = new RankingRequest<>("exampleId", shared, actions);
+        RankingRequest<TestShared, TestAction> rankingRequest = RankingTestData.rankingRequest("exampleId", shared, actions);
         assertThrows(IllegalStateException.class, () -> transformer.prepare(rankingRequest));
     }
 

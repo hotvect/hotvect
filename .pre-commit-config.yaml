@@ -3,7 +3,7 @@
 files: '^python/.*$'
 
 minimum_pre_commit_version: 2.14.0
-default_stages: [commit, push]
+default_stages: [pre-commit, pre-push]
 repos:
   - repo: https://github.com/psf/black
     rev: 22.12.0

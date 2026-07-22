@@ -20,9 +20,23 @@ public interface RankingTransformer<SHARED, ACTION> extends Function<RankingRequ
 
     default List<TransformedAction<ACTION>> transform(RankingRequest<SHARED, ACTION> rankingRequest){
         List<NamespacedRecord<Namespace, Object>> records = this.apply(rankingRequest);
+        var actions = rankingRequest.actions();
+
+        if (actions.size() != records.size()) {
+            throw new IllegalArgumentException(
+                    "RankingTransformer returned " + records.size() + " transformed actions for " + actions.size() + " actions"
+            );
+        }
+
+
         List<TransformedAction<ACTION>> ret = new ArrayList<>(records.size());
         for (int i = 0; i < records.size(); i++) {
-            ret.add(TransformedAction.of(rankingRequest.availableActions().get(i), records.get(i)));
+            ret.add(TransformedAction.of(
+                    actions.get(i).actionId(),
+                    actions.get(i).action(),
+                    records.get(i),
+                    actions.get(i).additionalProperties()
+            ));
         }
 
         return ret;

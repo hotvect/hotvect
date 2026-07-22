@@ -20,7 +20,7 @@ public interface ExampleEncoder<EXAMPLE extends Example> extends Function<EXAMPL
     /**
      * Returns the file extension for encoded output files (e.g., ".tfrecord", ".tsv", ".jsonl").
      * The extension should include the leading dot.
-     * Used by EncodeTask to construct proper output filenames with shard_%d pattern.
+     * Used by EncodeTask to construct proper output filenames with the part-%05d pattern.
      *
      * <p>This method must be implemented by all encoders. Returning null or empty string
      * will cause encoding to fail with a clear error message.</p>

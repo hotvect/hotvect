@@ -1,5 +1,6 @@
 package com.hotvect.api.algorithms;
 
+import com.hotvect.api.data.AvailableAction;
 import com.hotvect.api.data.FeatureStoreResponseContainer;
 import com.hotvect.api.data.ranking.RankingRequest;
 import com.hotvect.api.transformation.ranking.ComputingBulkScorer;
@@ -42,44 +43,81 @@ class BulkScorerAdditionalPropertiesTest {
     }
 
     @Test
-    void bulkScoreFromLegacyApplyPreservesActionAdditionalProperties() {
+    void bulkScoreFromLegacyApplyDoesNotReadRawActionAdditionalProperties() {
         var a1 = new Action(Map.of("k", "v1"));
         var a2 = new Action(Map.of("k", "v2"));
-        var request = new RankingRequest<Void, Action>("ex", null, List.of(a1, a2));
+        var request = rankingRequest(a1, a2);
 
         var scorer = new OnlyApplyBulkScorer();
         var decisions = scorer.bulkScore(request);
 
-        assertEquals(Map.of("k", "v1"), decisions.get(0).additionalProperties());
-        assertEquals(Map.of("k", "v2"), decisions.get(1).additionalProperties());
+        assertEquals("a1", decisions.get(0).actionId());
+        assertEquals("a2", decisions.get(1).actionId());
+        assertEquals(Map.of(), decisions.get(0).additionalProperties());
+        assertEquals(Map.of(), decisions.get(1).additionalProperties());
     }
 
     @Test
-    void computingBulkScoreFromLegacyApplyPreservesActionAdditionalProperties() {
+    void bulkScoreFromLegacyApplyUsesAvailableActionAdditionalProperties() {
+        var a1 = new Action(Map.of("k", "raw-v1"));
+        var a2 = new Action(Map.of("k", "raw-v2"));
+        var request = RankingRequest.<Void, Action>ofAvailableActions(
+                "ex",
+                null,
+                List.of(
+                        AvailableAction.of("a1", a1, Map.of("k", "request-v1")),
+                        AvailableAction.of("a2", a2, Map.of("k", "request-v2"))
+                )
+        );
+
+        var scorer = new OnlyApplyBulkScorer();
+        var decisions = scorer.bulkScore(request);
+
+        assertEquals(Map.of("k", "request-v1"), decisions.get(0).additionalProperties());
+        assertEquals(Map.of("k", "request-v2"), decisions.get(1).additionalProperties());
+    }
+
+    @Test
+    void computingBulkScoreFromLegacyApplyDoesNotReadRawActionAdditionalProperties() {
         var a1 = new Action(Map.of("k", "v1"));
         var a2 = new Action(Map.of("k", "v2"));
-        var request = new RankingRequest<Void, Action>("ex", null, List.of(a1, a2));
+        var request = rankingRequest(a1, a2);
         var computingRequest = new ComputingRankingRequest<Void, Action>(request, null, List.of());
 
         var scorer = new OnlyApplyComputingBulkScorer();
         var decisions = scorer.bulkScore(computingRequest);
 
-        assertEquals(Map.of("k", "v1"), decisions.get(0).additionalProperties());
-        assertEquals(Map.of("k", "v2"), decisions.get(1).additionalProperties());
+        assertEquals("a1", decisions.get(0).actionId());
+        assertEquals("a2", decisions.get(1).actionId());
+        assertEquals(Map.of(), decisions.get(0).additionalProperties());
+        assertEquals(Map.of(), decisions.get(1).additionalProperties());
     }
 
     @Test
-    void computingScoreFromLegacyApplyPreservesActionAdditionalProperties() {
+    void computingScoreFromLegacyApplyDoesNotReadRawActionAdditionalProperties() {
         var a1 = new Action(Map.of("k", "v1"));
         var a2 = new Action(Map.of("k", "v2"));
-        var request = new RankingRequest<Void, Action>("ex", null, List.of(a1, a2));
+        var request = rankingRequest(a1, a2);
         var computingRequest = new ComputingRankingRequest<Void, Action>(request, null, List.of());
 
         var scorer = new OnlyApplyComputingBulkScorer();
         var response = scorer.score(computingRequest);
 
         assertEquals(FeatureStoreResponseContainer.empty(), response.featureStoreResponseContainer());
-        assertEquals(Map.of("k", "v1"), response.decisions().get(0).additionalProperties());
-        assertEquals(Map.of("k", "v2"), response.decisions().get(1).additionalProperties());
+        assertEquals("a1", response.decisions().get(0).actionId());
+        assertEquals("a2", response.decisions().get(1).actionId());
+        assertEquals(Map.of(), response.decisions().get(0).additionalProperties());
+        assertEquals(Map.of(), response.decisions().get(1).additionalProperties());
+    }
+
+    private static RankingRequest<Void, Action> rankingRequest(Action a1, Action a2) {
+        return RankingRequest.ofAvailableActions(
+                "ex",
+                null,
+                List.of(
+                        AvailableAction.of("a1", a1),
+                        AvailableAction.of("a2", a2)
+                )
+        );
     }
 }

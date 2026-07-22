@@ -21,7 +21,7 @@ public class MathUtils {
     }
 
     /* The below code was adapted from https://github.com/apache/commons-math/blob/3.6.1-release/src/main/java/org/apache/commons/math3/distribution/EnumeratedDistribution.java
-     * Modified by Hotvect Team
+     * Modified by Enno Shioji
      * Code licensed under http://www.apache.org/licenses/LICENSE-2.0
      */
     /**

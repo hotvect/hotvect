@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+
+{% block content %}
+  {% if page and (page.meta.difficulty or page.meta.estimated_time or page.meta.prerequisites) %}
+    <aside class="hv-page-context" aria-label="Page context">
+      {% if page.meta.difficulty %}
+        <span><strong>Level</strong> {{ page.meta.difficulty }}</span>
+      {% endif %}
+      {% if page.meta.estimated_time %}
+        <span><strong>Time</strong> {{ page.meta.estimated_time }}</span>
+      {% endif %}
+      {% if page.meta.prerequisites %}
+        <details>
+          <summary><strong>Before you start</strong></summary>
+          <ul>
+            {% for prerequisite in page.meta.prerequisites %}
+              <li>{{ prerequisite }}</li>
+            {% endfor %}
+          </ul>
+        </details>
+      {% endif %}
+    </aside>
+  {% endif %}
+  {{ super() }}
+{% endblock %}

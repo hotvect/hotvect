@@ -1,15 +1,16 @@
 ---
-title: Understand the Hotvect Pipeline Stages
-description: Guide to generate-state, encode, train, predict, evaluate, and performance-test
-tags: [pipeline, training, evaluation, performance]
+title: Pipeline stages
+description: Follow artifacts through dependency preparation, state generation, encode, train, predict, evaluate, and performance testing
+tags: [pipeline, training, prediction, evaluation, performance]
 difficulty: introductory
 estimated_time: 15 minutes
 prerequisites:
   - Able to run `hv --help`
-  - Familiarity with basic ML terms: feature, model, metric
+  - Familiarity with basic ML terms such as feature, model, and metric
 related_docs:
-  - ../../reference/cli/index.md
-  - ../../concepts/index.md
+  - ../../concepts/artifacts-and-identity/index.md
+  - ../../architecture/offline-lifecycle/index.md
+  - ../../reference/algorithm-definition/index.md
   - ../reuse-outputs/index.md
 related_commands:
   - hv generate-state
@@ -18,256 +19,255 @@ related_commands:
   - hv predict
   - hv evaluate
   - hv performance-test
-next_steps:
-  - Run the quickstart
-  - Reuse previous outputs
-  - Run a backtest
 ---
 
-# How to: Understand the Hotvect pipeline stages
+# Pipeline stages
 
-Hotvect's offline pipeline is easiest to understand if you think about **artifacts**, not commands.
+Hotvect's offline pipeline turns data and an algorithm package into a reusable parameter package, then optionally checks
+what the complete algorithm does with it. The easiest way to follow a run is to track the artifacts passed from one
+stage to the next.
 
-## What the pipeline is trying to produce
+Before using this page, install the `hv` CLI and identify the algorithm package and algorithm name you intend to run.
+The current CLI accepts the package as a JAR. If the terms *algorithm package*, *definition*, and *parameter package*
+are unfamiliar, read
+[Artifacts and identity](../../concepts/artifacts-and-identity/index.md) first.
 
-Which artifact matters most depends on why you are running the pipeline. The two most common cases are a **production run** and a **backtest**.
+## Start with the outcome you need
 
-For a **production run**:
+`hv train` supports three run targets. The target determines where the common preparation path stops.
 
-- the goal is to produce parameters you can deploy or otherwise use in production
-- the main final output is usually the `predict-parameters ZIP`
-- that ZIP is the artifact later reused by prediction/serving
-- this run is often close to the live edge, so the target test slice may not exist yet
-- in that case, Hotvect still builds the ZIP but skips `predict`, `evaluate`, and `performance-test` because there is no test data to run against
+| Target | Intended result | Inference input | Final stages |
+|---|---|---|---|
+| `parameters` | Prepare a reusable parameter package (`predict-parameters.zip`) | none | Stops after packaging |
+| `predict` | Train or load parameters, then publish batch predictions | `prediction_spec` | Predicts and publishes; does not evaluate or performance-test |
+| `evaluate` | Measure a version on historical examples | `test_data_spec` | Predicts, evaluates, and normally performance-tests |
 
-For a **backtest**:
+`evaluate` is the default pipeline target. `hv backtest` repeats that historical workflow across selected versions
+and dates.
 
-- the goal is to answer "how would this algorithm have performed on past data?"
-- you run the pipeline on one or more historical test days where the outcomes are already known
-- the main final output is usually the evaluation result for those historical days
-- predictions may still be written, but they are usually a supporting artifact for debugging or deeper analysis
-- the `predict-parameters ZIP` is still produced along the way, but it is usually an intermediate artifact rather than the thing you care about most
-- the run metadata becomes especially important because it records the quality results you want to compare, and if performance testing is enabled also the system-behavior results
+## The common lifecycle
 
-A run leaves behind two different kinds of artifacts:
+<div class="hv-flow">
+  <div class="hv-flow__step"><span>01</span><strong>Prepare</strong><small>children · inputs</small></div>
+  <div class="hv-flow__step"><span>02</span><strong>Transform</strong><small>state or encoded data</small></div>
+  <div class="hv-flow__step"><span>03</span><strong>Train</strong><small>model files</small></div>
+  <div class="hv-flow__step"><span>04</span><strong>Package</strong><small>parameter package</small></div>
+  <div class="hv-flow__step"><span>05</span><strong>Validate</strong><small>predict · quality · latency</small></div>
+</div>
 
-- **outputs** under `out/...`: artifacts that later stages or other systems consume, such as generated state, encoded data, predictions, and the `predict-parameters ZIP`
-- **metadata** under `meta/...`: logs, timings, per-stage metadata, and run summaries that explain what happened
+This flow has two preparation branches:
 
-Some algorithms also produce extra state or intermediate encoded training data along the way.
+- a **trainable definition** has `training_command`, so Hotvect encodes training examples and runs the trainer;
+- a **state-producing definition** has `generator_factory_classname`, so Hotvect generates files and skips the
+  encode/train/inference path for that definition.
 
-### Parameters vs hyperparameters
+A definition with neither field can still describe a parameterless or pre-parameterized algorithm. Hotvect skips
+encode and train, packages the available runtime material, and continues according to the selected target.
 
-- **parameters** are the values or files that inference needs later, such as model weights, tree ensembles, lookup tables, thresholds, or generated state. Concrete examples: a TensorFlow SavedModel directory, or in Hotvect v10 CatBoost a model file packaged under `model_parameter/model.parameter`.
-- **hyperparameters** are choices made before training that affect how those parameters are produced, such as learning rate, tree depth, or number of training iterations. Concrete examples: in TensorFlow, `learning_rate=0.001`, `batch_size=512`, or `epochs=5`; in CatBoost, `depth=8` or `iterations=500`.
+Packaging is the boundary between preparation and use. The resulting parameter package is currently written as a
+predict-parameters ZIP; later prediction, performance testing, and runtime loading consume it.
 
-For this guide, the important idea is simple: the pipeline mostly exists to produce **parameters**. Hyperparameters influence the run, but they are not the main artifact this page is about.
+## Outputs and metadata are separate
 
-### What is the parameters artifact?
+A run writes two kinds of information:
 
-After `train`, Hotvect usually runs a packaging step that bundles inference-time files into a ZIP. That ZIP is the main reusable output of the run. In other docs and logs, you will often see this described as the **predict-parameters ZIP**.
+- **outputs** are reusable or inspectable artifacts such as generated state, encoded data, model files, parameter
+  packages, and predictions;
+- **metadata** explains the run: effective configuration, stage logs, timings, skip reasons, and metrics.
 
-In `result.json`, that packaging step appears as `package_predict_params`. This guide keeps the familiar six-stage framing, so it treats packaging as the bridge between `train` and the inference-facing stages rather than as a separate seventh stage.
+The roots depend on the command:
 
-Later steps such as `predict` and `performance-test` use that artifact, and serving typically uses the same underlying contents. Depending on the algorithm, the ZIP may contain model files, generated state, or other supporting files needed at inference time. Concrete examples include a TensorFlow SavedModel directory containing `saved_model.pb` or a CatBoost model under `model_parameter/model.parameter`. The ZIP filename itself follows the pattern `<hyperparameter_slug>@<parameter_version>.parameters.zip`.
-
-### One run, viewed as an artifact chain
-
-| Stage | Main output | Why it exists |
+| Command | Output root | Metadata root |
 |---|---|---|
-| `generate-state` | state artifacts such as `category_id_mapping.json`, `openclip_model/`, or `popularity_counts.tsv` | prepares generated state needed downstream |
-| `encode` | `encoded/` shards such as `shard_0.tfrecord`, `shard_0.tsv`, or `shard_0.jsonl` | serializes training data into the files/directories the training library reads |
-| `train` | model artifacts under `model_parameter/`, such as `model_parameter/saved_model.pb` | produces model files that Hotvect later packages into the reusable inference-time artifact |
-| `predict` | `prediction.jsonl` | shows what the trained artifact outputs on the test slice |
-| `evaluate` | `evaluate/metadata.json` with metrics such as AUC or NDCG | tells you whether those predictions are good |
-| `performance-test` | `performance-test/metadata.json` with metrics such as `p50`, `p95`, `p99`, and throughput | tells you whether the artifact is fast and stable enough |
+| `hv train` | `<output-base-dir>/...` | `<output-base-dir>/metadata/...` |
+| `hv backtest` | `<output-base-dir>/out/...` | `<output-base-dir>/meta/...` |
 
-## One run is anchored on a test day
+Within those roots, Hotvect groups artifacts by algorithm/hyperparameter identity and parameter version. Use
+`result.json` rather than guessing which optional stages ran.
 
-`last_test_time` is the anchor date for the run.
+## The test-time anchor
 
-The simplest interpretation is:
+`last_test_time` anchors date-based input selection. It is the date being predicted or evaluated, not the final day of
+training.
 
-- **test data** usually comes from `last_test_time` itself
-- **training data** usually comes from earlier dates
-- the folder name `last_test_date_YYYY-MM-DD` is how Hotvect labels that run on disk
+For this synthetic example:
 
-Example:
-
-- `last_test_time = 2025-08-09`
+- `last_test_time = 2000-01-08`
 - `training_lag_days = 1`
 - `number_of_training_days = 7`
 
-Then Hotvect typically:
+Hotvect selects training partitions from `2000-01-01` through `2000-01-07` and uses `2000-01-08` as the test date.
+The same rule lets a backtest reconstruct what data would have been available at each historical anchor.
 
-- evaluates on test data for `2025-08-09`
-- trains on data from `2025-08-02` through `2025-08-08`
+`prediction_spec` has its own `number_of_days` and `lag_days` because an explicit predict run need not use the
+historical test slice.
 
-So `last_test_time` does **not** mean "the last day of training". It means "the day I want to test/evaluate against", and training is derived relative to that day.
+## Stage by stage
 
-If you run `hv backtest`, Hotvect repeats this historical run across multiple git references and/or dates.
+### Prepare dependencies
 
-## One top-level algorithm run
+If the definition declares child algorithms under `dependencies`, Hotvect prepares them recursively before the
+parent. A child normally runs only far enough to produce parameters. A child that explicitly enables prediction,
+evaluation, or performance testing may run the evaluate path as well.
 
-In most workflows, you start by naming one algorithm. Hotvect treats that as the **top-level algorithm run** and orchestrates the offline work needed to make that algorithm usable.
+The parent later packages child artifacts with its own so that the complete composition can be reconstructed. Start a
+normal run at the top-level algorithm; target a child directly only when investigating the stage it owns.
 
-```mermaid
-flowchart LR
-  A["generate-state (optional)"] --> B["encode"]
-  B --> C["train"]
-  C --> G["package_predict_params (post-train)"]
-  G --> P["parameters artifact"]
-  P --> D["predict"]
-  D --> E["evaluate"]
-  P --> F["performance-test"]
-```
-
-This is the core mental model:
-
-- training writes model artifacts such as files under `model_parameter/`
-- Hotvect then packages those inference-time files into a ZIP such as `<hyperparameter_slug>@<parameter_version>.parameters.zip`
-- prediction shows what that artifact outputs
-- evaluation judges output quality
-- performance testing judges runtime behavior
-
-Some runs skip visible stages:
-
-- state-only algorithms do `generate-state` instead of the `encode` -> `train` -> `predict` -> `evaluate` flow
-- cached or pinned parameters may let Hotvect skip `encode` and `train`
-- if no test data is available for the anchor day, Hotvect skips `predict`, `evaluate`, and `performance-test`
-- `performance-test` may be disabled during iteration
-
-## Advanced: one top-level algorithm can depend on other algorithms
-
-One algorithm can rely on the outputs of other algorithms. In Hotvect terminology, these are often described as **outer/top-level** and **inner/dependency** algorithms. You may also hear dependency algorithms described as **child algorithms**.
-
-Conceptually:
-
-- the **top-level algorithm** is the public entrypoint you care about
-- **dependency algorithms** do supporting work such as state generation, feature engineering, or model training
-- Hotvect prepares those dependencies before continuing with the top-level algorithm
-
-Typical reasons to have dependency or child algorithms include:
-
-- the top-level algorithm adds heuristics or business rules on top of lower-level model outputs
-- the top-level algorithm is an ensemble that combines the outputs of multiple child models
-- one child algorithm produces features or embeddings that another child algorithm consumes, such as an OpenCLIP-style model producing vectors for a CatBoost model
-
-```mermaid
-flowchart TD
-  T["Top-level algorithm"] --> D1["Dependency algorithm A"]
-  T --> D2["Dependency algorithm B"]
-  D1 --> S1["its own outputs"]
-  D2 --> S2["its own outputs"]
-  T --> S3["top-level outputs"]
-```
-
-The main practical consequence is simple:
-
-- `hv train` usually makes sense at the top-level algorithm
-- low-level commands such as `hv encode` usually target the inner algorithm that actually owns the training command
-
-If you are unsure where to start, start with the top-level algorithm and only drop to a dependency algorithm when you need to debug a specific lower-level stage.
-
-## Training path vs inference path
-
-The training path and the inference path are deliberately not symmetrical.
-
-During **training**, Hotvect writes the encoded training dataset to disk. That is useful because:
-
-- some trainers need to read the same encoded data more than once
-- the encoded dataset is inspectable, which makes debugging easier
-
-During **predict**, feature transformation still happens, but Hotvect normally does **not** materialize a standalone encoded test dataset on disk first. It transforms inputs and scores them directly, which is closer to how production inference works.
-
-## The six stages
+<div class="hv-flow">
+  <div class="hv-flow__step"><span>01</span><strong>Select</strong><small>top-level algorithm</small></div>
+  <div class="hv-flow__step"><span>02</span><strong>Resolve</strong><small>declared children</small></div>
+  <div class="hv-flow__step"><span>03</span><strong>Prepare</strong><small>child artifacts</small></div>
+  <div class="hv-flow__step"><span>04</span><strong>Build</strong><small>parent artifact</small></div>
+  <div class="hv-flow__step"><span>05</span><strong>Run</strong><small>complete algorithm</small></div>
+</div>
 
 ### `generate-state`
 
-- **Purpose**: build generated state artifacts from source data
-- **Main output**: state files or directories such as `category_id_mapping.json`, `openclip_model/`, or `popularity_counts.tsv`
-- **Why the next stage cares**: downstream algorithms may need that state during training or inference
+`generate-state` runs only for a definition with `generator_factory_classname`.
 
-Not every algorithm has this stage. It exists for **state algorithms** whose job is to materialize already-available or directly derived artifacts rather than run the ML pipeline. Typical examples are creating a category-ID mapping table, copying a pre-trained OpenCLIP model into the expected layout, or computing aggregates/statistics such as popularity counts.
+- **Input:** paths resolved from the definition's `source_data` entries.
+- **Output:** a generated file or directory under the algorithm output root.
+- **Next consumer:** parameter packaging, then usually a parent algorithm or runtime factory.
 
-A state algorithm does **not** have its own `encode`, `train`, `predict`, `evaluate`, or `performance-test` flow. Its job is to produce the state artifact. Hotvect may still package that artifact afterward so a parent algorithm or serving system can reuse it.
+Examples of neutral state artifacts are an ID mapping, aggregate counts, or a directory of fixed lookup files. The
+generator's output is an offline lifecycle role; it is not a separate public algorithm request or response type.
+
+If `state_output_filename` is present, it selects the relative file or directory to package. Otherwise the algorithm
+output directory is the state root. The definition's own run skips encode, train, predict, evaluate, and
+performance-test after generating and packaging the state.
+
+### Prepare encode parameters
+
+Before encoding a trainable algorithm, Hotvect creates an encode-parameters ZIP. It contains material the transformer
+or encoder needs during encode, including prepared dependency artifacts. In `result.json`, this step is named
+`package_encode_params`.
+
+This is a pipeline bridge rather than a separate model-development stage. You normally inspect it only when child
+state or transformer loading fails during encode.
 
 ### `encode`
 
-- **Purpose**: serialize raw training examples into the files or directories the training ML library understands
-- **Main output**: an `encoded/` directory containing shard files such as `shard_0.tfrecord`, `shard_0.tsv`, or `shard_0.jsonl`, plus a schema description file such as `encoded-schema-description` or `column_description.tsv`
-- **Why the next stage cares**: `train` consumes these serialized encoded files instead of the raw source data
+`encode` converts raw offline examples into the format expected by the training command.
 
-In Hotvect v10, encoded output is directory-based and sharded rather than a single file. The shard naming pattern is `shard_<index><ext>`, for example `shard_0.tfrecord`, `shard_0.tsv`, or `shard_0.jsonl`.
+- **Input:** training partitions, train decoder, feature transformer or vectorizer, reward function, and encoder.
+- **Output:** an `encoded/` directory of `part-*` files plus `encoded-schema-description` when the encoder supplies a
+  schema.
+- **Next consumer:** the command in `training_command`.
+
+Part-file extensions come from the encoder, for example `.jsonl`, `.tsv`, or `.tfrecord`. Encoded output is a directory,
+not one guaranteed file.
 
 ### `train`
 
-- **Purpose**: run the algorithm's training command and fit the model
-- **Main output**: library-specific model artifacts under `model_parameter/`, such as a TensorFlow SavedModel directory containing `model_parameter/saved_model.pb` or a CatBoost model file that Hotvect later packages as `model_parameter/model.parameter`
-- **Why the next stage cares**: Hotvect packages these model files into the ZIP that `predict`, `performance-test`, and later serving use
+`train` exists when the algorithm definition contains `training_command`.
 
-This is the stage where Hotvect turns "training data + algorithm logic" into the files produced directly by the training library. For example, a TensorFlow trainer may write a SavedModel directory under `model_parameter/` with `saved_model.pb`, while a CatBoost trainer may write a model file that Hotvect later packages under `model_parameter/model.parameter` in v10. After `train`, Hotvect runs the packaging step and writes the reusable ZIP.
+- **Input:** the encoded directory, schema description, effective definition, algorithm JAR, encode-parameters ZIP,
+  and a scratch directory exposed as template variables.
+- **Output:** trainer-owned files under `model_parameter/`.
+- **Next consumer:** predict-parameter packaging.
+
+Hotvect renders `training_command` and executes it. The trainer decides the internal model layout; Hotvect does not
+infer a model format from the directory contents.
+
+### Package predict parameters
+
+After generation or training, Hotvect packages inference-time files and parameter metadata. In `result.json`, the step
+is `package_predict_params`.
+
+The normal filename is:
+
+```text
+<hyperparameter_slug>@<parameter_version>.parameters.zip
+```
+
+The archive can contain model files, generated state, and child artifacts, each under its algorithm-name namespace.
+This package is the reusable result for a `parameters` target and the input to subsequent inference stages.
+
+A state-producing definition can disable its standalone ZIP with
+`hotvect_execution_parameters.package_state_as_predict_parameters=false`; parent preparation can still package its raw
+state and metadata.
 
 ### `predict`
 
-- **Purpose**: apply the trained artifact to test or validation data
-- **Main output**: `prediction.jsonl`, typically containing one predicted score, rank, or similar output per test example
-- **Why the next stage cares**: `evaluate` converts those predictions into quality metrics
+`predict` loads the complete algorithm from the JAR and parameter ZIP, decodes examples, and writes decisions.
 
-`predict` does not retrain or improve the model. It only runs inference with the parameters artifact.
+- For `target=evaluate`, it reads the historical slice declared by `test_data_spec` and writes the run-local
+  `prediction/` directory.
+- For `target=predict`, it reads `prediction_spec` and publishes the final prediction artifact to
+  `prediction_spec.output_uri`.
+
+Prediction does not retrain the model. Feature transformation happens as part of algorithm execution. Hotvect does not
+normally materialize a separate encoded test dataset before prediction.
 
 ### `evaluate`
 
-- **Purpose**: turn predictions into quality metrics
-- **Main output**: `meta/.../evaluate/metadata.json`, typically containing metrics such as AUC, NDCG, precision/recall, or task-specific scores
-- **Why it exists**: raw predictions are not enough; you need metrics to compare model quality
+`evaluate` turns historical predictions into quality metrics using the selected Python evaluation function.
 
-If `predict` answers "what did the model output?", `evaluate` answers "was that output good?"
+- **Input:** the run-local prediction artifact from the evaluate target.
+- **Output:** `evaluate/metadata.json` under the metadata root.
+
+Metric names and meanings belong to the configured evaluation function. Read that function's contract before comparing
+values across algorithms.
 
 ### `performance-test`
 
-- **Purpose**: measure system behavior using the trained artifact
-- **Main output**: `meta/.../performance-test/metadata.json`, typically containing runtime measurements such as `p50`, `p95`, and `p99` latency, plus throughput and similar serving metrics
-- **Why it exists**: good model quality is not enough if the algorithm is too slow or unstable to serve
+`performance-test` loads the same algorithm artifact and repeatedly executes decoded requests.
 
-This stage is about system behavior, not model quality. Think "How fast is inference?" and "What does tail latency look like?", not "Is the ranking good?"
+- **Input:** the test examples plus the JAR and predict-parameters ZIP.
+- **Output:** `performance-test/metadata.json` under the metadata root.
+
+The metadata includes response-time percentiles such as `p50`, `p95`, and `p99`, throughput, workload mode, and sample
+counts. It describes runtime behavior, not decision quality. The default workload mode is `realtime`; set `batch`
+explicitly when that is what you intend to measure.
+
+### Optional post-prediction work
+
+An evaluate run can also include:
+
+- `encode_test`, when test-data encoding was requested; and
+- `audit`, when feature audit execution was requested.
+
+These appear as their own entries in `result.json`. They are not prerequisites for the normal quality and performance
+path.
+
+## Why stages may be skipped
+
+A skipped stage is often expected. Common reasons are:
+
+- a cached or explicitly supplied parameter ZIP made encode and train unnecessary;
+- the definition has no `training_command`;
+- the definition is state-producing;
+- the selected target is `parameters` or `predict`;
+- no dated test partition exists for an evaluate run;
+- prediction, evaluation, performance testing, test encoding, or auditing was disabled.
+
+Do not infer the reason from missing files. The stage entry in `result.json` records a `skipped` explanation and the
+corresponding timing is normally zero.
+
+## Parameters and hyperparameters
+
+- **Parameters** are files consumed at runtime: learned weights, lookup tables, thresholds, generated state, or other
+  model material. Hotvect packages them into the predict-parameters ZIP.
+- **Hyperparameters** are choices made before training that influence how those files are produced. They affect run
+  identity, but they are not the runtime artifact themselves.
+- Definition fields such as `algorithm_parameters` and `transformer_parameters` are JSON construction configuration.
+  They are distinct from both learned parameter files and the CLI's hyperparameter-version identity.
 
 ## What to inspect after a run
 
-The most useful things to look at after a run are:
+Start with four things:
 
-- the `predict-parameters ZIP`: the main reusable output
-- `prediction.jsonl`: what the trained artifact produced on the test slice
-- `result.json`: the run summary showing which stages ran or were skipped
-- `hv.log` and per-stage logs: what the pipeline actually did
+1. `result.json` — target, effective definition, child results, stage outcomes, skip reasons, and timings.
+2. The predict-parameters ZIP — the reusable runtime artifact and its namespaced contents.
+3. `prediction/part-*` — decisions written for the historical evaluate slice, when prediction ran.
+4. `hv.log` and stage `stdout-stderr.log` files — command output and failure context.
 
-Hotvect typically writes data artifacts under `out/...` and logs/metadata under `meta/...`. If you need exact paths and directory layouts, use the [CLI reference](../../reference/cli/index.md).
+Then inspect `evaluate/metadata.json` for quality or `performance-test/metadata.json` for runtime behavior. Keeping those
+questions separate prevents a fast but poor algorithm—or a good but unserviceable one—from looking complete.
 
-When Hotvect says **metadata**, think "explanation of the run", not "model artifact".
+## Next steps
 
-- `result.json` is the top-level run summary. It usually tells you which algorithm/date you ran, includes per-stage entries such as `dependencies`, `encode`, `train`, `package_predict_params`, `predict`, `evaluate`, and `performance_test`, and records `timing_info_sec`. If a stage did not run, this is often where you will see the `skipped` reason first.
-- each stage's `metadata.json` is a lower-level summary for that one stage. The exact fields vary by stage, but they usually answer questions such as: did the stage run or reuse cache, what sources or parameters did it use, and what did it produce?
-- some stage metadata is very stage-specific. For example, `train/metadata.json` records the effective training command, while `evaluate/metadata.json` is usually the metrics dictionary itself.
-
-## Quality vs system behavior
-
-Two questions matter, and they are not the same:
-
-- **Quality question**: "Did the model rank or score the examples correctly?" -> `predict` + `evaluate`
-- **System question**: "Is the algorithm fast and stable enough to run?" -> `performance-test`
-
-You usually need both before trusting a new algorithm version.
-
-## A practical workflow
-
-1. Start with `hv train` to produce the parameters artifact and basic run outputs.
-2. If the run fails, identify which stage failed.
-3. If the problem looks like feature engineering or training input, inspect `encode`.
-4. If the model trains but behavior looks wrong, inspect `predict` and `evaluate`.
-5. If quality is acceptable, run `performance-test` before rollout.
-
-## See also
-
-- [CLI reference](../../reference/cli/index.md)
-- [Reuse existing outputs](../reuse-outputs/index.md)
-- [Parent-child algorithms](../patterns/parent-child/index.md)
+- [Train locally](../local-train/index.md)
+- [Backtest locally](../local-backtest/index.md)
+- [Reuse previous outputs](../reuse-outputs/index.md)
+- [Read the algorithm definition reference](../../reference/algorithm-definition/index.md)

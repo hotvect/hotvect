@@ -4,7 +4,7 @@ import argparse
 import json
 import logging
 import traceback
-from typing import Any, Dict, Optional
+from typing import Any
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
@@ -17,7 +17,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s:%(levelname)s:%(name
 log = logging.getLogger(__name__)
 
 
-def build_arg_parser(default_backend: Optional[str] = None) -> argparse.ArgumentParser:
+def build_arg_parser(default_backend: str | None = None) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
     if default_backend is None:
         parser.add_argument("--backend", required=True, choices=["tensorflow", "torch"])
@@ -79,7 +79,7 @@ class HotvectWorkerLitAPI(HotvectLitAPI):
     def load_model(self, device: str):
         return build_runtime(self.args)
 
-    def decode_request(self, request) -> Dict[str, Any]:
+    def decode_request(self, request) -> dict[str, Any]:
         if not isinstance(request, dict):
             raise HTTPException(status_code=400, detail="Request body must be a JSON object")
         batch = request.get("batch")
@@ -87,7 +87,7 @@ class HotvectWorkerLitAPI(HotvectLitAPI):
             raise HTTPException(status_code=400, detail="Request body must contain a 'batch' list")
         return request
 
-    def predict(self, request: Dict[str, Any]) -> Dict[str, Any]:
+    def predict(self, request: dict[str, Any]) -> dict[str, Any]:
         request_id = str(request.get("request_id") or request.get("id") or "http")
         batch = request.get("batch")
         if not isinstance(batch, list):
@@ -105,7 +105,7 @@ class HotvectWorkerLitAPI(HotvectLitAPI):
             log.exception("LitServe worker predict failed")
             raise HTTPException(status_code=500, detail=str(exc)) from exc
 
-        payload: Dict[str, Any] = {"scores": scores.tolist()}
+        payload: dict[str, Any] = {"scores": scores.tolist()}
         if debug_json:
             payload["debug"] = json.loads(debug_json)
         return payload
@@ -160,7 +160,7 @@ def _attach_v2_routes(
         return {"name": model_name, "ready": True}
 
     @app.post("/v2/models/{requested_model_name}/infer")
-    def _v2_infer(requested_model_name: str, request: Dict[str, Any]):
+    def _v2_infer(requested_model_name: str, request: dict[str, Any]):
         if requested_model_name != model_name:
             return JSONResponse(
                 status_code=404,
@@ -184,7 +184,7 @@ def _attach_v2_routes(
             )
 
 
-def main(argv: Optional[list[str]] = None, *, default_backend: Optional[str] = None) -> None:
+def main(argv: list[str] | None = None, *, default_backend: str | None = None) -> None:
     parser = build_arg_parser(default_backend=default_backend)
     args = parser.parse_args(argv)
 

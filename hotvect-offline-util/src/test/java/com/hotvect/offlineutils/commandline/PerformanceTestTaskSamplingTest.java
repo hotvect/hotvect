@@ -14,6 +14,30 @@ import static org.junit.jupiter.api.Assertions.assertNotEquals;
 public class PerformanceTestTaskSamplingTest {
 
     @Test
+    void pickSamplePoolSizeDefaultsToCappedSamples() {
+        Options options = new Options();
+        options.samples = 20_000;
+
+        assertEquals(PerformanceTestTask.DEFAULT_SAMPLE_POOL_SIZE, PerformanceTestTask.pickSamplePoolSize(options));
+    }
+
+    @Test
+    void pickSamplePoolSizeDefaultsWhenSamplesUnset() {
+        Options options = new Options();
+
+        assertEquals(PerformanceTestTask.DEFAULT_SAMPLE_POOL_SIZE, PerformanceTestTask.pickSamplePoolSize(options));
+    }
+
+    @Test
+    void pickSamplePoolSizeHonorsExplicitOverride() {
+        Options options = new Options();
+        options.samples = 20_000;
+        options.samplePoolSize = 128;
+
+        assertEquals(128, PerformanceTestTask.pickSamplePoolSize(options));
+    }
+
+    @Test
     void samplingIsDeterministic(@TempDir Path tempDir) throws Exception {
         Files.writeString(tempDir.resolve("a.txt"), "a1\na2\na3\na4\na5\na6\na7\na8\na9\na10\n");
         Files.writeString(tempDir.resolve("b.txt"), "b1\nb2\nb3\nb4\nb5\nb6\nb7\nb8\nb9\nb10\n");

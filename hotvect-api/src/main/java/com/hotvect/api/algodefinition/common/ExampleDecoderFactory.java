@@ -14,6 +14,14 @@ import java.util.function.Function;
  * they always use OfflineRequest implementations.
  */
 public interface ExampleDecoderFactory<EXAMPLE extends Example<? extends OfflineRequest, ?>> extends Function<Optional<JsonNode>, ExampleDecoder<EXAMPLE>> {
+    /**
+     * @deprecated Use create(...).
+     */
+    @Deprecated(forRemoval = true, since = "10.40.0")
     @Override
     ExampleDecoder<EXAMPLE> apply(Optional<JsonNode> hyperparameter);
+
+    default ExampleDecoder<EXAMPLE> create(Optional<JsonNode> hyperparameter) {
+        return apply(hyperparameter);
+    }
 }

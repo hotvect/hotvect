@@ -1,60 +1,34 @@
 package com.hotvect.api.data;
 
-import net.jqwik.api.*;
-import net.jqwik.api.Tuple.Tuple2;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 
 import java.util.Arrays;
+import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 class SparseVectorTest {
 
-    @Provide
-    Arbitrary<Double> doubles() {
-        return Arbitraries.of(Double.MIN_VALUE, -1.0, 0.0, 1.0, Double.MAX_VALUE);
-    }
-
-    @Provide
-    Arbitrary<Tuple2<int[], double[]>> vectors() {
-        Arbitrary<int[]> intArrays = Arbitraries.integers()
-                .array(int[].class)
-                .ofMinSize(0)
-                .ofMaxSize(3);
-
-        return intArrays.flatMap(is -> {
-            int length = is.length;
-            Arbitrary<double[]> doubleArrays = doubles()
-                    .array(double[].class)
-                    .ofSize(length);
-            return doubleArrays.map(ds -> Tuple.of(is, ds));
-        });
-    }
-
-    @Property
-    void correctlyInitializes(@ForAll("vectors") Tuple2<int[], double[]> x) {
-        int[] names = x.get1();
-        double[] values = x.get2();
+    @ParameterizedTest
+    @MethodSource("vectors")
+    void correctlyInitializes(int[] names, double[] values) {
         assertEquals(names.length, values.length);
         SparseVector subject = new SparseVector(names, values);
         assertArrayEquals(names, subject.getNumericalIndices());
         assertArrayEquals(values, subject.getNumericalValues());
     }
 
-    @Provide
-    Arbitrary<int[]> intArrays() {
-        return Arbitraries.integers()
-                .array(int[].class)
-                .ofMinSize(0)
-                .ofMaxSize(3);
-    }
-
-    @Property
-    void correctlyInitializesWithNamesOnly(@ForAll("intArrays") int[] x) {
+    @ParameterizedTest
+    @MethodSource("intArrays")
+    void correctlyInitializesWithNamesOnly(int[] x) {
         SparseVector subject = new SparseVector(x);
         assertArrayEquals(x, subject.getCategoricalIndices());
     }
 
-    @Example
+    @Test
     void invalidInputs() {
         assertThrows(NullPointerException.class, () -> new SparseVector((int[]) null));
         assertThrows(NullPointerException.class, () -> new SparseVector((double[]) null));
@@ -62,16 +36,42 @@ class SparseVectorTest {
         assertThrows(IllegalArgumentException.class, () -> new SparseVector(new int[1], new double[2]));
     }
 
-    @Property
-    void equality(@ForAll("vectors") Tuple2<int[], double[]> x, @ForAll("vectors") Tuple2<int[], double[]> y) {
-        SparseVector xp = new SparseVector(x.get1(), x.get2());
-        SparseVector yp = new SparseVector(y.get1(), y.get2());
-        boolean arraysEqual = Arrays.equals(x.get1(), y.get1()) && Arrays.equals(x.get2(), y.get2());
+    @ParameterizedTest
+    @MethodSource("vectorPairs")
+    void equality(int[] xNames, double[] xValues, int[] yNames, double[] yValues) {
+        SparseVector xp = new SparseVector(xNames, xValues);
+        SparseVector yp = new SparseVector(yNames, yValues);
+        boolean arraysEqual = Arrays.equals(xNames, yNames) && Arrays.equals(xValues, yValues);
         if (arraysEqual) {
             assertEquals(xp, yp);
             assertEquals(xp.hashCode(), yp.hashCode());
         } else {
             assertNotEquals(xp, yp);
         }
+    }
+
+    private static Stream<Arguments> vectors() {
+        return Stream.of(
+                Arguments.of(new int[]{}, new double[]{}),
+                Arguments.of(new int[]{0}, new double[]{0.0}),
+                Arguments.of(new int[]{-1, 2, 10}, new double[]{Double.MIN_VALUE, -1.0, Double.MAX_VALUE})
+        );
+    }
+
+    private static Stream<Arguments> intArrays() {
+        return Stream.of(
+                Arguments.of((Object) new int[]{}),
+                Arguments.of((Object) new int[]{0}),
+                Arguments.of((Object) new int[]{-1, 2, 10})
+        );
+    }
+
+    private static Stream<Arguments> vectorPairs() {
+        return Stream.of(
+                Arguments.of(new int[]{}, new double[]{}, new int[]{}, new double[]{}),
+                Arguments.of(new int[]{0}, new double[]{0.0}, new int[]{0}, new double[]{0.0}),
+                Arguments.of(new int[]{0}, new double[]{0.0}, new int[]{1}, new double[]{0.0}),
+                Arguments.of(new int[]{0}, new double[]{0.0}, new int[]{0}, new double[]{1.0})
+        );
     }
 }

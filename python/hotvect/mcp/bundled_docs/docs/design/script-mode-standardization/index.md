@@ -1,103 +1,83 @@
-# Script-mode standardization (SageMaker)
+---
+title: SageMaker custom.py payload contract
+description: The small, source-backed contract Hotvect provides when a SageMaker job supplies s3_uri_custom_jar
+tags: [design, sagemaker, script-mode, custom.py]
+difficulty: advanced
+related_docs:
+  - ../../guides/sagemaker-upgrade-custom-py/index.md
+  - ../../guides/sagemaker-backtests/index.md
+  - ../sagemaker-configuration/index.md
+---
 
-## Summary
-Standardize SageMaker execution around a script-mode payload (`custom.py` + `run_pipeline.py`), support Hotvect upgrade/downgrade via a wheelhouse, and transport the effective algorithm definition via S3 (like the algorithm JAR).
+# SageMaker `custom.py` payload contract
 
-This document describes the **runner contract** so that:
+Use script mode only when a SageMaker job needs to run caller-owned code. It is a deliberately small hook, not a
+second Hotvect pipeline runner.
 
-- launchers (`hv backtest`, internal tooling, custom scripts) can submit compatible jobs
-- training images can evolve without breaking existing workloads
-- script-mode payloads are interchangeable as long as they implement the contract
+!!! warning "Execution rule"
+    Treat every action after `custom.py` starts as payload-owned. Hotvect does not automatically rebuild a pipeline,
+    install a different runtime, download an algorithm JAR or definition, or publish results and metadata for the
+    payload.
 
-## Algorithm definition transport
-- Upload the effective algorithm definition JSON to S3.
-- Pass the URI via hyperparameter `s3_uri_algorithm_definition` (mirrors `s3_uri_algorithm_jar`).
+## Activation and payload shape
 
-## Script-mode runner contract
+The SageMaker entrypoint selects script mode when the job hyperparameters contain `s3_uri_custom_jar`.
 
-### When script-mode is active
+Despite its name, `s3_uri_custom_jar` must point to a **ZIP archive**. Hotvect downloads the archive, unpacks it, and
+runs the root-level entrypoint:
 
-Script-mode is active when the SageMaker training job hyperparameters include `s3_uri_custom_jar`.
+```text
+payload.zip
+└── custom.py
+```
 
-Despite the name, `s3_uri_custom_jar` points to a **zip payload** (not a JAR) whose root must contain:
+There is no required `run_pipeline.py`, wheelhouse, requirements file, or result layout. Add any of those only when
+your payload needs them.
 
-- `custom.py` (**required**) – entrypoint for script-mode
-- `run_pipeline.py` (**recommended**) – a stable, testable runner invoked by `custom.py`
+## What Hotvect does
 
-### Required hyperparameters
+For a script-mode job, `SageMakerScriptExecutor` performs exactly these steps:
 
-A script-mode runner must treat the following hyperparameters as source-of-truth pointers:
+1. Downloads `s3_uri_custom_jar` from S3.
+2. Unpacks it as a ZIP archive into a temporary directory.
+3. Writes a temporary JSON file containing the job hyperparameters.
+4. Adds two convenience fields to that JSON:
+   - `custom_jar_path`: local path of the downloaded ZIP archive
+   - `input_dir`: SageMaker's input directory
+5. Executes `python <unpacked-dir>/custom.py <hyperparameters-json-path>`.
 
-- `s3_uri_custom_jar` – S3 URI to the script-mode payload zip (used only to bootstrap execution)
-- `s3_uri_algorithm_jar` – S3 URI to the algorithm JAR to execute
-- `s3_uri_algorithm_definition` – S3 URI to the effective algorithm-definition JSON for this run
-- `s3_uri_result_file` – S3 URI where `result.json` must be written
-- `s3_uri_metadata` – S3 URI prefix where `meta/` must be uploaded (logs + effective config)
+The JSON argument is the only interface passed to `custom.py`; parse it explicitly and fail fast when your own
+required keys are absent.
 
-### Runner responsibilities
+## What the payload owns
 
-At minimum, the runner must:
+If the payload needs any of the following, it must implement them itself:
 
-1. **Download and unpack** `s3_uri_custom_jar` and execute `custom.py`.
-2. **Resolve the algorithm inputs**:
-   - download `s3_uri_algorithm_jar` to a local file
-   - download `s3_uri_algorithm_definition` to a local JSON file
-3. **Execute the pipeline** defined by the effective algorithm definition:
-   - rebuild the pipeline from hyperparameters (or from a pipeline config file produced by the launcher)
-   - run training/evaluation/predict stages as requested by the job
-4. **Write results and metadata**:
-   - produce `result.json` locally and upload it to `s3_uri_result_file`
-   - upload `meta/` (stage logs, effective algodef, resolved overrides, timing info, etc.) to `s3_uri_metadata`
-5. **Fail fast with clear errors** on missing required inputs (including missing wheels in the wheelhouse, invalid S3 URIs, or malformed algorithm definitions).
+- choosing or installing a Hotvect version and dependencies
+- downloading an algorithm JAR, algorithm definition, model parameters, or additional inputs
+- rebuilding and invoking a Hotvect pipeline
+- writing or uploading `result.json`, metadata, logs, models, or any other artifacts
+- defining its own archive contents, environment variables, and error reporting
 
-### Optional: local tracing archive (OpenTelemetry + Jaeger)
+The normal job hyperparameters may include paths such as `s3_uri_algorithm_jar`, `s3_uri_algorithm_definition`,
+`s3_uri_result_file`, or `s3_uri_metadata`, but script mode does not give those paths special treatment. They are
+ordinary values for `custom.py` to use or ignore.
 
-Some runners support capturing OpenTelemetry traces during a SageMaker job by starting a local Jaeger collector inside the container and exporting spans to it.
+## Optional local tracing
 
-When supported, enable it via hyperparameters:
+Hotvect can optionally start a local Jaeger process around `custom.py`. Set:
 
 - `otel_trace_mode=local_jaeger`
-- `s3_uri_jaeger_all_in_one` – Jaeger all-in-one binary (downloaded at runtime)
-- `s3_uri_otel_javaagent` – OpenTelemetry Java agent jar (downloaded at runtime)
-- `otel_service_name` (optional) – service name to emit
-- `otel_trace_ratio` (optional) – sampling ratio `0..1` (default depends on the runner)
+- `s3_uri_jaeger_all_in_one`
+- `s3_uri_otel_javaagent`
+- `s3_uri_metadata`
 
-Expected output:
+It downloads the Jaeger binary and OpenTelemetry Java agent, injects the OTLP environment variables (plus optional
+`otel_service_name` and `otel_trace_ratio`), and uploads `otel/jaeger-traces.tgz` under `s3_uri_metadata` after the
+payload exits. This is the only built-in artifact upload in script mode.
 
-- The runner uploads a trace archive under the metadata prefix, typically `otel/jaeger-traces.tgz` next to `meta/`.
+## Choosing the right mode
 
-### Optional: Java Flight Recorder (JFR) for performance-test
-
-Some runners support collecting Java Flight Recorder output for performance profiling during the **performance-test** stage only.
-
-When supported, enable it via hyperparameter:
-
-- `jfr_enabled=true` (runner-defined; intentionally off by default)
-- `jfr_settings` (optional) – JFR settings, for example `profile`
-
-Expected output:
-
-- One or more `.jfr` files under the metadata prefix, typically `meta/.../jfr/performance-test-*.jfr`.
-
-### Backward compatibility: algorithm-definition shapes
-
-Script-mode must remain compatible with older algorithm-definition JSON shapes (within reason). In practice this means:
-
-- **Treat unknown fields as pass-through** (don’t validate against a single pinned schema in the runner).
-- **Be tolerant of common structural variants**, for example:
-  - `dependencies` represented as a list or a map
-  - top-level identity fields such as `algorithm_name`/`algorithm_version` vs `name`/`version`
-- **Prefer** `s3_uri_algorithm_definition` when present, but for legacy launchers it is reasonable to fall back to embedded/legacy hyperparameters (for example `_algo_def_*`) when that URI is missing.
-
-## Output tar inclusion (breaking change)
-Replace `WRITE_OUTPUT_TO_S3` / `WRITE_METADATA_TO_S3` with:
-- `SAGEMAKER_TAR_INCLUDE_OUTPUT` (default: false)
-- `SAGEMAKER_TAR_INCLUDE_METADATA` (default: false)
-
-`meta/` is still uploaded directly to `s3_uri_metadata`; tar inclusion is optional and only for bundling.
-
-## Hotvect versioning
-- Optional `HOTVECT_VERSION`.
-- If `HOTVECT_VERSION` is set and differs from the preinstalled version, `INTERNAL_WHEELS_S3_URI` is required.
-- Hotvect installs from `INTERNAL_WHEELS_S3_URI` (wheelhouse).
-- Public deps can be installed from default PyPI; no explicit public index env vars.
+Use regular SageMaker execution when the image-baked Hotvect runtime and normal pipeline flow are sufficient. Use
+script mode only when the job must control its own bootstrap or execute a custom workload. For a payload-owned runtime
+upgrade pattern, see [Upgrade Hotvect with `custom.py`](../../guides/sagemaker-upgrade-custom-py/index.md).

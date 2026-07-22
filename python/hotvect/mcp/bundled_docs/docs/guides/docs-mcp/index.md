@@ -2,6 +2,15 @@
 
 Hotvect ships a **documentation-only** MCP server. It is read-only: it can **search** and **read** the bundled Markdown docs, and expose a few prompt templates to help agents follow common runbooks.
 
+If you do **not** want MCP setup and only need local docs or prompt lookup, use the built-in CLI instead:
+
+```bash
+hv docs search "backtest"
+hv docs read reference/cli/index.md
+hv prompts list
+hv prompts read setup_config
+```
+
 ## Protocol
 
 This server uses **newline-delimited JSON-RPC (NDJSON)** over stdio: one JSON object per line.
@@ -40,7 +49,7 @@ If you want deterministic caching (or you’re debugging index issues), set an e
 hv-mcp --sqlite-index-path /tmp/hotvect-docs-index.sqlite
 ```
 
-### Disable the SQLite index (fallback to scan)
+### Use scan-based search without an index
 
 If you want to guarantee **no local index writes**, disable indexing:
 
@@ -169,8 +178,19 @@ This server also exposes high-signal runbook prompts (client support varies). Cu
 - `performance_investigation_runbook`
 - `predict_score_equivalence_testing`
 - `ordered_backtest_with_pinned_parameters`
+- `online_offline_parity_investigation`
+
+The same prompt catalog is available without MCP via:
+
+```bash
+hv prompts list
+hv prompts read predict_score_equivalence_testing
+```
 
 ## Tips
 
 - For local grep-style search (outside MCP), search the docs directory:
   - `rg -n "<pattern>" python/hotvect/mcp/bundled_docs/docs`
+
+Next, return to the [Agent workflow](../../agents/index.md) or use the
+[docs build runbook](../../agents/runbooks/docs-build/index.md) when changing the bundled documentation itself.

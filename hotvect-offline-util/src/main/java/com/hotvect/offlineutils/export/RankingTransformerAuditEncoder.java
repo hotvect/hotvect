@@ -15,13 +15,15 @@ import com.hotvect.api.data.ranking.RankingExample;
 import com.hotvect.api.data.ranking.TransformedAction;
 
 import java.nio.ByteBuffer;
-import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
+
+import static com.google.common.base.Preconditions.checkArgument;
 
 public class RankingTransformerAuditEncoder<SHARED, ACTION, OUTCOME> implements RankingExampleEncoder<SHARED, ACTION, OUTCOME> {
     private static final String FEATURE_STORE_RESPONSES_KEY = "__feature_store_responses";
@@ -48,32 +50,54 @@ public class RankingTransformerAuditEncoder<SHARED, ACTION, OUTCOME> implements 
     @Override
     public ByteBuffer apply(RankingExample<SHARED, ACTION, OUTCOME> toEncode) {
 
+        var actions = toEncode.request().actions();
         List<TransformedAction<ACTION>> transformed = this.transformer.transform(toEncode.request());
         var root = objectMapper.createObjectNode();
         root.put("example_id", toEncode.exampleId());
 
+        Map<String, Object> additionalProperties = new HashMap<>(toEncode.request().additionalProperties());
         if (includeFeatureStoreResponses) {
-            Map<String, Object> additionalProperties = new HashMap<>();
             additionalProperties.put(
                     FEATURE_STORE_RESPONSES_KEY,
                     Objects.requireNonNull(toEncode.request().featureStoreResponseContainer(), "request.featureStoreResponseContainer is null")
                             .featureStoreResponses()
             );
+        }
+        if (!additionalProperties.isEmpty()) {
             root.putPOJO("additional_properties", additionalProperties);
         }
 
         ArrayNode results = objectMapper.createArrayNode();
-        var actions = toEncode.request().availableActions();
-        var outcomes = toEncode.outcomes();
-        Map<Integer, Double> actionIdxToReward = outcomes.stream().collect(Collectors.toMap(
-                x -> x.rankingDecision().actionIndex(),
-                x -> rewardFunction.applyAsDouble(x.outcome())
-        ));
+        var actionIdToOutcome = RankingActionIds.outcomesByActionId(toEncode.outcomes());
+        Set<String> requestActionIds = RankingActionIds.requestActionIds(actions);
+        RankingActionIds.validateActionIdCoverage(
+                "Example",
+                "outcome",
+                actionIdToOutcome.keySet(),
+                requestActionIds,
+                actions.size()
+        );
+        Set<String> transformedActionIds = transformed.stream()
+                .map(TransformedAction::actionId)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        RankingActionIds.validateActionIdCoverage(
+                "RankingTransformer",
+                "transformed action",
+                transformedActionIds,
+                requestActionIds,
+                actions.size()
+        );
 
-        for (int i = 0; i < actions.size(); i++) {
-            var transformedRecord = transformed.get(i);
-            var reward = actionIdxToReward.get(i);
+        for (var transformedRecord : transformed) {
+            var actionId = transformedRecord.actionId();
+            checkArgument(
+                    actionIdToOutcome.containsKey(actionId),
+                    "RankingExample is missing outcome for action id: %s",
+                    actionId
+            );
+            var reward = rewardFunction.applyAsDouble(actionIdToOutcome.get(actionId).outcome());
             var result = objectMapper.createObjectNode();
+            result.put("action_id", actionId);
             result.put("reward", reward);
             ObjectNode features = objectMapper.createObjectNode();
             result.set("features", features);

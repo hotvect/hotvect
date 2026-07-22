@@ -1,0 +1,19 @@
+{
+  "hotvect_version": "${project.version}",
+  "algorithm_name": "example-product-ranker",
+  "algorithm_version": "${exploration.algorithm.version}",
+  "dependencies": {
+    "example-product-scorer": {}
+  },
+  "decoder_factory_classname": "com.hotvect.example.product.ProductRankingDecoderFactory",
+  "reward_function_factory_classname": "com.hotvect.example.product.ProductRewardFunctionFactory",
+  "algorithm_factory_classname": "com.hotvect.example.product.ProductExplorationRankerFactory",
+  "test_data_spec": {
+    "data_prefix": "example_product_examples"
+  },
+  "hotvect_execution_parameters": {
+    "performance-test": {
+      "enabled": false
+    }
+  }
+}

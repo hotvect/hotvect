@@ -1,6 +1,5 @@
 package com.hotvect.catboost;
 
-import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.hotvect.api.data.Namespace;
 import com.hotvect.api.data.common.NamespacedRecord;
@@ -15,7 +14,6 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-import static com.google.common.base.Preconditions.checkState;
 import static com.hotvect.core.util.Utils.checkCollectionIsEnumsOrNamespaceIdObjects;
 
 final class CatBoostTransformedActionScorer<ACTION> {
@@ -88,11 +86,13 @@ final class CatBoostTransformedActionScorer<ACTION> {
 
         List<ScoringDecision<ACTION>> ret = new ArrayList<>(predictedScores.size());
         for (int i = 0; i < predictedScores.size(); i++) {
+            TransformedAction<ACTION> transformedAction = transformed.get(i);
             ret.add(
                     ScoringDecision.of(
-                            transformed.get(i).action(),
+                            transformedAction.actionId(),
+                            transformedAction.action(),
                             predictedScores.getDouble(i),
-                            transformed.get(i).additionalProperties()
+                            transformedAction.additionalProperties()
                     )
             );
         }
@@ -129,22 +129,7 @@ final class CatBoostTransformedActionScorer<ACTION> {
         for (int featureIdx = 0; featureIdx < this.textFeatures.size(); featureIdx++) {
             Namespace feature = this.textFeatures.get(featureIdx);
             Object value = namespacedRecord.get(feature);
-
-            texts[featureIdx] = switch (value) {
-                case null -> CatBoostEncoder.MISSING_TEXT;
-                case String[] arr when arr.length == 0 -> CatBoostEncoder.MISSING_TEXT;
-                case String[] arr -> {
-                    StringBuilder sb = new StringBuilder();
-                    for (String string : arr) {
-                        checkState(!Strings.isNullOrEmpty(string), "Suspicious empty string:%s", (Object) arr);
-                        checkState(!string.contains(" "), "Feature value may not contain spaces:%s", (Object) arr);
-                        sb.append(string).append(" ");
-                    }
-                    sb.deleteCharAt(sb.length() - 1);
-                    yield sb.toString();
-                }
-                default -> throw new RuntimeException("Invalid text type:" + value);
-            };
+            texts[featureIdx] = CatBoostEncodingUtils.normalizeTextValue(value);
         }
     }
 
@@ -152,14 +137,7 @@ final class CatBoostTransformedActionScorer<ACTION> {
         for (int featureIdx = 0; featureIdx < this.categoricalFeatures.size(); featureIdx++) {
             Namespace feature = this.categoricalFeatures.get(featureIdx);
             Object value = namespacedRecord.get(feature);
-
-            categoricals[featureIdx] = switch (value) {
-                case null -> CatBoostEncoder.MISSING_CATEGORICAL;
-                case String s -> s;
-                case Integer i -> i.toString();
-                case Long l -> l.toString();
-                default -> throw new RuntimeException("Invalid categorical value:" + value);
-            };
+            categoricals[featureIdx] = CatBoostEncodingUtils.normalizeCategoricalValue(value);
         }
     }
 

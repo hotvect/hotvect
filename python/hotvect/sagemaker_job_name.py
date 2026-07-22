@@ -1,5 +1,6 @@
 import hashlib
 import secrets
+from datetime import date
 from pathlib import Path
 
 from hotvect.sagemaker_config import validate_job_prefix, validate_training_job_name_length
@@ -35,5 +36,20 @@ def build_one_shot_training_job_name(*, prefix: str, jar_path: Path, hyperparame
     jar4 = compute_jar4(jar_path)
     hph = compute_hph(hyperparameter_version or "")
     name = f"{prefix}-{runid}-{jar4}-{hph}-{kind}"
+    validate_training_job_name_length(name)
+    return name
+
+
+def build_backtest_training_job_name(
+    *,
+    prefix: str,
+    git_commit_hash: str,
+    hyperparameter_version: str,
+    last_test_day: date,
+) -> str:
+    validate_job_prefix(prefix)
+    git_hash = git_commit_hash[:6]
+    hph = compute_hph(hyperparameter_version or "")
+    name = f"{prefix}-{git_hash}-{hph}-{last_test_day.isoformat()}"
     validate_training_job_name_length(name)
     return name

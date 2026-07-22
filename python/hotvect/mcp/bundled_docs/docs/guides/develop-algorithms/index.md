@@ -1,684 +1,207 @@
 ---
-title: How to Develop a Re-ranker with Hotvect
-description: Complete guide to building a re-ranking algorithm with feature engineering, transformations, and ML integration
-tags: [development, re-ranker, feature-engineering, algorithms, tutorial]
+title: Develop a Hotvect algorithm
+description: Design, package, and validate a Hotvect algorithm after the first runnable example
+tags: [development, algorithms, java, v10]
 difficulty: intermediate
-estimated_time: 2 hours
 prerequisites:
-  - Java 21+ and Maven installed
-  - Understanding of ML concepts (features, models)
-  - Familiarity with Java POJOs and functional programming
+  - Completed Build your first algorithm, or inherited an existing algorithm repository
+  - Familiarity with requests, decisions, examples, algorithm packages, and parameter packages
 related_docs:
-  - ../../concepts/index.md
-  - ../../reference/cli/index.md
-  - ../debug-feature-engineering/index.md
-related_commands:
-  - hv encode
-  - hv train
-  - hv audit
-next_steps:
-  - Debug feature engineering code
-  - Run and compare feature audits
-  - Deploy algorithm to production
+  - ../first-algorithm/index.md
+  - ../../concepts/complete-algorithm/index.md
+  - ../../reference/algorithm-definition/index.md
 ---
 
-# How to: Develop a Re-ranker with Hotvect
+# Develop a Hotvect algorithm
 
-## What is hotvect's scope?
-Hotvect's main function is to (1) execute feature extraction/transformations, (2) sending that to a machine learning algorithm, and (3) returning the result. Optionally, business logic (like heuristics) and algorithmic logic (like Epsilon-Greedy, Softmax Exploring) can be implemented in it, too.
-Its focus is to (a) integrate a ML-based algorithm package seamlessly into a Java business application, and (b) in a way that is easy to test algorithms for correctness and system performance, so that algorithms can rapidly iterated upon. For this purpose, it provides other functionalities like backtesting, management of model parameters and hyperparameters, feature audits, integration with Sagemaker, etc.
+A Hotvect algorithm project turns application-specific data and decision logic into a versioned artifact the same
+runtime can execute offline or inside an application. The minimum artifact is an algorithm package containing the
+implementation and embedded definition. Feature-based or trained algorithms also produce a parameter package.
+Composite algorithms declare and receive child algorithm instances. The current package formats are a JVM JAR and a
+ZIP respectively.
 
-## How do I define feature extraction in hotvect?
-### Defining the `shared` and `action` object
-When you re-rank a set of content, you have information that is `shared` across them (like the user_id, the context url, time of day etc.), and information that is specific to each `action`, like the name of the SKU, the price, the category etc. In hotvect, you can use an arbitrary Java object to represent these information. I.e. you should have one Java class that holds the `shared` information, and one Java class that holds the `action` information. The re-ranker essentially receives one instance of the `shared` object, and a list of `action` objects which it re-ranks.
+If you have not built one before, complete [Build your first algorithm](../first-algorithm/index.md). It shows the full
+contract without training or composition. This guide explains how to extend that structure deliberately.
 
-One could think of another category of information `slot`, which describes information about the possible places it would be displayed (e.g. which row it is, what the size of the image will be and so on). Currently, this information is not supported (although you could shoehorn it into the `shared` object via a List or a Map, for example).
+For a complete executable extension, follow [Train your first model-backed algorithm](../first-trainable-algorithm/index.md)
+or [Compose your first algorithm](../first-composite-algorithm/index.md) before using this page as a design checklist.
+If the algorithm owns candidate selection rather than ordering caller-provided candidates, use
+[Build a TopK algorithm](../topk-algorithms/index.md).
 
-There is no restriction about what these objects are - as long as they are Java objects, they will work. That said, you probably want to use objects that are easy to serialize and deserialize, like a Java POJO generated for a serialization framework (like Jackson, Protobuf etc.).
+## The project anatomy
 
-### Hyperparameters and parameters
-Aside from the `shared` and `action` objects, hotvect algorithms also has access to `hyperparameters` and `parameters` when calculating features. `hyperparameters` is essentially a JSON file to which you can write any parameters you want to use in the algorithm. However, importantly, it cannot be very large, and it stays the same for the lifetime of the algorithm version.
-`parameters` on the other hand is some arbitrary binary data that you can store against a name. Unlike `hyperparameters`, it can be any data, it can be large, and it's meant to be updated regularly (e.g. via a daily or hourly batch job).
-The most obvious use case for `parameters` is to store the model parameters of a machine learning algorithm. However, you can also use it to store other information, like a lookup table, or pre-calculated feature values.
+A typical repository has these responsibilities even when its exact packages differ:
 
-### Defining the transformations
-Ultimately, hotvect takes the `shared` object and a list of `action` (and whatever object that was derived from `hyperparameters` and `parameters`) and transforms them into a form that can be sent to machine learning models, which are also managed by hotvect. It then re-ranks the list of `action` and returns the result.
-
-Most ML algorithms accepts a type of dataframe as its input, and hence, hotvect also has an internal representation that is similar to a dataframe. However, unlike most dataframe implementation, it is row-oriented. This representation is called `NamespaceRecord`.
-
-To define features, you declare the name of the feature (`namespace`), and the function that should be used to calculate the feature value from the `shared` and `action` objects.
-
-#### The `NamespaceRecord`
-`NamespaceRecord` is essentially a `Map<Namespace, Object>`, where the key is the name of the "column", and the value is the feature value. A list of `NamespaceRecord`s is very similar to a dataframe.
-
-When you calculate features, it is important to be able to reuse calculations, as multiple features might depend on the same, expensive calculation. For example, you might want to calculate "the number of followers of a user from country X", and then use that value in multiple features. To enable this, `NamespaceRecord` accepts any value type. I.e. you can store any Java object as a value, and reuse it (just like you might do with a dataframe).
-
-However, not all Java objects can be sent to the ML algorithm as features. Exactly what type is supported depends on the ML algorithm, but for example, the CatBoost integration supports the following types:
-```
- - Categorical (String)
- - Numerical (Double)
- - Text (Array of String)
- - Embedding (Array of Double)
+```text
+algorithm project
+├── application data types       # shared request data, candidate data, outcomes
+├── decoder factory              # external example data → typed offline examples
+├── feature code                 # optional transformation or vectorization
+├── algorithm factory            # creates the public Ranker, BulkScorer, or TopK
+├── child algorithms             # optional reusable capabilities
+├── algorithm definition JSON    # identity, factories, dependencies, data, stages
+└── tests                        # policy, decoding, features, packaging, parity
 ```
 
-To support this dual use (one for "caching" arbitrary calculation, and one for sending actual ML feature value), there are two types of `Namespace`. The "regular" `Namespace`, and the `FeatureNamespace` which is a subclass of `Namespace`. Only columns of type `FeatureNamespace` can be used as ML features, and you must declare what type of feature it holds (categorical, numerical, text etc.). Consequently, a single `FeatureNamespace` can only hold one type of feature value.
+The definition is a runtime manifest, not a replacement for the Java implementation. It tells Hotvect which classes
+to instantiate and which lifecycle to orchestrate; the classes contain the typed behavior.
 
-For performance reasons, the `Namespace` object must always be a singleton. You can either have an enum that implements the `Namespace` or `FeatureNamespace`, or use the `CompoundNamespace` class to create a "compound" `Namespace` out of enum based `Namespace`. The latter is useful if you want to have many features that are similar.
-For example, if you wanted to have features like below:
-```
-REGION_A_ATTRIBUTE_A_METRIC_01,
-REGION_B_ATTRIBUTE_A_METRIC_01,
-REGION_A_ATTRIBUTE_A_METRIC_02,
-REGION_B_ATTRIBUTE_A_METRIC_02,
-REGION_B_ATTRIBUTE_B_METRIC_02,
-...
-```
+## Choose the smallest useful design
 
-Instead of having to write out each enum, you can define 3 enums `Region{REGION_A, REGION_B}`, `Attribute{ATTRIBUTE_A, ATTRIBUTE_B}`, `Metric{METRIC_01, METRIC_02}` and use the `CompoundNamespace` to create the "concatenated" `Namespace` objects to have all combinations. This way, you can dynamically generate features instead of having to hardcode them into the source code.
+Most algorithms fit one of three levels:
 
-When you create compound `FeatureNamespace` objects, a feature value type (like `categorical`, `numerical`, `text` etc.) is assigned the first time it is retrieved. After that its feature value type cannot be changed.
+| Level | Use it when | Artifacts |
+| --- | --- | --- |
+| Policy-only | Rules or deterministic logic can make the decision directly | Algorithm package; no learned parameters |
+| Feature-based | A model consumes generated features or vectors | Algorithm package + trained parameter package |
+| Composite | An outer policy coordinates reusable child algorithms | Outer packages + declared child packages |
 
-> **Why do `Namespace` need to be singletones?** In our use case, response time is critically important. Due to how often they are accessed, test revealed that only the EnumMap and IdentityHashMap can provide the necessary performance. Other objects, like interned strings were considered, but string interning is actually very expensive & it's hard to tell if a given string had been interned. With the singleton-via-a-factory approach, we can prevent and detect bugs to some degree.
+Start at the lowest level that represents the problem. A child dependency is valuable when it has an independent
+contract, artifact lifecycle, or deployment location—not merely to divide one class into smaller classes.
 
-#### Lazyness, memoization and parallalization
-To build a good recommendation service, it is critical to process a lot of data within a short time. To achieve this, hotvect uses lazyness, memoization and parallelization.
+## 1. Define the public decision
 
- - Lazyness: Hotvect starts from a feature that was requested, and calculates its dependency on-demand (i.e. when it is requested). This way, it can avoid calculations that are not needed. This is important as features can be turned on and off via the hyperparameter.
- - Memoization: Whenever a calculation depends on the same calculation, the result is automatically reused if "caching" is enabled for that calculation. Due to the small but nevertheless non-zero overhead of caching, it is not always advisable to use caching. By default, all calculations that only depend on `shared` object are cached, while others are not. This can be changed programmatically.
- - Parallelization: Hotvect parallelizes the calculation of feature values as well as the subsequent ML inference. This is done through the use of ForkJoin framework.
+Choose the shape application code will call:
 
-These have however, some consequence on the API as well as the implementation of feature extraction code.
+| Shape | Request and result |
+| --- | --- |
+| `Ranker` | Receives candidate actions and returns an ordered decision for them |
+| `BulkScorer` | Receives candidates and returns scores without owning final ordering policy |
+| `TopK` | Selects items without receiving a candidate list in the request |
+| `ThemedTopK` | Adds an action-list ID and string metadata to a TopK response |
 
- - `shared` and `action` objects, as well as calculation results in `NamespaceRecord` must not be mutated.
- - Functions must be thread-safe and idempotent (unless you know what you are doing)
- - You cannot directly read values out from the `NamespaceRecord` being created (instead, you have to request the value through the `Memoized` context object interface)
+`Scorer` is useful as a narrow child capability, but the built-in task and local-serving surfaces do not dispatch it
+directly. State generation is an offline lifecycle role configured with a generator factory, not a new public use of
+the deprecated `State` marker.
 
-#### Memoization interface
-You can use hotvect without using its memoization interface, but for a lot of use case it may be necessary to meet the performance requirements. To use memoization, use the `MemoizingRankingTransformer`. This transformer can be built through its Builder interface. It will automatically convert the incoming `RankingRequest`s into a `MemoizedRankingRequest` which provides a context object through which you can request calculation results.
+The offline task, performance, and local debug surfaces do not expose every shape in exactly the same way. Check the
+[surface matrix](../../concepts/complete-algorithm/index.md#public-algorithm-shapes) before choosing a shape for a new
+host integration.
 
-Here are some example usages:
+## 2. Make the data boundary explicit
 
-```java
-/**
- * "UserContext" object is the shared object, and the "Ad" is the action object.
- * As stated above, this can be any java object.
- */
-public class CTRModelTransformerFactory implements RankingTransformerFactory<UserContext, Ad> {
+For ranking, define:
 
-    /**
-     * This method is called by the framework to obtain a transformer, which is shared across threads/requests.
-     * @param hyperparameters The hyperparameters that are passed to the algorithm.
-     * @param parameters The parameters that are passed to the algorithm, like feature stores.
-     * @param algorithmDependencies Algorithms can use other algorithms as dependencies (e.g. for stacking).
-     */
-    @Override
-    public RankingTransformer<UserContext, Ad> apply(Optional<JsonNode> hyperparameters, Map<String, InputStream> parameters, Map<String, AlgorithmInstance<?>> algorithmDependencies) {
-        MemoizingRankingTransformer.MemoizingRankingTransformerBuilder<UserContext, Ad> builder = MemoizingRankingTransformer.builder();
+- the shared request type, available to every candidate;
+- the action type, carried by each candidate;
+- a stable action ID for each candidate;
+- the outcome type used by offline examples, if the algorithm evaluates or trains.
 
-        // Here we register a function that yields a categorical attribute from the action object
-        // The result will be stored under the SkuAttribute.attribute_a namespace
-        builder.withActionTransformation(SkuAttribute.attribute_a, new AttributeAExtractor());
+The decoder translates an external record into a typed offline `Example`. It is part of the algorithm's data contract:
+changing field meaning or action identity can change features, labels, and comparisons even when the code still
+compiles.
 
-        // A neat trick is to define the extractor function in the enum itself, like this:
-        builder.withActionTransformation(SkuAttribute.attribute_b, SkuAttribute.attribute_b.getExtractor());
+An online JVM host normally creates an online request directly. It does not need to serialize traffic through the
+offline example decoder. See [Requests, decisions, and examples](../../concepts/data-model/index.md) for the boundary
+between application data and Hotvect's common model.
 
-        // Which also allows you to register the extractors in a loop, like this:
-        for(SkuAttribute skuAttribute : SkuAttribute.values()) {
-            builder.withActionTransformation(skuAttribute, skuAttribute.getExtractor());
-        }
+## 3. Implement the decision path
 
-        // Now let's declare extractors for the user's interaction history, which also contains attribute values
-        // For all user behavior types
-        for (UserBehaviorType userBehaviorType : UserBehaviorType.values()) {
-            // For all SKU attributes
-            for (SkuAttribute skuAttribute : SkuAttribute.values()) {
-                // Obtain the special namespace object that e.g. represents "event_a_attribute_a"
-                Namespace namespace = CompoundNamespace.getNamespace(userBehaviorType, skuAttribute);
+For a policy-only algorithm, a `SimpleAlgorithmFactory` can return the public algorithm directly. Keep the final
+selection or ordering policy in this outer algorithm so its behavior is obvious to callers.
 
-                // For each namespace, you register a function that should be called to extract the feature value
-                // In this case, this function will operate on the shared object to yield a string array
-                // representing the attribute values from the user's history
-                builder.withSharedTransformations(namespace, new UserBehaviorAttributeExtractor(userBehaviorType, skuAttribute));
-            }
-        }
+For a model-backed ranker, separate these responsibilities:
 
-        // Now, for each combination, we define the "MatchCount" feature
-        // For all user behavior types
-        for (UserBehaviorType userBehaviorType : UserBehaviorType.values()) {
-            // For all SKU attributes that we can extract from a behavior
-            for (SkuAttribute skuAttribute : SkuAttribute.values()) {
-                // Constructing feature namespace with UserBehaviorType, SkuAttribute, and NumericalAggregationType
-                FeatureNamespace featureNamespace = CompoundNamespace.getFeatureNamespace(CatBoostFeatureType.NUMERIC, userBehaviorType, skuAttribute, NumericalAggregationType.match_count);
-
-                // This is the column that contains the action attribute being considered
-                Namespace probeNamespace = CompoundNamespace.getNamespace(skuAttribute);
-                // This is the column that contains the attribute values from the user's interaction history
-                Namespace galleryNamespace = CompoundNamespace.getNamespace(userBehaviorType, skuAttribute);
-
-                // Use a match count function parameterized by the probe and gallery namespaces
-                builder.withInteractionTransformation(featureNamespace, new MatchCount<>(probeNamespace, galleryNamespace));
-            }
-        }
-
-        // Note that by defining a higher order function that returns the extractor function in the enum themselves,
-        // you could have defined the above in a loop as well, further reducing redundant code.
-
-        return builder.build();
-    }
-}
+```text
+typed request
+  → transformer or vectorizer
+  → encoded model input
+  → model inference
+  → public ranking policy
+  → typed decisions
 ```
 
-The above illustrates the definition of the transformer. Let's look at the `MatchCount` class.
-```java
-/**
- * MemoizedInteractionTransformation is a memoized BiFunction that takes shared and action object as input, and resturns
- * a value, in this case, a double. This can be a numerical feature, but also be used to calculate other features
- * (like match_count_over_total).
- * @param <SHARED> The shared object type.
- * @param <ACTION> The action object type.
- * @param <T> The type of elements in the probe and gallery array.
- */
-public class MatchCount<SHARED, ACTION, T> implements MemoizedInteractionTransformation<SHARED, ACTION, Double> {
+Use `@GenerateSimpleRankingTransformer` when feature methods and a generated streaming transformer match the problem.
+The processor validates feature dependencies at compile time and generates the implementation. The
+[generated-transformer guide](../simple-ranking-transformer/index.md) covers its build and feature contract.
 
-    // The "probe" is generally the attribute of the action being considered
-    private final Namespace probeId;
-    // The "gallery" is generally the corresponding attribute of past user interactions, as an array
-    private final Namespace galleryId;
+A custom transformer or vectorizer remains appropriate when its data flow cannot be represented by the annotation
+processor. Whichever path you use, give output features stable names and backend types when model compatibility
+depends on them.
 
-    public MatchCount(Namespace probeId, Namespace galleryId) {
-        this.probeId = probeId;
-        this.galleryId = galleryId;
-    }
+## 4. Add children only at real boundaries
 
-    /**
-     * This is called by the framework, to obtain the result.
-     * @param memoizedInteraction The is ultimately derived from the re-ranking request, and has the context to perform memoization.
-     * @return The count of matches between the probe and gallery elements.
-     */
-    @Override
-    public Double apply(MemoizedInteraction<SHARED, ACTION> memoizedInteraction) {
-        T probe = memoizedInteraction.computeIfAbsent(probeId);
-        T[] gallery = memoizedInteraction.getShared().computeIfAbsent(galleryId);
-        if (probe == null || gallery == null || gallery.length == 0) {
-            // null is used to indicate missing features (or missing values)
-            return null;
-        }
+A composite factory receives dependency instances by the names declared in its definition. The outer algorithm can
+call children in process; a host can replace a declared child binding with another instance, including a remote proxy,
+while preserving the parent contract.
 
-        return matchCount(probe, gallery);
-    }
+Design each boundary around a typed capability and explicit ownership. Do not assume an algorithm package is isolated
+for security, or that replacing a child transfers its lifecycle automatically. Read
+[Dependencies and bindings](../../concepts/dependencies-and-bindings/index.md) before relying on deeper graphs or host
+overrides; it records the current nested-factory parameter boundary.
 
-    private Double matchCount(T probe, T[] gallery) {
-        int count = 0;
-        for (T g : gallery) {
-            if (probe.equals(g)) {
-                count++;
-            }
-        }
-        return (double) count;
-    }
-}
+## 5. Write the embedded definition
+
+Place `<algorithm-name>-algorithm-definition.json` at the JAR resource root. At minimum, a decision algorithm defines
+its name, version, and algorithm factory. Add only the factories and lifecycle fields the implementation uses:
+
+- decoder for offline example input;
+- transformer or vectorizer for feature production;
+- encoder and training command for learned parameters;
+- generator for state-producing workflows;
+- dependencies for composite algorithms;
+- train/test data specifications and execution controls for offline orchestration.
+
+The resource name, `algorithm_name`, and name selected by the caller must agree. Treat the definition and code as one
+versioned contract. For the complete field matrix, use [Algorithm definition](../../reference/algorithm-definition/index.md).
+
+## 6. Decide whether the algorithm has parameters
+
+A policy-only algorithm can be created directly without parameter streams. A trainable algorithm's pipeline packages
+the learned model and `algorithm-parameters.json` into a parameter package. At runtime, the algorithm package supplies
+behavior and the parameter package supplies the selected learned state. Those packages are currently a JAR and ZIP.
+
+The current surfaces differ for parameterless algorithms: direct `AlgorithmInstanceFactory` loading can omit a ZIP,
+while `AlgorithmRepository` and local `hv serve` require a parameter identity or path. The local tutorial uses a
+metadata-only ZIP for that reason. Do not add an artificial model merely to satisfy one host surface.
+
+## 7. Test from the inside out
+
+Use failures that identify one boundary at a time:
+
+1. Unit-test the decision policy with typed requests.
+2. Test decoding with a small synthetic record.
+3. Build the algorithm package and verify the definition resource is inside its JAR.
+4. Load the exact algorithm and parameter packages intended for the next environment.
+5. Exercise a supported bounded runtime: local `hv serve` for the minimal policy-only ranker, or audit/predict when
+   the definition declares the transformer and reward contracts those tasks require.
+6. Train or backtest one fixed date before expanding the range.
+7. Evaluate quality, parity, and performance as separate claims.
+
+For a trainable algorithm, a typical artifact loop is:
+
+```text
+source + definition
+  → algorithm package
+  → train
+  → parameter package
+  → audit / predict
+  → evaluate and performance-test
+  → result.json
 ```
 
-A similar code in python would look like this (although the java version above has more generalizations):
-```python
-df = pd.DataFrame({
-    'action_attribute_a': ['FAKE_VALUE_A', 'FAKE_VALUE_B', 'FAKE_VALUE_C', 'FAKE_VALUE_D', 'FAKE_VALUE_E'],
-    'event_a_attribute_a_history': [['FAKE_VALUE_A', 'FAKE_VALUE_E', 'FAKE_VALUE_A'], ['FAKE_VALUE_B', 'FAKE_VALUE_C'], ['FAKE_VALUE_G', 'FAKE_VALUE_H'], ['FAKE_VALUE_D'], ['FAKE_VALUE_X']],
-    'event_b_attribute_a_history': [['FAKE_VALUE_E', 'FAKE_VALUE_F'], ['FAKE_VALUE_B', 'FAKE_VALUE_B'], ['FAKE_VALUE_C', 'FAKE_VALUE_G'], [], ['FAKE_VALUE_E', 'FAKE_VALUE_Z']],
-    'event_c_attribute_a_history': [['FAKE_VALUE_A'], [], ['FAKE_VALUE_C'], ['FAKE_VALUE_D'], ['FAKE_VALUE_E']]
-})
-
-# Parameterized function to count matches
-def count_attribute_matches(df, action_col, gallery_col, new_col_name):
-    def count_matches(row):
-        action_value = row[action_col]
-        gallery_values = row[gallery_col]
-        return gallery_values.count(action_value)
-
-    df[new_col_name] = df.apply(count_matches, axis=1)
-
-# Compute match counts for different user behaviors
-count_attribute_matches(df, 'action_attribute_a', 'event_a_attribute_a_history', 'event_a_attribute_a_match_count')
-count_attribute_matches(df, 'action_attribute_a', 'event_b_attribute_a_history', 'event_b_attribute_a_match_count')
-count_attribute_matches(df, 'action_attribute_a', 'event_c_attribute_a_history', 'event_c_attribute_a_match_count')
-
-print(df)
-```
-
-Let's also look at some of the Namespace Enums
-```java
-public enum SkuAttribute implements Namespace {
-    attribute_a(
-        action -> action.getAttributeA()
-    ),
-    attribute_b(
-        action -> action.getAttributeB()
-    );
-
-    // This is where we store the extractor function
-    // In this case we always extract a String, but you can mix output types as well
-    private final MemoizedActionTransformation<Ad, String> extractFromCatalogAction;
-
-    SkuAttribute(MemoizedActionTransformation<Ad, String> extractor) {
-        this.extractFromCatalogAction = extractor;
-    }
-
-    // This function can be used in a loop to register the extractor for this enum value
-    public MemoizedActionTransformation<Ad, String> getExtractor() {
-        return this.extractFromCatalogAction;
-    }
-}
-```
-
-#### Common mistakes
- - Mutating the `shared` or `action` objects, or the calculation result for a `Namespace`: These objects are shared across threads and actions in unpredictable order, and hence, must not be mutated. Especially be careful if the values are collections or arrays etc. If you need to mutate them, you must make a copy of them first.
- - Implementing your own caching: Hotvect automatically stores the calculation result in a variable for caching, so you don't need to do things like ``` if (this.result == null) this.result = calculate()```.
- - Having unnecessary intermediate columns (namespaces): While namespaces (columns) are meant to be cheap, they are still a lot slower than native method dispatch. Hence, use them if you need to hold a feature, or if you need to reuse a calculation. It's ok to use columns for convenience, but if you can avoid it, it makes it more performant.
- - Using `Stream`s: Believe it or not, Java's `Stream` are generally a lot slower than a simple loop. Unless you are crunching a very large stream, avoid them (especially the parallel stream).
- - Turning on caching blindly (on action and interaction transformations): Caching is only beneficial if the computation is sufficiently heavy. When the calculation is too light, it can be detrimental to performance. Therefore, only turn on caching if you confirmed the performance gain of doing so.
- - Not caching namespace objects: Obtaining the namespace object at inference time is expensive and even unsafe, as the CompoundNamespace class is not thread-safe. Always obtain the namespace object at the time the transformer is being created, and store them into a field for further use.
- - Avoiding compound namespaces: There is no performance gain for using a enum based namespace over a compound namespace, because the underlying map is an IdentityHashMap.
- - Looking for ways to configure the thread pool used for parallelization: Don't bother, it's not worth it.
-
-#### Tricks and tips
-##### Use "plain" namespaces to make feature names clearer
-A namespace doesn't always have to have a function associated with it. You can also have a namespace that is only used as a prefix or suffix (or in the middle section, for that matter). For example, if you prefer the name "item_attribute_a" instead of just "attribute_a" for the categorical attribute feature of the item above, you could just do:
-```java
-FeatureNamespace ns = CompoundNamespace.getFeatureNamespace(CatBoostFeatureType.CATEGORICAL, FeaturePrefix.item, SkuAttribute.attribute_a);
-builder.withActionTransformation(ns, new AttributeAExtractor());
-```
-Instead of:
-```java
-builder.withActionTransformation(SkuAttribute.attribute_a, new AttributeAExtractor());
-```
-And your feature will have the name `item_attribute_a` instead of `attribute_a`. As described above, as long as you obtain the namespace objects at the time of building the transformer and store them into fields, there is no performance impact of using more namespace segments.
-
-This allows you to define multiple extractors for the same attribute, for example, and you can declare multiple features that extract the same attribute from different places, for example. E.g.:
-```java
-builder.withInteractionTransformation(FeaturePrefix.item, SkuAttribute.attribute_a, new AttributeAExtractor());
-```
-
-##### Using a thread local cache (or even a global cache)
-In some situations, it might be beneficial to use a thread local cache. For example, if all the items in the request happen to share the same attribute value, the feature "event_a_attribute_a_match_count" would be the same for all items. Memoization currently doesn't help with this kind of situation, as you can't memoize on an arbitrary arguments.
-In this situation, you can use a thread local cache that stores the last calculation, and if the argument happens the same, return the result. For example:
-```java
-public class MatchCount<SHARED, ACTION, T> implements MemoizedInteractionTransformation<SHARED, ACTION, Double> {
-    private final boolean useThreadLocalCache;
-
-    private final Namespace probeId;
-    private final Namespace galleryId;
-    private class CacheEntry {
-        final T probe;
-        final T[] gallery;
-        final Double result;
-
-        private CacheEntry(T probe, T[] gallery, Double result) {
-            this.probe = probe;
-            this.gallery = gallery;
-            this.result = result;
-        }
-    }
-
-    private final ThreadLocal<CacheEntry> cache = ThreadLocal.withInitial(() -> new CacheEntry(null, null, null));
-
-
-    public MatchCount(Namespace probeId, Namespace galleryId) {
-        this.probeId = probeId;
-        this.galleryId = galleryId;
-        this.useThreadLocalCache = false;
-    }
-
-    public MatchCount(Namespace probeId, Namespace galleryId, boolean useThreadLocalCache) {
-        this.probeId = probeId;
-        this.galleryId = galleryId;
-        this.useThreadLocalCache = useThreadLocalCache;
-    }
-
-    @Override
-    public Double apply(MemoizedInteraction<SHARED, ACTION> memoizedInteraction) {
-        T probe = memoizedInteraction.computeIfAbsent(probeId);
-        T[] gallery = memoizedInteraction.getShared().computeIfAbsent(galleryId);
-        if (probe == null || gallery == null || gallery.length == 0) {
-            return null;
-        }
-
-        if(useThreadLocalCache){
-            CacheEntry cached = cache.get();
-            if (probe.equals(cached.probe) && cached.gallery == gallery) {
-                return cached.result;
-            }
-        }
-
-        Double result = matchCount(probe, gallery);
-        if(useThreadLocalCache){
-            cache.set(new CacheEntry(probe, gallery, result));
-        }
-        return result;
-    }
-
-    private Double matchCount(T probe, T[] gallery) {
-        int c = 0;
-        for (T g : gallery) {
-            if (probe.equals(g)) {
-                c++;
-            }
-        }
-        return (double) c;
-    }
-}
-```
-
-Transformation functions are instantiated as singletons and shared across threads/requests, and hence the thread local cache can be stored in an instance field.
-
-You could also use a global cache, but be careful with this, as it can lead to memory leaks and/or hurt performance. Caches that are shared across threads have relatively high costs and only make sense in rather extreme cases.
-
-## How do I implement the Ranker interface correctly?
-
-The `Ranker<SHARED, ACTION>` interface is the core component that receives a `RankingRequest` and returns a `RankingResponse`. While the transformer handles feature engineering, the ranker is responsible for making the actual ranking decisions. This section covers the critical requirements for implementing rankers correctly.
-
-### Critical Requirement: Preserve ActionIndex
-
-**The most important rule when implementing a ranker is preserving the original `actionIndex` from the input.**
-
-#### What is ActionIndex?
-
-The `actionIndex` is the position of each action in the original `RankingRequest.availableActions()` list. During training and evaluation, this index establishes the mapping between:
-- **Actions** (what your ranker reorders)
-- **Outcomes** (ground truth results from the decoder, such as clicks, purchases, ratings)
-
-The evaluation pipeline (`RankingResultFormatter`) uses `actionIndex` to match each ranked action with its corresponding outcome:
-
-```java
-// How the evaluation pipeline matches actions to outcomes
-decisions.sort(Comparator.comparingInt(RankingDecision::getActionIndex));  // Sort back to decoder order
-for (int i = 0; i < decisions.size(); i++) {
-    var decision = decisions.get(i);     // Action at original position i
-    var outcome = examples.outcomes().get(i);   // Outcome at original position i
-    var reward = rewardFunction.apply(outcome.outcome());
-}
-```
-
-#### What Happens If You Don't Preserve ActionIndex?
-
-If your ranker overwrites `actionIndex` with new values (like sorted positions), the evaluation pipeline will match actions with the **wrong** outcomes. This causes:
-
-1. **Position-based reward assignment** instead of action-based reward assignment
-2. The same action receives different rewards depending on where it's ranked
-3. Different rankers ranking completely different items appear to have identical metrics
-4. Invalid evaluation results that cannot be used for algorithm comparison
-
-### Correct Implementation Pattern
-
-#### Reference Implementation: BulkScoreGreedyRanker
-
-This is the standard pattern from `BulkScoreGreedyRanker`:
-
-```java
-@Override
-public RankingResponse<ACTION> rank(RankingRequest<SHARED, ACTION> request) {
-    int numActions = request.availableActions().size();
-
-    // Step 1: Store original indices alongside actions and scores
-    List<IndexedScoredAction> processed = new ArrayList<>(numActions);
-    for (int i = 0; i < numActions; i++) {
-        processed.add(new IndexedScoredAction(
-            i,                                    // ✓ Store original index
-            request.availableActions().get(i),    // Action
-            computeScore(i)                       // Score
-        ));
-    }
-
-    // Step 2: Sort by score (or any other criteria)
-    processed.sort(Comparator.comparing(x -> x.score, Comparator.reverseOrder()));
-
-    // Step 3: Build decisions using ORIGINAL indices, not sorted positions
-    var decisions = processed.stream()
-        .map(x -> RankingDecision
-            .builder(x.index, x.action)  // ✓ Use stored original index
-            .withScore(x.score)
-            .build())
-        .collect(Collectors.toList());
-
-    return RankingResponse.newResponse(decisions);
-}
-
-// Helper class to store original index with action
-private class IndexedScoredAction {
-    final int index;      // Original position from input
-    final ACTION action;
-    final double score;
-}
-```
-
-**Key steps:**
-1. **Before reordering**: Store the original index `i` from the input loop
-2. **Apply your logic**: Sort, filter, or reorder actions as needed
-3. **When building decisions**: Use the stored original index, NOT the new sorted position
-
-### Common Mistakes
-
-#### ❌ Mistake 1: Using Sorted Position as ActionIndex
-
-```java
-// WRONG: Using sorted position instead of original index
-processed.sort(COMPARATOR);
-List<RankingDecision<ACTION>> decisions = new ArrayList<>();
-for (int sortedPosition = 0; sortedPosition < processed.size(); sortedPosition++) {
-    IndexedScoredAction item = processed.get(sortedPosition);
-    decisions.add(RankingDecision
-        .builder(sortedPosition, item.action)  // ❌ WRONG
-        .withScore(item.score)
-        .build());
-}
-```
-
-**Why this is wrong:** `sortedPosition` is the new rank position after sorting. Using it as `actionIndex` destroys the action→outcome mapping, causing rewards to be assigned by position rather than by action identity.
-
-#### ❌ Mistake 2: Using Loop Index After Reordering
-
-```java
-// WRONG: Loop index only matches original if order is unchanged
-List<ACTION> reorderedActions = customReorder(request.availableActions());
-List<RankingDecision<ACTION>> decisions = new ArrayList<>();
-for (int i = 0; i < reorderedActions.size(); i++) {
-    decisions.add(RankingDecision
-        .builder(i, reorderedActions.get(i))  // ❌ WRONG
-        .withScore(scores.get(i))
-        .build());
-}
-```
-
-**Why this is wrong:** After reordering, loop index `i` refers to the new position in `reorderedActions`, not the original position in `request.availableActions()`.
-
-#### ✓ Acceptable: Loop Index When Order Unchanged
-
-```java
-// OK: Loop index works if you iterate in original input order
-List<ACTION> inputActions = request.availableActions();
-List<RankingDecision<ACTION>> decisions = new ArrayList<>();
-for (int i = 0; i < inputActions.size(); i++) {
-    decisions.add(RankingDecision
-        .builder(i, inputActions.get(i))  // ✓ OK if order unchanged
-        .withScore(computeScore(inputActions.get(i)))
-        .build());
-}
-```
-
-**However**, explicitly storing and using original indices (as shown in the correct pattern) is more robust and makes your intent clear.
-
-### Decorator Pattern
-
-When implementing a decorator ranker that wraps another ranker:
-
-```java
-@Override
-public RankingResponse<ACTION> rank(RankingRequest<SHARED, ACTION> request) {
-    // Step 1: Call base ranker
-    RankingResponse<ACTION> baseResponse = baseRanker.rank(request);
-
-    // Step 2: Apply your modifications (filter, reorder, add metadata, etc.)
-    List<RankingDecision<ACTION>> modifiedDecisions = applyModifications(baseResponse);
-
-    // Step 3: Preserve original actionIndex from base ranker
-    List<RankingDecision<ACTION>> finalDecisions = new ArrayList<>();
-    for (RankingDecision<ACTION> decision : modifiedDecisions) {
-        finalDecisions.add(RankingDecision
-            .builder(decision.getActionIndex(), decision.getAction())  // ✓ Preserve from base
-            .withScore(decision.getScore())
-            .withAdditionalProperties(decision.getAdditionalProperties())
-            .build());
-    }
-
-    return RankingResponse.newResponse(finalDecisions);
-}
-```
-
-**Never** use loop index or sorted position when rebuilding decisions from a base ranker's response. Always use `decision.getActionIndex()`.
-
-### Real-World Example
-
-Here's a complete example of a ranker that reorders by score within groups:
-
-```java
-public class GroupedRanker<SHARED, ACTION> implements Ranker<SHARED, ACTION> {
-    private final BulkScorer<SHARED, ACTION> scorer;
-    private final Function<ACTION, Integer> groupExtractor;
-
-    public GroupedRanker(BulkScorer<SHARED, ACTION> scorer,
-                        Function<ACTION, Integer> groupExtractor) {
-        this.scorer = scorer;
-        this.groupExtractor = groupExtractor;
-    }
-
-    @Override
-    public RankingResponse<ACTION> rank(RankingRequest<SHARED, ACTION> request) {
-        // Step 1: Score all actions and store original indices
-        List<ScoringDecision<ACTION>> scores = scorer.bulkScore(request);
-        List<IndexedScoredAction> indexed = new ArrayList<>();
-
-        for (int i = 0; i < scores.size(); i++) {
-            ACTION action = request.availableActions().get(i);
-            indexed.add(new IndexedScoredAction(
-                i,                          // ✓ Original index
-                action,
-                scores.get(i).score(),
-                groupExtractor.apply(action)
-            ));
-        }
-
-        // Step 2: Sort by group, then by score (descending)
-        indexed.sort(Comparator
-            .comparing((IndexedScoredAction x) -> x.group)
-            .thenComparing(x -> x.score, Comparator.reverseOrder()));
-
-        // Step 3: Build decisions with original indices
-        List<RankingDecision<ACTION>> decisions = indexed.stream()
-            .map(x -> RankingDecision
-                .builder(x.originalIndex, x.action)  // ✓ Use stored original index
-                .withScore(x.score)
-                .build())
-            .collect(Collectors.toList());
-
-        return RankingResponse.newResponse(decisions);
-    }
-
-    private class IndexedScoredAction {
-        final int originalIndex;
-        final ACTION action;
-        final double score;
-        final int group;
-
-        IndexedScoredAction(int originalIndex, ACTION action, double score, int group) {
-            this.originalIndex = originalIndex;
-            this.action = action;
-            this.score = score;
-            this.group = group;
-        }
-    }
-}
-```
-
-## How to debug/profile it?
-To inspect if there are issues in the calculated feature value: Use the "feature-audit" functionality. Especially for regression testing, you can use the "compare-audit" script to see only the feature values that have changed between versions.
-
-To debug issues: Without a debugger, it will be difficult to debug issues. Refer to [How to debug feature engineering](../debug-feature-engineering/index.md) to use a debugger.
-
-To profile the feature engineering to optimize its performance: it can be helpful to turn-off the parallelization feature (so that the profiling results are easier to interpret). You can do this from the hyperparameter.
-
-## How to unit test it?
-
-### Testing Feature Transformations
-
-WIP
-
-### Testing Ranker: Verify ActionIndex Preservation
-
-When testing your ranker implementation, the most critical test is verifying that original action indices are preserved:
-
-```java
-@Test
-void shouldPreserveOriginalActionIndices() {
-    // Arrange: Create request with known actions
-    List<ACTION> actions = Arrays.asList(action1, action2, action3);
-    RankingRequest<SHARED, ACTION> request = new RankingRequest<>("test-id", shared, actions);
-
-    // Act: Rank the actions
-    RankingResponse<ACTION> response = ranker.rank(request);
-
-    // Assert: Each action's decision uses its original input index
-    Map<ACTION, Integer> actionToExpectedIndex = new HashMap<>();
-    for (int i = 0; i < actions.size(); i++) {
-        actionToExpectedIndex.put(actions.get(i), i);
-    }
-
-    for (RankingDecision<ACTION> decision : response.getRankingDecisions()) {
-        int expectedIndex = actionToExpectedIndex.get(decision.getAction());
-        assertEquals(expectedIndex, decision.getActionIndex(),
-            "Action should have its original actionIndex from input list");
-    }
-}
-```
-
-### Integration Test: Verify Evaluation Correctness
-
-```java
-@Test
-void shouldAssignRewardsByActionNotByPosition() {
-    // Arrange: Two rankers that rank same items in different orders
-    Ranker<SHARED, ACTION> rankerA = ...; // Returns [action1, action2, action3]
-    Ranker<SHARED, ACTION> rankerB = ...; // Returns [action3, action1, action2]
-
-    RankingExample<SHARED, ACTION, OUTCOME> example = createExampleWithOutcomes();
-
-    // Act: Format predictions using both rankers
-    String predictionA = formatter.apply(example, rankerA);
-    String predictionB = formatter.apply(example, rankerB);
-
-    // Assert: Same action gets same reward regardless of ranking
-    Prediction parsedA = parsePrediction(predictionA);
-    Prediction parsedB = parsePrediction(predictionB);
-
-    for (ACTION action : example.actions()) {
-        double rewardA = parsedA.getRewardForAction(action);
-        double rewardB = parsedB.getRewardForAction(action);
-        assertEquals(rewardA, rewardB, 0.001,
-            "Same action should have same reward in both predictions");
-    }
-
-    // Assert: Different orderings produce different metrics
-    if (!sameOrdering(rankerA, rankerB, example)) {
-        assertNotEquals(parsedA.getNDCG(), parsedB.getNDCG(),
-            "Different orderings should produce different NDCG");
-    }
-}
-```
-
-### Implementation Checklist
-
-When implementing or reviewing a ranker, verify:
-
-- [ ] Store original indices before any sorting/reordering
-- [ ] Use stored original indices when building `RankingDecision` objects
-- [ ] Test that same action gets same reward across different ranker implementations
-- [ ] Test that different orderings produce different evaluation metrics
-- [ ] When wrapping rankers, use `decision.getActionIndex()` not loop index
+Run [local training](../local-train/index.md) or a [local backtest](../local-backtest/index.md) with an explicit data
+window. Inspect `result.json` to see which stages ran or reused output; a zero exit code alone does not establish model
+quality or online/offline parity.
+
+## 8. Iterate without obscuring identity
+
+Use a definition override for a temporary experiment, then pass that same override to every lifecycle stage that must
+see it. Packaging parameters does not make the override become the algorithm package's runtime definition
+automatically.
+
+Keep algorithm and parameter IDs immutable: repository loaders cache instances by those IDs. Reusing an ID for
+different bytes can make a process continue serving an earlier artifact even though a file changed underneath it.
+
+## Where to go next
+
+- [Understand the example product algorithms](../example-product-algorithms/index.md)
+- [Train your first model-backed algorithm](../first-trainable-algorithm/index.md)
+- [Compose your first algorithm](../first-composite-algorithm/index.md)
+- [Build a TopK algorithm](../topk-algorithms/index.md)
+- [Generate runtime state](../state-generation/index.md)
+- [Generate a ranking transformer](../simple-ranking-transformer/index.md)
+- [Parent-child algorithms](../patterns/parent-child/index.md)
+- [Artifacts and identity](../../concepts/artifacts-and-identity/index.md)
+- [Train locally](../local-train/index.md)
+- [Backtest locally](../local-backtest/index.md)

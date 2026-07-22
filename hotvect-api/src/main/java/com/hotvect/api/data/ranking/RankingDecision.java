@@ -6,10 +6,21 @@ import com.hotvect.api.data.Decision;
 import java.util.Map;
 import java.util.Objects;
 
+import static com.google.common.base.Preconditions.checkArgument;
+
 /**
- * A record representing a ranking decision, which includes an action index, a probability, a score,
- * an ACTION, and additional properties.
+ * A ranking decision for one action.
  *
+ * <p>{@link #actionIndex()} is a request-local ordinal into the original
+ * {@link RankingRequest#actions()} list, retained for efficient alignment with scores, outcomes,
+ * rewards, and transformed action arrays.</p>
+ *
+ * @param actionId stable action id for the decided candidate
+ * @param actionIndex request-local ordinal
+ * @param score optional decision score
+ * @param action decided candidate payload
+ * @param probability optional decision probability
+ * @param additionalProperties optional additional decision metadata
  * @param <ACTION> the type parameter for the associated action
  */
 public record RankingDecision<ACTION>(
@@ -22,9 +33,17 @@ public record RankingDecision<ACTION>(
 ) implements Decision<ACTION> {
 
     public RankingDecision {
+        if (actionId == null) {
+            actionId = String.valueOf(actionIndex);
+        }
+        checkArgument(!actionId.isBlank(), "actionId cannot be null or blank");
         Objects.requireNonNull(additionalProperties, "additionalProperties cannot be null");
     }
 
+    /**
+     * @deprecated Use {@link #actionIndex()}.
+     */
+    @Deprecated(forRemoval = true)
     public int getActionIndex() {
         return actionIndex;
     }
@@ -52,12 +71,28 @@ public record RankingDecision<ACTION>(
     // -------------------------------------------------------------------------
     // Builder pattern for convenience.
     // -------------------------------------------------------------------------
-    public static <ACTION> RankingDecisionBuilder<ACTION> builder(String actionId, int actionIndex, ACTION action) {
-        return new RankingDecisionBuilder<>(actionId, actionIndex, action);
+    /**
+     * @deprecated Use {@link #builder(String, Object)}. Action ids synthesized from the deprecated
+     * action-index-only API are kept only for source/binary compatibility during the v10 migration.
+     */
+    @Deprecated(forRemoval = true)
+    public static <ACTION> RankingDecisionBuilder<ACTION> builder(int actionIndex, ACTION action) {
+        return builder(String.valueOf(actionIndex), actionIndex, action);
     }
 
-    public static <ACTION> RankingDecisionBuilder<ACTION> builder(int actionIndex, ACTION action) {
-        return new RankingDecisionBuilder<>(null, actionIndex, action);
+    /**
+     * Builds a ranking decision identified by stable action id when no request-local action index is
+     * available.
+     */
+    public static <ACTION> RankingDecisionBuilder<ACTION> builder(String actionId, ACTION action) {
+        return builder(actionId, -1, action);
+    }
+
+    /**
+     * Builds a ranking decision identified by stable action id with its request-local action index.
+     */
+    public static <ACTION> RankingDecisionBuilder<ACTION> builder(String actionId, int actionIndex, ACTION action) {
+        return new RankingDecisionBuilder<>(actionId, actionIndex, action);
     }
 
     public static class RankingDecisionBuilder<ACTION> {
@@ -97,26 +132,27 @@ public record RankingDecision<ACTION>(
     }
 
     // ---------------------------------------------------------------------
-    // Binary–compatibility constructors (will be removed in a future release)
+    // Binary-compatibility constructors (will be removed in a future release)
+    // TODO: Remove these constructors after legacy algorithms migrate.
     // ---------------------------------------------------------------------
 
     @Deprecated(forRemoval = true)
     public RankingDecision(int actionIndex, ACTION action) {
-        this(null, actionIndex, null, action, null, ImmutableMap.of());
+        this(String.valueOf(actionIndex), actionIndex, null, action, null, ImmutableMap.of());
     }
 
     @Deprecated(forRemoval = true)
     public RankingDecision(int actionIndex, Double score, ACTION action) {
-        this(null, actionIndex, score, action, null, ImmutableMap.of());
+        this(String.valueOf(actionIndex), actionIndex, score, action, null, ImmutableMap.of());
     }
 
     @Deprecated(forRemoval = true)
     public RankingDecision(int actionIndex, ACTION action, Double probability) {
-        this(null, actionIndex, null, action, probability, ImmutableMap.of());
+        this(String.valueOf(actionIndex), actionIndex, null, action, probability, ImmutableMap.of());
     }
 
     @Deprecated(forRemoval = true)
     public RankingDecision(int actionIndex, Double score, ACTION action, Double probability) {
-        this(null, actionIndex, score, action, probability, ImmutableMap.of());
+        this(String.valueOf(actionIndex), actionIndex, score, action, probability, ImmutableMap.of());
     }
 }

@@ -5,7 +5,7 @@ import os
 from collections import Counter
 from itertools import zip_longest
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 TYPE_CONSTRUCTORS = {
     "int": int,
@@ -19,7 +19,7 @@ def is_complex_json_array(json_array):
     return any(isinstance(item, (dict, list)) for item in json_array)
 
 
-def compare_complex_lists(input1: Tuple[str, List], input2: Tuple[str, List], config: Dict[str, Any] = None):
+def compare_complex_lists(input1: tuple[str, list], input2: tuple[str, list], config: dict[str, Any] = None):
     name1, list1 = input1
     name2, list2 = input2
     differences = []
@@ -86,7 +86,7 @@ def attempt_type_coercion(value1, value2, allowed_coercions):
     return False
 
 
-def compare_json(input1: Tuple[str, Any], input2: Tuple[str, Any], config: Dict[str, Any] = None):
+def compare_json(input1: tuple[str, Any], input2: tuple[str, Any], config: dict[str, Any] = None):
     if config is None:
         config = {}
     name1, json1 = input1
@@ -158,7 +158,7 @@ def find_difference_in_files(file1, file2, output_dir, config_file):
     file2_name = Path(file2).stem
 
     if config_file and os.path.isfile(config_file):
-        with open(config_file, "r") as file:
+        with open(config_file) as file:
             config_json = json.load(file)
     else:
         config_json = None
@@ -171,7 +171,7 @@ def find_difference_in_files(file1, file2, output_dir, config_file):
     total_lines_f1 = None
     total_lines_f2 = None
 
-    with open(file1, "r") as f1, open(file2, "r") as f2:
+    with open(file1) as f1, open(file2) as f2:
         for line_number, (line1, line2) in enumerate(zip_longest(f1, f2), start=1):
             # Check if either file has ended
             if line1 is None or line2 is None:

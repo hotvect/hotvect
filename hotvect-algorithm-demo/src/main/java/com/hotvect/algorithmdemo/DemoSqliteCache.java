@@ -3,6 +3,9 @@ package com.hotvect.algorithmdemo;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.hotvect.algorithmserver.ContractViolationException;
+import com.hotvect.algorithmserver.JsonFieldSupport;
+import com.hotvect.algorithmserver.ValidationSupport;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -29,7 +32,7 @@ import java.util.zip.GZIPInputStream;
 final class DemoSqliteCache implements AutoCloseable {
     private static final Logger log = LoggerFactory.getLogger(DemoSqliteCache.class);
     private static final ObjectMapper OM = new ObjectMapper();
-    private static final int SCHEMA_VERSION = 5;
+    private static final int SCHEMA_VERSION = 6;
     private static final int ACTION_METADATA_BATCH_SIZE = 10_000;
 
     private final Path dbPath;
@@ -44,8 +47,11 @@ final class DemoSqliteCache implements AutoCloseable {
 
     static DemoSqliteCache openOrBuild(Options opts) throws IOException {
         Objects.requireNonNull(opts);
-        require(opts.sourcePath != null, "--source-path is required");
-        require(opts.sourcePath.exists() && opts.sourcePath.isDirectory(), "--source-path must be a directory: %s", opts.sourcePath);
+        ValidationSupport.requireArgument(opts.sourcePath != null, "--source-path is required");
+        ValidationSupport.requireArgument(
+                opts.sourcePath.exists() && opts.sourcePath.isDirectory(),
+                "--source-path must be a directory: %s",
+                opts.sourcePath);
 
         Path dbPath = resolveDbPath(opts.sourcePath.toPath(), opts.actionMetadataPath == null ? null : opts.actionMetadataPath.toPath(), opts.demoSqlitePath);
         boolean builtNow = false;
@@ -96,17 +102,22 @@ final class DemoSqliteCache implements AutoCloseable {
 
         String sourceAbs = sourcePath.toAbsolutePath().normalize().toString();
         String metaAbs = actionMetadataPathOrNull == null ? "" : actionMetadataPathOrNull.toAbsolutePath().normalize().toString();
-        String key = "source=" + sourceAbs + "\naction_metadata=" + metaAbs + "\n";
 
         String hash;
         try {
             MessageDigest md = MessageDigest.getInstance("SHA-256");
-            hash = HexFormat.of().formatHex(md.digest(key.getBytes(StandardCharsets.UTF_8))).substring(0, 16);
+            updateCacheKey(md, "schema=" + SCHEMA_VERSION + "\n");
+            updateCacheKey(md, "source=" + sourceAbs + "\n");
+            updateCacheKey(md, "action_metadata=" + metaAbs + "\n");
+            if (actionMetadataPathOrNull != null) {
+                appendActionMetadataFilesToCacheKey(md, actionMetadataPathOrNull.toAbsolutePath().normalize());
+            }
+            hash = HexFormat.of().formatHex(md.digest()).substring(0, 16);
         } catch (Exception e) {
             throw new IllegalStateException("Failed to compute cache key hash", e);
         }
 
-        Path dir = Path.of("/tmp/hv-demo-ui-sqlite-cache");
+        Path dir = Path.of(System.getProperty("java.io.tmpdir"), "hv-demo-ui-sqlite-cache");
         try {
             Files.createDirectories(dir);
         } catch (IOException e) {
@@ -115,10 +126,38 @@ final class DemoSqliteCache implements AutoCloseable {
         return dir.resolve("demo-" + hash + ".db");
     }
 
+    private static void appendActionMetadataFilesToCacheKey(MessageDigest md, Path metadataDir) throws IOException {
+        List<Path> files;
+        try (var stream = Files.walk(metadataDir)) {
+            files = stream
+                    .filter(Files::isRegularFile)
+                    .filter(DemoSqliteCache::isCandidateActionMetadataFile)
+                    .sorted()
+                    .toList();
+        }
+        byte[] buffer = new byte[64 * 1024];
+        for (Path file : files) {
+            Path normalizedFile = file.toAbsolutePath().normalize();
+            updateCacheKey(md, "file=" + metadataDir.relativize(normalizedFile) + "\n");
+            updateCacheKey(md, "size=" + Files.size(normalizedFile) + "\n");
+            try (InputStream in = Files.newInputStream(normalizedFile)) {
+                int read;
+                while ((read = in.read(buffer)) >= 0) {
+                    md.update(buffer, 0, read);
+                }
+            }
+            updateCacheKey(md, "\n");
+        }
+    }
+
+    private static void updateCacheKey(MessageDigest md, String value) {
+        md.update(value.getBytes(StandardCharsets.UTF_8));
+    }
+
     private static void buildSqliteCache(Path dbPath, Path sourcePath, Path actionMetadataPathOrNull) throws IOException {
         Objects.requireNonNull(dbPath);
         Objects.requireNonNull(sourcePath);
-        require(!Files.exists(dbPath), "Refusing to overwrite existing SQLite cache: %s", dbPath);
+        ValidationSupport.requireArgument(!Files.exists(dbPath), "Refusing to overwrite existing SQLite cache: %s", dbPath);
 
         Files.createDirectories(dbPath.toAbsolutePath().getParent());
 
@@ -182,8 +221,8 @@ final class DemoSqliteCache implements AutoCloseable {
             s.execute("""
                     CREATE TABLE IF NOT EXISTS action_metadata (
                       action_id TEXT PRIMARY KEY,
-                      action_name TEXT NOT NULL,
-                      action_image_url TEXT NOT NULL,
+                      action_name TEXT,
+                      action_image_url TEXT,
                       action_metadata_json TEXT NOT NULL
                     ) WITHOUT ROWID
                     """);
@@ -231,8 +270,8 @@ final class DemoSqliteCache implements AutoCloseable {
                         if (line.isBlank()) continue;
                         ObjectNode obj = parseObjectOrThrow(file, lineNumber, line);
                         String actionId = requireNonEmptyString(obj, "action_id", file, lineNumber);
-                        String actionName = requireNonEmptyString(obj, "action_name", file, lineNumber);
-                        String actionImageUrl = requireNonEmptyString(obj, "action_image_url", file, lineNumber);
+                        String actionName = optionalStringOrNull(obj, "action_name", file, lineNumber);
+                        String actionImageUrl = optionalStringOrNull(obj, "action_image_url", file, lineNumber);
                         String actionMetadataJson = obj.toString();
 
                         lastActionId = actionId;
@@ -359,9 +398,14 @@ final class DemoSqliteCache implements AutoCloseable {
         return n.asText();
     }
 
-    private static void require(boolean condition, String messageTemplate, Object... args) {
-        if (!condition) {
-            throw new IllegalArgumentException(String.format(messageTemplate, args));
+    private static String optionalStringOrNull(ObjectNode obj, String field, Path file, int lineNumber) {
+        JsonNode n = obj.get(field);
+        if (n == null || n.isNull()) {
+            return null;
         }
+        if (!n.isTextual()) {
+            throw new ContractViolationException("Field must be a string when present: " + field, file + ":" + lineNumber);
+        }
+        return JsonFieldSupport.blankToNull(n.asText());
     }
 }

@@ -1,10 +1,6 @@
 package com.hotvect.onlineutils.concurrency.fileutils;
 
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
-import net.jqwik.api.*;
-import net.jqwik.api.arbitraries.ListArbitrary;
-import net.jqwik.api.constraints.IntRange;
-import net.jqwik.api.constraints.WithNull;
 import org.junit.jupiter.api.Test;
 
 import java.io.BufferedWriter;
@@ -53,33 +49,38 @@ class UnorderedFileAggregatorTest {
         source.forEach(File::delete);
     }
 
-    @Property(afterFailure = AfterFailureMode.SAMPLE_FIRST, tries = 10)
-    void happyPath(
-            @ForAll("testdata") List<List<@WithNull Integer>> testData,
-            @ForAll @IntRange(min = 1, max = 3) int nThread,
-            @ForAll @IntRange(min = 1, max = 100) int batchSize
-    ) throws Exception {
-        SimpleMeterRegistry mr = new SimpleMeterRegistry();
+    @Test
+    void happyPath() throws Exception {
+        for (AggregatorCase testCase : aggregatorCases()) {
+            SimpleMeterRegistry mr = new SimpleMeterRegistry();
 
-        long expectedSum = calculateExpectedSum(testData);
-        long expectedLineCount = calculateExpectedLineCount(testData);
-        List<File> source = toTestFiles(testData);
-        AtomicLong state = new AtomicLong(0);
-        BiConsumer<AtomicLong, String> update = (s, str) -> s.addAndGet(Long.parseLong(str));
-        UnorderedFileAggregator<String, AtomicLong> testSubject = UnorderedFileAggregator.aggregator(mr, source, state, update, nThread, batchSize);
-        Map<String, Object> metadata = testSubject.call();
-        long actualSum = state.get();
-        assertEquals(expectedSum, actualSum);
+            long expectedSum = calculateExpectedSum(testCase.testData());
+            long expectedLineCount = calculateExpectedLineCount(testCase.testData());
+            List<File> source = toTestFiles(testCase.testData());
+            AtomicLong state = new AtomicLong(0);
+            BiConsumer<AtomicLong, String> update = (s, str) -> s.addAndGet(Long.parseLong(str));
+            UnorderedFileAggregator<String, AtomicLong> testSubject = UnorderedFileAggregator.aggregator(
+                    mr,
+                    source,
+                    state,
+                    update,
+                    testCase.nThread(),
+                    testCase.batchSize()
+            );
+            Map<String, Object> metadata = testSubject.call();
+            long actualSum = state.get();
+            assertEquals(expectedSum, actualSum);
 
-        long linesRead = (Long) metadata.get("lines_read");
-        long recordsProcessed = (Long) metadata.get("records_processed");
-        long numberOfFilesRead = (Integer) metadata.get("number_of_files_read");
+            long linesRead = (Long) metadata.get("lines_read");
+            long recordsProcessed = (Long) metadata.get("records_processed");
+            long numberOfFilesRead = (Integer) metadata.get("number_of_files_read");
 
-        assertEquals(expectedLineCount, linesRead);
-        assertEquals(expectedLineCount, recordsProcessed);
-        assertEquals(source.size(), numberOfFilesRead);
+            assertEquals(expectedLineCount, linesRead);
+            assertEquals(expectedLineCount, recordsProcessed);
+            assertEquals(source.size(), numberOfFilesRead);
 
-        source.forEach(File::delete);
+            source.forEach(File::delete);
+        }
     }
 
     private long calculateExpectedSum(List<List<Integer>> testData) {
@@ -116,10 +117,15 @@ class UnorderedFileAggregatorTest {
         return ret;
     }
 
-    @Provide("testdata")
-    private ListArbitrary<List<Integer>> generateTestData() {
-        var ints = Arbitraries.integers().between(-10000, 10000);
-        var file = ints.list().ofMinSize(0).ofMaxSize(1000);
-        return file.list().ofMinSize(0).ofMaxSize(12);
+    private record AggregatorCase(List<List<Integer>> testData, int nThread, int batchSize) {
+    }
+
+    private static List<AggregatorCase> aggregatorCases() {
+        return List.of(
+                new AggregatorCase(List.of(), 1, 1),
+                new AggregatorCase(Arrays.asList(Arrays.asList(), Arrays.asList(1, 2, 3)), 1, 1),
+                new AggregatorCase(Arrays.asList(Arrays.asList(-10, null, 10), Arrays.asList(11, 12)), 2, 10),
+                new AggregatorCase(Arrays.asList(Arrays.asList(100, 101, 102), Arrays.asList(1000, -1000)), 3, 100)
+        );
     }
 }

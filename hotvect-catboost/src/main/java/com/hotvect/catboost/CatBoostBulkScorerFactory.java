@@ -38,7 +38,10 @@ public class CatBoostBulkScorerFactory<SHARED, ACTION> implements BulkScorerFact
 
     /**
      * Backwards-compatibility: legacy algorithms compiled against Hotvect v9 call this static factory method.
+     *
+     * @deprecated Use the {@link BulkScorerFactory#apply(Object, Map, Optional)} implementation path.
      */
+    @Deprecated(forRemoval = true)
     public static <SHARED, ACTION> BulkScorer<SHARED, ACTION> create(
             StandardRankingTransformer<SHARED, ACTION> rankingTransformer,
             Map<String, InputStream> parameters,
@@ -54,7 +57,10 @@ public class CatBoostBulkScorerFactory<SHARED, ACTION> implements BulkScorerFact
 
     /**
      * Backwards-compatibility: legacy algorithms compiled against Hotvect v9 call this static factory method.
+     *
+     * @deprecated Use the {@link BulkScorerFactory#apply(Object, Map, Optional)} implementation path.
      */
+    @Deprecated(forRemoval = true)
     public static <SHARED, ACTION> BulkScorer<SHARED, ACTION> create(
             StandardRankingTransformer<SHARED, ACTION> rankingTransformer,
             Map<String, InputStream> parameters,

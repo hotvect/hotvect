@@ -31,7 +31,7 @@ import java.util.concurrent.ThreadPoolExecutor;
  *
  * @author Gary Russell
  * @author Artem Bilan
- * @author Modified by Hotvect Team
+ * @author Modified by Enno Shioji
  */
 public class CallerBlocksPolicy implements RejectedExecutionHandler {
 

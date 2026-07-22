@@ -1,95 +1,177 @@
 package com.hotvect.catboost;
 
-import net.jqwik.api.*;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
+
+import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
-class CatBoostEncoderPropertyTest {
-
-    @Provide
-    Arbitrary<Object> categoricalValues() {
-        Arbitrary<Object> nullVal = Arbitraries.just((Object) null);
-        Arbitrary<Object> strVal = Arbitraries.strings().ofMinLength(1).ofMaxLength(10).map(s -> (Object)s);
-        Arbitrary<Object> intVal = Arbitraries.integers().map(i -> (Object)i);
-        Arbitrary<Object> longVal = Arbitraries.longs().map(l -> (Object)l);
-        return Arbitraries.oneOf(nullVal, strVal, intVal, longVal);
-    }
-
-    @Provide
-    Arbitrary<Object> numericalValues() {
-        Arbitrary<Object> nullVal = Arbitraries.just((Object) null);
-        Arbitrary<Object> doubleVal = Arbitraries.doubles().map(d -> (Object)d);
-        Arbitrary<Object> floatVal = Arbitraries.floats().map(f -> (Object)f);
-        return Arbitraries.oneOf(nullVal, doubleVal, floatVal);
-    }
-
-    @Provide
-    Arbitrary<Object> textValues() {
-        Arbitrary<Object> nullVal = Arbitraries.just((Object)null);
-        Arbitrary<String> textElement = Arbitraries.strings()
-                .withCharRange('a','z')
-                .ofMinLength(1).ofMaxLength(5)
-                .filter(s -> !s.contains(" "));
-        Arbitrary<String[]> nonEmptyArray = textElement.array(String[].class).ofMinSize(1);
-        Arbitrary<Object> arrVal = nonEmptyArray.map(arr -> (Object)arr);
-        return Arbitraries.oneOf(nullVal, arrVal);
-    }
-
-    @Provide
-    Arbitrary<Object> groupIdValues() {
-        Arbitrary<Object> nullVal = Arbitraries.just((Object)null);
-        Arbitrary<Object> strVal = Arbitraries.strings().ofMinLength(1).ofMaxLength(10).map(s -> (Object)s);
-        return Arbitraries.oneOf(nullVal, strVal);
-    }
-
-    @Provide
-    Arbitrary<Object> embeddingValues() {
-        Arbitrary<Object> nullVal = Arbitraries.just((Object)null);
-
-        Arbitrary<double[]> doubleArr = Arbitraries.doubles().array(double[].class).ofMinSize(0).ofMaxSize(5);
-        Arbitrary<Object> doubleObj = doubleArr.map(a -> (Object) a);
-
-        Arbitrary<float[]> floatArr = Arbitraries.floats().array(float[].class).ofMinSize(0).ofMaxSize(5);
-        Arbitrary<Object> floatObj = floatArr.map(a -> (Object) a);
-
-        return Arbitraries.oneOf(nullVal, doubleObj, floatObj);
-    }
+class CatBoostEncoderTest {
 
     private void testDoAppendFeature(CatBoostFeatureType type, Object v) {
         StringBuilder sb = new StringBuilder();
         CatBoostEncodingUtils.doAppendFeature(type, v, sb);
     }
 
-    @Property
-    void categoricalAllowed(@ForAll("categoricalValues") Object v) {
+    @ParameterizedTest
+    @MethodSource("categoricalValues")
+    void categoricalAllowed(Object v) {
         testDoAppendFeature(CatBoostFeatureType.CATEGORICAL, v);
     }
 
-    @Property
-    void numericalAllowed(@ForAll("numericalValues") Object v) {
+    @ParameterizedTest
+    @MethodSource("numericalValues")
+    void numericalAllowed(Object v) {
         testDoAppendFeature(CatBoostFeatureType.NUMERICAL, v);
     }
 
-    @Property
-    void textAllowed(@ForAll("textValues") Object v) {
+    @ParameterizedTest
+    @MethodSource("textValues")
+    void textAllowed(Object v) {
         testDoAppendFeature(CatBoostFeatureType.TEXT, v);
     }
 
-    @Example
+    @Test
     void nullTextUsesMissingTextSentinel() {
         StringBuilder sb = new StringBuilder();
         CatBoostEncodingUtils.doAppendFeature(CatBoostFeatureType.TEXT, null, sb);
         assertEquals(CatBoostEncodingUtils.MISSING_TEXT, sb.toString());
     }
 
-    @Property
-    void groupIdAllowed(@ForAll("groupIdValues") Object v) {
+    @ParameterizedTest
+    @MethodSource("groupIdValues")
+    void groupIdAllowed(Object v) {
         testDoAppendFeature(CatBoostFeatureType.GROUP_ID, v);
     }
 
-    @Property
-    void embeddingAllowed(@ForAll("embeddingValues") Object v) {
+    @ParameterizedTest
+    @MethodSource("embeddingValues")
+    void embeddingAllowed(Object v) {
         testDoAppendFeature(CatBoostFeatureType.EMBEDDING, v);
     }
 
+    @ParameterizedTest
+    @MethodSource("delimitedFieldValues")
+    void categoricalDelimitedFieldEscapingRoundTrips(String raw) {
+        StringBuilder sb = new StringBuilder();
+        CatBoostEncodingUtils.doAppendFeature(CatBoostFeatureType.CATEGORICAL, raw, sb);
+        String encoded = sb.toString();
+
+        assertEquals(raw, decodeEscapedDelimitedField(encoded));
+        if (requiresDelimitedFieldEscaping(raw)) {
+            assertTrue(encoded.length() >= 2 && encoded.startsWith("\"") && encoded.endsWith("\""));
+        } else {
+            assertEquals(raw, encoded);
+        }
+    }
+
+    @Test
+    void categoricalQuotesAreEscapedRfc4180Style() {
+        StringBuilder sb = new StringBuilder();
+        CatBoostEncodingUtils.doAppendFeature(CatBoostFeatureType.CATEGORICAL, "foo\"bar", sb);
+        assertEquals("\"foo\"\"bar\"", sb.toString());
+    }
+
+    @Test
+    void textQuotesAreEscapedRfc4180Style() {
+        StringBuilder sb = new StringBuilder();
+        CatBoostEncodingUtils.doAppendFeature(CatBoostFeatureType.TEXT, new String[]{"foo\"bar", "baz"}, sb);
+        assertEquals("\"foo\"\"bar baz\"", sb.toString());
+    }
+
+    @Test
+    void groupIdQuotesAreEscapedRfc4180Style() {
+        StringBuilder sb = new StringBuilder();
+        CatBoostEncodingUtils.doAppendFeature(CatBoostFeatureType.GROUP_ID, "grp\"1", sb);
+        assertEquals("\"grp\"\"1\"", sb.toString());
+    }
+
+    @Test
+    void categoricalTabsAreEscapedRfc4180Style() {
+        StringBuilder sb = new StringBuilder();
+        CatBoostEncodingUtils.doAppendFeature(CatBoostFeatureType.CATEGORICAL, "foo\tbar", sb);
+        assertEquals("\"foo\tbar\"", sb.toString());
+    }
+
+    @Test
+    void categoricalNewlinesAreEscapedRfc4180Style() {
+        StringBuilder sb = new StringBuilder();
+        CatBoostEncodingUtils.doAppendFeature(CatBoostFeatureType.CATEGORICAL, "foo\nbar", sb);
+        assertEquals("\"foo\nbar\"", sb.toString());
+    }
+
+    @Test
+    void groupIdCarriageReturnsAreEscapedRfc4180Style() {
+        StringBuilder sb = new StringBuilder();
+        CatBoostEncodingUtils.doAppendFeature(CatBoostFeatureType.GROUP_ID, "grp\r1", sb);
+        assertEquals("\"grp\r1\"", sb.toString());
+    }
+
+    @Test
+    void textTabsAreEscapedRfc4180Style() {
+        StringBuilder sb = new StringBuilder();
+        CatBoostEncodingUtils.doAppendFeature(CatBoostFeatureType.TEXT, new String[]{"foo\tbar", "baz"}, sb);
+        assertEquals("\"foo\tbar baz\"", sb.toString());
+    }
+
+    private static Stream<Object> categoricalValues() {
+        return Stream.of(null, "", "sku-1", "with space", 0, -1, 42L, true, false);
+    }
+
+    private static Stream<Object> numericalValues() {
+        return Stream.of(null, -1.0d, 0.0d, 1.5d, Float.MIN_VALUE, Float.MAX_VALUE);
+    }
+
+    private static Stream<Arguments> textValues() {
+        return Stream.of(
+                Arguments.of((Object) null),
+                Arguments.of((Object) new String[]{"a"}),
+                Arguments.of((Object) new String[]{"alpha", "beta"})
+        );
+    }
+
+    private static Stream<Object> groupIdValues() {
+        return Stream.of(null, "", "group-1", "group with space");
+    }
+
+    private static Stream<Arguments> embeddingValues() {
+        return Stream.of(
+                Arguments.of((Object) null),
+                Arguments.of((Object) new double[]{}),
+                Arguments.of((Object) new double[]{-1.0, 0.0, 2.5}),
+                Arguments.of((Object) new float[]{}),
+                Arguments.of((Object) new float[]{-1.0f, 0.0f, 2.5f})
+        );
+    }
+
+    private static Stream<String> delimitedFieldValues() {
+        return Stream.of(
+                "",
+                "plain",
+                "with space",
+                "foo\tbar",
+                "foo\nbar",
+                "foo\rbar",
+                "foo\"bar",
+                "foo\t\"bar\"\n"
+        );
+    }
+
+    private static boolean requiresDelimitedFieldEscaping(String raw) {
+        return raw.indexOf('\t') >= 0
+                || raw.indexOf('\n') >= 0
+                || raw.indexOf('\r') >= 0
+                || raw.indexOf('"') >= 0;
+    }
+
+    private static String decodeEscapedDelimitedField(String encoded) {
+        if (encoded.length() >= 2 && encoded.startsWith("\"") && encoded.endsWith("\"")) {
+            return encoded.substring(1, encoded.length() - 1).replace("\"\"", "\"");
+        }
+        return encoded;
+    }
 }

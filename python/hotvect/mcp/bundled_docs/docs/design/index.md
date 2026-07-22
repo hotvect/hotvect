@@ -1,19 +1,22 @@
 ---
-title: Design docs
-description: Internal design documents for hotvect (architecture, decisions, trade-offs)
+title: Implementation design and proposals
+description: Internal Hotvect decisions, protocol details, trade-offs, and clearly marked proposals
 tags: [design, architecture]
 ---
 
-# Design
+# Implementation design and proposals
 
-This section contains internal design documents for hotvect. These are not “getting started” guides.
+This section contains implementation decisions, protocol details, and proposals. It is not the stable system
+architecture and it is not a getting-started section.
 
-If you’re looking for workflows, start in `guides/index.md`. If you’re looking for contracts and runbooks, start in
-`agents/index.md`.
+For workflows, start with [Build and run](../guides/index.md). For the supported component model and runtime
+boundaries, start with the [architecture overview](../architecture/index.md).
 
 ## Topics
 
-- SageMaker execution and configuration
-- Script-mode standardization
-- Output layout conventions
-- Performance and runtime integration notes
+- [Automatic SageMaker configuration](sagemaker-configuration/index.md)
+- [SageMaker `custom.py` payload contract](script-mode-standardization/index.md)
+- [SageMaker InputDataConfig](sagemaker-inputdataconfig/index.md)
+- [Encoding output layout](encoding-output-layout/index.md)
+- [Direct Python workers](direct-python-workers/index.md)
+- [GZIP support](gzip-support/index.md)

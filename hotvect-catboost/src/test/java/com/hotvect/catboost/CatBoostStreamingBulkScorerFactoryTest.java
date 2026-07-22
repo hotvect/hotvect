@@ -24,10 +24,10 @@ class CatBoostStreamingBulkScorerFactoryTest {
             }
 
             @Override
-            public java.util.stream.Stream<java.util.List<com.hotvect.api.data.ranking.TransformedAction<String>>> transformBatchStream(
+            public com.hotvect.core.transform.ranking.PreparedBatchStream<String> prepareBatchStream(
                     com.hotvect.api.data.ranking.RankingRequest<String, String> request
             ) {
-                return java.util.stream.Stream.empty();
+                return new com.hotvect.core.transform.ranking.PreparedBatchStream<>(java.util.stream.Stream.empty(), java.util.Map.of());
             }
 
             @Override

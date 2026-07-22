@@ -1,51 +1,101 @@
 ---
-title: Key Differences with Other Similar Frameworks
-description: Why hotvect takes a different approach to ML integration compared to industry-standard patterns
-tags: [motivation, architecture, integration, philosophy, performance]
-difficulty: beginner
-estimated_time: 15 minutes
-prerequisites:
-  - Understanding of typical ML serving architectures
-  - Familiarity with microservices and API patterns
-related_docs:
-  - ../index.md
-  - ../../guides/develop-algorithms/index.md
-next_steps:
-  - Understand hotvect concepts
-  - Build your first algorithm
-  - Compare with your current architecture
+title: Why Hotvect treats the algorithm as the application
+description: Understand the design choice behind complete, versioned decision algorithms
+tags: [motivation, architecture, algorithms, integration]
 ---
 
-# Key differences with other similar frameworks
+# Why Hotvect treats the algorithm as the application
 
-## Integration model with business applications
+A production decision rarely comes from a model call alone. The system must interpret a request, prepare candidates,
+compute features, run one or more models, apply policy, and return a ranked or selected result. Hotvect treats that
+whole decision path as the algorithm.
 
-### Currently used integration model in the industry
-Many Machine Learning applications, especially those that provide a real-time API have adapted the following design pattern:
+This is the central design choice behind the framework. It explains why Hotvect packages an executable implementation,
+algorithm definition, assets, optional parameters, and declared child dependencies instead of exposing only a model
+file or inference endpoint.
 
-- There is a **Java application (A)** that handles business rules and calling of dependencies like feature stores
-- There is a **Python application (B)** (like a Sagemaker inference endpoint) that receives request from said Java application
+## The problem: one decision, many independently changing parts
 
-From the Applied Scientists' point of view, component **B** would be the service they contribute/deploy to, and component **A** provides the infrastructure through which the input to **B** and the output from **B** travels. Hence, A/B testing also focused on A/B testing component **B**, while component **A** is intended as general infrastructure that does not vary across algorithms, and hence usually not a target to be A/B tested.
+In a conventional serving stack, algorithm-specific behavior is often divided between several owners and artifacts:
 
-### Problems with the current integration model
-This design philosophy lead to the following phenomena:
+- a service decodes requests and prepares candidates;
+- feature code exists separately for training and request-time inference;
+- one or more model endpoints return scores;
+- application code applies ranking, selection, or final policy;
+- offline jobs reconstruct enough of that behavior to evaluate a change.
 
-1. Attempts are made to keep the processing that happens in component **A** "general", i.e. agnostic to individual algorithms. For example, transformation of features, especially lossy transformations are kept to a minimum.
-2. It is usually cumbersome to A/B test changes to component **A**, and such tests are only rarely done.
+Those deployment boundaries can be useful. The problem appears when they also become the algorithm's ownership and
+versioning boundaries. A model version then identifies only one part of the behavior that produced a decision.
+Comparisons become harder because code, configuration, data windows, child models, and post-processing can change
+independently.
 
-This situation would not pose a problem, if component **A** can be kept general. In reality, the following technical constraints often make this untenable:
+## Hotvect's answer: version the complete decision contract
 
-1. *Size of payload*: In order to keep the processing in component **A** general, one has to keep feature data raw - for example, one can't aggregate it to reduce its size. However, certain features, like a users historical event data, statistics about each candidate contents etc. can be very large when they are raw. This often means that component **A** is forced to perform lossy transformation (i.e. de facto feature engineering) to keep the payload small enough for real-time use cases
-2. *Computational Efficiency*: Python is often the preferred language for component **B**, but it is sometimes challenging to code the necessary feature transformation in a way that it is performant enough in python. This is especially true when parallelization that benefit from having shared states have to be involved.
+A Hotvect algorithm makes its behavior explicit through a small artifact set:
 
-Feature stores that facilitate asynchronous feature transformation/aggregation has been used to address this point. However, feature transformations that depends on information that is only available at request time cannot be supported this way.
+| Artifact | Responsibility |
+| --- | --- |
+| Algorithm package | Executable request handling, feature computation, composition, decision logic, and packaged assets |
+| Embedded definition | Identity, factories, dependencies, data requirements, and lifecycle configuration |
+| Parameter package, when needed | Trained parameters and generated state kept separate from executable code |
 
-# New integration model suggested by hotvect
-Hotvect proposes a new integration model, in which:
-1. Applied Scientists deploy code (in the form of dynamically loaded jar) onto component **A**, instead of deploying to a remote endpoint **B**. This allows component **A** to benefit from Intra-Process-Communication which mitigates the limitation that comes with large payloads.
-2. Applied Scientists develop feature engineering using the JVM instead of python, which makes efficient feature engineering code easier to write (partly because the team can draw on high-load low-latency expertise of the team developing the component **A**)
+The result is an executable contract rather than a passive model artifact. A host can load the algorithm, supply its
+parameters and dependencies, and invoke its public shape. Offline workflows can use the same artifact contract for
+training, prediction, evaluation, auditing, and backtests.
 
-While we do not support it yet, once the feature engineering is performed (and the payload is sufficiently small), it can then be sent to a remote endpoint **B** - meaning that, the core machine learning algorithm does not need to be executable on the java process of component **A**.
+These are logical package roles. Today, an algorithm package is distributed as a JVM JAR and a parameter package as a
+ZIP. The algorithm package can include assets and integrations for non-JVM inference code while the public loading and
+calling contract remains JVM-based.
 
-This change in Applied Scientists' contribution interface (from a remote, python based endpoint to a BYOA-style jar) also facilitates experimentation of other parts of component **A**. For example, things like whether to call an additional feature store (that e.g. could increase latency) becomes part of the policy to be tested, and can readily be A/B tested just like any other changes to the algorithm, like changes in the training hyperparameters.
+This does not make offline and online environments identical. Inputs, execution context, overrides, and runtime
+settings still matter. It does make those differences visible around a shared algorithm identity.
+
+## Why executable JVM code instead of a feature DSL
+
+Request-time algorithms frequently need typed domain objects, ordinary control flow, library calls, and close
+integration with a JVM application. Hotvect lets algorithm authors express that logic as Java rather than translating
+it into a separate feature language.
+
+That choice provides normal compiler checks, tests, debugging, and refactoring tools. It also creates real
+responsibilities: algorithm packages are trusted executable code, API compatibility matters, and artifact identity
+must be managed deliberately. Hotvect favors an explicit application boundary over pretending that arbitrary decision
+logic is only data.
+
+## Composition is a logical property, not a placement promise
+
+An outer algorithm can declare child algorithms for scoring, transformation, or policy. The definition describes the
+logical graph and Hotvect wires named dependencies into their owning factories.
+
+Where a component runs is a separate question. Current integrations can execute algorithm logic in the JVM and can
+delegate supported inference work to managed Python workers. A local call and a remote call do not have identical
+latency, serialization, batching, timeout, or failure behavior. Hotvect's direction is to preserve the logical
+component graph across more runtime placements while keeping those operational differences explicit.
+
+## The lifecycle exists to preserve evidence
+
+Changing an algorithm is useful only when the result can be explained and compared. The `hv` workflows connect
+algorithm artifacts to state generation, encoding, training, prediction, evaluation, auditing, performance tests, and
+backtests. This keeps the question “what produced this result?” answerable beyond the source commit alone.
+
+The lifecycle is therefore part of the application model, not Hotvect's product boundary. External systems may still
+schedule work, store artifacts, register releases, run experiments, and monitor production behavior.
+
+## When this model is a good fit
+
+Hotvect is most useful when a decision algorithm has several of these properties:
+
+- request-time feature or policy logic is substantial;
+- multiple models or child algorithms must be composed;
+- offline evaluation must stay aligned with request-time behavior;
+- algorithm versions need independently inspectable code, definition, and parameters;
+- the application benefits from loading typed JVM algorithm components.
+
+For a single stateless model behind a stable endpoint, the full application contract may add unnecessary machinery.
+Hotvect also does not replace a data orchestrator, feature store, model registry, experimentation platform, or
+monitoring system. It supplies the decision-algorithm layer those systems build, evaluate, and operate.
+
+## Next step
+
+Read [How Hotvect works](../how-hotvect-works/index.md) for one request's path through the runtime, then
+[Complete algorithms](../complete-algorithm/index.md) for the public shapes and composition model. The
+[architecture overview](../../architecture/index.md) explains how the artifacts and runtimes fit together.

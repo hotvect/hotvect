@@ -1,0 +1,43 @@
+{
+  "hotvect_version": "${project.version}",
+  "algorithm_name": "example-product-scorer",
+  "algorithm_version": "${algorithm.version}",
+  "decoder_factory_classname": "com.hotvect.example.product.ProductRankingDecoderFactory",
+  "transformer_factory_classname": "com.hotvect.example.product.ProductTransformerFactory",
+  "reward_function_factory_classname": "com.hotvect.example.product.ProductRewardFunctionFactory",
+  "encoder_factory_classname": "com.hotvect.catboost.CatBoostStreamingEncoderFactory",
+  "algorithm_factory_classname": "com.hotvect.catboost.CatBoostStreamingBulkScorerFactory",
+  "train_data_spec": {
+    "data_prefix": "example_product_examples"
+  },
+  "test_data_spec": {
+    "data_prefix": "example_product_examples"
+  },
+  "number_of_training_days": 2,
+  "training_lag_days": 1,
+  "training_command": "catboost_train --algorithm_definition_path {{ algorithm_definition_path }} --algorithm_jar_path {{ algorithm_jar_path }} --encoded_data_file_path {{ encoded_data_file_path }} --encoded_schema_description_file_path {{ encoded_schema_description_file_path }} --scratch_dir {{ scratch_dir }} --parameter_output_path {{ parameter_output_path }}",
+  "algorithm_parameters": {
+    "task_type": "classification",
+    "parallel_batch_scoring": false
+  },
+  "transformer_parameters": {
+    "features": [
+      {"name": "candidate_category", "type": "categorical"},
+      {"name": "query_title_overlap", "type": "numerical"},
+      {"name": "preferred_category_match", "type": "numerical"},
+      {"name": "budget_fit", "type": "numerical"},
+      {"name": "popularity", "type": "numerical"},
+      {"name": "novelty", "type": "numerical"}
+    ]
+  },
+  "catboost_options": {
+    "loss_function": "Logloss",
+    "iterations": 24,
+    "depth": 3,
+    "learning_rate": 0.25,
+    "random_seed": 42,
+    "thread_count": 1,
+    "verbose": false,
+    "allow_writing_files": false
+  }
+}

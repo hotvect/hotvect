@@ -12,7 +12,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date
 from pathlib import Path
-from typing import List, NamedTuple, Optional, Tuple
+from typing import NamedTuple
 from urllib.parse import urlparse
 
 import boto3
@@ -39,12 +39,12 @@ SAMPLE_SEED = 42  # Fixed seed for deterministic sampling
 DEFAULT_DOWNLOAD_MAX_RETRIES = 3
 DEFAULT_DOWNLOAD_RETRY_BASE_BACKOFF_SECONDS = 0.2
 
-DownloadPlanItem = Tuple[
-    str, str, str, str, List[str], bool
+DownloadPlanItem = tuple[
+    str, str, str, str, list[str], bool
 ]  # (bucket, data_prefix, date_str, s3_date_prefix, files, is_sampled)
 
 
-def _deterministic_sample(files: List[str], sample_ratio: float) -> List[str]:
+def _deterministic_sample(files: list[str], sample_ratio: float) -> list[str]:
     """
     Deterministically sample files using sorted order and fixed seed.
 
@@ -125,6 +125,9 @@ Examples:
     --scratch-dir ./scratch \\
     --last-test-time 2025-08-09
 
+  # List prediction dependencies instead of evaluation dependencies
+  hv-ext data-dependency --target predict (same arguments as above)
+
   # Download all dependencies
   hv-ext data-dependency --download-all (same arguments as above)
 
@@ -180,6 +183,16 @@ Output:
             "--scratch-dir", required=True, help="Scratch directory for temporary files (algorithm builds)"
         )
         parser.add_argument("--last-test-time", required=True, help="Last test time in YYYY-MM-DD format")
+        parser.add_argument(
+            "--target",
+            choices=["parameters", "predict", "evaluate"],
+            default="evaluate",
+            help=(
+                "Dependency target to analyze: 'evaluate' uses test_data_spec, "
+                "'predict' uses prediction_spec, and 'parameters' only includes "
+                "dependencies needed to prepare parameters (default: evaluate)"
+            ),
+        )
 
         # Optional arguments
         parser.add_argument(
@@ -230,6 +243,7 @@ Output:
             print(f"  S3 source: {args.s3_base_dir}", file=sys.stderr)
             print(f"  Local destination: {args.local_data_dir}", file=sys.stderr)
             print(f"  Last test time: {last_test_time}", file=sys.stderr)
+            print(f"  Target: {args.target}", file=sys.stderr)
             if args.sample_ratio:
                 print(f"  Sampling: {args.sample_ratio*100:.1f}% of files per date directory", file=sys.stderr)
             if args.role_arn:
@@ -254,6 +268,7 @@ Output:
                 args.git_reference,
                 args.scratch_dir,
                 last_test_time,
+                args.target,
                 args.algorithm_override,
             )
 
@@ -340,8 +355,9 @@ Output:
         git_reference: str,
         scratch_dir: str,
         last_test_time: date,
+        target: str,
         algorithm_override: str,
-    ) -> Tuple[str, str, List[DataDependency]]:
+    ) -> tuple[str, str, list[DataDependency]]:
         """
         Get data dependencies for a single algorithm git reference.
 
@@ -365,6 +381,7 @@ Output:
                 git_reference=git_reference,
                 work_dir=temp_path,
                 copy_jar_to=None,  # Keep JAR in temp directory
+                progress_stream=sys.stderr,
             )
 
             algorithm_name = result.algorithm_name
@@ -385,7 +402,7 @@ Output:
             # Parse algorithm override if provided
             algorithm_definition = algorithm_name
             if algorithm_override:
-                with open(algorithm_override, "r") as f:
+                with open(algorithm_override) as f:
                     override_config = json.load(f)
                 algorithm_definition = (algorithm_name, override_config)
 
@@ -398,7 +415,7 @@ Output:
             )
 
             # Get data dependencies
-            dependencies = pipeline.data_dependencies()
+            dependencies = pipeline.data_dependencies(target=target)
             print(f"  Found {len(dependencies)} dependencies for {git_reference}", file=sys.stderr)
 
             return algorithm_name, algorithm_version, dependencies
@@ -419,7 +436,7 @@ Output:
         else:
             return "list"
 
-    def _filter_dependencies(self, dependencies: List[DataDependency], names: List[str]) -> List[DataDependency]:
+    def _filter_dependencies(self, dependencies: list[DataDependency], names: list[str]) -> list[DataDependency]:
         """Filter dependencies by data_prefix names."""
         filtered = [d for d in dependencies if d.data_prefix in names]
 
@@ -435,7 +452,7 @@ Output:
         self,
         algorithm_name: str,
         algorithm_version: str,
-        dependencies: List[DataDependency],
+        dependencies: list[DataDependency],
         args,
         local_data_path: Path,
         s3_client: S3Client,
@@ -562,14 +579,14 @@ Output:
 
     def _create_download_plan(
         self,
-        dependencies: List[DataDependency],
+        dependencies: list[DataDependency],
         local_data_path: Path,
         s3_client: S3Client,
         s3_bucket: str,
         s3_prefix: str,
-        sample_ratio: Optional[float],
+        sample_ratio: float | None,
         skip_if_present: bool,
-    ) -> Tuple[List[DownloadPlanItem], List[MissingData], int]:
+    ) -> tuple[list[DownloadPlanItem], list[MissingData], int]:
         """
         Create download plan.
         Returns (download_plan, missing_data, skipped_existing_count) where:
@@ -577,8 +594,8 @@ Output:
         - missing_data: details for any dates that were missing entirely in S3
         - skipped_existing_count: number of directories skipped because they already exist
         """
-        download_plan: List[DownloadPlanItem] = []
-        missing_data: List[MissingData] = []
+        download_plan: list[DownloadPlanItem] = []
+        missing_data: list[MissingData] = []
         skipped_existing = 0
 
         print("Checking existing data and planning downloads...", file=sys.stderr)
@@ -690,9 +707,9 @@ Output:
 
         return download_plan, missing_data, skipped_existing
 
-    def _list_s3_files(self, s3_client: S3Client, bucket: str, prefix: str) -> Tuple[List[str], int]:
+    def _list_s3_files(self, s3_client: S3Client, bucket: str, prefix: str) -> tuple[list[str], int]:
         """List all files in the given S3 prefix and total their size."""
-        files: List[str] = []
+        files: list[str] = []
         total_bytes = 0
         paginator = s3_client.get_paginator("list_objects_v2")
 
@@ -727,7 +744,7 @@ Output:
 
     def _execute_downloads(
         self,
-        download_plan: List[DownloadPlanItem],
+        download_plan: list[DownloadPlanItem],
         s3_client: S3Client,
         local_data_dir: str,
         scratch_dir: str,

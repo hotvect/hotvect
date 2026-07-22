@@ -2,8 +2,8 @@ package com.hotvect.tensorflow;
 
 import com.hotvect.api.algodefinition.common.RewardFunction;
 import com.hotvect.api.algodefinition.ranking.RankingExampleEncoderFactory;
+import com.hotvect.api.algodefinition.ranking.RankingTransformer;
 import com.hotvect.api.codec.ranking.RankingExampleEncoder;
-import com.hotvect.core.transform.ranking.ComputingRankingTransformer;
 
 /**
  * Factory for creating TFRecord ranking example encoders.
@@ -13,11 +13,11 @@ import com.hotvect.core.transform.ranking.ComputingRankingTransformer;
  * compatible with TensorFlow's tf.data.TFRecordDataset.
  */
 public class TensorFlowEncoderFactory<SHARED, ACTION, OUTCOME>
-        implements RankingExampleEncoderFactory<ComputingRankingTransformer<SHARED, ACTION>, SHARED, ACTION, OUTCOME> {
+        implements RankingExampleEncoderFactory<RankingTransformer<SHARED, ACTION>, SHARED, ACTION, OUTCOME> {
 
     @Override
     public RankingExampleEncoder<SHARED, ACTION, OUTCOME> apply(
-            ComputingRankingTransformer<SHARED, ACTION> tensorFlowTransformer,
+            RankingTransformer<SHARED, ACTION> tensorFlowTransformer,
             RewardFunction<OUTCOME> rewardFunction) {
 
         // Validate parameters

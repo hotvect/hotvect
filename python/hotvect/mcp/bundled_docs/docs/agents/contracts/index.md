@@ -1,19 +1,26 @@
 ---
-title: Contracts (Agent-First)
+title: Workflow contracts
 description: Deterministic contracts for overrides, caching, outputs, and SageMaker execution
 tags: [agents, contracts, caching, overrides, sagemaker]
 ---
 
-# Contracts (Agent-First)
+# Workflow contracts
 
-This page is the “ground truth” for behaviors agents should rely on when writing code, tests, or automation around
-Hotvect workflows.
+These are the shared contracts behind the runbooks. Follow the linked guide when a task needs more context or a
+complete example.
 
 ## Override merge semantics
 
-- An **override JSON** is a **recursive merge overlay** onto the algorithm definition loaded from the JAR (or git ref).
-- **Missing keys are not deletions**. If you need to disable something, set an explicit `enabled: false` (or equivalent)
-  at the right location.
+- An **override JSON** uses **patch semantics** on top of the algorithm definition loaded from the JAR (or git ref).
+- Object fields merge recursively.
+- Scalar and array values replace the base value.
+- `null` deletes a field from the effective definition.
+- Overrides are fragments, not full definitions: `algorithm_name` is rejected before merge, and `hv backtest` also
+  rejects `algorithm_version`.
+- `dependencies` is a child-override map, not a generic JSON merge:
+  - keys must match already-declared child algorithms
+  - unknown child names are a hard error
+  - overriding one child preserves unspecified siblings
 - **Dependency overrides must be nested**:
 
 ```json
@@ -30,7 +37,8 @@ Hotvect workflows.
 }
 ```
 
-See: `guides/patterns/override-files/index.md`, `guides/patterns/parent-child/index.md`.
+See [Override files](../../guides/patterns/override-files/index.md) and
+[Parent/child algorithms](../../guides/patterns/parent-child/index.md).
 
 ## Caching contracts
 
@@ -53,16 +61,16 @@ By design, Hotvect does **not** cache `predict`, `evaluate`, or `performance-tes
 last_test_date_YYYY-MM-DD
 ```
 
-So a cache created with `--last-test-time 2026-01-07` is not expected to hit for `--last-test-time 2026-01-08`.
+So a cache created with `--last-test-time 2000-01-07` is not expected to hit for `--last-test-time 2000-01-08`.
 
 ### SageMaker cache contract
 
-- For SageMaker runs, cache must be an `s3://example-bucket` prefix.
-- Local cache paths only exist within the container and do not persist across jobs.
+- Use an `s3://...` prefix when a cache must persist and be reused across SageMaker jobs.
+- Local cache paths only exist within the container and do not persist after the job ends.
 
 ### S3 single-file cache safety (collision-free)
 
-When Hotvect downloads a single `s3://example-bucket/file.zip` cache object to local disk, it uses a **bucket+key-derived**
+When Hotvect downloads a single `s3://.../file.zip` cache object to local disk, it uses a **bucket+key-derived**
 deterministic path under:
 
 ```
@@ -77,9 +85,8 @@ Hotvect writes run artifacts under `output_base_dir` (local), and under a job-sp
 
 High-signal files (local):
 
-- `output_base_dir/meta/<algo@version>/<parameter_version>/hv.log` (pipeline summary)
-- `output_base_dir/meta/<algo@version>/<parameter_version>/hv.all.log` (includes dependency logs)
-- `output_base_dir/meta/<algo@version>/<parameter_version>/result.json` (pipeline result)
+- `hv backtest`: `output_base_dir/meta/<algo@version>/<parameter_version>/hv.log`, `hv.all.log`, and `result.json`.
+- `hv train`: `output_base_dir/metadata/<algo@version>/<parameter_version>/hv.log`, `hv.all.log`, and `result.json`.
 
 High-signal files (SageMaker):
 
@@ -89,9 +96,9 @@ High-signal files (SageMaker):
 
 ## SageMaker execution (scope)
 
-- `hv train` supports SageMaker execution via `--sagemaker` (submits a single one-shot training job for an algorithm JAR).
-- `hv backtest` supports SageMaker execution via `--sagemaker` (submits jobs per git reference × day).
-- Both support `--sagemaker-config <json>` and will also look for a default template in `~/.hotvect/config.json` under `sagemaker.sagemaker_config_template` when the flag is omitted.
+- `hv train` supports SageMaker execution via `--sagemaker` **or** `--sagemaker-config` (submits a single training job for an algorithm JAR).
+- `hv backtest` supports SageMaker execution via `--sagemaker` **or** `--sagemaker-config` (submits jobs per git reference × day).
+- Both accept `--sagemaker-config <json>` and look for a default template in `~/.hotvect/config.json` under `sagemaker.sagemaker_config_template` when no explicit template is supplied.
 - Both require `--sagemaker-job-prefix` and build the final `TrainingJobName` from it (must satisfy AWS naming rules; final name must be ≤ 63 characters).
 - `hv backtest` always auto-attaches `InputDataConfig` channels in SageMaker mode. `hv train` only auto-attaches channels when `--auto-attach-data` is set (otherwise your template must define `InputDataConfig`).
 - Some AWS accounts enforce IAM conditions on training job names. If job submission fails, ensure your

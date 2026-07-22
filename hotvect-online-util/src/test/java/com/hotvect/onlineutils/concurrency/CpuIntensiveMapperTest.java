@@ -51,7 +51,6 @@ public class CpuIntensiveMapperTest {
         zippedStream.forEach(p -> assertEquals(p.first, p.second));
     }
 
-    // Simple Pair class to replace QuickTheories' Pair
     private static class Pair<A, B> {
         final A first;
         final B second;

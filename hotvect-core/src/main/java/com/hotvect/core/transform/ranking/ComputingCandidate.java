@@ -10,24 +10,38 @@ import com.hotvect.core.transform.*;
 import com.hotvect.utils.FuzzyMatch;
 import com.hotvect.utils.Pair;
 
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
+import static com.google.common.base.Preconditions.checkArgument;
+
 public class ComputingCandidate<SHARED, ACTION> implements Computable<Pair<RankingRequest<SHARED, ACTION>, ACTION>> {
 
+    private final String actionId;
     private final Computable<RankingRequest<SHARED, ACTION>> computingShared;
     private final Computable<ACTION> computingAction;
     private final Pair<RankingRequest<SHARED, ACTION>, ACTION> originalInput;
+    private final Map<String, Object> additionalProperties;
 
     private final AtomicReference<NamespacedRecord<Namespace, RankingFeatureComputationDependency>> dependencyLookupMap;
 
     private final AtomicReference<NamespacedRecord<Namespace, MemoizedValue<InteractingComputation<SHARED, ACTION, Object>, Object>>> memoized;
     private final AtomicReference<NamespacedRecord<Namespace, InteractingComputation<SHARED, ACTION, Object>>> onDemand;
 
+    /**
+     * Retains the v9 constructor shape used by existing algorithm source. This path cannot carry
+     * stable action ids.
+     *
+     * @deprecated Use {@link #ComputingCandidate(String, Computable, Computable, NamespacedRecord, Mapping, NamespacedRecord, Map)}
+     * with a stable action id.
+     */
+    @Deprecated(forRemoval = true)
     public ComputingCandidate(
             Computable<RankingRequest<SHARED, ACTION>> computingShared,
             Computable<ACTION> computingAction,
@@ -35,9 +49,35 @@ public class ComputingCandidate<SHARED, ACTION> implements Computable<Pair<Ranki
             Mapping<Namespace, InteractingComputation<SHARED, ACTION, Object>> memoized,
             NamespacedRecord<Namespace, InteractingComputation<SHARED, ACTION, Object>> onDemand
     ) {
+        this(null, computingShared, computingAction, dependencyLookupMap, memoized, onDemand, Collections.emptyMap());
+    }
+
+    public ComputingCandidate(
+            String actionId,
+            Computable<RankingRequest<SHARED, ACTION>> computingShared,
+            Computable<ACTION> computingAction,
+            NamespacedRecord<Namespace, RankingFeatureComputationDependency> dependencyLookupMap,
+            Mapping<Namespace, InteractingComputation<SHARED, ACTION, Object>> memoized,
+            NamespacedRecord<Namespace, InteractingComputation<SHARED, ACTION, Object>> onDemand
+    ) {
+        this(actionId, computingShared, computingAction, dependencyLookupMap, memoized, onDemand, Collections.emptyMap());
+    }
+
+    public ComputingCandidate(
+            String actionId,
+            Computable<RankingRequest<SHARED, ACTION>> computingShared,
+            Computable<ACTION> computingAction,
+            NamespacedRecord<Namespace, RankingFeatureComputationDependency> dependencyLookupMap,
+            Mapping<Namespace, InteractingComputation<SHARED, ACTION, Object>> memoized,
+            NamespacedRecord<Namespace, InteractingComputation<SHARED, ACTION, Object>> onDemand,
+            Map<String, Object> additionalProperties
+    ) {
+        checkArgument(actionId == null || !actionId.isBlank(), "actionId cannot be blank");
+        this.actionId = actionId;
         this.originalInput = Pair.of(computingShared.getOriginalInput(), computingAction.getOriginalInput());
         this.computingShared = computingShared;
         this.computingAction = computingAction;
+        this.additionalProperties = Objects.requireNonNull(additionalProperties, "additionalProperties cannot be null");
         this.dependencyLookupMap = new AtomicReference<>(
                 dependencyLookupMap != null ? dependencyLookupMap : NamespacedRecord.empty()
         );
@@ -58,6 +98,14 @@ public class ComputingCandidate<SHARED, ACTION> implements Computable<Pair<Ranki
 
     public Computable<ACTION> getAction() {
         return this.computingAction;
+    }
+
+    public String actionId() {
+        return actionId;
+    }
+
+    public Map<String, Object> additionalProperties() {
+        return additionalProperties;
     }
 
     /**

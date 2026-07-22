@@ -72,7 +72,7 @@ class TestCatBoostConvertCommand(unittest.TestCase):
                 {"column_index": "0", "dtype": "Num", "name": "feature_0"},
                 {"column_index": "1", "dtype": "Categ", "name": "category_feature"},
                 {"column_index": "2", "dtype": "Text", "name": "text_feature"},
-                {"column_index": "3", "dtype": "NumVector", "name": "vector_feature"}
+                {"column_index": "3", "dtype": "NumVector", "name": "vector_feature"},
                 # Note: Auxiliary type should be filtered out
             ]
 
@@ -209,7 +209,7 @@ class TestCatBoostConvertCommand(unittest.TestCase):
         try:
             self.command._write_output(data, output_path)
 
-            with open(output_path, "r") as f:
+            with open(output_path) as f:
                 lines = f.readlines()
 
             self.assertEqual(len(lines), 2)
@@ -244,7 +244,7 @@ class TestCatBoostConvertCommand(unittest.TestCase):
             self.command.execute(args)
 
             # Check that output file was created with JSONL format
-            with open(output_path, "r") as f:
+            with open(output_path) as f:
                 lines = f.readlines()
 
             self.assertEqual(len(lines), 3)  # 3 data rows

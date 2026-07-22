@@ -1,10 +1,10 @@
 ---
-title: Runbook: Build & Preview Docs
-description: Copy/paste commands for building and previewing the Hotvect docsite locally (agent-first)
+title: Runbook - Build and preview docs
+description: Build the Hotvect docsite strictly and inspect a local preview
 tags: [agents, runbook, docs, mkdocs]
 ---
 
-# Runbook: Build & Preview Docs
+# Runbook: Build and preview docs
 
 ## Facts (do not guess)
 
@@ -13,68 +13,46 @@ tags: [agents, runbook, docs, mkdocs]
 - Output directory: `site/`
 - MkDocs is **strict** (`strict: true`): warnings fail the build.
 
-## Build docs (fast path)
+## Build
 
 From repo root:
-
-```bash
-PYENV_VERSION=mkdocs mkdocs build -q
-```
-
-Alternative (repo script):
 
 ```bash
 bash python/scripts/docs.sh build
 ```
 
-Alternative (Make target):
+Equivalent Make target:
 
 ```bash
 cd python
 make docs-build
 ```
 
-## Build docs (fallback via `uv`)
+The script selects the repository-supported MkDocs versions and builds with `strict: true`. Treat any warning or
+nonzero exit as a documentation failure.
 
-If `mkdocs` is not on PATH but you have `uv`:
-
-```bash
-cd python
-uv run --with "mkdocs<2" --with "mkdocs-material<10" --with pymdown-extensions \
-  mkdocs build -f ../mkdocs.yml -q
-```
-
-## Preview locally (serve)
+## Preview
 
 From repo root:
-
-```bash
-PYENV_VERSION=mkdocs mkdocs serve -a 127.0.0.1:8001
-```
-
-Alternative (repo script):
 
 ```bash
 bash python/scripts/docs.sh serve
 ```
 
-Alternative (Make target):
+Equivalent Make target:
 
 ```bash
 cd python
 make docs-serve
 ```
 
-Fallback via `uv`:
-
-```bash
-cd python
-uv run --with "mkdocs<2" --with "mkdocs-material<10" --with pymdown-extensions \
-  mkdocs serve -f ../mkdocs.yml -a 127.0.0.1:8001
-```
+Open `http://127.0.0.1:8001/` and inspect desktop and narrow layouts.
 
 ## Editing rules
 
 - Add/move pages under `python/hotvect/mcp/bundled_docs/docs/`.
 - Update navigation in `mkdocs.yml` (repo root).
-- Keep headings stable (agents depend on exact section names for retrieval).
+- Prefer descriptive, stable headings because agents retrieve sections by their text.
+
+Related: [Docs MCP](../../../guides/docs-mcp/index.md) for version-matched retrieval and
+[documentation sanitization](../../contracts/documentation-sanitization/index.md) before an OSS-facing change.

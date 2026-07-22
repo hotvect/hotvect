@@ -1,125 +1,83 @@
 ---
-title: How to Reuse Existing Outputs
-description: Reuse trained model parameters and other pipeline outputs for faster iteration and debugging
-tags: [parameters, caching, training, pipeline, optimization]
+title: Reuse parameters or cached stages
+description: Choose between pinning one exact parameter ZIP and reusing compatible pipeline outputs from a cache
+tags: [parameters, caching, training, pipeline]
 difficulty: intermediate
-estimated_time: 15 minutes
-prerequisites:
-  - Understanding of hotvect training pipeline
-  - S3 access configured (if using S3 URIs)
 related_docs:
   - ../caching/index.md
   - ../develop-algorithms/index.md
-  - ../../reference/cli/index.md
-related_commands:
-  - hv train
-  - hv predict
-  - hv backtest
-next_steps:
-  - Run evaluation on different test datasets
-  - Compare cached vs regenerated outputs
-  - Set up automated caching strategy
+  - ../../concepts/artifacts-and-identity/index.md
 ---
 
-# How to: Reuse existing outputs (parameters, encoded data, state)
+# Reuse parameters or cached stages
 
-Hotvect supports two related mechanisms:
+Hotvect has two mechanisms with different meanings. Choose by the claim you need the run to support:
 
-1. **Pin an exact parameter zip** with `hotvect_execution_parameters.with_parameter` (strict: must exist).
-2. **Enable caching** via `cache_base_dir` / `--cache` (best-effort: use if present, otherwise recompute and write).
+| Mechanism | Contract | Use it when |
+| --- | --- | --- |
+| `with_parameter` | Load this exact existing parameter ZIP or fail | Isolate inference from training, reproduce a deployed artifact, or compare code with fixed parameters |
+| Cache | Reuse a compatible stage output when the cache key matches; otherwise run the stage and populate it | Shorten iterative train/backtest workflows without pinning one model |
 
-## Option A (strict): Reuse an exact `predict-parameters.zip` via `with_parameter`
+Do not use a cache hit as a substitute for an explicit parameter pin when exact artifact identity is the point of the
+experiment.
 
-Use this when you want a run to use *exactly* the same model parameters as a previous run (e.g. offline/online debugging).
+## Pin one exact parameter artifact
 
-Example override (recommended on a dependency):
+Set `hotvect_execution_parameters.with_parameter` on the algorithm that owns the artifact. It accepts an S3 URI or a
+local file path:
+
 ```json
 {
   "dependencies": {
-    "my-model": {
+    "example-model": {
       "hotvect_execution_parameters": {
-        "with_parameter": "s3://example-bucket/hotvect-cache/my-model@1.2.3/last_test_date_2024-06-01/train/predict-parameters.zip"
+        "with_parameter": "s3://example-bucket/hotvect-cache/example-model@1.2.3/runs/last_test_date_2000-01-15/train/predict-parameters.zip"
       }
     }
   }
 }
 ```
 
-Notes:
-- `with_parameter` accepts `s3://example-bucket` or a local file path.
-- If the zip does not exist, the pipeline raises an error.
-- When `with_parameter` is set, Hotvect skips all upstream steps for that algorithm (generate-state / encode / train).
+When the file exists, Hotvect skips state generation, encode, and train for that algorithm and uses the selected ZIP.
+When it does not exist, the run fails. Record the ZIP URI and parameter ID with the result so the inference comparison
+remains reproducible.
 
-## Option B (best-effort): Reuse outputs via caching in the algorithm definition
+Apply the fragment through `--algorithm-override`; do not copy experiment-only pins into the committed default
+definition.
 
-Hotvect caches a few expensive artifacts (state generation output, encoded data, and packaged model parameters). You can enable caching by setting:
+## Reuse compatible stage outputs
 
-- `hotvect_execution_parameters.cache_base_dir` (local path or `s3://example-bucket`)
-- optionally `hotvect_execution_parameters.cache_scope` (`major|minor|patch|hyperparam`, default: `hyperparam`)
-- optionally per-step overrides under `generate-state|encode|train`:
-  - `cache: false` disables caching for that step
-  - `cache: true` uses the default location under `cache_base_dir`
-  - `cache: "<explicit path>"` uses a custom location (S3 or local)
+For a backtest or training loop, enable the cache at the command line:
 
-Example:
-```json
-{
-  "hotvect_execution_parameters": {
-    "cache_base_dir": "s3://example-bucket/hotvect-cache/",
-    "cache_scope": "hyperparam",
-
-    "generate-state": {"cache": true},
-    "encode": {"cache": true},
-    "train": {"cache": true},
-
-    "performance-test": {"enabled": false}
-  }
-}
-```
-
-## Option C (backtest-only): `hv backtest --cache`
-
-If you are iterating via `hv backtest`, the simplest way to reuse outputs is the CLI:
-
-- `--cache <local_path_or_s3_uri>` enables caching
-- `--cache-scope major|minor|patch|hyperparam` controls cache sharing across **algorithm versions**
-- `--cache-refresh` ignores cache reads (forces recompute) while still writing to cache
-
-Example (SageMaker):
 ```bash
 hv backtest \
-  --git-reference v81.0.6 \
+  --git-reference v1.1.0 \
   --algo-repo-url https://github.com/example-org/example-algorithm.git \
-  --output-base-dir /tmp/out \
-  --scratch-dir /tmp/scratch \
-  --last-test-time 2026-01-07 \
-  --sagemaker-config sagemaker-config.json \
-  --auto-attach-data-default-s3-base s3://example-bucket/tables/ \
+  --output-base-dir /tmp/example-output \
+  --scratch-dir /tmp/example-scratch \
+  --last-test-time 2000-01-07 \
   --cache s3://example-bucket/hotvect-cache/ \
   --cache-scope hyperparam
 ```
 
-**Important:** for SageMaker runs, set `--cache` to an `s3://example-bucket` prefix. Local paths only exist on the container filesystem and will not persist across jobs.
+Use an S3 cache for SageMaker because container-local paths do not persist across jobs. Local workflows can use a
+filesystem cache.
 
-## What outputs can be reused / cached?
+Depending on the effective cache mode, Hotvect can reuse generated state, encode parameters, encoded data, or packaged
+model parameters. Prediction, evaluation, and performance testing consume those artifacts but are not themselves
+cached.
 
-When caching is enabled, Hotvect may reuse:
+Cache keys include the algorithm/configuration scope and parameter version. Date-partition encode caching is the
+separate mechanism that lets adjacent training windows reuse successfully completed overlapping partitions.
 
-- `generate-state`: state output (directory or file, depending on the algorithm definition)
-- `generate-state/encoding-parameters.zip`: packaged encode parameters used by `encode`
-- `encode`: encoded data directory + schema description directory
-- `train/predict-parameters.zip`: packaged model parameters (what `with_parameter` points at)
+Read [Caching](../caching/index.md) for cache modes, scope, layout, partition success markers, refresh behavior, and
+how to verify a hit in `result.json`.
 
-By design, `predict`, `evaluate`, and `performance-test` are not cached (they consume the parameter zip).
+## Verify what happened
 
-## Key concept: caches are segmented by `parameter_version`
+After either mechanism:
 
-Cache keys always include `parameter_version`. If you do not explicitly set `parameter_version`, Hotvect defaults it to:
-
-```
-last_test_date_YYYY-MM-DD
-```
-
-So a cache built for one `--last-test-time` does not automatically apply to a different `--last-test-time`.
-
-For a deeper explanation (including cache layout), see [How to Use Hotvect Caching](../caching/index.md).
+1. inspect `result.json` for `with_parameter`, cache-hit, run, and skipped-stage records;
+2. confirm the effective definition contains the intended pin or cache settings;
+3. record the parameter runtime identity used by prediction;
+4. keep quality and performance claims separate from the artifact-reuse claim.

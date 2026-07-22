@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any
 
 import numpy as np
 
@@ -64,7 +64,7 @@ class TorchZmClipWorkerBackend:
         self.output_specs = [TensorSpec(name="embedding", datatype="FP32", shape=[-1, self.embedding_dim])]
         self.platform = "hotvect.torch"
 
-    def model_metadata(self, model_name: str) -> Dict[str, Any]:
+    def model_metadata(self, model_name: str) -> dict[str, Any]:
         return build_model_metadata(
             name=model_name,
             platform=self.platform,
@@ -73,8 +73,8 @@ class TorchZmClipWorkerBackend:
         )
 
     def infer_v2(
-        self, request: Dict[str, Any], *, model_name: str, debug_include_tf_inputs: bool = False
-    ) -> Dict[str, Any]:
+        self, request: dict[str, Any], *, model_name: str, debug_include_tf_inputs: bool = False
+    ) -> dict[str, Any]:
         if debug_include_tf_inputs:
             raise ValueError("--debug-include-tf-inputs is only supported for tensorflow worker backends")
 
@@ -94,7 +94,7 @@ class TorchZmClipWorkerBackend:
                 f"expected [{batch_size}, {self.embedding_dim}], got {getattr(embeddings, 'shape', None)}"
             )
 
-        response: Dict[str, Any] = {
+        response: dict[str, Any] = {
             "model_name": model_name,
             "outputs": [
                 build_output_tensor(self.output_specs[0], embeddings.tolist())
@@ -175,7 +175,7 @@ def _load_zmclip(
     return model, tokenizer, torch_device
 
 
-def _encode_text_batch(model: Any, tokenizer: Any, torch_device: Any, texts: List[str]) -> np.ndarray:
+def _encode_text_batch(model: Any, tokenizer: Any, torch_device: Any, texts: list[str]) -> np.ndarray:
     import torch
 
     tokens = tokenizer(texts).to(device=torch_device)

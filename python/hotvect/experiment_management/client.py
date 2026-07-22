@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import typing
 from enum import Enum
 
 import requests
@@ -31,6 +30,9 @@ from .models import (
     VariantAlgorithmLog,
 )
 
+DEFAULT_CONNECT_TIMEOUT_SECONDS = 5.0
+DEFAULT_READ_TIMEOUT_SECONDS = 15.0
+
 
 class Environment(Enum):
     def __init__(self, url: str):
@@ -50,8 +52,8 @@ class ExperimentManagementConnection:
         self,
         *,
         environment: Environment | str,
-        connect_timeout: float = 1.0,
-        read_timeout: float = 1.0,
+        connect_timeout: float = DEFAULT_CONNECT_TIMEOUT_SECONDS,
+        read_timeout: float = DEFAULT_READ_TIMEOUT_SECONDS,
         bearer_auth: AuthBase,
     ):
         self._base_url = environment.url if isinstance(environment, Environment) else str(environment)
@@ -64,8 +66,8 @@ class ExperimentManagementConnection:
         *,
         method: Method,
         endpoint: str,
-        params: typing.Optional[typing.Dict] = None,
-        body: typing.Optional[typing.Dict] = None,
+        params: dict | None = None,
+        body: dict | None = None,
     ) -> requests.Response:
         return requests.request(
             method=method.name,
@@ -79,7 +81,7 @@ class ExperimentManagementConnection:
 
 class ExperimentManagementClient:
     """
-    Wrapper around example-experiment-service REST API.
+    Wrapper around an experiment-management REST API.
     """
 
     def __init__(self, connection: ExperimentManagementConnection):
@@ -89,8 +91,8 @@ class ExperimentManagementClient:
         self,
         method: Method,
         endpoint: str,
-        params: typing.Optional[typing.Dict] = None,
-        body: typing.Optional[typing.Dict] = None,
+        params: dict | None = None,
+        body: dict | None = None,
         *,
         ignore_404: bool = False,
     ):
@@ -99,9 +101,7 @@ class ExperimentManagementClient:
             response.raise_for_status()
         return response.json() if response.text else None
 
-    def get_experiment(
-        self, slot_name: str, experiment_id: int, *, ignore_404: bool = False
-    ) -> typing.Optional[Experiment]:
+    def get_experiment(self, slot_name: str, experiment_id: int, *, ignore_404: bool = False) -> Experiment | None:
         endpoint = f"/slots/{slot_name}/experiments/{experiment_id}"
         experiment_json = self._request(Method.GET, endpoint, ignore_404=ignore_404)
         return Experiment.model_validate(experiment_json) if experiment_json else None
@@ -116,14 +116,14 @@ class ExperimentManagementClient:
 
     def change_ramp_up_percentage(
         self, slot_name: str, experiment_id: int, new_ramp_up_percentage: int
-    ) -> typing.Optional[Experiment]:
+    ) -> Experiment | None:
         endpoint = f"/slots/{slot_name}/experiments/{experiment_id}/changeRampUpPercentage"
         patched_experiment_json = self._request(
             Method.PATCH, endpoint, body={"new_ramp_up_percentage": new_ramp_up_percentage}
         )
         return Experiment.model_validate(patched_experiment_json) if patched_experiment_json else None
 
-    def get_experiments(self, slot_name: str) -> typing.Optional[typing.List[ExperimentWithVariantDetails]]:
+    def get_experiments(self, slot_name: str) -> list[ExperimentWithVariantDetails] | None:
         endpoint = f"/slots/{slot_name}/experiments"
         response = self._request(Method.GET, endpoint)
         return (
@@ -132,7 +132,7 @@ class ExperimentManagementClient:
             else None
         )
 
-    def get_algorithms(self) -> typing.Optional[typing.List[AlgorithmWithLatestParameter]]:
+    def get_algorithms(self) -> list[AlgorithmWithLatestParameter] | None:
         algorithms_json = self._request(Method.GET, "/algorithms")
         if not algorithms_json:
             return None
@@ -140,19 +140,17 @@ class ExperimentManagementClient:
 
     def get_algorithm(
         self, algorithm_name: str, algorithm_version: str, *, ignore_404: bool = False
-    ) -> typing.Optional[AlgorithmWithLatestParameter]:
+    ) -> AlgorithmWithLatestParameter | None:
         endpoint = f"/algorithms/{algorithm_name}/{algorithm_version}"
         algorithm_json = self._request(Method.GET, endpoint, ignore_404=ignore_404)
         return AlgorithmWithLatestParameter.model_validate(algorithm_json) if algorithm_json else None
 
-    def get_latest_algorithm_parameter(
-        self, algorithm_name: str, algorithm_version: str
-    ) -> typing.Optional[AlgorithmParameter]:
+    def get_latest_algorithm_parameter(self, algorithm_name: str, algorithm_version: str) -> AlgorithmParameter | None:
         endpoint = f"/algorithms/{algorithm_name}/{algorithm_version}/latest-algorithm-parameter"
         algorithm_parameter_json = self._request(Method.GET, endpoint)
         return AlgorithmParameter.model_validate(algorithm_parameter_json) if algorithm_parameter_json else None
 
-    def get_active_algorithms(self) -> typing.Optional[typing.List[AlgorithmWithLatestParameter]]:
+    def get_active_algorithms(self) -> list[AlgorithmWithLatestParameter] | None:
         algorithms_json = self._request(Method.GET, "/algorithms/active")
         if not algorithms_json:
             return None
@@ -167,33 +165,31 @@ class ExperimentManagementClient:
 
     def update_algorithm(
         self, algorithm_name: str, algorithm_version: str, new_state: AlgorithmState
-    ) -> typing.Optional[AlgorithmWithLatestParameter]:
+    ) -> AlgorithmWithLatestParameter | None:
         endpoint = f"/algorithms/{algorithm_name}/{algorithm_version}"
         updated_algorithm_json = self._request(Method.PATCH, endpoint, body={"state": new_state.name})
         return AlgorithmWithLatestParameter.model_validate(updated_algorithm_json) if updated_algorithm_json else None
 
-    def activate_algorithm(
-        self, algorithm_name: str, algorithm_version: str
-    ) -> typing.Optional[AlgorithmWithLatestParameter]:
+    def activate_algorithm(self, algorithm_name: str, algorithm_version: str) -> AlgorithmWithLatestParameter | None:
         return self.update_algorithm(algorithm_name, algorithm_version, AlgorithmState.ACTIVE)
 
-    def get_shards(self, slot_name: str) -> typing.Optional[typing.List[Shard]]:
+    def get_shards(self, slot_name: str) -> list[Shard] | None:
         shards_json = self._request(Method.GET, f"/slots/{slot_name}/shards")
         if not shards_json:
             return None
         return TypeAdapter(list[Shard]).validate_python(shards_json["shards"])
 
-    def get_shard(self, slot_name: str, shard_id: int) -> typing.Optional[Shard]:
+    def get_shard(self, slot_name: str, shard_id: int) -> Shard | None:
         shard_json = self._request(Method.GET, f"/slots/{slot_name}/shards/{shard_id}")
         return Shard.model_validate(shard_json) if shard_json else None
 
-    def get_shard_logs(self, slot_name: str) -> typing.Optional[typing.List[ShardLog]]:
+    def get_shard_logs(self, slot_name: str) -> list[ShardLog] | None:
         shard_logs_json = self._request(Method.GET, f"/slots/{slot_name}/shard-logs")
         if not shard_logs_json:
             return None
         return TypeAdapter(list[ShardLog]).validate_python(shard_logs_json["shard_logs"])
 
-    def get_algorithm_parameters(self) -> typing.Optional[typing.List[AlgorithmParameter]]:
+    def get_algorithm_parameters(self) -> list[AlgorithmParameter] | None:
         algorithm_parameters_json = self._request(Method.GET, "/algorithm-parameters")
         if not algorithm_parameters_json:
             return None
@@ -205,7 +201,7 @@ class ExperimentManagementClient:
             )
         raise ValueError("Unexpected /algorithm-parameters response shape")
 
-    def get_algorithm_parameter(self, algorithm_parameter_id: str) -> typing.Optional[AlgorithmParameter]:
+    def get_algorithm_parameter(self, algorithm_parameter_id: str) -> AlgorithmParameter | None:
         endpoint = f"/algorithm-parameters/{algorithm_parameter_id}"
         algorithm_parameter_json = self._request(Method.GET, endpoint)
         return AlgorithmParameter.model_validate(algorithm_parameter_json) if algorithm_parameter_json else None
@@ -213,7 +209,7 @@ class ExperimentManagementClient:
     def create_algorithm_parameter(self, algorithm_parameter: AlgorithmParameterSpec) -> None:
         self._request(Method.POST, "/algorithm-parameters", body=algorithm_parameter.model_dump())
 
-    def get_algorithm_state_logs(self) -> typing.Optional[typing.List[AlgorithmStateLog]]:
+    def get_algorithm_state_logs(self) -> list[AlgorithmStateLog] | None:
         algorithm_state_logs_json = self._request(Method.GET, "/algorithm-state-logs")
         if not algorithm_state_logs_json:
             return None
@@ -225,13 +221,13 @@ class ExperimentManagementClient:
             )
         raise ValueError("Unexpected /algorithm-state-logs response shape")
 
-    def get_algorithms_with_active_variants(self) -> typing.Optional[typing.List[AlgorithmWithActiveVariantsResponse]]:
+    def get_algorithms_with_active_variants(self) -> list[AlgorithmWithActiveVariantsResponse] | None:
         algorithms_json = self._request(Method.GET, "/algorithms/with-active-variants")
         if not algorithms_json:
             return None
         return TypeAdapter(list[AlgorithmWithActiveVariantsResponse]).validate_python(algorithms_json["algorithms"])
 
-    def get_variants(self, slot_name: str) -> typing.Optional[typing.List[Variant]]:
+    def get_variants(self, slot_name: str) -> list[Variant] | None:
         variants_json = self._request(Method.GET, f"/slots/{slot_name}/variants")
         if not variants_json:
             return None
@@ -241,7 +237,7 @@ class ExperimentManagementClient:
             return TypeAdapter(list[Variant]).validate_python(variants_json["variants"])
         raise ValueError("Unexpected /variants response shape")
 
-    def get_active_variants(self, slot_name: str) -> typing.Optional[typing.List[Variant]]:
+    def get_active_variants(self, slot_name: str) -> list[Variant] | None:
         variants_json = self._request(Method.GET, f"/slots/{slot_name}/variants/active")
         if not variants_json:
             return None
@@ -251,30 +247,30 @@ class ExperimentManagementClient:
             return TypeAdapter(list[Variant]).validate_python(variants_json["variants"])
         raise ValueError("Unexpected /variants/active response shape")
 
-    def get_slots(self) -> typing.Optional[typing.List[Slot]]:
+    def get_slots(self) -> list[Slot] | None:
         slots_json = self._request(Method.GET, "/slots")
         return TypeAdapter(list[Slot]).validate_python(slots_json) if slots_json else None
 
-    def get_slot(self, slot_name: str) -> typing.Optional[Slot]:
+    def get_slot(self, slot_name: str) -> Slot | None:
         slot_json = self._request(Method.GET, f"/slots/{slot_name}")
         return Slot.model_validate(slot_json) if slot_json else None
 
     def create_slot(self, slot: SlotSpec) -> None:
         self._request(Method.POST, "/slots", body=slot.model_dump())
 
-    def get_slot_salts(self, slot_name: str) -> typing.Optional[typing.List[SlotSalt]]:
+    def get_slot_salts(self, slot_name: str) -> list[SlotSalt] | None:
         slot_salts_json = self._request(Method.GET, f"/slots/{slot_name}/salts")
         return TypeAdapter(list[SlotSalt]).validate_python(slot_salts_json["slot_salts"]) if slot_salts_json else None
 
-    def refresh_slot_salt(self, slot_name: str) -> typing.Optional[Slot]:
+    def refresh_slot_salt(self, slot_name: str) -> Slot | None:
         slot_json = self._request(Method.PATCH, f"/slots/{slot_name}/salts/refresh")
         return Slot.model_validate(slot_json) if slot_json else None
 
-    def get_default_variant_and_active_experiments(self, slot_name: str) -> typing.Optional[SlotActiveInfo]:
+    def get_default_variant_and_active_experiments(self, slot_name: str) -> SlotActiveInfo | None:
         slot_active_info_json = self._request(Method.GET, f"/slots/{slot_name}/defaultVariantAndActiveExperiments")
         return SlotActiveInfo.model_validate(slot_active_info_json) if slot_active_info_json else None
 
-    def get_user_forced_assignments(self, slot_name: str) -> typing.Optional[typing.List[UserForcedAssignment]]:
+    def get_user_forced_assignments(self, slot_name: str) -> list[UserForcedAssignment] | None:
         user_forced_assignments_json = self._request(Method.GET, f"/slots/{slot_name}/userForcedAssignments")
         if not user_forced_assignments_json:
             return None
@@ -282,7 +278,7 @@ class ExperimentManagementClient:
             user_forced_assignments_json["user_forced_assignments"]
         )
 
-    def get_user_forced_assignment(self, slot_name: str, user_id: str) -> typing.Optional[UserForcedAssignment]:
+    def get_user_forced_assignment(self, slot_name: str, user_id: str) -> UserForcedAssignment | None:
         endpoint = f"/slots/{slot_name}/userForcedAssignments/{user_id}"
         user_forced_assignment_json = self._request(Method.GET, endpoint)
         return UserForcedAssignment.model_validate(user_forced_assignment_json) if user_forced_assignment_json else None
@@ -295,7 +291,7 @@ class ExperimentManagementClient:
         endpoint = f"/slots/{slot_name}/userForcedAssignments/{user_id}"
         self._request(Method.DELETE, endpoint)
 
-    def get_variant_algorithm_logs(self, slot_name: str) -> typing.Optional[typing.List[VariantAlgorithmLog]]:
+    def get_variant_algorithm_logs(self, slot_name: str) -> list[VariantAlgorithmLog] | None:
         variant_algorithm_logs_json = self._request(Method.GET, f"/slots/{slot_name}/variantAlgorithmLogs")
         if not variant_algorithm_logs_json:
             return None
@@ -313,7 +309,7 @@ class ExperimentManagementClient:
         variant_id: int,
         new_algorithm_name: str,
         new_algorithm_version: str,
-    ) -> typing.Optional[Variant]:
+    ) -> Variant | None:
         endpoint = f"/slots/{slot_name}/variants/{variant_id}/updateAlgorithm"
         updated_variant_json = self._request(
             Method.PATCH,
@@ -322,7 +318,7 @@ class ExperimentManagementClient:
         )
         return Variant.model_validate(updated_variant_json) if updated_variant_json else None
 
-    def get_campaign_forced_assignments(self, slot_name: str) -> typing.Optional[typing.List[CampaignForcedAssignment]]:
+    def get_campaign_forced_assignments(self, slot_name: str) -> list[CampaignForcedAssignment] | None:
         campaign_forced_assignments_json = self._request(Method.GET, f"/slots/{slot_name}/campaignForcedAssignments")
         if not campaign_forced_assignments_json:
             return None
@@ -330,9 +326,7 @@ class ExperimentManagementClient:
             campaign_forced_assignments_json["campaign_forced_assignments"]
         )
 
-    def get_campaign_forced_assignment(
-        self, slot_name: str, campaign_id: str
-    ) -> typing.Optional[CampaignForcedAssignment]:
+    def get_campaign_forced_assignment(self, slot_name: str, campaign_id: str) -> CampaignForcedAssignment | None:
         endpoint = f"/slots/{slot_name}/campaignForcedAssignments/{campaign_id}"
         campaign_forced_assignment_json = self._request(Method.GET, endpoint)
         return (
@@ -349,7 +343,7 @@ class ExperimentManagementClient:
         endpoint = f"/slots/{slot_name}/campaignForcedAssignments/{campaign_id}"
         self._request(Method.DELETE, endpoint)
 
-    def get_experiment_rampup_logs(self, slot_name: str) -> typing.Optional[typing.List[ExperimentRampUpLog]]:
+    def get_experiment_rampup_logs(self, slot_name: str) -> list[ExperimentRampUpLog] | None:
         # Note: endpoint name is `experimentRampUpLog` in the OpenAPI spec. Some older clients used
         # `ExperimentRampUpLog`. Prefer the spec casing.
         rampup_logs_json = self._request(Method.GET, f"/slots/{slot_name}/experimentRampUpLog")

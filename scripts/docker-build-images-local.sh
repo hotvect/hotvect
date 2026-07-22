@@ -6,7 +6,7 @@ cd "${ROOT_DIR}"
 
 export DOCKER_BUILDKIT="${DOCKER_BUILDKIT:-1}"
 
-BASE_IMAGE="${BASE_IMAGE:-python:3.11-slim}"
+BASE_IMAGE="${BASE_IMAGE:-ghcr.io/astral-sh/uv:python3.11-bookworm-slim}"
 BASE_IMAGE_VERSION="${BASE_IMAGE_VERSION:-latest}"
 
 # Match CI by default. Set `HOTVECT_UV_EXTRAS=` for a lean, public-index-only local build.

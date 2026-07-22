@@ -4,7 +4,7 @@
 
     <groupId>com.hotvect</groupId>
     <artifactId>hotvect-parent</artifactId>
-    <version>10.13.5</version>
+        <version>10.43.2</version>
     <packaging>pom</packaging>
 
     <name>Hotvect Project</name>
@@ -22,7 +22,9 @@
         <module>hotvect-python</module>
         <module>hotvect-online-util</module>
         <module>hotvect-offline-util</module>
+        <module>hotvect-algorithm-serve</module>
         <module>hotvect-algorithm-demo</module>
+        <module>examples/product-search-and-ranking</module>
         <module>hotvect-integration-test</module>
     </modules>
 
@@ -135,6 +137,11 @@
                 <artifactId>hotvect-online-util</artifactId>
                 <version>${project.version}</version>
             </dependency>
+            <dependency>
+                <groupId>com.hotvect</groupId>
+                <artifactId>hotvect-algorithm-serve</artifactId>
+                <version>${project.version}</version>
+            </dependency>
 
             <!-- commons -->
             <dependency>
@@ -236,26 +243,6 @@
                 <artifactId>mockito-core</artifactId>
                 <version>${mockito.version}</version>
                 <scope>test</scope>
-            </dependency>
-            <dependency>
-                <groupId>net.jqwik</groupId>
-                <artifactId>jqwik</artifactId>
-                <version>1.9.3</version>
-                <scope>test</scope>
-                <exclusions>
-                    <exclusion>
-                        <groupId>org.junit.platform</groupId>
-                        <artifactId>junit-platform-engine</artifactId>
-                    </exclusion>
-                    <exclusion>
-                        <groupId>org.junit.platform</groupId>
-                        <artifactId>junit-platform-commons</artifactId>
-                    </exclusion>
-                    <exclusion>
-                        <groupId>org.apiguardian</groupId>
-                        <artifactId>apiguardian-api</artifactId>
-                    </exclusion>
-                </exclusions>
             </dependency>
         </dependencies>
     </dependencyManagement>

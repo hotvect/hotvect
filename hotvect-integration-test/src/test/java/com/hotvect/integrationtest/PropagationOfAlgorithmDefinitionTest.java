@@ -99,10 +99,15 @@ public class PropagationOfAlgorithmDefinitionTest {
         AlgorithmInstance<Ranker<String, Map<String, String>>> algorithmInstance = algoAlgorithmInstanceFactory.load(outerAlgorithmExpected, new File(ClassLoader.getSystemResource("mock.parameters.1.0.0.zip").getFile()), ImmutableMap.of());
         assertEquals(outerAlgorithmExpected, algorithmInstance.algorithmDefinition());
 
-        algorithmInstance.algorithm().rank(new RankingRequest<>("example1", "shared", ImmutableList.of(ImmutableMap.of(
-                "iris.model.parameter.id", "test_iris_model_parameter_id_123",
-                "iris.model.vectorizer_test_parameter", "overwritten"
-        ))));
+        algorithmInstance.algorithm().rank(RankingRequest.ofAvailableActions("example1", "shared", ImmutableList.of(
+                com.hotvect.api.data.AvailableAction.of(
+                        "record",
+                        ImmutableMap.of(
+                                "iris.model.parameter.id", "test_iris_model_parameter_id_123",
+                                "iris.model.vectorizer_test_parameter", "overwritten"
+                        )
+                )
+        )));
 
     }
 

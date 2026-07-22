@@ -1,7 +1,6 @@
 import copy
 import json
 import logging
-from typing import Dict, List
 
 from hotvect.pyhotvect import AlgorithmPipeline
 
@@ -12,9 +11,9 @@ class FeatureSelectionTask:
     def __init__(
         self,
         hotvect: AlgorithmPipeline,
-        base_algorithm_definition: Dict,
-        anchor_features: List[List[str]],
-        candidate_features: List[List[str]],
+        base_algorithm_definition: dict,
+        anchor_features: list[list[str]],
+        candidate_features: list[list[str]],
         result_path: str,
     ):
         self.hotvect = hotvect
@@ -23,7 +22,7 @@ class FeatureSelectionTask:
         self.candidate_features = candidate_features
         self.result_path = result_path
 
-    def _build_algorithm_definition(self, algorithm_id: str, features: List[List[str]]) -> Dict:
+    def _build_algorithm_definition(self, algorithm_id: str, features: list[list[str]]) -> dict:
         algo_def = copy.deepcopy(self.base_algorithm_definition)
         algo_def["algorithm_id"] = algorithm_id
         algo_def["vectorizer_parameters"] = {"features": features}
@@ -32,8 +31,8 @@ class FeatureSelectionTask:
     def advance(
         self,
         anchor_name: str,
-        anchor_features: List[List[str]],
-        candidate_features: List[List[str]],
+        anchor_features: list[list[str]],
+        candidate_features: list[list[str]],
     ):
         results = {}
         for idx, next_feature in enumerate(candidate_features):
@@ -67,7 +66,7 @@ class FeatureSelectionTask:
                 )
                 highest = sorted(
                     result.values(),
-                    key=lambda x: x["evaluate"]["mean_auc"],
+                    key=lambda x: x["evaluate"]["roc_auc"]["value"],
                     reverse=True,
                 )[0]
                 selected = highest["features"]

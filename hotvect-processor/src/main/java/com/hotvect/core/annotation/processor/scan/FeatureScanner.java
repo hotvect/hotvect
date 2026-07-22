@@ -114,10 +114,11 @@ public final class FeatureScanner {
             }
 
             String injectName = null;
-            if (paramKind == ParamKind.INJECTED) {
-                injectName = getInjectName(param);
+            if (paramKind == ParamKind.INJECTED || paramKind == ParamKind.ALGORITHM) {
+                injectName = getDependencyName(param, paramKind);
                 if (injectName == null || injectName.isBlank()) {
-                    error(context, param, "@Inject value must be non-empty.");
+                    error(context, param, "@%s value must be non-empty.",
+                            paramKind == ParamKind.ALGORITHM ? "InjectAlgorithm" : "Inject");
                     return null;
                 }
             }
@@ -146,6 +147,9 @@ public final class FeatureScanner {
     private ParamKind classifyParameter(VariableElement param, FeatureKind kind, TransformerSpec spec) {
         if (AnnotationUtils.getAnnotationMirror(param, context.injectAnnotation(), context.types()) != null) {
             return ParamKind.INJECTED;
+        }
+        if (AnnotationUtils.getAnnotationMirror(param, context.injectAlgorithmAnnotation(), context.types()) != null) {
+            return ParamKind.ALGORITHM;
         }
 
         TypeMirror paramType = param.asType();
@@ -192,9 +196,15 @@ public final class FeatureScanner {
         );
     }
 
-    private String getInjectName(VariableElement param) {
+    private String getDependencyName(VariableElement param, ParamKind paramKind) {
         return AnnotationUtils.getAnnotationValue(
-                AnnotationUtils.getAnnotationMirror(param, context.injectAnnotation(), context.types()),
+                AnnotationUtils.getAnnotationMirror(
+                        param,
+                        paramKind == ParamKind.ALGORITHM
+                                ? context.injectAlgorithmAnnotation()
+                                : context.injectAnnotation(),
+                        context.types()
+                ),
                 "value",
                 String.class,
                 null

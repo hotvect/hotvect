@@ -1,96 +1,126 @@
 ---
-title: Concepts and Terminologies
-description: Core concepts in hotvect - Algorithms, Rankers, Scorers, training/inference modes, and packaging
-tags: [concepts, algorithms, rankers, scorers, architecture, fundamentals]
-difficulty: beginner
-estimated_time: 30 minutes
-prerequisites:
-  - Basic understanding of ML systems
-  - Familiarity with inference and training concepts
-related_docs:
-  - ./motivation/index.md
-  - ./namespaces/index.md
-  - ../guides/develop-algorithms/index.md
-related_commands:
-  - hv train
-  - hv predict
-  - hv audit
-next_steps:
-  - Develop your first algorithm
-  - Understand namespace identity
-  - Read about hotvect's motivation
+title: Hotvect concepts
+description: Stable concepts behind Hotvect decision systems, including components, packages, configuration, experimentation, execution, and feature computation
+tags: [concepts, algorithms, architecture, configuration, experimentation]
 ---
 
-Concepts and terminologies
-========
+# Hotvect concepts
 
+Hotvect lets a team implement, configure, train, evaluate, select, and load a complete decision system under one
+explicit interface and package definition. In Hotvect, that decision system is called an **algorithm**. It can include
+typed request handling, feature calculation, models, rules, child algorithms, and the final ranking or selection rule.
 
-# The "Algorithm"
-In hotvect, the term "Algorithm" refers to models and policies that are to be managed by the hotvect framework. Similar to how Spring Beans or Enterprise Java Beans (EJB) are managed by the Spring container or EJB containers, "Algorithm"s in hotvect are managed by the hotvect container. For example, the container manages their lifecycle, injects dependencies, and replaces them when new parameters are available.
+If Hotvect is new to you, do not begin with the CLI reference. Install Hotvect and run the product example first, then
+use this section to understand what you just executed.
 
-Technically, almost anything could be an "Algorithm", but the current, natively supported types are:
+## The mental model in one minute
 
- - `Rankers`: Policies that accept a set of possible content candidates and re-ranks them. Rankers often use models or "Scorers" inside
- - `Scorers`: Models that accept one, or multiple possible content candidates and scores them. Usually the scores are then used for re-ranking.
+<div class="hv-flow">
+  <div class="hv-flow__step"><span>01</span><strong>Define input and result</strong><small>request · decision</small></div>
+  <div class="hv-flow__step"><span>02</span><strong>Implement behavior</strong><small>features · selection rules</small></div>
+  <div class="hv-flow__step"><span>03</span><strong>Package the implementation</strong><small>code · definition</small></div>
+  <div class="hv-flow__step"><span>04</span><strong>Train and save state</strong><small>model · generated data · parameters</small></div>
+  <div class="hv-flow__step"><span>05</span><strong>Select and run it</strong><small>version · variant · decision</small></div>
+</div>
 
-Multiple algorithms can be combined to form a "Composite Algorithm" (for example, a `Scorer` can be combined with a ranking policy to form a `Ranker`, or multiple `Scorer`s can be combined to create an ensemble model). We will cover this in detail later.
+An **algorithm package** is the versioned implementation package: executable code, an embedded definition, and any
+packaged assets. A training or preparation run may add a separate **parameter package** containing trained model files
+or generated runtime data. Tools and host applications load the selected packages to construct an `AlgorithmInstance`,
+then call its public decision interface.
 
-# Outer vs inner algorithms
-Composite algorithms typically follow an **outer / inner** layering:
+These names describe responsibilities rather than file extensions. The current algorithm-package format is a JVM JAR,
+which can also carry assets and integrations for Python or native runtimes. The current parameter-package format is a
+ZIP. Pages about building, loading, or inspecting those files use the concrete JAR and ZIP terms.
 
-- **Outer algorithms** expose the public interface and orchestrate evaluation logic, often adding heuristics or business rules. They declare dependencies on inner algorithms but typically don't train ML models themselves.
-- **Inner algorithms** either train ML models (with feature engineering and vectorization) or generate state. State generation means materializing already-available or directly derived artifacts without running the `encode`/`train`/`predict`/`evaluate` flow for that algorithm. Typical cases include creating a category-ID mapping table, copying a pre-trained OpenCLIP model into the expected layout, or computing aggregates/statistics such as popularity counts.
+The same packages can participate in offline and online paths, but the environments are not identical. File decoders,
+application adapters, runtime settings, configuration selection, and host-provided connections remain explicit.
 
-**CLI command targeting:** Low-level commands that require feature transformations—`audit` and `encode`—must point at an algorithm that trains ML models (check for `training_command` in the algorithm definition, commonly found in inner algorithms). `generate-state` requires an algorithm with `generator_factory_classname` (algorithms that produce state parameters). High-level orchestration commands like `train`, `predict`, or `backtest` can target outer or inner algorithms; when targeting an outer algorithm, they automatically cascade into dependencies. See [CLI usage](../reference/cli/index.md#commands-for-training-algorithms) for a quick reference.
+## Recommended reading order
 
-# Training-mode and inference-mode, offline-mode and online-mode
-## Training-mode and inference-mode
-All algorithms perform "inference" - that is, when they are asked to predict something or make a decision. Some algorithms (like heuristic based ones) only have inference mode, but most algorithms have also "training mode" in order to obtain the parameters to be used in "inference mode".
+<div class="grid cards" markdown>
 
-## Offline-mode and online-mode
-Inference can be executed "online", i.e. in "real-time" e.g. on application servers as part of a real-time API. Or it can also be executed "offline", i.e. in "batch" e.g. as part of a data pipeline. Currently, hotvect does not support online training. Therefore, Training is always done offline.
+-   **1. How Hotvect works**
 
-## Algorithm package is shared across all modes
-The "Algorithm" package - that is, its feature engineering code, hyperparameters, parameters (in case of inference mode) as well as any other supporting classes like codec is shared across offline and online. That is, an "Algorithm" can be written once and then be executed either using the hotvect offline container, or the hotvect online container. Similarly, data transformation code is shared across training mode and inference mode. This helps to eliminate offline-online discrepancies, especially in feature engineering.
+    Follow one algorithm from source and definition through parameter preparation and application loading.
 
-Currently, the hotvect offline container does not support distributed execution (it's on our plans). It makes extensive use of parallelization, and is designed to run on larger machines and take advantage of multiple cores.
+    [Take the system tour](how-hotvect-works/index.md){ .hv-btn }
 
-# The algorithm package
-Algorithms are packaged into a special archive that self-sufficiently defines an algorithm. It consists of the following component:
+-   **2. Requests, decisions, and examples**
 
- - **algorithm jar**: A jar that defines all data transformation code, such as how to calculate features, how to encode them and how to perform inferences
- - **algorithm definition JSON**: A JSON file that contains all configurable hyperparameters for the jar, such as which ranking strategy to use, which features to use, what hyperparameter to use during training and so on. It also contains other information that defines the algorithm, such as its data dependency, which container needs to be used for training and so on.
- - **parameter zip file**: A zip file that contains all necessary parameter to instantiate an algorithm that can perform its function. It is created during training, and is usually periodically updated while in production.
+    Learn the public data model: shared context, actions, stable IDs, decisions, outcomes, and offline examples.
 
-The generation of dataset itself is currently out-of-scope (the algorithm jar assumes the specified datasets already exists). In the future, we may expand the scope of hotvect to include processing during dataset generation.
+    [Learn the data model](data-model/index.md){ .hv-btn }
 
-The **algorithm definition JSON** is contained within the **algorithm jar**, so that only a jar is needed to "play" an algorithm. However, it is possible to supply a customized algorithm definition JSON to the container in order to override its content. This is meant for hyperparameter optimization.
+-   **3. Complete algorithms**
 
-## Dynamic loading of algorithm packages
-The algorithm jar is meant to be dynamically loaded by the container (which could be e.g. a Spring Boot application, a Spark pipeline, or a console app). The hotvect container used for running the training job uses the same mechanism to load the algorithm jar dynamically (so as to minimize online/offline discrepancy). This is particularly handy for experimentation. A Spring Boot business application can be integrated with the Experimentation Management Service, which provides the application instructions about which algorithm to load, and which traffic to allocate to which algorithm. Thanks to the dynamic loading feature, these changes can be done without re-deploying or rebooting the business application. The entire lifecycle of algorithms - from deployment, experimentation, promotion to default algorithm, undeployment, deactivation can be managed through API requests to Experimentation Management Service. There is no need to redeploy components, change any routing configurations and so on. The Experimentation Management Service provides a client SDK which can be embedded into the business application, and performs these changes in the business application automatically.
+    Learn the exact Hotvect term for a decision system: its public interface, runtime behavior, definition, parameters,
+    and child algorithms.
 
-## Algorithm jar artifacts
-Each algorithm is not only a jar, but also a maven artifact. They thus have their `groupId`, `artifactId` and their `version`. It is therefore possible to deploy algorithm into maven repositories to combine them or share them across multiple applications.
+    [Read complete algorithms](complete-algorithm/index.md){ .hv-btn }
 
-For convenience during hyperparameter optimization, they can also have a "subversion" called `hyperparameter_version` for cases when their hyperparameters packaged within the jar is overriden. The `hyperparameter_version` identifier is concatenated to the maven `version` so that evaluation results etc. can be kept separate within the same `version`. However, since maven does not support such an identifier, when you release an algorithm to production/maven you cannot use the `hyperparameter_version`, and instead have to create a new `version`.
+-   **4. Dependencies and bindings**
 
-# The Experimentation Management Service
-The Experimentation Management Service is not directly part of the hotvect framework (it can be used independently to execute e.g. non-ML related A/B tests). However, it was designed to work well with hotvect.
+    Distinguish child algorithms, injected algorithms, feature and data dependencies, and connections supplied by the
+    host application or environment.
 
-The Experimentation Management Service supports the following tasks:
+    [Read dependencies and bindings](dependencies-and-bindings/index.md){ .hv-btn }
 
-* Registration of algorithms and bookkeeping of their statuses and parameter versions
-* Lifecycle management of algorithms (activation, training, deactivation)
-* Creation, management and bookkeeping of online experiments
-* Randomization, traffic allocation including ramping up/ramping down
-* Running of longitudinal negative control variants, forced assignments, exclusion rule of algorithm application (of specific campaigns, users etc.)
-* Coordination of A/B tests across multiple "touchpoints" (aka "layers")
+-   **5. Feature computation**
 
-As described above, the Experimentation Management Service provides a client SDK library that can be embedded into business application to support propagation of experimentation instructions, randomization, logging of results, monitoring and so forth.
+    See how request, candidate, interaction, feature-store, and injected-algorithm values enter generated transformers.
 
-It also provides library functions that supports evaluation of online A/B test results. For more details, see its own documentation here.
+    [Read feature computation](feature-computation/index.md){ .hv-btn }
 
-# Sagemaker integration and Training Container
-Hotvect training can be run on a local node, but it can also be scheduled on Sagemaker. For this purpose (and also to make dependency management easier), there are training containers that are compatible with Sagemaker. Unlike standard Sagemaker containers, training containers of hotvect perform feature engineering before feeding the result to the machine learning libraries like catboost, vowpal wabbit and the like.
+-   **6. Packages and identity**
 
-For this purpose, all training container requires java to be installed, and a reference to an algorithm jar to run. Hotvect provides a python sdk - somewhat similar to the one provided by Sagemaker - that can handle this process. It also provides entry points to schedule Sagemaker jobs, adaptor for Sagemaker's hyperparameter optimization feature, and also ways to retrieve the output from these jobs.
+    Follow the implementation package, embedded definition, optional parameter package, and the identifiers that
+    distinguish one runtime instance from another.
+
+    [Read artifacts and identity](artifacts-and-identity/index.md){ .hv-btn }
+
+-   **7. Configuration and experimentation**
+
+    Distinguish embedded and effective configuration, trained parameters, released runtimes, slots, experiments, and
+    variant assignment.
+
+    [Read configuration and experimentation](configuration-and-experimentation/index.md){ .hv-btn }
+
+-   **8. Where it runs**
+
+    Keep live versus batch workload behavior separate from request versus file-based input semantics.
+
+    [Read execution contexts](execution-contexts/index.md){ .hv-btn }
+
+</div>
+
+## Put the concepts into practice
+
+Use one consistent path:
+
+1. If you have not already, [run the example product algorithms](../guides/first-run/index.md) to see one implementation
+   package accept a request, rank products, and return a response without external data.
+2. Read [How Hotvect works](how-hotvect-works/index.md) and
+   [Requests, decisions, and examples](data-model/index.md).
+3. Choose your branch: [build a first algorithm](../guides/first-algorithm/index.md), or
+   [tour an existing algorithm](../guides/first-workflow/index.md).
+
+## Find a concept by question
+
+| Question | Continue with |
+| --- | --- |
+| Why is a Hotvect algorithm broader than a model? | [Why Hotvect](motivation/index.md) |
+| What do unfamiliar Hotvect terms mean? | [Glossary](../reference/glossary/index.md) |
+| How do the framework modules fit together? | [Architecture overview](../architecture/index.md) |
+| How are feature values identified? | [Namespace identity](namespaces/index.md) |
+| How is an algorithm JAR isolated and loaded? | [Algorithm JAR loading](jar-loading/index.md) |
+| How do configuration, parameters, and experiment variants relate? | [Configuration and experimentation](configuration-and-experimentation/index.md) |
+| What fields are valid in the definition? | [Algorithm definition reference](../reference/algorithm-definition/index.md) |
+| Which exact command should I run? | [CLI reference](../reference/cli/index.md) |
+| What is available today versus directional? | [Status and direction](../architecture/status-and-direction/index.md) |
+
+## Boundaries
+
+Hotvect owns how a decision system is connected, configured, packaged, selected, and run. The current release consumes
+experiment state from an external Experiment Management Service (EMS) server; bringing that control plane into Hotvect is directional. Hotvect does not
+replace data orchestration, model libraries, a feature store, or production monitoring. Those systems can surround or
+satisfy dependencies of a Hotvect algorithm while retaining their own operational interfaces.

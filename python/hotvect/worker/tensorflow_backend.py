@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 import numpy as np
 
@@ -20,13 +20,13 @@ from hotvect.worker.v2_protocol import (
 _ALLOWED_DTYPES = {"int64", "float32", "string"}
 
 
-def load_schema(schema_path: str) -> Dict[str, Tuple[str, List[int]]]:
+def load_schema(schema_path: str) -> dict[str, tuple[str, list[int]]]:
     with open(schema_path, encoding="utf-8") as f:
         data = json.load(f)
     if "features" not in data or not isinstance(data["features"], list):
         raise ValueError(f"Invalid schema file (missing 'features' list): {schema_path}")
 
-    feature_specs: Dict[str, Tuple[str, List[int]]] = {}
+    feature_specs: dict[str, tuple[str, list[int]]] = {}
     for feat in data["features"]:
         name = feat.get("name")
         dtype = feat.get("dtype")
@@ -52,7 +52,7 @@ def load_schema(schema_path: str) -> Dict[str, Tuple[str, List[int]]]:
     return feature_specs
 
 
-def feature_defs_from_schema(feature_specs: Dict[str, Tuple[str, List[int]]]) -> List[Tuple[str, str, List[int]]]:
+def feature_defs_from_schema(feature_specs: dict[str, tuple[str, list[int]]]) -> list[tuple[str, str, list[int]]]:
     ordered_feature_names = sorted(feature_specs.keys())
     return [(name, feature_specs[name][0], feature_specs[name][1]) for name in ordered_feature_names]
 
@@ -64,7 +64,7 @@ def load_model(tf: Any, model_path: str):
     return saved_model, saved_model
 
 
-def get_tf_and_device() -> Tuple[Any, str]:
+def get_tf_and_device() -> tuple[Any, str]:
     cuda_visible_devices = os.environ.get("CUDA_VISIBLE_DEVICES")
     import tensorflow as tf  # type: ignore
 
@@ -94,7 +94,7 @@ def tf_dtype(tf: Any, dtype_name: str):
     raise ValueError(f"Unsupported TensorFlow dtype name: {dtype_name!r}")
 
 
-def parse_tensor(tf: Any, dtype: str, shape: List[int], tensor_proto: bytes):
+def parse_tensor(tf: Any, dtype: str, shape: list[int], tensor_proto: bytes):
     tensor = tf.io.parse_tensor(tensor_proto, out_type=tf_dtype(tf, dtype))
     if shape:
         tensor = tf.reshape(tensor, [-1, shape[0]])
@@ -111,12 +111,12 @@ def numpy_value_to_python(value):
     return value
 
 
-def tensors_to_rows(tensors: Dict[str, Any]) -> List[Dict[str, Any]]:
+def tensors_to_rows(tensors: dict[str, Any]) -> list[dict[str, Any]]:
     if not tensors:
         return []
     any_tensor = next(iter(tensors.values()))
     batch_size = int(any_tensor.shape[0])
-    rows: List[Dict[str, Any]] = [dict() for _ in range(batch_size)]
+    rows: list[dict[str, Any]] = [dict() for _ in range(batch_size)]
 
     for name, tensor in tensors.items():
         arr = tensor.numpy()
@@ -142,7 +142,7 @@ def _normalize_model_output(tf: Any, outputs: Any):
     return tf.reshape(outputs, [-1])
 
 
-def build_predict_fn(tf: Any, model: Any, feature_defs: List[Tuple[str, str, List[int]]]):
+def build_predict_fn(tf: Any, model: Any, feature_defs: list[tuple[str, str, list[int]]]):
     ordered_names = [name for (name, _dtype, _shape) in feature_defs]
     ordered_dtypes = [tf_dtype(tf, dtype_name) for (_name, dtype_name, _shape) in feature_defs]
     ordered_shapes = [shape for (_name, _dtype, shape) in feature_defs]
@@ -164,11 +164,11 @@ def build_predict_fn(tf: Any, model: Any, feature_defs: List[Tuple[str, str, Lis
         outputs = model(**inputs) if callable(model) else model(inputs)
         return _normalize_model_output(tf, outputs)
 
-    def _predict_debug(batch_size: int, tensor_protos: List[bytes]):
+    def _predict_debug(batch_size: int, tensor_protos: list[bytes]):
         if len(tensor_protos) != len(feature_defs):
             raise ValueError(f"feature tensor count mismatch: expected={len(feature_defs)} actual={len(tensor_protos)}")
 
-        tensors: Dict[str, Any] = {}
+        tensors: dict[str, Any] = {}
         for i, (name, dtype, shape) in enumerate(feature_defs):
             tensors[name] = parse_tensor(tf, dtype, shape, tensor_protos[i])
 
@@ -201,7 +201,7 @@ def _coerce_scalar(name: str, dtype: str, value: Any):
     raise ValueError(f"Unsupported dtype for feature={name}: {dtype}")
 
 
-def _coerce_sequence(name: str, dtype: str, shape: List[int], value: Any):
+def _coerce_sequence(name: str, dtype: str, shape: list[int], value: Any):
     if not isinstance(value, (list, tuple)):
         raise ValueError(f"feature={name} expects a sequence of length {shape[0]}, got {type(value).__name__}")
     if len(value) != shape[0]:
@@ -210,15 +210,15 @@ def _coerce_sequence(name: str, dtype: str, shape: List[int], value: Any):
 
 
 def rows_to_tensors(
-    tf: Any, feature_defs: List[Tuple[str, str, List[int]]], batch_rows: List[Dict[str, Any]]
-) -> Dict[str, Any]:
+    tf: Any, feature_defs: list[tuple[str, str, list[int]]], batch_rows: list[dict[str, Any]]
+) -> dict[str, Any]:
     if not isinstance(batch_rows, list):
         raise ValueError(f"batch must be a list, got {type(batch_rows).__name__}")
     for i, row in enumerate(batch_rows):
         if not isinstance(row, dict):
             raise ValueError(f"batch[{i}] must be an object, got {type(row).__name__}")
 
-    tensors: Dict[str, Any] = {}
+    tensors: dict[str, Any] = {}
     batch_size = len(batch_rows)
     for name, dtype, shape in feature_defs:
         if batch_size == 0:
@@ -268,7 +268,7 @@ class TensorFlowWorkerBackend:
     def predict_serialized(
         self,
         batch_size: int,
-        tensor_protos: List[bytes],
+        tensor_protos: list[bytes],
         *,
         debug_include_tf_inputs: bool,
         request_id: str,
@@ -306,7 +306,7 @@ class TensorFlowWorkerBackend:
             raise ValueError(f"score count mismatch: expected={batch_size} actual={scores.shape[0]}")
         return scores, None
 
-    def predict_rows(self, batch_rows: List[Dict[str, Any]], *, debug_include_tf_inputs: bool, request_id: str):
+    def predict_rows(self, batch_rows: list[dict[str, Any]], *, debug_include_tf_inputs: bool, request_id: str):
         tensors = rows_to_tensors(self.tf, self.feature_defs, batch_rows)
         outputs = self.model(**tensors) if callable(self.model) else self.model(tensors)
         scores = _normalize_model_output(self.tf, outputs).numpy().astype(np.float32, copy=False)
@@ -320,7 +320,7 @@ class TensorFlowWorkerBackend:
             debug_json = json.dumps(debug_payload, ensure_ascii=False)
         return scores, debug_json
 
-    def model_metadata(self, model_name: str) -> Dict[str, Any]:
+    def model_metadata(self, model_name: str) -> dict[str, Any]:
         return build_model_metadata(
             name=model_name,
             platform=self.platform,
@@ -329,8 +329,8 @@ class TensorFlowWorkerBackend:
         )
 
     def infer_v2(
-        self, request: Dict[str, Any], *, model_name: str, debug_include_tf_inputs: bool = False
-    ) -> Dict[str, Any]:
+        self, request: dict[str, Any], *, model_name: str, debug_include_tf_inputs: bool = False
+    ) -> dict[str, Any]:
         request = dict(validate_request_envelope(request))
         request_id = parse_request_id(request)
         requested_outputs = parse_requested_output_names(request, [spec.name for spec in self.output_specs])
@@ -339,7 +339,7 @@ class TensorFlowWorkerBackend:
 
         batch_rows = []
         for batch_index in range(batch_size):
-            row: Dict[str, Any] = {}
+            row: dict[str, Any] = {}
             for spec in self.input_specs:
                 value = inputs_by_name[spec.name][batch_index]
                 row[spec.name] = value
@@ -350,7 +350,7 @@ class TensorFlowWorkerBackend:
             debug_include_tf_inputs=debug_include_tf_inputs,
             request_id=request_id or "http",
         )
-        response: Dict[str, Any] = {
+        response: dict[str, Any] = {
             "model_name": model_name,
             "outputs": [
                 build_output_tensor(self.output_specs[0], scores.tolist())

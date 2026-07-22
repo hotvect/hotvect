@@ -197,7 +197,7 @@ class StandardRankingTransformerMetadataTest {
 
         StandardRankingTransformer<TestShared, TestAction> transformer = builder.build();
         RankingRequest<TestShared, TestAction> rankingRequest =
-                new RankingRequest<>("exampleId", shared, actions);
+                RankingTestData.rankingRequest("exampleId", shared, actions);
         ComputingRankingRequest<TestShared, TestAction> computingRankingRequest =
                 transformer.prepare(rankingRequest);
 

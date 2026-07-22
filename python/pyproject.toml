@@ -1,12 +1,11 @@
 [project]
 name = "hotvect"
-version = "10.13.5"
+version = "10.43.2"
 description = "Hotvect python interface"
 readme = "README.rst"
 license = "Apache-2.0"
 authors = [
     { name = "Hotvect Team", email = "team@example.com" },
-    { name = "Hotvect Team", email = "team@example.com"}
 ]
 requires-python = ">=3.11,<3.14"
 dependencies = [
@@ -21,6 +20,7 @@ dependencies = [
     "opentelemetry-api~=1.27.0",
     "opentelemetry-exporter-otlp~=1.27.0",
     "opentelemetry-sdk~=1.27.0",
+    "orjson>=3.11.9",
     "packaging",
     "pandas~=2.3.3",
     "pebble",
@@ -39,7 +39,6 @@ Homepage = "https://github.com/zalando/hotvect"
 ext = []
 ext-viz = [
     "matplotlib",
-    "seaborn",
 ]
 
 sagemaker = [

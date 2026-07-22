@@ -6,4 +6,5 @@ import javax.lang.model.type.TypeMirror;
 
 public record TransformerSpec(String name, String packageName, TypeMirror sharedType,
                               TypeMirror actionType, List<TypeMirror> featureClasses,
-                              String algorithmDefinitionResource, List<String> outputFeatures) {}
+                              String algorithmDefinitionResource, TypeMirror backend,
+                              List<FeatureSpec> outputFeatures) {}

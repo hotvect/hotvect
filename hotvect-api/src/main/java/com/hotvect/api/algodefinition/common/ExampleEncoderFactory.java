@@ -6,6 +6,14 @@ import com.hotvect.api.data.common.Example;
 import java.util.function.BiFunction;
 
 public interface ExampleEncoderFactory<EXAMPLE extends Example, DEPENDENCY, OUTCOME> extends BiFunction<DEPENDENCY, RewardFunction<OUTCOME>, ExampleEncoder<EXAMPLE>> {
+    /**
+     * @deprecated Use create(...).
+     */
+    @Deprecated(forRemoval = true, since = "10.40.0")
     @Override
     ExampleEncoder<EXAMPLE> apply(DEPENDENCY dependency, RewardFunction<OUTCOME> rewardFunction);
+
+    default ExampleEncoder<EXAMPLE> create(DEPENDENCY dependency, RewardFunction<OUTCOME> rewardFunction) {
+        return apply(dependency, rewardFunction);
+    }
 }

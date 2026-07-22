@@ -50,6 +50,7 @@ import static java.lang.Math.max;
 
 public class PerformanceTestTask<EXAMPLE extends Example<? extends OfflineRequest, ?>, ALGO extends Algorithm> extends Task {
     private static final ObjectMapper OM = new ObjectMapper();
+    static final int DEFAULT_SAMPLE_POOL_SIZE = 3_000;
     private static final Logger logger = LoggerFactory.getLogger(PerformanceTestTask.class);
 
     protected PerformanceTestTask(OfflineTaskContext offlineTaskContext) {
@@ -84,7 +85,13 @@ public class PerformanceTestTask<EXAMPLE extends Example<? extends OfflineReques
                     "Only one source file type is supported for performance test"
             );
 
-            final int sampleSize = options.samples > 0 ? Math.min(options.samples, 10_000) : 10_000;
+            checkState(
+                    options.samplePoolSize == -1 || options.samplePoolSize > 0,
+                    "--sample-pool-size must be > 0 (or left unset), got: %s",
+                    options.samplePoolSize
+            );
+
+            final int samplePoolSize = pickSamplePoolSize(options);
             final int oversampleFactor = 3;
             final long samplingSeed = 42L;
             final int linesPerFile = 200;
@@ -93,7 +100,7 @@ public class PerformanceTestTask<EXAMPLE extends Example<? extends OfflineReques
             List<EXAMPLE> sampledData = sampleDecodedExamples(
                     super.offlineTaskContext.options().sourceFiles.values().iterator().next(),
                     decoder,
-                    sampleSize,
+                    samplePoolSize,
                     oversampleFactor,
                     samplingSeed,
                     linesPerFile,
@@ -151,6 +158,9 @@ public class PerformanceTestTask<EXAMPLE extends Example<? extends OfflineReques
             metadata.put("response_time_metrics", aggregatedPerformanceTestResult);
             metadata.put("warmup_mean_throughput", meanThroughput);
             metadata.put("target_rps", targetRps);
+            metadata.put("requested_sample_pool_size", samplePoolSize);
+            metadata.put("sample_pool_size", sampledData.size());
+            metadata.put("samples", samplePerTest);
             metadata.put("workload_mode", workloadMode.name().toLowerCase(Locale.ROOT));
             return metadata;
         }
@@ -451,6 +461,13 @@ public class PerformanceTestTask<EXAMPLE extends Example<? extends OfflineReques
             // Constraint the sample size to be between 2000 and 200000 to avoid extreme estimations
             return (int) Math.max(Math.min(meanThroughputPerSec * 2 * 60 ,200000), 2000);
         }
+    }
+
+    static int pickSamplePoolSize(Options options) {
+        if (options.samplePoolSize > 0) {
+            return options.samplePoolSize;
+        }
+        return options.samples > 0 ? Math.min(options.samples, DEFAULT_SAMPLE_POOL_SIZE) : DEFAULT_SAMPLE_POOL_SIZE;
     }
 
     private Map<String, Object> aggregate(List<Map<String, Double>> results) {

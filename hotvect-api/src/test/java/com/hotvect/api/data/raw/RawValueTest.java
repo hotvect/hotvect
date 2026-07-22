@@ -4,22 +4,29 @@ import com.hotvect.api.data.HashedValue;
 import com.hotvect.api.data.RawValue;
 import com.hotvect.api.data.RawValueType;
 import com.hotvect.api.data.SparseVector;
-import net.jqwik.api.*;
-import net.jqwik.api.Tuple.Tuple2;
-import net.jqwik.api.constraints.Size;
-import net.jqwik.api.constraints.StringLength;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 
 import java.util.Arrays;
 import java.util.List;
-import java.util.stream.IntStream;
+import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 class RawValueTest {
 
-    @Property
-    void denseVector(@ForAll @Size(max = 5) double[] values) {
+    private record IntDoubleArrayPair(int[] names, double[] values) {
+    }
+
+    private record StringDoubleArrayPair(String[] names, double[] values) {
+    }
+
+    @ParameterizedTest
+    @MethodSource("doubleArrays")
+    void denseVector(double[] values) {
         double[] copied = Arrays.copyOf(values, values.length);
         RawValue rawValue = RawValue.denseVector(values);
         assertArrayEquals(copied, rawValue.getNumericals());
@@ -31,13 +38,13 @@ class RawValueTest {
                 rawValue::getSparseVector
         );
         notAllowed.forEach(x -> assertThrows(IllegalStateException.class, x));
-        int[] indices = IntStream.range(0, copied.length).toArray();
         assertEquals(HashedValue.denseVector(values), rawValue.getHashedValue());
         assertEquals(RawValueType.DENSE_VECTOR, rawValue.getValueType());
     }
 
-    @Property
-    void singleCategorical(@ForAll int x) {
+    @ParameterizedTest
+    @MethodSource("ints")
+    void singleCategorical(int x) {
         RawValue subject = RawValue.singleCategorical(x);
         assertEquals(x, subject.getSingleCategorical());
         assertThrows(IllegalStateException.class, subject::getSingleNumerical);
@@ -45,16 +52,18 @@ class RawValueTest {
         assertThrows(IllegalStateException.class, subject::getSparseVector);
     }
 
-    @Property
-    void singleString(@ForAll @StringLength(min = 0, max = 3) String x) {
+    @ParameterizedTest
+    @MethodSource("strings")
+    void singleString(String x) {
         RawValue subject = RawValue.singleString(x);
         assertEquals(x, subject.getSingleString());
         assertThrows(IllegalStateException.class, subject::getSingleNumerical);
         assertThrows(IllegalStateException.class, subject::getNumericals);
     }
 
-    @Property
-    void singleNumerical(@ForAll double x) {
+    @ParameterizedTest
+    @MethodSource("doubles")
+    void singleNumerical(double x) {
         RawValue subject = RawValue.singleNumerical(x);
         assertEquals(x, subject.getSingleNumerical());
         assertThrows(IllegalStateException.class, subject::getSingleCategorical);
@@ -62,8 +71,9 @@ class RawValueTest {
         assertThrows(IllegalStateException.class, subject::getSparseVector);
     }
 
-    @Property
-    void categoricals(@ForAll @Size(min = 0, max = 3) int[] x) {
+    @ParameterizedTest
+    @MethodSource("intArrays")
+    void categoricals(int[] x) {
         RawValue subject = RawValue.categoricals(x);
         assertArrayEquals(x, subject.getCategoricals());
         assertThrows(IllegalStateException.class, subject::getSingleNumerical);
@@ -73,10 +83,11 @@ class RawValueTest {
         }
     }
 
-    @Property
-    void numericals(@ForAll("intDoubleArrayPairs") Tuple2<int[], double[]> x) {
-        int[] names = x.get1();
-        double[] values = x.get2();
+    @ParameterizedTest
+    @MethodSource("intDoubleArrayPairs")
+    void numericals(IntDoubleArrayPair x) {
+        int[] names = x.names();
+        double[] values = x.values();
         assertEquals(names.length, values.length);
         RawValue subject = RawValue.namedNumericals(names, values);
         assertArrayEquals(names, subject.getNumericalIndices());
@@ -89,25 +100,11 @@ class RawValueTest {
         assertEquals(new SparseVector(names, values), actualVector);
     }
 
-    @Provide
-    Arbitrary<Tuple2<int[], double[]>> intDoubleArrayPairs() {
-        Arbitrary<int[]> intArrays = Arbitraries.integers()
-                .array(int[].class)
-                .ofMinSize(0)
-                .ofMaxSize(3);
-        return intArrays.flatMap(ints -> {
-            int length = ints.length;
-            Arbitrary<double[]> doubleArrays = Arbitraries.doubles()
-                    .array(double[].class)
-                    .ofSize(length);
-            return doubleArrays.map(doubles -> Tuple.of(ints, doubles));
-        });
-    }
-
-    @Property
-    void stringsToNumericals(@ForAll("stringDoubleArrayPairs") Tuple2<String[], double[]> x) {
-        String[] names = x.get1();
-        double[] values = x.get2();
+    @ParameterizedTest
+    @MethodSource("stringDoubleArrayPairs")
+    void stringsToNumericals(StringDoubleArrayPair x) {
+        String[] names = x.names();
+        double[] values = x.values();
         assertEquals(names.length, values.length);
         RawValue subject = RawValue.stringsToNumericals(names, values);
         assertArrayEquals(names, subject.getStrings());
@@ -117,24 +114,7 @@ class RawValueTest {
         assertThrows(IllegalStateException.class, subject::getSparseVector);
     }
 
-    @Provide
-    Arbitrary<Tuple2<String[], double[]>> stringDoubleArrayPairs() {
-        Arbitrary<String[]> stringArrays = Arbitraries.strings()
-                .withCharRange('a', 'z')
-                .ofMinLength(0).ofMaxLength(3)
-                .array(String[].class)
-                .ofMinSize(0)
-                .ofMaxSize(3);
-        return stringArrays.flatMap(strings -> {
-            int length = strings.length;
-            Arbitrary<double[]> doubleArrays = Arbitraries.doubles()
-                    .array(double[].class)
-                    .ofSize(length);
-            return doubleArrays.map(doubles -> Tuple.of(strings, doubles));
-        });
-    }
-
-    @Example
+    @Test
     void invalidInputs() {
         assertThrows(NullPointerException.class, () -> RawValue.categoricals(null));
         assertThrows(NullPointerException.class, () -> RawValue.namedNumericals(null, null));
@@ -145,7 +125,7 @@ class RawValueTest {
         assertThrows(IllegalArgumentException.class, () -> RawValue.stringsToNumericals(new String[0], new double[1]));
     }
 
-    @Example
+    @Test
     void getValueType() {
         assertEquals(RawValueType.SINGLE_CATEGORICAL, RawValue.singleCategorical(1).getValueType());
         assertEquals(RawValueType.CATEGORICALS, RawValue.categoricals(new int[0]).getValueType());
@@ -155,181 +135,219 @@ class RawValueTest {
         assertEquals(RawValueType.STRINGS_TO_NUMERICALS, RawValue.stringsToNumericals(new String[0], new double[0]).getValueType());
     }
 
-    @Property
-    void equalitySingleCategorical(@ForAll int x, @ForAll int y) {
-        Assume.that(x != y);
+    @ParameterizedTest
+    @MethodSource("differentInts")
+    void equalitySingleCategorical(int x, int y) {
         RawValue xp = RawValue.singleCategorical(x);
         RawValue yp = RawValue.singleCategorical(y);
-        assertEquals(x == y, xp.equals(yp));
-        if (x == y) {
-            assertEquals(xp.hashCode(), yp.hashCode());
-        }
+        assertNotEquals(xp, yp);
     }
 
-    @Property
-    void equalitySingleCategoricalEquals(@ForAll("equalIntPairs") Tuple2<Integer, Integer> pair) {
-        int x = pair.get1();
-        int y = pair.get2();
+    @ParameterizedTest
+    @MethodSource("ints")
+    void equalitySingleCategoricalEquals(int x) {
         RawValue xp = RawValue.singleCategorical(x);
-        RawValue yp = RawValue.singleCategorical(y);
-        assertEquals(x == y, xp.equals(yp));
+        RawValue yp = RawValue.singleCategorical(x);
+        assertEquals(xp, yp);
         assertEquals(xp.hashCode(), yp.hashCode());
     }
 
-    @Provide
-    Arbitrary<Tuple2<Integer, Integer>> equalIntPairs() {
-        return Arbitraries.integers().map(i -> Tuple.of(i, i));
-    }
-
-    @Property
-    void equalitySingleNumerical(@ForAll double x, @ForAll double y) {
-        Assume.that(Double.compare(x, y) != 0);
+    @ParameterizedTest
+    @MethodSource("differentDoubles")
+    void equalitySingleNumerical(double x, double y) {
         RawValue xp = RawValue.singleNumerical(x);
         RawValue yp = RawValue.singleNumerical(y);
-        assertEquals(Double.compare(x, y) == 0, xp.equals(yp));
-        if (Double.compare(x, y) == 0) {
-            assertEquals(xp.hashCode(), yp.hashCode());
-        }
+        assertNotEquals(xp, yp);
     }
 
-    @Property
-    void equalitySingleNumericalEquals(@ForAll("equalDoublePairs") Tuple2<Double, Double> pair) {
-        double x = pair.get1();
-        double y = pair.get2();
+    @ParameterizedTest
+    @MethodSource("doubles")
+    void equalitySingleNumericalEquals(double x) {
         RawValue xp = RawValue.singleNumerical(x);
-        RawValue yp = RawValue.singleNumerical(y);
-        assertEquals(Double.compare(x, y) == 0, xp.equals(yp));
+        RawValue yp = RawValue.singleNumerical(x);
+        assertEquals(xp, yp);
         assertEquals(xp.hashCode(), yp.hashCode());
     }
 
-    @Provide
-    Arbitrary<Tuple2<Double, Double>> equalDoublePairs() {
-        return Arbitraries.doubles().map(d -> Tuple.of(d, d));
-    }
-
-    @Property
-    void equalityCategoricals(@ForAll @Size(min = 0, max = 5) int[] x,
-                              @ForAll @Size(min = 0, max = 5) int[] y) {
-        Assume.that(!Arrays.equals(x, y));
+    @ParameterizedTest
+    @MethodSource("differentIntArrayPairs")
+    void equalityCategoricals(int[] x, int[] y) {
         RawValue xp = RawValue.categoricals(x);
         RawValue yp = RawValue.categoricals(y);
-        assertEquals(Arrays.equals(x, y), xp.equals(yp));
-        if (Arrays.equals(x, y)) {
-            assertEquals(xp.hashCode(), yp.hashCode());
-        }
+        assertNotEquals(xp, yp);
     }
 
-    @Property
-    void equalityCategoricalsEquals(@ForAll("equalIntArrayPairs") Tuple2<int[], int[]> pair) {
-        int[] x = pair.get1();
-        int[] y = pair.get2();
+    @ParameterizedTest
+    @MethodSource("intArrays")
+    void equalityCategoricalsEquals(int[] x) {
+        int[] y = Arrays.copyOf(x, x.length);
         RawValue xp = RawValue.categoricals(x);
         RawValue yp = RawValue.categoricals(y);
-        assertTrue(Arrays.equals(x, y));
         assertEquals(xp, yp);
         assertEquals(xp.hashCode(), yp.hashCode());
     }
 
-    @Provide
-    Arbitrary<Tuple2<int[], int[]>> equalIntArrayPairs() {
-        return Arbitraries.integers()
-                .array(int[].class)
-                .ofMinSize(0).ofMaxSize(5)
-                .map(arr -> Tuple.of(arr, arr));
-    }
-
-    @Property
-    void equalityStrings(@ForAll("stringArrays") String[] x,
-                         @ForAll("stringArrays") String[] y) {
-        Assume.that(!Arrays.equals(x, y));
+    @ParameterizedTest
+    @MethodSource("differentStringArrayPairs")
+    void equalityStrings(String[] x, String[] y) {
         RawValue xp = RawValue.strings(x);
         RawValue yp = RawValue.strings(y);
-        assertEquals(Arrays.equals(x, y), xp.equals(yp));
-        if (Arrays.equals(x, y)) {
-            assertEquals(xp.hashCode(), yp.hashCode());
-        }
+        assertNotEquals(xp, yp);
     }
 
-    @Property
-    void equalityStringsEquals(@ForAll("equalStringArrayPairs") Tuple2<String[], String[]> pair) {
-        String[] x = pair.get1();
-        String[] y = pair.get2();
+    @ParameterizedTest
+    @MethodSource("stringArrays")
+    void equalityStringsEquals(String[] x) {
+        String[] y = Arrays.copyOf(x, x.length);
         RawValue xp = RawValue.strings(x);
         RawValue yp = RawValue.strings(y);
-        assertTrue(Arrays.equals(x, y));
         assertEquals(xp, yp);
         assertEquals(xp.hashCode(), yp.hashCode());
     }
 
-    @Provide
-    Arbitrary<String[]> stringArrays() {
-        return Arbitraries.strings()
-                .withCharRange('a', 'z')
-                .ofMinLength(0).ofMaxLength(5)
-                .array(String[].class)
-                .ofMinSize(0)
-                .ofMaxSize(5);
-    }
-
-    @Provide
-    Arbitrary<Tuple2<String[], String[]>> equalStringArrayPairs() {
-        return stringArrays().map(arr -> Tuple.of(arr, arr));
-    }
-
-    @Property
-    void equalitySingleString(@ForAll @StringLength(min = 0, max = 5) String x,
-                              @ForAll @StringLength(min = 0, max = 5) String y) {
-        Assume.that(!x.equals(y));
+    @ParameterizedTest
+    @MethodSource("differentStrings")
+    void equalitySingleString(String x, String y) {
         RawValue xp = RawValue.singleString(x);
         RawValue yp = RawValue.singleString(y);
-        assertEquals(x.equals(y), xp.equals(yp));
-        if (x.equals(y)) {
-            assertEquals(xp.hashCode(), yp.hashCode());
-        }
+        assertNotEquals(xp, yp);
     }
 
-    @Property
-    void equalitySingleStringEquals(@ForAll("equalStrings") Tuple2<String, String> pair) {
-        String x = pair.get1();
-        String y = pair.get2();
+    @ParameterizedTest
+    @MethodSource("strings")
+    void equalitySingleStringEquals(String x) {
         RawValue xp = RawValue.singleString(x);
-        RawValue yp = RawValue.singleString(y);
-        assertEquals(x, y);
+        RawValue yp = RawValue.singleString(x);
         assertEquals(xp, yp);
         assertEquals(xp.hashCode(), yp.hashCode());
     }
 
-    @Provide
-    Arbitrary<Tuple2<String, String>> equalStrings() {
-        return Arbitraries.strings()
-                .withCharRange('a', 'z')
-                .ofMinLength(0).ofMaxLength(5)
-                .map(str -> Tuple.of(str, str));
+    @ParameterizedTest
+    @MethodSource("differentStringDoubleArrayPairPairs")
+    void equalityStringsToNumericals(StringDoubleArrayPair x, StringDoubleArrayPair y) {
+        RawValue xp = RawValue.stringsToNumericals(x.names(), x.values());
+        RawValue yp = RawValue.stringsToNumericals(y.names(), y.values());
+        assertNotEquals(xp, yp);
     }
 
-    @Property
-    void equalityStringsToNumericals(@ForAll("stringDoubleArrayPairs") Tuple2<String[], double[]> x,
-                                     @ForAll("stringDoubleArrayPairs") Tuple2<String[], double[]> y) {
-        Assume.that(!Arrays.equals(x.get1(), y.get1()) || !Arrays.equals(x.get2(), y.get2()));
-        RawValue xp = RawValue.stringsToNumericals(x.get1(), x.get2());
-        RawValue yp = RawValue.stringsToNumericals(y.get1(), y.get2());
-        boolean equal = Arrays.equals(x.get1(), y.get1()) && Arrays.equals(x.get2(), y.get2());
-        assertEquals(equal, xp.equals(yp));
-        if (equal) {
-            assertEquals(xp.hashCode(), yp.hashCode());
-        }
-    }
-
-    @Property
-    void equalityStringsToNumericalsEquals(@ForAll("equalStringDoubleArrayPairs") Tuple2<String[], double[]> x) {
-        RawValue xp = RawValue.stringsToNumericals(x.get1(), x.get2());
-        RawValue yp = RawValue.stringsToNumericals(x.get1(), x.get2());
+    @ParameterizedTest
+    @MethodSource("stringDoubleArrayPairs")
+    void equalityStringsToNumericalsEquals(StringDoubleArrayPair x) {
+        RawValue xp = RawValue.stringsToNumericals(x.names(), x.values());
+        RawValue yp = RawValue.stringsToNumericals(
+                Arrays.copyOf(x.names(), x.names().length),
+                Arrays.copyOf(x.values(), x.values().length)
+        );
         assertEquals(xp, yp);
         assertEquals(xp.hashCode(), yp.hashCode());
     }
 
-    @Provide
-    Arbitrary<Tuple2<String[], double[]>> equalStringDoubleArrayPairs() {
-        return stringDoubleArrayPairs().map(pair -> Tuple.of(pair.get1(), pair.get2()));
+    private static Stream<Arguments> doubleArrays() {
+        return Stream.of(
+                Arguments.of((Object) new double[]{}),
+                Arguments.of((Object) new double[]{0.0}),
+                Arguments.of((Object) new double[]{Double.MIN_VALUE, -1.0, Math.PI})
+        );
+    }
+
+    private static Stream<Integer> ints() {
+        return Stream.of(Integer.MIN_VALUE, -1, 0, 1, Integer.MAX_VALUE);
+    }
+
+    private static Stream<Double> doubles() {
+        return Stream.of(Double.MIN_VALUE, -1.0, 0.0, 1.0, Math.PI, Double.MAX_VALUE);
+    }
+
+    private static Stream<String> strings() {
+        return Stream.of("", "a", "abc", "with space");
+    }
+
+    private static Stream<Arguments> intArrays() {
+        return Stream.of(
+                Arguments.of((Object) new int[]{}),
+                Arguments.of((Object) new int[]{0}),
+                Arguments.of((Object) new int[]{-1, 2, Integer.MAX_VALUE})
+        );
+    }
+
+    private static Stream<Arguments> stringArrays() {
+        return Stream.of(
+                Arguments.of((Object) new String[]{}),
+                Arguments.of((Object) new String[]{""}),
+                Arguments.of((Object) new String[]{"a", "bc"})
+        );
+    }
+
+    private static Stream<IntDoubleArrayPair> intDoubleArrayPairs() {
+        return Stream.of(
+                new IntDoubleArrayPair(new int[]{}, new double[]{}),
+                new IntDoubleArrayPair(new int[]{0}, new double[]{0.0}),
+                new IntDoubleArrayPair(new int[]{-1, 2}, new double[]{Double.MIN_VALUE, Math.PI})
+        );
+    }
+
+    private static Stream<StringDoubleArrayPair> stringDoubleArrayPairs() {
+        return Stream.of(
+                new StringDoubleArrayPair(new String[]{}, new double[]{}),
+                new StringDoubleArrayPair(new String[]{"a"}, new double[]{0.0}),
+                new StringDoubleArrayPair(new String[]{"a", "bc"}, new double[]{Double.MIN_VALUE, Math.PI})
+        );
+    }
+
+    private static Stream<Arguments> differentInts() {
+        return Stream.of(
+                Arguments.of(0, 1),
+                Arguments.of(-1, 1),
+                Arguments.of(Integer.MIN_VALUE, Integer.MAX_VALUE)
+        );
+    }
+
+    private static Stream<Arguments> differentDoubles() {
+        return Stream.of(
+                Arguments.of(0.0, 1.0),
+                Arguments.of(-1.0, 1.0),
+                Arguments.of(Double.MIN_VALUE, Double.MAX_VALUE)
+        );
+    }
+
+    private static Stream<Arguments> differentStrings() {
+        return Stream.of(
+                Arguments.of("", "a"),
+                Arguments.of("a", "b"),
+                Arguments.of("abc", "with space")
+        );
+    }
+
+    private static Stream<Arguments> differentIntArrayPairs() {
+        return Stream.of(
+                Arguments.of(new int[]{}, new int[]{0}),
+                Arguments.of(new int[]{0}, new int[]{1}),
+                Arguments.of(new int[]{1, 2}, new int[]{2, 1})
+        );
+    }
+
+    private static Stream<Arguments> differentStringArrayPairs() {
+        return Stream.of(
+                Arguments.of(new String[]{}, new String[]{""}),
+                Arguments.of(new String[]{"a"}, new String[]{"b"}),
+                Arguments.of(new String[]{"a", "bc"}, new String[]{"a", "cb"})
+        );
+    }
+
+    private static Stream<Arguments> differentStringDoubleArrayPairPairs() {
+        return Stream.of(
+                Arguments.of(
+                        new StringDoubleArrayPair(new String[]{}, new double[]{}),
+                        new StringDoubleArrayPair(new String[]{"a"}, new double[]{0.0})
+                ),
+                Arguments.of(
+                        new StringDoubleArrayPair(new String[]{"a"}, new double[]{0.0}),
+                        new StringDoubleArrayPair(new String[]{"a"}, new double[]{1.0})
+                ),
+                Arguments.of(
+                        new StringDoubleArrayPair(new String[]{"a"}, new double[]{1.0}),
+                        new StringDoubleArrayPair(new String[]{"b"}, new double[]{1.0})
+                )
+        );
     }
 }

@@ -4,10 +4,11 @@ import os
 import re
 import sqlite3
 import tempfile
+from collections.abc import Iterable
 from dataclasses import dataclass
 from hashlib import sha256
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 
 def _safe_relpath(root: Path, path: Path) -> str:

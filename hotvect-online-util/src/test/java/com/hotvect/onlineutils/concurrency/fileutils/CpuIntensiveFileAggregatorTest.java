@@ -4,8 +4,6 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import com.google.common.collect.ImmutableList;
 import com.google.common.hash.BloomFilter;
 import com.google.common.hash.Funnels;
-import net.jqwik.api.Arbitraries;
-import net.jqwik.api.Arbitrary;
 import org.junit.jupiter.api.Test;
 
 import java.io.File;
@@ -13,6 +11,9 @@ import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Paths;
 import java.util.Objects;
+import java.util.Random;
+import java.util.stream.IntStream;
+import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -52,14 +53,7 @@ class CpuIntensiveFileAggregatorTest {
 
         BloomFilter<String> aggregated = subject.call();
 
-        // Since we cannot directly use @Property inside a method that requires instance variables,
-        // we will generate a stream of random strings using Arbitraries and perform assertions.
-
-        Arbitrary<String> stringArbitrary = Arbitraries.strings()
-                .ascii()
-                .ofLength(64);
-
-        stringArbitrary.sampleStream().limit(1000).forEach(s -> {
+        deterministicAsciiStrings().limit(1000).forEach(s -> {
             assertFalse(aggregated.mightContain(s));
         });
 
@@ -72,5 +66,17 @@ class CpuIntensiveFileAggregatorTest {
         } catch (URISyntaxException e) {
             throw new RuntimeException(e);
         }
+    }
+
+    private Stream<String> deterministicAsciiStrings() {
+        Random random = new Random(48593L);
+        return IntStream.range(0, 1000)
+                .mapToObj(i -> {
+                    StringBuilder value = new StringBuilder(64);
+                    for (int j = 0; j < 64; j++) {
+                        value.append((char) (Math.floorMod(random.nextInt(), 95) + 32));
+                    }
+                    return value.toString();
+                });
     }
 }

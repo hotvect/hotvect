@@ -1,0 +1,20 @@
+{
+  "hotvect_version": "${project.version}",
+  "algorithm_name": "example-product-search-topk",
+  "algorithm_version": "${algorithm.version}",
+  "dependencies": {
+    "example-product-search-index": {},
+    "example-product-ranker": {}
+  },
+  "decoder_factory_classname": "com.hotvect.example.product.ProductSearchTopKDecoderFactory",
+  "reward_function_factory_classname": "com.hotvect.example.product.ProductRewardFunctionFactory",
+  "algorithm_factory_classname": "com.hotvect.example.product.ProductSearchTopKFactory",
+  "test_data_spec": {
+    "data_prefix": "example_product_search_examples"
+  },
+  "hotvect_execution_parameters": {
+    "performance-test": {
+      "enabled": false
+    }
+  }
+}

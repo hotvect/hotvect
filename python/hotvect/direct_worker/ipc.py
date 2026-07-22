@@ -6,7 +6,6 @@ import struct
 import sys
 import traceback
 from dataclasses import dataclass
-from typing import List, Tuple
 
 OP_STARTUP = 1
 OP_STARTUP_ACK = 2
@@ -44,22 +43,22 @@ def write_frame(sock: socket.socket, payload: bytes, max_frame_bytes: int | None
     sock.sendall(struct.pack(">I", len(payload)) + payload)
 
 
-def _read_u16(buf: memoryview, offset: int) -> Tuple[int, int]:
+def _read_u16(buf: memoryview, offset: int) -> tuple[int, int]:
     (v,) = struct.unpack_from(">H", buf, offset)
     return int(v), offset + 2
 
 
-def _read_i32(buf: memoryview, offset: int) -> Tuple[int, int]:
+def _read_i32(buf: memoryview, offset: int) -> tuple[int, int]:
     (v,) = struct.unpack_from(">i", buf, offset)
     return int(v), offset + 4
 
 
-def _read_i64(buf: memoryview, offset: int) -> Tuple[int, int]:
+def _read_i64(buf: memoryview, offset: int) -> tuple[int, int]:
     (v,) = struct.unpack_from(">q", buf, offset)
     return int(v), offset + 8
 
 
-def _read_utf8_u16(buf: memoryview, offset: int) -> Tuple[str, int]:
+def _read_utf8_u16(buf: memoryview, offset: int) -> tuple[str, int]:
     n, offset = _read_u16(buf, offset)
     if n == 0:
         return "", offset
@@ -106,7 +105,7 @@ def encode_worker_error(message: str) -> bytes:
     return bytes(out)
 
 
-def encode_result(request_id: str, output: List[float], debug_json: str | None) -> bytes:
+def encode_result(request_id: str, output: list[float], debug_json: str | None) -> bytes:
     out = bytearray()
     out.append(OP_RESULT)
     out.extend(_encode_utf8_u16(request_id))
@@ -129,7 +128,7 @@ def encode_result(request_id: str, output: List[float], debug_json: str | None) 
 class DecodedWork:
     request_id: str
     batch_size: int
-    payloads: List[bytes]
+    payloads: list[bytes]
     traceparent: str
 
 
@@ -153,7 +152,7 @@ def decode_work(payload: bytes) -> DecodedWork:
     if payload_count < 0:
         raise ValueError(f"Invalid payload_count={payload_count}")
 
-    payloads: List[bytes] = []
+    payloads: list[bytes] = []
     for _ in range(payload_count):
         n, offset = _read_i32(buf, offset)
         if n < 0:

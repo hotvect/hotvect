@@ -63,21 +63,21 @@
       },
       "evaluate": {
         "roc_auc": {
-          "lower_bound": 0.58,
-          "mean": 0.60,
-          "upper_bound": 0.62
+          "ci95_lower": 0.58,
+          "value": 0.60,
+          "ci95_upper": 0.62
         },
         "pr_auc": {
-          "lower_bound": 0.02,
-          "mean": 0.03,
-          "upper_bound": 0.04
+          "ci95_lower": 0.02,
+          "value": 0.03,
+          "ci95_upper": 0.04
         },
-        "map_at_10": 0.04,
-        "ndcg_at_10": 0.04,
-        "map_at_50": 0.04,
-        "ndcg_at_50": 0.04,
-        "map_at_all": 0.04,
-        "ndcg_at_all": 0.05
+        "map_at_10": {"value": 0.04},
+        "ndcg_at_10": {"value": 0.04},
+        "map_at_50": {"value": 0.04},
+        "ndcg_at_50": {"value": 0.04},
+        "map_at_all": {"value": 0.04},
+        "ndcg_at_all": {"value": 0.05}
       },
       "performance_test": {
         "max_memory_usage": 12341234,
@@ -149,21 +149,21 @@
   },
   "evaluate": {
     "roc_auc": {
-      "lower_bound": 0.60,
-      "mean": 0.61,
-      "upper_bound": 0.62
+      "ci95_lower": 0.60,
+      "value": 0.61,
+      "ci95_upper": 0.62
     },
     "pr_auc": {
-      "lower_bound": 0.01,
-      "mean": 0.02,
-      "upper_bound": 0.03
+      "ci95_lower": 0.01,
+      "value": 0.02,
+      "ci95_upper": 0.03
     },
-    "map_at_10": 0.001,
-    "ndcg_at_10": 0.001,
-    "map_at_50": 0.001,
-    "ndcg_at_50": 0.01,
-    "map_at_all": 0.01,
-    "ndcg_at_all": 0.01
+    "map_at_10": {"value": 0.001},
+    "ndcg_at_10": {"value": 0.001},
+    "map_at_50": {"value": 0.001},
+    "ndcg_at_50": {"value": 0.01},
+    "map_at_all": {"value": 0.01},
+    "ndcg_at_all": {"value": 0.01}
   },
   "performance_test": {
     "max_memory_usage": 12341234,

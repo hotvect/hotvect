@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 DEFAULT_CONFIG_PATH = Path("~/.hotvect/config.json").expanduser()
 
@@ -20,7 +20,7 @@ def get_config_path() -> Path:
     return DEFAULT_CONFIG_PATH
 
 
-def load_config() -> Dict[str, Any]:
+def load_config() -> dict[str, Any]:
     path = get_config_path()
     if not path.exists():
         raise FileNotFoundError(f"Config not found: {path}")
@@ -32,14 +32,14 @@ def load_config() -> Dict[str, Any]:
     raise ValueError(f"Invalid config JSON (expected object): {path}")
 
 
-def try_load_config() -> Optional[Dict[str, Any]]:
+def try_load_config() -> dict[str, Any] | None:
     try:
         return load_config()
     except FileNotFoundError:
         return None
 
 
-def resolve_meta_dir(*, meta_dir: Optional[str] = None) -> Path:
+def resolve_meta_dir(*, meta_dir: str | None = None) -> Path:
     """Resolve a meta directory from CLI arg or ~/.hotvect/config.json directories.output_base_dir/meta."""
     if meta_dir:
         return Path(meta_dir).expanduser()
@@ -53,7 +53,7 @@ def resolve_meta_dir(*, meta_dir: Optional[str] = None) -> Path:
     return Path(output_base_dir).expanduser() / "meta"
 
 
-def write_config(*, config: Dict[str, Any]) -> Path:
+def write_config(*, config: dict[str, Any]) -> Path:
     path = get_config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(config, indent=2) + "\n")

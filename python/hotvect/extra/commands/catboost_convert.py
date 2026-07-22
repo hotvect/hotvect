@@ -2,7 +2,7 @@
 
 import json
 import sys
-from typing import Any, Dict, List
+from typing import Any
 
 from .base import BaseCommand
 
@@ -34,12 +34,12 @@ class CatBoostConvertCommand(BaseCommand):
             print(f"Error: {e}", file=sys.stderr)
             sys.exit(1)
 
-    def _parse_schema(self, schema_file: str) -> List[Dict[str, str]]:
+    def _parse_schema(self, schema_file: str) -> list[dict[str, str]]:
         """Parse schema file to extract column definitions."""
         schema = []
         allowed_types = {"Num", "Categ", "Text", "NumVector"}
 
-        with open(schema_file, "r") as f:
+        with open(schema_file) as f:
             for line in f:
                 parts = line.strip().split("\t")
                 if len(parts) >= 2 and parts[1] in allowed_types:
@@ -53,11 +53,11 @@ class CatBoostConvertCommand(BaseCommand):
 
         return schema
 
-    def _convert_to_json(self, schema: List[Dict[str, str]], encoded_file: str) -> List[Dict[str, Any]]:
+    def _convert_to_json(self, schema: list[dict[str, str]], encoded_file: str) -> list[dict[str, Any]]:
         """Convert encoded TSV data to JSON using the schema."""
         data = []
 
-        with open(encoded_file, "r") as ef:
+        with open(encoded_file) as ef:
             for line_num, line in enumerate(ef, 1):
                 try:
                     values = line.strip().split("\t")
@@ -98,7 +98,7 @@ class CatBoostConvertCommand(BaseCommand):
 
         return data
 
-    def _write_output(self, data: List[Dict[str, Any]], output_file: str):
+    def _write_output(self, data: list[dict[str, Any]], output_file: str):
         """Write data to output file as JSONL."""
         with open(output_file, "w") as f:
             for item in data:

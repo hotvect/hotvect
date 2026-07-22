@@ -1,5 +1,5 @@
 ---
-title: SageMaker InputDataConfig Solution
+title: Automatic SageMaker InputDataConfig
 description: Design reference for automatically constructing SageMaker InputDataConfig entries from algorithm metadata
 tags: [design, sagemaker, data-dependencies]
 difficulty: advanced
@@ -9,19 +9,14 @@ related_docs:
   - ../sagemaker-configuration/index.md
 ---
 
-# SageMaker InputDataConfig Solution
+# Automatic SageMaker InputDataConfig
 
-> **Note**: This is an internal design document. For user-facing documentation, see [How to: Run Backtests on AWS SageMaker](../../guides/sagemaker-backtests/index.md).
-
-## Problem
-
-Running `hv backtest --sagemaker-config ...` historically required the user (or a wrapper automation) to manually populate `InputDataConfig`. When the array was left empty, SageMaker training jobs failed immediately because no S3 channels were defined. The previous workaround involved invoking separate `hv-ext` commands to analyze dependencies and rewrite the config file—a slow and error-prone process that duplicated logic already present in the backtest framework.
+This is an internal design reference. For the workflow, see
+[Run backtests on SageMaker](../../guides/sagemaker-backtests/index.md).
 
 ## Current Solution (Framework-Integrated)
 
-### Overview
-
-`hv backtest` now owns InputDataConfig construction. Whenever you run in SageMaker mode, the framework automatically:
+Hotvect now owns InputDataConfig construction for flows that enable auto-attach. Whenever you run in SageMaker mode with auto-attach enabled, the framework automatically:
 
 1. Builds the algorithm JAR (as before)
 2. Uses `AlgorithmPipeline.data_dependencies()` to discover required datasets
@@ -37,7 +32,7 @@ This leverages information already available inside the backtest pipeline and av
 | `--auto-attach-data-default-s3-base <uri>` | Optional fallback such as `s3://example-bucket/tables/` when definitions do not specify `s3_uri`. |
 | `--auto-attach-data-environment <env>` | Preferred environment key when `s3_uri` is a dictionary (default: `production`). Keys are matched case-insensitively with fallbacks (`production`, `prod`, `test`, `staging`, then first map entry). |
 
-These options are documented in `hv backtest --help` and in the CLI docs under `reference/cli/index.md`.
+These options are documented in `hv backtest --help`, `hv train --help`, and in the CLI docs under `reference/cli/index.md`.
 
 ### Flow In BacktestPipeline
 
@@ -48,6 +43,17 @@ These options are documented in `hv backtest --help` and in the CLI docs under `
    - Each auto-attached channel is logged (`channel`, `S3Uri`).
 3. The job-specific copy of the SageMaker config is mutated; the original template remains untouched.
 
+### `target=predict` note
+
+When `hv train --target predict` is used:
+
+- `AlgorithmPipeline.data_dependencies()` reports the `prediction_spec` input dependency instead of the normal test
+  dependency
+- SageMaker auto-attach therefore mounts the prediction input slice, not the evaluation test slice
+- the final prediction artifact is still written by the pipeline itself to `prediction_spec.output_uri`
+- `prediction_spec.s3_uri` uses **exact** environment-key matching; there is no case folding, alias mapping, or
+  fallback to another entry
+
 ### S3 URI Resolution Rules
 
 1. **Explicit string**
@@ -56,6 +62,9 @@ These options are documented in `hv backtest --help` and in the CLI docs under `
 2. **Environment map**
    `dependency.additional_properties["s3_uri"] = {"production": "...", "test": "..."}`.
    Hotvect normalizes keys to lowercase and prefers (in order): the requested environment (`--auto-attach-data-environment`, default `production`), then `production`, `prod`, `test`, `staging`. If none match but the map is non-empty, the first entry is used as a last resort.
+
+   For `prediction_spec.s3_uri`, Hotvect does **not** use those legacy fallback rules. The requested environment key must
+   exist exactly as written in the map.
 
 3. **Default base**
    If no explicit URI exists, we require `--auto-attach-data-default-s3-base`. The channel’s `data_prefix` is appended (with a trailing slash).
@@ -83,9 +92,9 @@ The `hv-ext show-data-dependency` command remains available as an **optional dia
 ```bash
 hv-ext show-data-dependency \
   --repo-url https://github.com/example-org/example-algorithm.git \
-  --git-reference v77.0.0 \
+  --git-reference v2.0.0 \
   --scratch-dir ./temp \
-  --last-test-time 2025-08-09 \
+  --last-test-time 2000-01-08 \
   -o deps.json
 ```
 
@@ -94,32 +103,20 @@ This can be useful for auditing the discovered dependencies or sharing them in r
 ## Updated Workflow
 
 1. Copy the SageMaker template to the scratch directory (configuration protection policy still applies).
-2. Invoke `hv backtest` with `--sagemaker-config <copied-file>`. Example:
+2. Invoke `hv backtest` with `--sagemaker`, a valid `--sagemaker-job-prefix`, and `--sagemaker-config <copied-file>`. Example:
 
 ```bash
 hv backtest \
-  --git-reference v77.0.0 \
-  --git-reference v64.4.0 \
+  --git-reference v2.0.0 \
+  --git-reference v1.0.0 \
   --algo-repo-url ${repo_url} \
   --output-base-dir ${output_dir} \
   --scratch-dir ${scratch_dir} \
   --last-test-time ${test_date} \
+  --sagemaker \
+  --sagemaker-job-prefix example-backtest \
   --sagemaker-config ${scratch_dir}/sagemaker-config.json \
   --auto-attach-data-default-s3-base s3://example-bucket/tables/
 ```
 
 3. The framework augments the config before each job submission. There is no longer any need to edit JSON files manually.
-
-## Advantages of the Integrated Approach
-
-- **Single source of truth** – dependency extraction happens where the training pipeline already lives.
-- **No duplicate builds** – the framework reuses the jar compiled for the backtest.
-- **Better UX** – users don’t need manual preprocessing or extra scripts.
-- **Safer** – templates are never modified directly; everything happens on per-job copies.
-- **Testable** – the logic is concentrated in `_attach_input_data_config`, making it easy to unit-test with mocked dependencies.
-
-## Cleanup Notes
-
-- The old `hv-ext populate-sagemaker-config` command has been removed.
-- Documentation (agents, skills, and this file) has been updated to reflect the automatic workflow.
-- The optional `hv-ext show-data-dependency` command remains for debugging/inspection purposes only.

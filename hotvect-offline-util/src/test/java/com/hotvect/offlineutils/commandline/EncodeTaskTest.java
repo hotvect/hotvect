@@ -1,6 +1,8 @@
 package com.hotvect.offlineutils.commandline;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.JsonNodeFactory;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.hotvect.api.algodefinition.AlgorithmDefinition;
@@ -84,14 +86,10 @@ public class EncodeTaskTest {
             return ignored -> ImmutableList.of(
                     new RankingExample<>(
                             "example",
-                            new RankingRequest<>(
-                                    "example",
-                                    "shared",
-                                    ImmutableList.of("action1", "action2")
-                            ),
+                            RankingTestData.request("example", "shared", "action1", "action2"),
                             ImmutableList.of(
                                     new RankingOutcome<>(
-                                            com.hotvect.api.data.ranking.RankingDecision.builder(0, "action1").build(),
+                                            com.hotvect.api.data.ranking.RankingDecision.builder("action1", "action1").build(),
                                             "outcome"
                                     )
                             )
@@ -154,9 +152,17 @@ public class EncodeTaskTest {
     }
 
     private static AlgorithmDefinition queueLengthAlgorithmDefinition() {
+        return queueLengthAlgorithmDefinition(null, Optional.empty(), Optional.empty());
+    }
+
+    private static AlgorithmDefinition queueLengthAlgorithmDefinition(
+            JsonNode rawAlgorithmDefinition,
+            Optional<JsonNode> transformerParameter,
+            Optional<JsonNode> trainDecoderParameter
+    ) {
         String nestedClassPrefix = EncodeTaskTest.class.getCanonicalName() + "$";
         return new AlgorithmDefinition(
-                null,
+                rawAlgorithmDefinition,
                 new AlgorithmId("test-algorithm", "1.2.3"),
                 ImmutableMap.of(),
                 ImmutableMap.of(),
@@ -167,9 +173,9 @@ public class EncodeTaskTest {
                 nestedClassPrefix + TestRewardFunctionFactory.class.getSimpleName(),
                 nestedClassPrefix + QueueLengthEncoderFactory.class.getSimpleName(),
                 null,
+                transformerParameter,
                 Optional.empty(),
-                Optional.empty(),
-                Optional.empty(),
+                trainDecoderParameter,
                 Optional.empty(),
                 Optional.empty()
         );
@@ -191,6 +197,44 @@ public class EncodeTaskTest {
 
             IllegalStateException exception = assertThrows(IllegalStateException.class, testSubject::perform);
             assertTrue(exception.getMessage().contains("returned null from encodedFileExtension()"));
+        }
+    }
+
+    @Test
+    void shouldAllowMissingParametersForParameterlessEncodeAlgorithms() throws Exception {
+        Options options = new Options();
+        options.sourceFiles = ImmutableMap.of(
+                "default",
+                ImmutableList.of(Paths.get(Objects.requireNonNull(this.getClass().getResource("multiple")).toURI()).toFile())
+        );
+        options.maxThreads = 3;
+        options.batchSize = 5;
+
+        File tempDir = Files.createTempDirectory("encode-task-test-no-params").toFile();
+        options.destinationFile = tempDir;
+
+        try (URLClassLoader classLoader = new URLClassLoader(new URL[0], this.getClass().getClassLoader())) {
+            OfflineTaskContext offlineTaskContext = new OfflineTaskContext(
+                    classLoader,
+                    new SimpleMeterRegistry(),
+                    options,
+                    queueLengthAlgorithmDefinition()
+            );
+
+            final boolean[] invoked = new boolean[1];
+            EncodeTask<? extends Example<?, ?>> testSubject = new EncodeTask<>(offlineTaskContext) {
+                @Override
+                protected Map<String, Object> callUnorderedFileMapper(UnorderedFileMapper<String> mapper) {
+                    invoked[0] = true;
+                    return new HashMap<>(Map.of("lines_written", 1L));
+                }
+            };
+
+            testSubject.perform();
+
+            assertTrue(invoked[0]);
+        } finally {
+            tempDir.delete();
         }
     }
 
@@ -231,6 +275,176 @@ public class EncodeTaskTest {
             assertNotNull(captured[0]);
             assertEquals(7, readIntField(captured[0], "readQueueSize"));
             assertEquals(7, readIntField(captured[0], "writeQueueSize"));
+        } finally {
+            tempDir.delete();
+        }
+    }
+
+    @Test
+    void forwardsSplitQueueLengthsToUnorderedMapper() throws Exception {
+        Options options = new Options();
+        options.parameters = Paths.get(Objects.requireNonNull(this.getClass().getResource("test-algorithm-parameter.zip")).toURI()).toFile();
+        options.sourceFiles = ImmutableMap.of(
+                "default",
+                ImmutableList.of(Paths.get(Objects.requireNonNull(this.getClass().getResource("multiple")).toURI()).toFile())
+        );
+        options.queueLength = 7;
+        options.readQueueLength = 11;
+        options.writeQueueLength = 13;
+        options.maxThreads = 3;
+        options.batchSize = 5;
+        File tempDir = Files.createTempDirectory("encode-task-test-split-queue").toFile();
+        options.destinationFile = tempDir;
+
+        try (URLClassLoader classLoader = new URLClassLoader(new URL[0], this.getClass().getClassLoader())) {
+            OfflineTaskContext offlineTaskContext = new OfflineTaskContext(
+                    classLoader,
+                    new SimpleMeterRegistry(),
+                    options,
+                    queueLengthAlgorithmDefinition()
+            );
+
+            final UnorderedFileMapper<String>[] captured = new UnorderedFileMapper[1];
+            EncodeTask<? extends Example<?, ?>> testSubject = new EncodeTask<>(offlineTaskContext) {
+                @Override
+                protected Map<String, Object> callUnorderedFileMapper(UnorderedFileMapper<String> mapper) {
+                    captured[0] = mapper;
+                    return new HashMap<>(Map.of("lines_written", 1L));
+                }
+            };
+
+            testSubject.perform();
+
+            assertNotNull(captured[0]);
+            assertEquals(11, readIntField(captured[0], "readQueueSize"));
+            assertEquals(13, readIntField(captured[0], "writeQueueSize"));
+        } finally {
+            tempDir.delete();
+        }
+    }
+
+    @Test
+    void orderedEncodeWritesPartFiles() throws Exception {
+        Options options = new Options();
+        options.parameters = Paths.get(Objects.requireNonNull(this.getClass().getResource("test-algorithm-parameter.zip")).toURI()).toFile();
+        options.sourceFiles = ImmutableMap.of(
+                "default",
+                ImmutableList.of(Paths.get(Objects.requireNonNull(this.getClass().getResource("multiple")).toURI()).toFile())
+        );
+        options.maxThreads = 2;
+        options.batchSize = 2;
+        options.ordered = true;
+
+        File tempDir = Files.createTempDirectory("encode-task-test-ordered").toFile();
+        options.destinationFile = tempDir;
+
+        try (URLClassLoader classLoader = new URLClassLoader(new URL[0], this.getClass().getClassLoader())) {
+            OfflineTaskContext offlineTaskContext = new OfflineTaskContext(
+                    classLoader,
+                    new SimpleMeterRegistry(),
+                    options,
+                    queueLengthAlgorithmDefinition()
+            );
+
+            EncodeTask<? extends Example<?, ?>> testSubject = new EncodeTask<>(offlineTaskContext);
+            testSubject.perform();
+
+            File partFile = new File(tempDir, "part-00000.txt");
+            assertTrue(partFile.exists());
+            List<String> encodedRows = Files.readAllLines(partFile.toPath());
+            assertTrue(!encodedRows.isEmpty());
+            assertTrue(encodedRows.stream().allMatch("encoded"::equals));
+            assertTrue(!new File(tempDir, "shard_0.txt").exists());
+        } finally {
+            tempDir.delete();
+        }
+    }
+
+    @Test
+    void explicitCliOrderedEncodeOverridesAlgorithmDefinitionUnordered() throws Exception {
+        Options options = new Options();
+        options.parameters = Paths.get(Objects.requireNonNull(this.getClass().getResource("test-algorithm-parameter.zip")).toURI()).toFile();
+        options.sourceFiles = ImmutableMap.of(
+                "default",
+                ImmutableList.of(Paths.get(Objects.requireNonNull(this.getClass().getResource("multiple")).toURI()).toFile())
+        );
+        options.maxThreads = 2;
+        options.batchSize = 2;
+        options.ordered = true;
+
+        File tempDir = Files.createTempDirectory("encode-task-test-cli-ordered").toFile();
+        options.destinationFile = tempDir;
+
+        ObjectNode rawAlgorithmDefinition = JsonNodeFactory.instance.objectNode();
+        ObjectNode trainDecoderParameter = rawAlgorithmDefinition.putObject("train_decoder_parameters");
+        trainDecoderParameter.put("ordering", "unordered");
+
+        try (URLClassLoader classLoader = new URLClassLoader(new URL[0], this.getClass().getClassLoader())) {
+            OfflineTaskContext offlineTaskContext = new OfflineTaskContext(
+                    classLoader,
+                    new SimpleMeterRegistry(),
+                    options,
+                    queueLengthAlgorithmDefinition(
+                            rawAlgorithmDefinition,
+                            Optional.empty(),
+                            Optional.of(trainDecoderParameter)
+                    )
+            );
+
+            EncodeTask<? extends Example<?, ?>> testSubject = new EncodeTask<>(offlineTaskContext);
+            testSubject.perform();
+
+            File partFile = new File(tempDir, "part-00000.txt");
+            assertTrue(partFile.exists());
+            assertTrue(!new File(tempDir, "shard_0.txt").exists());
+        } finally {
+            tempDir.delete();
+        }
+    }
+
+    @Test
+    void explicitCliUnorderedEncodeOverridesAlgorithmDefinitionOrdered() throws Exception {
+        Options options = new Options();
+        options.parameters = Paths.get(Objects.requireNonNull(this.getClass().getResource("test-algorithm-parameter.zip")).toURI()).toFile();
+        options.sourceFiles = ImmutableMap.of(
+                "default",
+                ImmutableList.of(Paths.get(Objects.requireNonNull(this.getClass().getResource("multiple")).toURI()).toFile())
+        );
+        options.maxThreads = 2;
+        options.batchSize = 2;
+        options.unordered = true;
+        options.writerNumShards = 2;
+
+        File tempDir = Files.createTempDirectory("encode-task-test-cli-unordered").toFile();
+        options.destinationFile = tempDir;
+
+        ObjectNode rawAlgorithmDefinition = JsonNodeFactory.instance.objectNode();
+        ObjectNode trainDecoderParameter = rawAlgorithmDefinition.putObject("train_decoder_parameters");
+        trainDecoderParameter.put("ordering", "ordered");
+
+        try (URLClassLoader classLoader = new URLClassLoader(new URL[0], this.getClass().getClassLoader())) {
+            OfflineTaskContext offlineTaskContext = new OfflineTaskContext(
+                    classLoader,
+                    new SimpleMeterRegistry(),
+                    options,
+                    queueLengthAlgorithmDefinition(
+                            rawAlgorithmDefinition,
+                            Optional.empty(),
+                            Optional.of(trainDecoderParameter)
+                    )
+            );
+
+            final boolean[] invoked = new boolean[1];
+            EncodeTask<? extends Example<?, ?>> testSubject = new EncodeTask<>(offlineTaskContext) {
+                @Override
+                protected Map<String, Object> callUnorderedFileMapper(UnorderedFileMapper<String> mapper) {
+                    invoked[0] = true;
+                    return new HashMap<>(Map.of("lines_written", 1L));
+                }
+            };
+            testSubject.perform();
+
+            assertTrue(invoked[0]);
         } finally {
             tempDir.delete();
         }
@@ -288,5 +502,11 @@ public class EncodeTaskTest {
         Field field = UnorderedFileMapper.class.getDeclaredField(fieldName);
         field.setAccessible(true);
         return (Integer) field.get(target);
+    }
+
+    private static String readStringField(Object target, String fieldName) throws Exception {
+        Field field = UnorderedFileMapper.class.getDeclaredField(fieldName);
+        field.setAccessible(true);
+        return (String) field.get(target);
     }
 }
