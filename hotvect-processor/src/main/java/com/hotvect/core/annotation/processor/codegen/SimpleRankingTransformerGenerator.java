@@ -90,6 +90,8 @@ public final class SimpleRankingTransformerGenerator {
         if (algorithmDependencies == null) {
             return;
         }
+        Map<String, String> algorithmDependencyTypeTokenFields =
+                buildAlgorithmDependencyTypeTokenFieldNames(algorithmDependencies);
 
         GeneratedTransformerBackend backend = loadGeneratedTransformerBackend(spec.backend(), specElement);
         if (backend == null) {
@@ -142,6 +144,7 @@ public final class SimpleRankingTransformerGenerator {
         ClassName namespaces = ClassName.get("com.hotvect.core.transform", "Namespaces");
         ClassName listBatchingSpliterator = ClassName.get("com.hotvect.core.transform.ranking", "ListBatchingSpliterator");
         ClassName featureStoreRetriever = ClassName.get("com.hotvect.core.featurestore", "FeatureStoreRetriever");
+        ClassName typeToken = ClassName.get("com.google.common.reflect", "TypeToken");
 
         TypeSpec.Builder typeBuilder = TypeSpec.classBuilder(className)
                 .addModifiers(Modifier.PUBLIC, Modifier.FINAL)
@@ -175,6 +178,15 @@ public final class SimpleRankingTransformerGenerator {
         TypeName featureStoreRetrieverType = ParameterizedTypeName.get(featureStoreRetriever, sharedType, actionType);
         typeBuilder.addField(FieldSpec.builder(featureStoreRetrieverType, "featureStoreRetriever", Modifier.PRIVATE, Modifier.FINAL).build());
         for (AlgorithmDependency algorithmDependency : algorithmDependencies.values()) {
+            TypeName dependencyAlgorithmType = TypeName.get(algorithmDependency.algorithmType());
+            typeBuilder.addField(FieldSpec.builder(
+                            ParameterizedTypeName.get(typeToken, dependencyAlgorithmType),
+                            algorithmDependencyTypeTokenFields.get(algorithmDependency.injectName()),
+                            Modifier.PUBLIC,
+                            Modifier.STATIC,
+                            Modifier.FINAL)
+                    .initializer("new $T<$T>() {}", typeToken, dependencyAlgorithmType)
+                    .build());
             typeBuilder.addField(FieldSpec.builder(TypeName.get(algorithmDependency.type()), algorithmDependency.fieldName(),
                     Modifier.PRIVATE, Modifier.FINAL).build());
         }
@@ -740,7 +752,7 @@ public final class SimpleRankingTransformerGenerator {
 
                 AlgorithmDependency existing = dependencies.get(param.injectName());
                 if (existing != null) {
-                    if (!sameErasure(existing.type(), param.element().asType())) {
+                    if (!context.types().isSameType(existing.type(), param.element().asType())) {
                         context.messager().printMessage(
                                 Diagnostic.Kind.ERROR,
                                 "Algorithm dependency '" + param.injectName() + "' is requested with incompatible parameter types: "
@@ -758,18 +770,44 @@ public final class SimpleRankingTransformerGenerator {
                 while (!usedFieldNames.add(fieldName)) {
                     fieldName = baseFieldName + "_" + suffix++;
                 }
-                dependencies.put(param.injectName(), new AlgorithmDependency(param.injectName(), param.element().asType(), fieldName));
+                TypeMirror parameterType = param.element().asType();
+                dependencies.put(
+                        param.injectName(),
+                        new AlgorithmDependency(
+                                param.injectName(),
+                                parameterType,
+                                parameterType,
+                                fieldName));
             }
         }
 
         return hasErrors ? null : dependencies;
     }
 
-    private boolean sameErasure(TypeMirror left, TypeMirror right) {
-        return context.types().isSameType(context.types().erasure(left), context.types().erasure(right));
+    private Map<String, String> buildAlgorithmDependencyTypeTokenFieldNames(
+            Map<String, AlgorithmDependency> dependencies) {
+        List<String> dependencyNames = new ArrayList<>(dependencies.keySet());
+        dependencyNames.sort(String::compareTo);
+        Set<String> usedFieldNames = new HashSet<>();
+        Map<String, String> fieldNames = new LinkedHashMap<>();
+        for (String dependencyName : dependencyNames) {
+            String base = "ALGORITHM_DEPENDENCY_"
+                    + toFieldName(dependencyName).toUpperCase(Locale.ROOT);
+            String fieldName = base + "_TYPE";
+            int suffix = 2;
+            while (!usedFieldNames.add(fieldName)) {
+                fieldName = base + "_" + suffix++ + "_TYPE";
+            }
+            fieldNames.put(dependencyName, fieldName);
+        }
+        return fieldNames;
     }
 
-    private record AlgorithmDependency(String injectName, TypeMirror type, String fieldName) {}
+    private record AlgorithmDependency(
+            String injectName,
+            TypeMirror type,
+            TypeMirror algorithmType,
+            String fieldName) {}
 
     private boolean isJavaKeyword(String value) {
         return switch (value) {

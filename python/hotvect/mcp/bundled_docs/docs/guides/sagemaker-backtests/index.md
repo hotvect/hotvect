@@ -14,9 +14,9 @@ related_docs:
   - ../patterns/override-files/index.md
   - ../../design/sagemaker-configuration/index.md
 related_commands:
-  - hv backtest
-  - hv-ext results download
-  - hv-ext metrics compare-quality
+  - hv algorithm backtest
+  - hv results download
+  - hv metrics compare-quality
 next_steps:
   - Analyze evaluation metrics
   - Compare algorithm performance
@@ -35,7 +35,7 @@ submission records for later verification. This guide covers:
 - Troubleshooting common SageMaker pitfalls
 
 Resource settings come from the explicit CLI, algorithm override, committed algorithm definition, and template layers.
-`hv backtest` auto-attaches missing `InputDataConfig` channels from the effective definition.
+`hv algorithm backtest` auto-attaches missing `InputDataConfig` channels from the effective definition.
 
 ## Prerequisites
 
@@ -119,7 +119,7 @@ inside `custom.py`; Hotvect does not supply a runtime-upgrade or wheelhouse prot
 
 Important practical point:
 
-- `hv backtest` does **not** currently build or upload a script-mode payload for you. Script-mode only happens if your SageMaker job definition/template already includes `HyperParameters.s3_uri_custom_jar` or another launcher injects it.
+- `hv algorithm backtest` does **not** currently build or upload a script-mode payload for you. Script-mode only happens if your SageMaker job definition/template already includes `HyperParameters.s3_uri_custom_jar` or another launcher injects it.
 
 For the exact script-mode contract and a payload-owned upgrade pattern, see [Use a custom SageMaker payload](../sagemaker-upgrade-custom-py/index.md).
 
@@ -191,7 +191,7 @@ Need a one-off experiment? Supply a JSON override file:
 }
 ```
 
-Attach it with `--algorithm-override overrides/experiment.json`. Overrides line up with git references in positional order, so you can vary resource allocations per version in a single `hv backtest` invocation.
+Attach it with `--algorithm-override overrides/experiment.json`. Overrides line up with git references in positional order, so you can vary resource allocations per version in a single `hv algorithm backtest` invocation.
 
 This is the correct surface for "I want this run to use a different instance type than what is committed in git." Editing the SageMaker template is only enough when the algorithm does not already own that field.
 
@@ -215,7 +215,7 @@ SageMaker mounts training data via named channels. If `InputDataConfig` is empty
 
 ### What the Framework Does
 
-Whenever you run `hv backtest` in SageMaker mode (for example, with `--sagemaker` and `--sagemaker-config`), the framework:
+Whenever you run `hv algorithm backtest` in SageMaker mode (for example, with `--sagemaker` and `--sagemaker-config`), the framework:
 
 1. Builds each algorithm JAR.
 2. Calls `AlgorithmPipeline.data_dependencies()` to list datasets.
@@ -230,7 +230,7 @@ The behavior is documented in [SageMaker InputDataConfig Solution](../../design/
 1. **Explicit `s3_uri` string** in the algorithm definition.
 2. **Environment map** – when `s3_uri` is a dictionary, hotvect prefers the requested environment (default `production`, override via `--auto-attach-data-environment`). Keys are matched case-insensitively with fallbacks (`production`, `prod`, `test`, `staging`, then first map entry).
 3. **Default base** – `--auto-attach-data-default-s3-base` + `data_prefix` if the definition omitted explicit URIs.
-4. **Fail loudly** – If none of the above succeed, `hv backtest` raises a `ValueError`.
+4. **Fail loudly** – If none of the above succeed, `hv algorithm backtest` raises a `ValueError`.
 
 That fallback order applies to dependency data specifications. `prediction_spec.s3_uri` and
 `prediction_spec.output_uri` deliberately use a stricter contract: when either is an environment map, the
@@ -247,7 +247,7 @@ create duplicate entries. Each git reference still receives its own job-specific
 ### Automatic InputDataConfig (default)
 
 ```bash
-hv backtest \
+hv algorithm backtest \
   --git-reference v2.0.0 \
   --git-reference v1.0.0 \
   --algo-repo-url https://github.com/example-org/example-algorithm.git \
@@ -267,7 +267,7 @@ What happens:
 1. Git references are cloned/built once.
 2. Each algorithm keeps its own declared instance type and container.
 3. Data dependencies become `InputDataConfig` channels automatically.
-4. Jobs submit asynchronously; the CLI prints job names for tracking.
+4. Normal backtest jobs submit asynchronously; with `--prewarm`, Hotvect submits and waits for all cache-prewarm jobs before it submits them.
 5. Each CLI invocation writes a run-scoped submission snapshot under `<output-base-dir>/meta/_backtest_submissions/<run_id>/`.
 
 ### Local Submission Metadata
@@ -336,7 +336,7 @@ Notes:
 Outputs land under `OutputDataConfig.S3OutputPath`. Download them with the helper:
 
 ```bash
-hv-ext results download s3://example-bucket/sagemaker-output/ \
+hv results download s3://example-bucket/sagemaker-output/ \
   --dest-base-dir ./backtest-results \
   --from-date 2000-01-08 \
   --to-date 2000-01-08
@@ -344,14 +344,25 @@ hv-ext results download s3://example-bucket/sagemaker-output/ \
 
 Inspect `result.json` (metrics/timing), `hv.log` (Python orchestration), and per-stage logs (`<stage>/hotvect-offline-utils.log` and `<stage>/stdout-stderr.log`) alongside any model/prediction artifacts.
 
-The canonical local layout produced by `hv-ext results download` is:
+`hv results download` materializes runs in `runs-with-links` layout:
+
+This is the only supported local layout. The command rejects `--layout` and fails fast when the destination contains the former one-result-per-day layout.
 
 ```
 ./backtest-results/
-└── meta/
-    └── <algorithm>@<version>(-<hyperparameter_version>)/
-        └── last_test_date_YYYY-MM-DD/
-            └── result.json
+├── meta/
+│   └── <algorithm>@<version>(-<hyperparameter_version>)/
+│       └── last_test_date_YYYY-MM-DD/
+│           ├── latest -> ../../../runs/<job>/meta/<algorithm>@<version>(-<hyperparameter_version>)/last_test_date_YYYY-MM-DD
+│           ├── result.json -> ../../../runs/<job>/meta/<algorithm>@<version>(-<hyperparameter_version>)/last_test_date_YYYY-MM-DD/result.json
+│           └── runs/
+│               └── <job> -> ../../../../runs/<job>/meta/<algorithm>@<version>(-<hyperparameter_version>)/last_test_date_YYYY-MM-DD
+└── runs/
+    └── <job>/
+        └── meta/
+            └── <algorithm>@<version>(-<hyperparameter_version>)/
+                └── last_test_date_YYYY-MM-DD/
+                    └── result.json
 ```
 
 #### Canonical result pointers (recommended)
@@ -383,13 +394,18 @@ For a custom payload, inspect its own logging and artifact contract first.
 `result.json` is a machine-readable summary produced by the backtest runner. Common patterns:
 
 - **Offline/backtest metrics** live under `evaluate.*` as estimates (for example `evaluate.roc_auc.value`, with optional
-  `ci95_lower` and `ci95_upper`).
-- Some pipelines also embed a comparison block under `evaluate.online.*` (for example
-  `evaluate.online.<view>.roc_auc.value`, again with optional confidence bounds).
+  `ci95_lower` and `ci95_upper`). They are recomputed from the predictions produced by the backtest candidate.
+- Some pipelines also embed a **baseline/online comparison block** under `evaluate.online.*` (for example
+  `evaluate.online.<view>.roc_auc.value`, again with optional confidence bounds). Those values come from the scores
+  and ranks logged when the request was served.
 
 Current evaluation output uses the structured estimate, so consumers should read `.value`.
 
-For parity/regression checks, compare the offline block (`evaluate.*`) unless you explicitly intend to compare against the embedded baseline/online block.
+For parity/regression checks, compare the offline block (`evaluate.*`). `hv-qa` passes those recomputed metrics into an
+explicit evaluation-criteria policy instead of accepting an ad hoc metric-prefix override. Do not use
+`evaluate.online.*` to decide whether a treatment is at parity with control; those metrics can be identical across
+control and treatment even when the recomputed treatment scores differ. For a durable multi-day release decision,
+follow [Release QA validation with hv-qa](../hv-qa-release-validation/index.md).
 
 ##### 3-command recipe: fetch + print metrics via `s3_uri_result_file`
 
@@ -452,7 +468,7 @@ When iterating on backtests, enable caching to avoid re-running expensive steps 
 
 Example:
 ```bash
-hv backtest \
+hv algorithm backtest \
   --git-reference v2.0.0 \
   --algo-repo-url https://github.com/example-org/example-algorithm.git \
   --output-base-dir /path/to/backtest-output \
@@ -465,6 +481,44 @@ hv backtest \
   --cache s3://example-bucket/hotvect-cache/ \
   --cache-scope hyperparam
 ```
+
+Prewarm is available only for remote SageMaker backtests. To pre-populate the encode partition cache before the normal
+backtest jobs are submitted, add:
+```bash
+  --prewarm
+```
+
+Prewarm assigns each required partition to the newest requested backtest window whose encode parameters apply. In
+automatic mode, Hotvect selects the minimum required compatible encoding-parameter contexts and submits every planned
+one-instance `encode-cache` SageMaker job together before waiting and then submitting the normal backtest jobs. Set
+`--prewarm-instance-count <n>` to select more jobs: a count below the required compatible contexts fails before
+submission, while a larger count may use additional compatible contexts. Prewarm jobs recurse into dependencies, and
+existing completed partition cache entries are reused, so rerunning the same command is the resume path. It requires an
+`s3://` cache path. Partition identity follows the
+configured algorithm version, cache scope, and hyperparameter version; reusing that identity across source revisions or
+data environments is an explicit user decision.
+Each prewarm invocation uses fresh SageMaker job names; partition `_SUCCESS` markers are the durable completion record.
+Prewarm jobs inherit the ordinary SageMaker resource configuration except that they always use one instance. Set
+`--prewarm-instance-type` only when their encode workload needs a different instance type; it requires `--prewarm` and
+replaces any configured preferred-instance list, so prewarm uses that type only.
+
+Prewarm is explicit rather than automatic: it only helps when concurrent backtest jobs would otherwise duplicate enough
+cold partition encoding to outweigh extra SageMaker startup, queue, and wait time. Plain `--cache` therefore keeps the
+normal asynchronous backtest flow.
+
+Prewarm fails before submission when a partition-cached algorithm has an unpinned trainable dependency: that
+algorithm's encoding-parameter archive requires the dependency's trained model, which an encode-only job cannot create
+without adding a training phase. Pin the dependency with `hotvect_execution_parameters.with_parameter`, disable
+partition caching for the parent algorithm, or run the backtest without prewarm.
+
+Incomplete partition cache prefixes are not repaired automatically. If a partition has partial data or a `_STARTED`
+marker but no `_SUCCESS`, Hotvect reports the blocked partition and stops before submitting normal backtest jobs. Marker
+contents are not interpreted; their existence is the contract.
+Manually clear or repair the partition prefix before rerunning prewarm. A normal backtest without prewarm can still encode
+that partition locally without publishing it.
+
+Partition reuse intentionally accepts an encode parameter set that was valid for a relevant backtest window, even when
+another requested window would have produced different parameters.
 
 If you need to force a run-level recompute (but still write fresh run-level results back to cache), use an effective
 `cache_base_dir`, set `hotvect_execution_parameters.cache="run"` in the algorithm definition/override, and add:
@@ -481,7 +535,7 @@ See also: [Reuse existing outputs / caching](../reuse-outputs/index.md).
 aws sts get-caller-identity
 
 # 2. Run SageMaker backtest
-hv backtest \
+hv algorithm backtest \
   --git-reference v2.0.0 \
   --git-reference v1.0.0 \
   --algo-repo-url https://github.com/example-org/example-algorithm.git \
@@ -499,22 +553,31 @@ hv backtest \
 aws sagemaker describe-training-job --training-job-name hotvect-backtest-abc123
 
 # 4. Download and compare results
-hv-ext results download s3://example-bucket/sagemaker-output/ \
+hv results download s3://example-bucket/sagemaker-output/ \
   --dest-base-dir ./backtest-results \
   --from-date 2000-01-08 \
   --to-date 2000-01-08
 
-hv-ext metrics compare-quality \
+hv metrics compare-quality \
   --output-base-dir ./backtest-results/meta \
   --control my-algorithm@1.0.0 \
   --treatment my-algorithm@1.0.1 \
   --from-test-date 2000-01-08 \
   --to-test-date 2000-01-08 \
   > comparison.json
+
+# 6. Render a compare PDF from the downloaded output directory
+hv metrics plot \
+  --output-base-dir ./backtest-results \
+  --assemble-latest-sections \
+  --algorithm-ids my-algorithm@1.0.0 my-algorithm@1.0.1 \
+  --relative-baseline my-algorithm@1.0.0 \
+  --out compare.pdf
 ```
 
 ## Additional Resources
 
 - [Automatic SageMaker Configuration (Design)](../../design/sagemaker-configuration/index.md)
 - [SageMaker InputDataConfig Solution (Design)](../../design/sagemaker-inputdataconfig/index.md)
+- [Release QA validation with hv-qa](../hv-qa-release-validation/index.md) for staged control-versus-treatment evidence
 - [FAQ](../../reference/faq/index.md) and [Troubleshooting](../../reference/troubleshooting/index.md) for general guidance

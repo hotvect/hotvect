@@ -3,7 +3,6 @@ package com.hotvect.onlineutils.nativelibraries.catboost;
 import ai.catboost.CatBoostError;
 import ai.catboost.CatBoostModel;
 import ai.catboost.CatBoostPredictions;
-import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.hotvect.onlineutils.hotdeploy.util.CatBoostModelClosedException;
 import com.hotvect.utils.VerboseRunnable;
 import it.unimi.dsi.fastutil.doubles.DoubleArrayList;
@@ -19,7 +18,8 @@ import static com.google.common.base.Preconditions.checkState;
 
 public class HotvectCatBoostModel implements AutoCloseable {
     private static final Logger log = LoggerFactory.getLogger(HotvectCatBoostModel.class);
-    private static final Cleaner CLEANER = Cleaner.create(new ThreadFactoryBuilder().setNameFormat("catboost-model-cleaner-%s").build());
+    // The JDK cleaner thread does not inherit the initializing artifact's access-control context.
+    private static final Cleaner CLEANER = Cleaner.create();
 
     private volatile boolean isClosed = false;
 

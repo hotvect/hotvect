@@ -10,5 +10,8 @@ public record ProcessingContext(Messager messager, Filer filer, Elements element
                                 TypeElement sharedFeatureAnnotation, TypeElement featureAnnotation,
                                 TypeElement injectAnnotation, TypeElement injectAlgorithmAnnotation,
                                 TypeElement specAnnotation,
-                                TypeElement sharedContextType) {
+                                TypeElement sharedContextType,
+                                TypeElement algorithmType,
+                                TypeElement mapType,
+                                TypeElement stringType) {
 }

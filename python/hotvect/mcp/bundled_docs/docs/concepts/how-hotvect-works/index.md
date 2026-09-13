@@ -60,7 +60,8 @@ The definition is configuration, not an alternative implementation. A factory na
 the current JAR-based algorithm package and implement the corresponding Hotvect API.
 
 An algorithm can be simple or composite. A simple ranker constructs its decision logic directly. A composite ranker
-receives named child `AlgorithmInstance` objects—for example, a scorer and a policy component—through its factory.
+receives `AlgorithmDependencies`, whose named entries contain child `AlgorithmInstance` values such as a scorer and a
+policy component.
 
 ## 3. Build the algorithm package
 
@@ -106,14 +107,13 @@ algorithm.
 
 The runtime path is:
 
-1. Resolve algorithm metadata: algorithm name, algorithm version, and parameter ID.
-2. Obtain the matching algorithm and parameter packages. The current `AlgorithmRepository` resolves these as a JAR
-   and ZIP and requires a parameter identity; direct `AlgorithmInstanceFactory` use can load a parameterless algorithm
-   with no ZIP.
+1. Resolve algorithm metadata: algorithm name, algorithm version, and an optional parameter ID and path pair.
+2. Obtain the matching algorithm JAR and, when parameters are present, its ZIP. EMS serving and direct
+   `AlgorithmInstanceFactory` use can both load a parameterless algorithm with no ZIP.
 3. Read the embedded definition and resolve declared children or host-provided bindings.
-4. Create an `AlgorithmInstance` with an online `ExecutionContext`.
-5. Cache and reuse that instance while it remains active.
-6. Pass typed requests to its public algorithm and return the resulting decisions.
+4. Create an owned `AlgorithmGraph` with an online `ExecutionContext`; its root is an `AlgorithmInstance` value.
+5. Cache and reuse the graph while it remains active.
+6. Pass typed requests to the root algorithm and return the resulting decisions.
 
 The application does not call the offline CLI for each request. It embeds the Hotvect online runtime and calls the
 loaded Java object.
@@ -125,7 +125,7 @@ loaded Java object.
 | Algorithm package and embedded definition | How raw input reaches the algorithm |
 | Parameter package | Offline files versus live application objects |
 | Public request/response shape | Batch versus realtime runtime configuration |
-| Declared logical dependency graph | Concrete child objects, host bindings, and resource ownership |
+| Declared dependency graph | Concrete child objects, host bindings, and resource ownership |
 | Algorithm and parameter identity | Scheduling, traffic, authentication, and monitoring |
 
 This is why Hotvect improves online/offline consistency without claiming automatic parity. The algorithm packages can

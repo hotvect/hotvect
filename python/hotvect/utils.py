@@ -49,6 +49,26 @@ class MalformedAlgorithmException(Exception):
     pass
 
 
+@dataclass(frozen=True)
+class AlgorithmProviderIdentity:
+    """Published identity used to choose one physical algorithm-artifact provider."""
+
+    algorithm_name: str
+    algorithm_version: str
+
+    def printable(self) -> str:
+        return f"{self.algorithm_name}@{self.algorithm_version}"
+
+
+@dataclass(frozen=True)
+class AlgorithmDefinitionProvider:
+    """One deterministic provider selected from an algorithm-artifact set."""
+
+    path: Path
+    definition: dict[str, Any]
+    identity: AlgorithmProviderIdentity
+
+
 def sanitize_path_component(value: str, max_length: int = 80) -> str:
     """
     Sanitize an arbitrary string to be safe as a single filesystem path component.
@@ -336,6 +356,7 @@ def to_zip_archive(to_archive: list[tuple[str, str]], dest: str, compress_type=z
             return
         except Exception as e:
             logger.warning(f"7z ZIP failed, falling back to Python zipfile: {e}")
+            Path(dest).unlink(missing_ok=True)
 
     # Fallback to Python zipfile
     if is_windows:
@@ -347,7 +368,15 @@ def to_zip_archive(to_archive: list[tuple[str, str]], dest: str, compress_type=z
 
     with zipfile.ZipFile(dest, "w") as zipF:
         for src, arcname in to_archive:
-            zipF.write(src, arcname=arcname, compress_type=compress_type)
+            source_stat = os.stat(src)
+            timestamp = time.localtime(source_stat.st_mtime)[:6]
+            if timestamp < (1980, 1, 1, 0, 0, 0):
+                timestamp = (1980, 1, 1, 0, 0, 0)
+            zip_info = zipfile.ZipInfo(arcname, timestamp)
+            zip_info.external_attr = (source_stat.st_mode & 0xFFFF) << 16
+            zip_info.compress_type = compress_type
+            with open(src, "rb") as source, zipF.open(zip_info, "w", force_zip64=True) as archive_file:
+                shutil.copyfileobj(source, archive_file)
 
 
 def clean_dir(d: str):
@@ -379,20 +408,215 @@ def is_iterable(x: Any) -> bool:
     return isinstance(x, collections.abc.Iterable) and not isinstance(x, str)
 
 
-def read_algorithm_definition_from_jar(
-    algorithm_name: str, algorithm_jar_path: Path, additional_jars: list[Path] | None = None
-) -> dict[str, Any]:
-    jars = [algorithm_jar_path] if additional_jars is None else additional_jars + [algorithm_jar_path]
+def select_algorithm_definition_provider(
+    algorithm_name: str,
+    algorithm_jar_paths: list[Path] | tuple[Path, ...],
+) -> AlgorithmDefinitionProvider:
+    """
+    Resolve one canonical definition provider from a deterministic JAR set.
+
+    Provider identity is the committed ``algorithm_name`` and ``algorithm_version``. Equal
+    identities are aliases, so the lexicographically first normalized path is canonical. Distinct
+    identities for the requested algorithm are ambiguous and fail instead of depending on caller
+    order.
+    """
+    jars = tuple(sorted({Path(path).resolve() for path in algorithm_jar_paths}, key=str))
+    if not jars:
+        raise ValueError("algorithm_jar_paths must not be empty")
+
     algo_def_filename = f"{algorithm_name}-algorithm-definition.json"
+    providers: list[AlgorithmDefinitionProvider] = []
 
     for jar in jars:
         with zipfile.ZipFile(jar, "r") as zip_file:
-            list_zip_info = zip_file.infolist()
-            for zip_info in list_zip_info:
-                file_name = zip_info.filename
-                if file_name == algo_def_filename:
-                    return json.loads(zip_file.read(zip_info.filename).decode("utf8"))
-    raise MalformedAlgorithmException(f"Algorithm Definition {algo_def_filename} not in any Jars: {jars}")
+            matches = [entry for entry in zip_file.infolist() if entry.filename == algo_def_filename]
+            if len(matches) > 1:
+                raise MalformedAlgorithmException(
+                    f"Algorithm Definition {algo_def_filename} appears more than once in JAR: {jar}"
+                )
+            if not matches:
+                continue
+            definition = json.loads(zip_file.read(matches[0]).decode("utf8"))
+            providers.append(
+                AlgorithmDefinitionProvider(
+                    path=jar,
+                    definition=definition,
+                    identity=_algorithm_provider_identity(algorithm_name, definition, jar),
+                )
+            )
+
+    if not providers:
+        raise MalformedAlgorithmException(f"Algorithm Definition {algo_def_filename} not in any JAR: {jars}")
+
+    canonical = providers[0]
+    conflicts = [provider for provider in providers[1:] if provider.identity != canonical.identity]
+    if conflicts:
+        descriptions = ", ".join(f"{provider.identity.printable()} in {provider.path}" for provider in providers)
+        raise MalformedAlgorithmException(
+            f"Algorithm {algorithm_name} has conflicting provider identities: {descriptions}"
+        )
+    return canonical
+
+
+def read_algorithm_definition_from_jars(
+    algorithm_name: str,
+    algorithm_jar_paths: list[Path] | tuple[Path, ...],
+) -> dict[str, Any]:
+    """Read the definition from the canonical provider in an algorithm-artifact set."""
+    return select_algorithm_definition_provider(algorithm_name, algorithm_jar_paths).definition
+
+
+def read_algorithm_definition_from_jar(
+    algorithm_name: str, algorithm_jar_path: Path, additional_jars: list[Path] | None = None
+) -> dict[str, Any]:
+    """Read one definition while applying the common canonical-provider policy."""
+    jars = [algorithm_jar_path] if additional_jars is None else [*additional_jars, algorithm_jar_path]
+    return read_algorithm_definition_from_jars(algorithm_name, jars)
+
+
+def _algorithm_provider_identity(
+    expected_algorithm_name: str,
+    definition: Any,
+    provider_path: Path,
+) -> AlgorithmProviderIdentity:
+    if not isinstance(definition, dict):
+        raise MalformedAlgorithmException(
+            f"Algorithm Definition {expected_algorithm_name}-algorithm-definition.json in {provider_path} "
+            "must contain a JSON object"
+        )
+    algorithm_name = definition.get("algorithm_name")
+    if not isinstance(algorithm_name, str) or not algorithm_name.strip() or algorithm_name != expected_algorithm_name:
+        raise MalformedAlgorithmException(
+            f"Algorithm Definition {expected_algorithm_name}-algorithm-definition.json in {provider_path} "
+            f"declares algorithm_name {algorithm_name!r}"
+        )
+    algorithm_version = definition.get("algorithm_version")
+    if not isinstance(algorithm_version, str) or not algorithm_version.strip():
+        raise MalformedAlgorithmException(
+            f"Algorithm Definition {expected_algorithm_name}-algorithm-definition.json in {provider_path} "
+            "must declare a non-blank string algorithm_version"
+        )
+    if "hyperparameter_version" in definition:
+        raise MalformedAlgorithmException(
+            f"Algorithm Definition {expected_algorithm_name}-algorithm-definition.json in {provider_path} "
+            "must not contain offline-only hyperparameter_version; supply it through an explicit offline override"
+        )
+    algorithm_factory = definition.get("algorithm_factory_classname")
+    state_factory = definition.get("generator_factory_classname")
+    if not _non_blank_string(algorithm_factory) and not _non_blank_string(state_factory):
+        raise MalformedAlgorithmException(
+            f"Algorithm Definition {expected_algorithm_name}-algorithm-definition.json in {provider_path} "
+            "must declare algorithm_factory_classname or generator_factory_classname"
+        )
+    _validate_committed_dependencies(
+        definition.get("dependencies"),
+        f"Algorithm Definition {expected_algorithm_name}-algorithm-definition.json in {provider_path}",
+    )
+    return AlgorithmProviderIdentity(
+        algorithm_name=algorithm_name,
+        algorithm_version=algorithm_version,
+    )
+
+
+_algorithm_reference_pattern = re.compile(r"^([\w\-]+)(?:@([\w\-.]+))?$")
+_ems_slot_name_pattern = re.compile(r"^[a-z0-9-]+$")
+
+
+def _non_blank_string(value: Any) -> bool:
+    return isinstance(value, str) and bool(value.strip())
+
+
+def _parse_committed_algorithm_reference(reference: Any, location: str) -> tuple[str, str | None]:
+    if not isinstance(reference, str):
+        raise MalformedAlgorithmException(f"{location} must be an algorithm name string")
+    match = _algorithm_reference_pattern.fullmatch(reference)
+    if match is None:
+        raise MalformedAlgorithmException(
+            f"Specified algorithm name {reference} does not match pattern {_algorithm_reference_pattern.pattern}"
+        )
+    return match.group(1), match.group(2)
+
+
+def _validate_committed_dependencies(dependencies: Any, location: str) -> None:
+    if dependencies is None:
+        return
+    logical_names: set[str] = set()
+    if isinstance(dependencies, list):
+        for reference in dependencies:
+            name, version = _parse_committed_algorithm_reference(reference, f"{location} dependency")
+            if version is not None:
+                raise MalformedAlgorithmException(f"Private dependency {name} must not declare an algorithm version")
+            if name in logical_names:
+                raise MalformedAlgorithmException(f"Duplicate dependency declaration: {name}")
+            logical_names.add(name)
+        return
+    if not isinstance(dependencies, dict):
+        raise MalformedAlgorithmException(f"{location} dependencies must be an array or object")
+
+    for reference, declaration in dependencies.items():
+        name, version = _parse_committed_algorithm_reference(reference, f"{location} dependency")
+        if name in logical_names:
+            raise MalformedAlgorithmException(f"Duplicate dependency declaration: {name}")
+        logical_names.add(name)
+        if not isinstance(declaration, dict):
+            raise MalformedAlgorithmException(f"Dependency declaration for {name} must be a JSON object")
+        if "scope" not in declaration:
+            if version is not None:
+                raise MalformedAlgorithmException(f"Private dependency {name} must not declare an algorithm version")
+            _validate_committed_override_fragment(declaration, f"{location} dependency override {name}")
+            continue
+        scope = declaration["scope"]
+        if scope == "shared":
+            if set(declaration) != {"scope"}:
+                raise MalformedAlgorithmException(f"Shared dependency {name} must contain only scope: shared")
+            if version is None:
+                raise MalformedAlgorithmException(
+                    f"Shared dependency {name} must declare an exact algorithm version as name@version"
+                )
+            continue
+        if scope == "slot":
+            if set(declaration) != {"scope"}:
+                raise MalformedAlgorithmException(f"Slot-backed dependency {name} must contain only scope: slot")
+            if version is not None:
+                raise MalformedAlgorithmException(
+                    f"Slot-backed dependency {name} must not declare an algorithm version"
+                )
+            if _ems_slot_name_pattern.fullmatch(name) is None:
+                raise MalformedAlgorithmException(
+                    f"Slot-backed dependency {name} must match {_ems_slot_name_pattern.pattern}"
+                )
+            continue
+        if scope == "private":
+            raise MalformedAlgorithmException(
+                f"Dependency {name} must not declare scope: private; private is the default"
+            )
+        raise MalformedAlgorithmException(f"Dependency {name} scope must be shared or slot with no other fields")
+
+
+def _validate_committed_override_fragment(fragment: dict[str, Any], location: str) -> None:
+    if "algorithm_name" in fragment or "algorithm_version" in fragment:
+        raise MalformedAlgorithmException(f"{location} must not contain algorithm identity fields")
+    if "hyperparameter_version" in fragment:
+        raise MalformedAlgorithmException(
+            f"{location} must not contain offline-only hyperparameter_version; "
+            "supply it through an explicit offline override"
+        )
+    if "dependencies" not in fragment:
+        return
+    dependencies = fragment["dependencies"]
+    if not isinstance(dependencies, dict):
+        raise MalformedAlgorithmException(f"{location} dependencies override must be a JSON object")
+    for reference, child in dependencies.items():
+        name, version = _parse_committed_algorithm_reference(reference, f"{location} dependency override")
+        if version is not None:
+            raise MalformedAlgorithmException(
+                f"Dependency override key {reference} must be an unversioned dependency name"
+            )
+        if not isinstance(child, dict):
+            raise MalformedAlgorithmException(f"Override for dependency {name} must be a JSON object")
+        if "scope" in child:
+            raise MalformedAlgorithmException(f"Override for dependency {name} must not declare scope")
+        _validate_committed_override_fragment(child, f"{location} dependency override {name}")
 
 
 _algorithm_name_pattern = re.compile(r"^[\w\-_]+$")

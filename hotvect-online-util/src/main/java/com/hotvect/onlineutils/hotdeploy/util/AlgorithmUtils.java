@@ -33,14 +33,27 @@ public class AlgorithmUtils {
     }
 
     public static AlgorithmDefinition readAlgorithmDefinitionFromClassLoader(String algorithmName, ClassLoader classLoader) throws MalformedAlgorithmException {
+        return readAlgorithmDefinitionFromClassLoader(
+                algorithmName,
+                classLoader,
+                new AlgorithmDefinitionReader());
+    }
+
+    /** Reads one definition using the caller's dependency-resolution policy. */
+    public static AlgorithmDefinition readAlgorithmDefinitionFromClassLoader(
+            String algorithmName,
+            ClassLoader classLoader,
+            AlgorithmDefinitionReader reader) throws MalformedAlgorithmException {
 
         String algorithmDefinitionJsonPattern = "^"+Pattern.quote(algorithmName)+"-algorithm-definition\\.json$";
         try (InputStream is = findFirstMatchingResourceAsStream(algorithmDefinitionJsonPattern, classLoader)) {
             String algoDefJson = CharStreams.toString(new InputStreamReader(is, Charsets.UTF_8));
 
-            AlgorithmDefinition ret = new AlgorithmDefinitionReader().parse(algoDefJson);
+            AlgorithmDefinition ret = java.util.Objects.requireNonNull(reader, "reader must not be null")
+                    .parseCommitted(algoDefJson);
             checkState(algorithmName.equals(ret.algorithmId().algorithmName()),
-                    "Read algorithm name %s does not match specified algorithm %s", ret.algorithmId());
+                    "Read algorithm name %s does not match specified algorithm %s",
+                    ret.algorithmId().algorithmName(), algorithmName);
             return ret;
         } catch (IOException e) {
             throw new MalformedAlgorithmException(e);

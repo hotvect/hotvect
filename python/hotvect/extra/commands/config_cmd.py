@@ -1,4 +1,4 @@
-"""hv-ext config command."""
+"""Configuration command shared by ``hv`` and the legacy ``hv-ext`` entrypoint."""
 
 from __future__ import annotations
 
@@ -39,6 +39,11 @@ class ConfigCommand(BaseCommand):
     @classmethod
     def register_parser(cls, subparsers):
         parser = subparsers.add_parser("config", help="Show or initialize ~/.hotvect/config.json (JSON output only)")
+        cls.add_arguments(parser)
+        return parser
+
+    @staticmethod
+    def add_arguments(parser):
         sub = parser.add_subparsers(dest="subcommand", required=True, metavar="<subcommand>")
 
         sub.add_parser("show", help="Print the effective config JSON")
@@ -98,7 +103,6 @@ class ConfigCommand(BaseCommand):
             default=[],
             help="Add an online-results slot mapping as <slot>=s3://bucket/path/ (repeatable; requires EMS config).",
         )
-        return parser
 
     def execute(self, args):
         if args.subcommand == "show":

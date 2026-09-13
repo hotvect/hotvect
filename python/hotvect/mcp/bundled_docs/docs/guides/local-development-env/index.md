@@ -16,10 +16,9 @@ related_docs:
   - ../patterns/data-dependencies/index.md
   - ../../reference/cli/index.md
 related_commands:
-  - hv-ext config init
-  - hv-ext show-data-dependency
-  - hv-ext data-dependency
-  - hv backtest
+  - hv config init
+  - hv data dependencies inspect
+  - hv algorithm backtest
 ---
 
 # Prepare a local development environment
@@ -51,7 +50,6 @@ HOTVECT_REPO=/path/to/hotvect
 ALGO_REPO_URL=https://github.com/example-org/example-algorithm.git
 GIT_REF=main
 LAST_TEST_TIME=2000-02-01
-S3_BASE_DIR=s3://example-bucket/tables/
 WORK_DIR=/tmp/hotvect-local-dev
 DATA_BASE_DIR="$WORK_DIR/data"
 OUTPUT_BASE_DIR="$WORK_DIR/output"
@@ -66,8 +64,8 @@ Notes:
 
 - `ALGO_REPO_URL` can also be a local checkout path when validating an unpushed branch.
 - Use a commit SHA for reproducible setup. Use a branch only when you explicitly want the current branch state.
-- `S3_BASE_DIR` is required by `hv-ext data-dependency`. If dependencies declare their own `s3_uri`, Hotvect uses the
-  resolved dependency URI; otherwise it appends each `data_prefix` to this base directory.
+- Prefer a production `s3_uri` on each dependency. For algorithms that rely on the conventional shared layout, pass
+  `--s3-base-dir`; Hotvect resolves an undeclared dependency as `<base>/<data_prefix>/`. A declared URI takes precedence.
 - Keep `WORK_DIR` outside the Hotvect and algorithm source checkouts. Training outputs and downloaded data are large.
 
 ## 1. Install and verify Hotvect
@@ -79,7 +77,7 @@ cd "$HOTVECT_REPO/python"
 make init
 source .venv/bin/activate
 hv --version
-hv-ext --help
+hv --help
 ```
 
 Keep this virtual environment active for the commands below. Backtests launch helper binaries such as trainer scripts
@@ -88,7 +86,7 @@ from `PATH`, so the shell should resolve them from the same Hotvect installation
 Expected:
 
 - `hv --version` prints both the Python package version and the bundled Hotvect JAR version.
-- `hv-ext --help` lists `config`, `show-data-dependency`, and `data-dependency`.
+- `hv --help` lists the `config` and `data` namespaces; `hv data --help` lists `dependencies`.
 
 If `hv` fails with a missing Hotvect JAR, rebuild and copy the JARs:
 
@@ -109,36 +107,35 @@ test ! -e ~/.hotvect/config.json
 If the second command succeeds, initialize the config:
 
 ```bash
-hv-ext config init \
+hv config init \
   --data-base-dir "$DATA_BASE_DIR" \
   --output-base-dir "$OUTPUT_BASE_DIR" \
   --scratch-dir "$SCRATCH_DIR"
 ```
 
-The config supplies defaults when a command omits a directory. `hv-ext config init` refuses to overwrite an existing
+The config supplies defaults when a command omits a directory. `hv config init` refuses to overwrite an existing
 file; inspect and edit that file, or pass `--force` only when replacing the complete configuration is intentional.
 
 ## 3. Verify the algorithm builds and exposes dependencies
 
-Run `show-data-dependency` first. It clones the algorithm, builds the JAR, loads the algorithm definition, and writes the
+Run `hv data dependencies inspect` first. It clones the algorithm, builds the JAR, loads the algorithm definition, and writes the
 declared data dependencies without enumerating S3 objects or downloading data.
 
 ```bash
-hv-ext show-data-dependency \
+hv data dependencies inspect \
   --repo-url "$ALGO_REPO_URL" \
   --git-reference "$GIT_REF" \
-  --scratch-dir "$SCRATCH_DIR/show-data-dependency" \
+  --scratch-dir "$SCRATCH_DIR/data-dependency-inspect" \
   --last-test-time "$LAST_TEST_TIME" \
-  --output "$WORK_DIR/dependencies.json"
+  > "$WORK_DIR/dependencies.json"
 ```
 
 Expected:
 
 - The command exits with code `0`.
-- `$WORK_DIR/dependencies.json` contains a `git_references` object keyed by the requested git reference.
-- Each git reference entry contains `algorithm_name`, `algorithm_version`, and `dependencies`.
-- Each dependency entry includes `data_prefix`. Resolved URI fields can vary depending on whether the dependency declares
-  an explicit URI.
+- `$WORK_DIR/dependencies.json` contains `algorithm_name`, `algorithm_version`, and `dependencies`.
+- Each dependency entry includes `data_prefix` and its resolved dates. Add `--remote` to verify the production S3
+  location; add `--s3-base-dir` when undeclared dependencies use a conventional shared base.
 
 If this fails, fix the build or algorithm definition before trying to download data. Common causes are missing Maven
 credentials, an invalid `GIT_REF`, an unsupported Java version, or an algorithm definition that cannot be loaded. For
@@ -153,20 +150,18 @@ Use your environment's normal AWS login flow, then verify credentials:
 aws sts get-caller-identity
 ```
 
-Do this before `hv-ext data-dependency`. The default list mode is safe from downloads, but it still enumerates S3 files
-to estimate sizes and compare local status, so AWS credentials are required.
+Do this before `hv data dependencies inspect --remote --local-dir` or any download. Plain `inspect` and
+`inspect --remote` do not access S3 objects.
 
 ## 5. Inspect the exact download plan
 
-List dependencies as JSON before downloading:
+Resolve production locations and compare the local mirror before downloading:
 
 ```bash
-hv-ext data-dependency \
+hv data dependencies inspect --remote --local-dir "$DATA_BASE_DIR" \
   --repo-url "$ALGO_REPO_URL" \
   --git-reference "$GIT_REF" \
-  --s3-base-dir "$S3_BASE_DIR" \
-  --local-data-dir "$DATA_BASE_DIR" \
-  --scratch-dir "$SCRATCH_DIR/data-dependency-list" \
+  --scratch-dir "$SCRATCH_DIR/data-dependency-inspect-remote" \
   --last-test-time "$LAST_TEST_TIME" \
   > "$WORK_DIR/download-plan.json"
 
@@ -176,44 +171,40 @@ python -m json.tool "$WORK_DIR/download-plan.json"
 Expected:
 
 - The command exits with code `0`.
-- The command output contains a `summary.total_size_human` field and a `dependencies` array.
-- Each dependency has the expected `data_dates`, `s3_uri`, `local_path`, and `status`.
+- The command output contains a `dependencies` array.
+- Each dependency has the expected `data_dates`, `s3_uri`, `local_path`, and `local_status`.
 
 The JSON plan is written to stdout, while build and progress messages stay on stderr. It is safe to redirect or pipe
 stdout as shown above.
 
-If the size is too large for local iteration, keep the first download sampled and consider passing
-`--download <data_prefix>` for only the dependency you need. Increase `SAMPLE_RATIO` only after list mode confirms that
-the planned file count and size fit the local disk.
+If the data is too large for local iteration, keep the first download sampled and consider passing
+`--name <data_prefix>` for only the dependency you need.
 
-If list mode fails with an AWS credential or S3 access error after the algorithm build succeeds, the local
-build/dependency-shape check has passed. Refresh credentials before retrying list mode or any sampled download.
+If remote inspection fails with an AWS credential or S3 access error after the algorithm build succeeds, the local
+build/dependency-shape check has passed. Refresh credentials before retrying remote inspection or any sampled download.
 
 ## 6. Download a sampled local dataset
 
 Start with a sampled download:
 
 ```bash
-hv-ext data-dependency --download-all \
+hv data dependencies download --all \
+  --local-dir "$DATA_BASE_DIR" \
   --repo-url "$ALGO_REPO_URL" \
   --git-reference "$GIT_REF" \
-  --s3-base-dir "$S3_BASE_DIR" \
-  --local-data-dir "$DATA_BASE_DIR" \
   --scratch-dir "$SCRATCH_DIR/data-dependency-download" \
   --last-test-time "$LAST_TEST_TIME" \
   --sample-ratio "$SAMPLE_RATIO" \
   --max-parallel-downloads 2
 ```
 
-Use `--download <data_prefix>` instead of `--download-all` when you only need one dependency:
+Use `--name <data_prefix>` instead of `--all` when you only need one dependency:
 
 ```bash
-hv-ext data-dependency \
-  --download example_training_data \
+hv data dependencies download --name example_training_data \
+  --local-dir "$DATA_BASE_DIR" \
   --repo-url "$ALGO_REPO_URL" \
   --git-reference "$GIT_REF" \
-  --s3-base-dir "$S3_BASE_DIR" \
-  --local-data-dir "$DATA_BASE_DIR" \
   --scratch-dir "$SCRATCH_DIR/data-dependency-download-one" \
   --last-test-time "$LAST_TEST_TIME" \
   --sample-ratio "$SAMPLE_RATIO" \
@@ -245,7 +236,7 @@ find "$DATA_BASE_DIR" -maxdepth 3 -type d -name 'dt=*' | sort
 Use the same directories and `LAST_TEST_TIME` used for the data download:
 
 ```bash
-hv backtest \
+hv algorithm backtest \
   --git-reference "$GIT_REF" \
   --algo-repo-url "$ALGO_REPO_URL" \
   --data-base-dir "$DATA_BASE_DIR" \

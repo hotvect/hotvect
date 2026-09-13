@@ -1,0 +1,5 @@
+{
+  "algorithm_name": "performance-test-storage-state",
+  "algorithm_version": "1.0.0",
+  "algorithm_factory_classname": "com.hotvect.offlineutils.commandline.PerformanceTestTaskLocalStateStorageTest$StorageRequiredStateFactory"
+}

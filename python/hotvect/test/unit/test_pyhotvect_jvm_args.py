@@ -9,7 +9,6 @@ def _ensure_offline_util_jar_present() -> None:
     jar_dir.mkdir(parents=True, exist_ok=True)
     required_patterns = {
         "hotvect-offline-util-*-jar-with-dependencies.jar": "hotvect-offline-util-test-jar-with-dependencies.jar",
-        "hotvect-algorithm-serve-*-jar-with-dependencies.jar": "hotvect-algorithm-serve-test-jar-with-dependencies.jar",
         "hotvect-algorithm-demo-*-jar-with-dependencies.jar": "hotvect-algorithm-demo-test-jar-with-dependencies.jar",
     }
     for pattern, filename in required_patterns.items():

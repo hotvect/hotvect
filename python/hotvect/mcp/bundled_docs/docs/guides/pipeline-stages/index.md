@@ -13,12 +13,12 @@ related_docs:
   - ../../reference/algorithm-definition/index.md
   - ../reuse-outputs/index.md
 related_commands:
-  - hv generate-state
-  - hv encode
-  - hv train
-  - hv predict
-  - hv evaluate
-  - hv performance-test
+  - hv algorithm generate-state
+  - hv algorithm encode
+  - hv algorithm train
+  - hv algorithm predict
+  - hv algorithm evaluate
+  - hv algorithm performance-test
 ---
 
 # Pipeline stages
@@ -34,7 +34,7 @@ are unfamiliar, read
 
 ## Start with the outcome you need
 
-`hv train` supports three run targets. The target determines where the common preparation path stops.
+`hv algorithm train` supports three run targets. The target determines where the common preparation path stops.
 
 | Target | Intended result | Inference input | Final stages |
 |---|---|---|---|
@@ -42,7 +42,7 @@ are unfamiliar, read
 | `predict` | Train or load parameters, then publish batch predictions | `prediction_spec` | Predicts and publishes; does not evaluate or performance-test |
 | `evaluate` | Measure a version on historical examples | `test_data_spec` | Predicts, evaluates, and normally performance-tests |
 
-`evaluate` is the default pipeline target. `hv backtest` repeats that historical workflow across selected versions
+`evaluate` is the default pipeline target. `hv algorithm backtest` repeats that historical workflow across selected versions
 and dates.
 
 ## The common lifecycle
@@ -79,8 +79,8 @@ The roots depend on the command:
 
 | Command | Output root | Metadata root |
 |---|---|---|
-| `hv train` | `<output-base-dir>/...` | `<output-base-dir>/metadata/...` |
-| `hv backtest` | `<output-base-dir>/out/...` | `<output-base-dir>/meta/...` |
+| `hv algorithm train` | `<output-base-dir>/...` | `<output-base-dir>/metadata/...` |
+| `hv algorithm backtest` | `<output-base-dir>/out/...` | `<output-base-dir>/meta/...` |
 
 Within those roots, Hotvect groups artifacts by algorithm/hyperparameter identity and parameter version. Use
 `result.json` rather than guessing which optional stages ran.

@@ -6,6 +6,8 @@ import com.hotvect.api.data.Decision;
 import java.util.Map;
 import java.util.Objects;
 
+import static com.google.common.base.Preconditions.checkArgument;
+
 /**
  * A record representing a TopK decision, including an actionId,
  * optional score and probability, the ACTION, and additional properties.
@@ -21,6 +23,7 @@ public record TopKDecision<ACTION>(
 ) implements Decision<ACTION> {
 
     public TopKDecision {
+        checkArgument(actionId != null && !actionId.isBlank(), "actionId cannot be null or blank");
         Objects.requireNonNull(additionalProperties, "additionalProperties cannot be null");
     }
 

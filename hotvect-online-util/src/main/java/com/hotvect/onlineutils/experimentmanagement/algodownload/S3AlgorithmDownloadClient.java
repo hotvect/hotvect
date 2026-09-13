@@ -13,12 +13,13 @@ import org.slf4j.LoggerFactory;
 import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
 import software.amazon.awssdk.http.SdkHttpResponse;
 import software.amazon.awssdk.regions.Region;
+import software.amazon.awssdk.regions.providers.DefaultAwsRegionProviderChain;
 import software.amazon.awssdk.core.async.AsyncResponseTransformer;
 import software.amazon.awssdk.services.s3.S3AsyncClient;
 import software.amazon.awssdk.services.s3.S3Uri;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 
-public class S3AlgorithmDownloadClient implements AlgorithmDownloadClient, AutoCloseable {
+public class S3AlgorithmDownloadClient implements AlgorithmDownloadClient {
     private static final Logger LOG = LoggerFactory.getLogger(S3AlgorithmDownloadClient.class);
 
     private final S3AsyncClient s3Client;
@@ -90,10 +91,14 @@ public class S3AlgorithmDownloadClient implements AlgorithmDownloadClient, AutoC
         }
     }
 
+    static Region resolveDefaultRegion() {
+        return DefaultAwsRegionProviderChain.builder().build().getRegion();
+    }
+
     private static S3AsyncClient createDefaultS3Client() {
         return S3AsyncClient.builder()
             .credentialsProvider(DefaultCredentialsProvider.create())
-            .region(Region.EU_CENTRAL_1)
+            .region(resolveDefaultRegion())
             .build();
     }
 }

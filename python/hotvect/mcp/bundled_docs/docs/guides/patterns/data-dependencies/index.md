@@ -14,8 +14,8 @@ related_docs:
   - ../../../reference/faq/index.md
   - ../../../reference/cli/index.md
 related_commands:
-  - hv train
-  - hv-ext data-dependency
+  - hv algorithm train
+  - hv data dependencies inspect
 ---
 
 # Data dependencies
@@ -72,10 +72,10 @@ For `prediction_spec`, environment maps are strict:
 |-------|-------------|---------|
 | `train_data_spec.data_prefix` | Training data directory name under `data_base_dir` | `example_training_data` |
 | `test_data_spec.data_prefix` | Test data directory name under `data_base_dir` | `example_test_data` |
-| `prediction_spec.data_prefix` | Non-test prediction input directory name used by `hv train --target predict` | `example_prediction_input` |
+| `prediction_spec.data_prefix` | Non-test prediction input directory name used by `hv algorithm train --target predict` | `example_prediction_input` |
 | `number_of_training_days` | How many days of training partitions to read | `7` |
 | `training_lag_days` | Days to lag the end of training from `last_test_time` | `1` |
-| `train_data_spec.s3_uri.production` | Optional S3 location for downloads | `s3://example-bucket/tables/` |
+| `train_data_spec.s3_uri.production` | Required production S3 location for canonical `hv data dependencies` remote inspection and downloads | `s3://example-bucket/tables/` |
 | `prediction_spec.output_uri.production` | Final destination for prediction artifacts from `target=predict` | `s3://example-bucket-output/predictions/...` |
 
 ## Date Calculation Formula
@@ -131,7 +131,7 @@ test_date = last_test_time
 
 ### Prediction Data Dates (`prediction_spec`)
 
-When `hv train --target predict` is used, prediction input dates come from `prediction_spec`:
+When `hv algorithm train --target predict` is used, prediction input dates come from `prediction_spec`:
 
 ```
 prediction_start = last_test_time - lag_days
@@ -184,35 +184,31 @@ Data must be partitioned by date with format: `dt=YYYY-MM-DD`
 
 ## Downloading Data
 
-### Automated Download with hv-ext
+### Automated Download with hv
 
-The recommended way to list and download data:
+The recommended way to inspect and download data:
 
 ```bash
-# List dependencies as JSON (default, safe - no download)
-hv-ext data-dependency \
+# Inspect declared dependencies without accessing S3
+hv data dependencies inspect \
   --repo-url https://github.com/example-org/example-algorithm.git \
   --git-reference v2.0.0 \
-  --s3-base-dir s3://example-bucket/tables \
-  --local-data-dir /path/to/data \
   --scratch-dir ./temp \
   --last-test-time 2000-01-08
 
 # Download all dependencies
-hv-ext data-dependency --download-all \
+hv data dependencies download --all \
+  --local-dir /path/to/data \
   --repo-url https://github.com/example-org/example-algorithm.git \
   --git-reference v2.0.0 \
-  --s3-base-dir s3://example-bucket/tables \
-  --local-data-dir /path/to/data \
   --scratch-dir ./temp \
   --last-test-time 2000-01-08
 
 # Download specific dependency with sampling
-hv-ext data-dependency --download example_training_data \
+hv data dependencies download --name example_training_data \
+  --local-dir /path/to/data \
   --repo-url https://github.com/example-org/example-algorithm.git \
   --git-reference v2.0.0 \
-  --s3-base-dir s3://example-bucket/tables \
-  --local-data-dir /path/to/data \
   --scratch-dir ./temp \
   --last-test-time 2000-01-08 \
   --sample-ratio 0.01
@@ -223,12 +219,12 @@ hv-ext data-dependency --download example_training_data \
 2. Builds algorithm JAR
 3. Reads algorithm-definition.json
 4. Calculates required dates
-5. Lists or downloads data from S3 (depending on flags)
+5. Resolves declared S3 locations or downloads data (depending on the operation)
 6. Organizes in correct directory structure
 
 **Options**:
-- `--download-all`: Download all dependencies (required to download)
-- `--download <name>`: Download specific dependency (repeatable)
+- `--all`: Download all dependencies (required to download)
+- `--name <name>`: Download specific dependency (repeatable)
 - `--sample-ratio 0.01`: Download 1% of files for testing
 - `--role-arn`: Assume AWS role for S3 access
 
@@ -317,11 +313,10 @@ Parent and child algorithms have independent data dependencies:
 
 **Download both**:
 ```bash
-hv-ext data-dependency --download-all \
+hv data dependencies download --all \
+  --local-dir /path/to/data \
   --repo-url https://github.com/example-org/example-algorithm.git \
   --git-reference v2.0.0 \
-  --s3-base-dir s3://example-bucket/tables \
-  --local-data-dir /path/to/data \
   --scratch-dir ./temp \
   --last-test-time 2000-01-08
 ```
@@ -392,7 +387,7 @@ find /path/to/data/example_training_data/dt=2000-01-07/ -type f | wc -l
 Use `--sample-ratio` to download a fraction of files from every required date partition:
 
 ```bash
-hv-ext data-dependency --download-all \
+hv data dependencies download --all \
   --sample-ratio 0.01 \
   [other options]
 ```
@@ -407,4 +402,4 @@ override across dependency resolution, download, and execution.
 - [Parent-Child Algorithms](../parent-child/index.md) - Multiple data dependencies
 - [Override Files](../override-files/index.md) - Changing number_of_training_days
 - [FAQ: Data](../../../reference/faq/index.md#data)
-- [CLI: hv-ext data-dependency](../../../reference/cli/index.md)
+- [CLI: hv data dependencies inspect](../../../reference/cli/index.md)

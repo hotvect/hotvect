@@ -63,7 +63,7 @@ request-time algorithm graph.
 Pipeline-backed train and backtest runs record metadata and logs alongside their primary outputs. Their `result.json`
 summarizes the run, but source artifacts, per-stage metadata, and logs remain necessary when diagnosing configuration,
 packaging, or infrastructure failures. Standalone commands have their own output contracts; for example, local
-`hv evaluate` writes the requested evaluation JSON rather than a pipeline `result.json`.
+`hv algorithm evaluate` writes the requested evaluation JSON rather than a pipeline `result.json`.
 
 Continue with [Pipeline stages](../../guides/pipeline-stages/index.md) for exact outputs and
 [Generate runtime state](../../guides/state-generation/index.md) for a complete state-producing example, or

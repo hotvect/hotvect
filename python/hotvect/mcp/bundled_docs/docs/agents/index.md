@@ -52,7 +52,7 @@ against `hv <command> --help` when the working tree and installed package might 
   overlapping partitions across runs.
 - **Use an `s3://...` cache for SageMaker reuse across jobs**. Local cache paths are accepted but disappear with the
   container when the job ends.
-- **SageMaker pipeline execution** is supported by `hv train` and `hv backtest`; use `--sagemaker` or
+- **SageMaker pipeline execution** is supported by `hv algorithm train` and `hv algorithm backtest`; use `--sagemaker` or
   `--sagemaker-config`, plus `--sagemaker-job-prefix` and a job template or template-free settings. One-shot `audit`, `predict`, `evaluate`,
   `encode`, and `performance-test` also support `--sagemaker`; see the [CLI reference](../reference/cli/index.md).
 - **Quality metrics are estimates**. Read the central value from `value` and treat `ci95_lower`/`ci95_upper` as

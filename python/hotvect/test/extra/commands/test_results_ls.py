@@ -52,6 +52,39 @@ class TestResultsLsCommand(unittest.TestCase):
             self.assertEqual(run["hyperparameter"], "ordered")
             self.assertTrue(run["result_json"]["path_or_key"].endswith("result.json"))
 
+    def test_local_results_ls_with_runs_with_links_view(self):
+        day = date(2000, 2, 15).isoformat()
+        algo_dir = "algo@74.4.5-ordered"
+
+        with tempfile.TemporaryDirectory() as td:
+            base_dir = Path(td)
+            canonical = base_dir / "runs" / "ml-exp-a" / "meta" / algo_dir / f"last_test_date_{day}"
+            canonical.mkdir(parents=True, exist_ok=True)
+            (canonical / "result.json").write_text("{}")
+
+            local_dir = base_dir / "meta" / algo_dir / f"last_test_date_{day}"
+            local_dir.mkdir(parents=True, exist_ok=True)
+            (local_dir / "result.json").symlink_to(canonical / "result.json")
+
+            args = SimpleNamespace(
+                results_command="ls",
+                location=str(base_dir / "meta"),
+                from_date=day,
+                to_date=day,
+                algorithm_name_regex="algo",
+                algorithm_version_regex=r"74\.4\.5",
+                job_name_regex="",
+                role_arn="",
+            )
+
+            with patch("builtins.print") as mock_print:
+                self.command.execute(args)
+
+            payload = json.loads(str(mock_print.call_args_list[0][0][0]))
+            self.assertEqual(len(payload["runs"]), 1)
+            self.assertEqual(payload["runs"][0]["algorithm_id"], algo_dir)
+            self.assertTrue(payload["runs"][0]["result_json"]["path_or_key"].endswith("result.json"))
+
     @patch("hotvect.backtest.SageMakerBacktestResultsDownloader")
     def test_s3_results_ls_latest_only(self, mock_downloader_cls):
         # Two keys for the same (test_date, algorithm_id) should be deduped to latest by LastModified.

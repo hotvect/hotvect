@@ -4,7 +4,10 @@ import com.hotvect.onlineutils.experimentmanagement.models.AlgorithmMetadata;
 
 import java.nio.file.Path;
 
-public interface AlgorithmDownloadClient {
+public interface AlgorithmDownloadClient extends AutoCloseable {
     void downloadAlgorithmJar(AlgorithmMetadata algorithm, Path destination);
     void downloadAlgorithmParameter(AlgorithmMetadata algorithm, Path destination);
+
+    @Override
+    void close() throws Exception;
 }

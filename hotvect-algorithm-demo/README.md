@@ -1,6 +1,6 @@
-# Hotvect Algorithm Demo UI
+# Hotvect Algorithm Demo
 
-Browser UI extension for the headless `hotvect-algorithm-serve` HTTP server.
+Local algorithm loading, HTTP execution, offline-example decoding, and optional browser UI.
 
 ## Usage
 
@@ -13,8 +13,7 @@ mvn -q -DskipTests package
 Run the demo UI:
 
 ```bash
-java -cp target/hotvect-algorithm-demo-*-jar-with-dependencies.jar \
-  com.hotvect.algorithmdemo.Main \
+java -jar target/hotvect-algorithm-demo-*-jar-with-dependencies.jar \
   --algorithm-jar /path/to/algorithm.jar \
   --algorithm-name <algorithm_name> \
   --parameter-path /path/to/parameters.zip \
@@ -28,30 +27,28 @@ java -cp target/hotvect-algorithm-demo-*-jar-with-dependencies.jar \
 Or load multiple local runtimes from JSON and switch between them in the UI:
 
 ```bash
-java -cp target/hotvect-algorithm-demo-*-jar-with-dependencies.jar \
-  com.hotvect.algorithmdemo.Main \
+java -jar target/hotvect-algorithm-demo-*-jar-with-dependencies.jar \
   --local-runtime-config /path/to/local-runtimes.json \
   --ui \
   --source-path /path/to/examples_dir
 ```
 
-Headless API-only mode:
+Headless API-only mode uses the same demo executable without `--ui`:
 
 ```bash
-java -cp ../hotvect-algorithm-serve/target/hotvect-algorithm-serve-*-jar-with-dependencies.jar \
-  com.hotvect.algorithmserver.Main \
+java -jar target/hotvect-algorithm-demo-*-jar-with-dependencies.jar \
   --algorithm-jar /path/to/algorithm.jar \
   --algorithm-name <algorithm_name> \
   --parameter-path /path/to/parameters.zip \
   --max-request-mib 256
 ```
 
-For headless local debugging, use `hotvect-algorithm-serve`; this module adds the browser UI to that same local
-debugging core.
+`hotvect-algorithm-demo` owns local runtime loading, selection, identity, HTTP lifecycle, the recorded
+`ExampleDecoder` path, and the `POST /predict` debugging endpoint.
 
 When `--local-runtime-config` contains multiple runtimes, the UI exposes one algorithm comparison view per
 `algorithm_runtime_id`. One available view renders one result column; two selected views render a side-by-side
-comparison. The compatibility `/api/demo/*` routes are:
+comparison. The UI routes are:
 
 - `GET /api/demo/examples`
 - `GET /api/demo/examples/{example_index}`
@@ -59,7 +56,10 @@ comparison. The compatibility `/api/demo/*` routes are:
 - `POST /api/demo/compare`
 - `POST /api/demo/predict`
 
-The raw execution route remains available at `POST /api/run` (and compatibility alias `POST /api/demo/run`) and selects a runtime via `algorithm_runtime_id`.
+`GET /api/demo/examples` accepts an optional integer `limit` from 1 to 100 (default: 100).
+Malformed or out-of-range values return HTTP 400.
+
+The raw execution route is `POST /api/demo/run` and selects a runtime via `algorithm_runtime_id`.
 All examples must be decoder-runnable by the selected runtime. The compare UI does not support raw serving logs that
 omit the feature payload required by the algorithm decoder.
 
@@ -79,6 +79,7 @@ The demo UI automatically detects these (string values that resemble JSON object
 Behavior:
 
 - If you edit values under `<field>__json` and click Run, the server serializes `<field>__json` back into the original `<field>` string before decoding/running the algorithm.
+- Partial `override_json` edits preserve the other fields inside the embedded JSON. This applies to `/api/demo/run`, `/api/demo/predict`, and `/api/demo/compare`.
 - The server removes the virtual `<field>__json` field before decode/run, so posted UI payloads and raw API payloads follow the same execution path.
 
 ## SQLite cache (`--demo-sqlite-path`)
@@ -89,8 +90,8 @@ The demo UI stores examples and action metadata in a local SQLite DB to avoid ke
 - You can override the path with `--demo-sqlite-path /path/to/demo.db`.
 - If the DB does not exist, it is built on startup (the first run may take a while).
 
-`hv serve --ui` uses the demo JAR copied into the Python package, not the JAR directly under this module's `target/`
-directory. After changing the Java UI, run `make quick` from `python/` before testing through `hv serve` so the bundled
+`hv algorithm serve --ui` uses the demo JAR copied into the Python package, not the JAR directly under this module's `target/`
+directory. After changing the Java UI, run `make quick` from `python/` before testing through `hv algorithm serve` so the bundled
 JAR matches the source.
 
 ## Online views

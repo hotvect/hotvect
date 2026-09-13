@@ -12,6 +12,7 @@ different evidence.
 | Question | Start here | Primary evidence |
 | --- | --- | --- |
 | Did model quality change? | [Evaluation metrics and uncertainty](../../reference/evaluation-metrics/index.md) | Comparable `result.json` quality estimates |
+| Can a fixed candidate satisfy a release gate? | [Release QA validation](../hv-qa-release-validation/index.md) | Durable scenario, paired multi-day evidence, and a criteria judgment |
 | Did two JARs preserve inference with fixed parameters? | [Score equivalence testing](../score-equivalence/index.md) | Ordered predictions and `comparison.json` |
 | Where did feature values diverge? | [Feature audits](../feature-audits/index.md) | Ordered audit part files |
 | Is online behavior different from offline replay? | [Online/offline parity](../online-offline-parity/index.md) | Same-version replay and live request evidence |

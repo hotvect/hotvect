@@ -1,7 +1,9 @@
 package com.hotvect.example.product;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.hotvect.api.algodefinition.AlgorithmInstance;
+import com.google.common.reflect.TypeToken;
+import com.hotvect.api.algodefinition.AlgorithmDependencies;
+import com.hotvect.api.algodefinition.storage.LocalStateStorage;
 import com.hotvect.api.algodefinition.topk.CompositeTopKFactory;
 import com.hotvect.api.algorithms.Ranker;
 import com.hotvect.api.algorithms.TopK;
@@ -14,6 +16,7 @@ import com.hotvect.api.data.ranking.RankingResponse;
 import com.hotvect.api.data.topk.TopKDecision;
 import com.hotvect.api.data.topk.TopKRequest;
 import com.hotvect.api.data.topk.TopKResponse;
+import com.hotvect.api.execution.ExecutionContext;
 
 import java.io.InputStream;
 import java.util.ArrayList;
@@ -27,16 +30,17 @@ public final class ProductSearchTopKFactory implements CompositeTopKFactory<Prod
     static final String RANKER_DEPENDENCY = "example-product-ranker";
 
     @Override
-    @SuppressWarnings({"unchecked", "removal"})
-    public TopK<ProductQuery, Product> apply(
+    public TopK<ProductQuery, Product> create(
+            ExecutionContext executionContext,
+            Optional<LocalStateStorage> localStateStorage,
             Optional<JsonNode> configuration,
             Map<String, InputStream> parameters,
-            Map<String, AlgorithmInstance<?>> dependencies
+            AlgorithmDependencies dependencies
     ) {
-        ProductCatalogState catalog = (ProductCatalogState) dependencies.get(CATALOG_DEPENDENCY).algorithm();
-        Ranker<ProductQuery, Product> ranker = (Ranker<ProductQuery, Product>) dependencies
-                .get(RANKER_DEPENDENCY)
-                .algorithm();
+        ProductCatalogState catalog = dependencies.only(CATALOG_DEPENDENCY);
+        Ranker<ProductQuery, Product> ranker = dependencies.only(
+                RANKER_DEPENDENCY,
+                new TypeToken<Ranker<ProductQuery, Product>>() {});
 
         return request -> {
             int retrievalLimit = Math.min(catalog.size(), Math.max(request.k(), 8));

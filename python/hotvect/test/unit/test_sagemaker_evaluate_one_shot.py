@@ -8,6 +8,7 @@ from types import ModuleType, SimpleNamespace
 import pytest
 
 from hotvect.algorithm_definition_overrides import apply_algorithm_definition_override
+from hotvect.offline_task import DirectAlgorithmSource
 
 
 def _load_hv_module():
@@ -80,6 +81,10 @@ def _make_fake_definition_s3_client(algorithm_definition: dict) -> SimpleNamespa
     )
 
 
+def _direct_source(tmp_path: Path) -> DirectAlgorithmSource:
+    return DirectAlgorithmSource(tmp_path / "algo.jar", "demo-algo")
+
+
 def test_submit_one_shot_sagemaker_job_supports_evaluate_without_parameter_zip(monkeypatch, tmp_path: Path):
     hv = _load_hv_module()
     captured = {}
@@ -95,14 +100,23 @@ def test_submit_one_shot_sagemaker_job_supports_evaluate_without_parameter_zip(m
             pass
 
     class FakeExecutor:
-        def __init__(self, algorithm_pipeline, training_job_definition, role_arn_to_assume):
+        def __init__(self, training_job_definition, output_slug, role_arn_to_assume):
             captured["job_def"] = training_job_definition
+            captured["output_slug"] = output_slug
             captured["role_arn_to_assume"] = role_arn_to_assume
             self.hyperparameters = training_job_definition["HyperParameters"]
+            self.hyperparameters["s3_uri_result_file"] = "s3://bucket/output/result.json"
+            self.hyperparameters["s3_uri_metadata"] = "s3://bucket/output/metadata"
             self.training_job_name = training_job_definition["TrainingJobName"]
+            self.sagemaker_output_s3_path = "s3://bucket/output/eval-job"
+            self.s3_client = object()
 
         def run(self):
             captured["ran"] = True
+            return {}
+
+        def build_submission_manifest(self, _response):
+            return {"training_job_name": self.training_job_name}
 
     monkeypatch.setitem(
         sys.modules,
@@ -113,10 +127,10 @@ def test_submit_one_shot_sagemaker_job_supports_evaluate_without_parameter_zip(m
         ),
     )
     monkeypatch.setitem(sys.modules, "hotvect.evaluation.evaluation", SimpleNamespace(standard_evaluation=object()))
-    monkeypatch.setitem(sys.modules, "hotvect.sagemaker", SimpleNamespace(SagemakerTrainingExecutor=FakeExecutor))
+    monkeypatch.setitem(sys.modules, "hotvect.sagemaker", SimpleNamespace(OneShotSagemakerExecutor=FakeExecutor))
     _install_fake_backtest_module(monkeypatch)
     monkeypatch.setattr(hv, "resolve_template_path", lambda *_args, **_kwargs: SimpleNamespace(path=None))
-    monkeypatch.setattr(hv, "resolve_training_image", lambda **_kwargs: "training-image")
+    monkeypatch.setattr(hv, "resolve_training_image", lambda **_kwargs: "registry.example/hotvect:10.49.0")
     monkeypatch.setattr(hv, "build_one_shot_training_job_name", lambda **_kwargs: "eval-job")
     monkeypatch.setattr(
         hv,
@@ -129,6 +143,7 @@ def test_submit_one_shot_sagemaker_job_supports_evaluate_without_parameter_zip(m
         lambda **_kwargs: {
             "TrainingJobName": "eval-job",
             "OutputDataConfig": {"S3OutputPath": "s3://bucket/output"},
+            "AlgorithmSpecification": {"TrainingImage": "registry.example/hotvect:10.49.0"},
             "HyperParameters": {},
             "InputDataConfig": [],
         },
@@ -155,12 +170,15 @@ def test_submit_one_shot_sagemaker_job_supports_evaluate_without_parameter_zip(m
         assume_role_arn=None,
     )
 
-    hv._submit_one_shot_sagemaker_job(task="evaluate", task_kind_short="eval", args=args)
+    hv._submit_one_shot_sagemaker_job(
+        task="evaluate", task_kind_short="eval", args=args, algorithm_source=_direct_source(tmp_path)
+    )
 
     hp = captured["job_def"]["HyperParameters"]
     assert hp["hotvect_task"] == "evaluate"
     assert hp["hotvect_source_channel"] == "source"
     assert "s3_uri_parameter_zip" not in hp
+    assert "hotvect_offline_source_manifest_s3_uri" not in hp
     assert captured["ran"] is True
 
 
@@ -181,14 +199,22 @@ def test_submit_one_shot_sagemaker_job_uses_override_fragment_for_evaluate(monke
             pass
 
     class FakeExecutor:
-        def __init__(self, algorithm_pipeline, training_job_definition, role_arn_to_assume):
+        def __init__(self, training_job_definition, output_slug, role_arn_to_assume):
             captured["job_def"] = training_job_definition
-            captured["executor_algorithm_definition"] = algorithm_pipeline.algorithm_definition
+            captured["output_slug"] = output_slug
             self.hyperparameters = training_job_definition["HyperParameters"]
+            self.hyperparameters["s3_uri_result_file"] = "s3://bucket/output/result.json"
+            self.hyperparameters["s3_uri_metadata"] = "s3://bucket/output/metadata"
             self.training_job_name = training_job_definition["TrainingJobName"]
+            self.sagemaker_output_s3_path = "s3://bucket/output/eval-job"
+            self.s3_client = object()
 
         def run(self):
             captured["ran"] = True
+            return {}
+
+        def build_submission_manifest(self, _response):
+            return {"training_job_name": self.training_job_name}
 
     monkeypatch.setitem(
         sys.modules,
@@ -199,10 +225,10 @@ def test_submit_one_shot_sagemaker_job_uses_override_fragment_for_evaluate(monke
         ),
     )
     monkeypatch.setitem(sys.modules, "hotvect.evaluation.evaluation", SimpleNamespace(standard_evaluation=object()))
-    monkeypatch.setitem(sys.modules, "hotvect.sagemaker", SimpleNamespace(SagemakerTrainingExecutor=FakeExecutor))
+    monkeypatch.setitem(sys.modules, "hotvect.sagemaker", SimpleNamespace(OneShotSagemakerExecutor=FakeExecutor))
     _install_fake_backtest_module(monkeypatch)
     monkeypatch.setattr(hv, "resolve_template_path", lambda *_args, **_kwargs: SimpleNamespace(path=None))
-    monkeypatch.setattr(hv, "resolve_training_image", lambda **_kwargs: "training-image")
+    monkeypatch.setattr(hv, "resolve_training_image", lambda **_kwargs: "registry.example/hotvect:10.49.0")
     monkeypatch.setattr(hv, "build_one_shot_training_job_name", lambda **_kwargs: "eval-job")
     monkeypatch.setattr(
         hv,
@@ -218,6 +244,7 @@ def test_submit_one_shot_sagemaker_job_uses_override_fragment_for_evaluate(monke
         lambda **_kwargs: {
             "TrainingJobName": "eval-job",
             "OutputDataConfig": {"S3OutputPath": "s3://bucket/output"},
+            "AlgorithmSpecification": {"TrainingImage": "registry.example/hotvect:10.49.0"},
             "HyperParameters": {},
             "InputDataConfig": [],
         },
@@ -244,13 +271,11 @@ def test_submit_one_shot_sagemaker_job_uses_override_fragment_for_evaluate(monke
         assume_role_arn=None,
     )
 
-    hv._submit_one_shot_sagemaker_job(task="evaluate", task_kind_short="eval", args=args)
+    hv._submit_one_shot_sagemaker_job(
+        task="evaluate", task_kind_short="eval", args=args, algorithm_source=_direct_source(tmp_path)
+    )
 
-    assert captured["algorithm_definition_arg"] == {
-        **base_definition,
-        "training_lag_days": 7,
-    }
-    assert captured["executor_algorithm_definition"]["training_lag_days"] == 7
+    assert captured["output_slug"] == "demo-algo@1.2.3-eval-hp"
     assert captured["ran"] is True
 
 
@@ -278,13 +303,22 @@ def test_submit_one_shot_sagemaker_job_applies_algorithm_job_overrides(monkeypat
             pass
 
     class FakeExecutor:
-        def __init__(self, algorithm_pipeline, training_job_definition, role_arn_to_assume):
+        def __init__(self, training_job_definition, output_slug, role_arn_to_assume):
+            del output_slug, role_arn_to_assume
             captured["job_def"] = training_job_definition
             self.hyperparameters = training_job_definition["HyperParameters"]
+            self.hyperparameters["s3_uri_result_file"] = "s3://bucket/output/result.json"
+            self.hyperparameters["s3_uri_metadata"] = "s3://bucket/output/metadata"
             self.training_job_name = training_job_definition["TrainingJobName"]
+            self.sagemaker_output_s3_path = "s3://bucket/output/eval-job"
+            self.s3_client = object()
 
         def run(self):
             captured["ran"] = True
+            return {}
+
+        def build_submission_manifest(self, _response):
+            return {"training_job_name": self.training_job_name}
 
     monkeypatch.setitem(
         sys.modules,
@@ -295,10 +329,10 @@ def test_submit_one_shot_sagemaker_job_applies_algorithm_job_overrides(monkeypat
         ),
     )
     monkeypatch.setitem(sys.modules, "hotvect.evaluation.evaluation", SimpleNamespace(standard_evaluation=object()))
-    monkeypatch.setitem(sys.modules, "hotvect.sagemaker", SimpleNamespace(SagemakerTrainingExecutor=FakeExecutor))
+    monkeypatch.setitem(sys.modules, "hotvect.sagemaker", SimpleNamespace(OneShotSagemakerExecutor=FakeExecutor))
     _install_fake_backtest_module(monkeypatch)
     monkeypatch.setattr(hv, "resolve_template_path", lambda *_args, **_kwargs: SimpleNamespace(path=None))
-    monkeypatch.setattr(hv, "resolve_training_image", lambda **_kwargs: "training-image")
+    monkeypatch.setattr(hv, "resolve_training_image", lambda **_kwargs: "registry.example/hotvect:10.49.0")
     monkeypatch.setattr(hv, "build_one_shot_training_job_name", lambda **_kwargs: "eval-job")
     monkeypatch.setattr(
         hv,
@@ -311,7 +345,10 @@ def test_submit_one_shot_sagemaker_job_applies_algorithm_job_overrides(monkeypat
         lambda **_kwargs: {
             "TrainingJobName": "eval-job",
             "OutputDataConfig": {"S3OutputPath": "s3://bucket/output"},
-            "AlgorithmSpecification": {"TrainingImage": "training-image", "TrainingInputMode": "FastFile"},
+            "AlgorithmSpecification": {
+                "TrainingImage": "registry.example/hotvect:10.49.0",
+                "TrainingInputMode": "FastFile",
+            },
             "HyperParameters": {},
             "InputDataConfig": [],
             "ResourceConfig": {"InstanceType": "ml.t3.medium", "InstanceCount": 1, "VolumeSizeInGB": 30},
@@ -340,7 +377,9 @@ def test_submit_one_shot_sagemaker_job_applies_algorithm_job_overrides(monkeypat
         assume_role_arn=None,
     )
 
-    hv._submit_one_shot_sagemaker_job(task="evaluate", task_kind_short="eval", args=args)
+    hv._submit_one_shot_sagemaker_job(
+        task="evaluate", task_kind_short="eval", args=args, algorithm_source=_direct_source(tmp_path)
+    )
 
     assert captured["job_def"]["EnableManagedSpotTraining"] is True
     assert captured["job_def"]["StoppingCondition"]["MaxWaitTimeInSeconds"] == 172800
@@ -371,7 +410,7 @@ def test_run_task_evaluate_writes_evaluation_output(monkeypatch, tmp_path: Path)
         samples=None,
         target_rps=None,
         target_throughput_fraction=None,
-        algorithm_definition={"algorithm_name": "demo-algo"},
+        algorithm_source=None,
     )
 
     captured = {}
@@ -382,11 +421,7 @@ def test_run_task_evaluate_writes_evaluation_output(monkeypatch, tmp_path: Path)
 
     monkeypatch.setattr(evaluation, "standard_evaluation", _fake_standard_evaluation)
 
-    task_metadata = st._run_task(
-        req,
-        local_algorithm_jar=tmp_path / "algo.jar",
-        local_parameter_zip=None,
-    )
+    task_metadata = st._run_task(req)
 
     result_path = output_dir / "evaluation.json"
     metadata_path = metadata_dir / "evaluate" / "metadata.json"
@@ -420,7 +455,7 @@ def test_run_task_evaluate_accepts_root_level_part_files_with_control_sidecar(mo
         samples=None,
         target_rps=None,
         target_throughput_fraction=None,
-        algorithm_definition={"algorithm_name": "demo-algo"},
+        algorithm_source=None,
     )
 
     captured = {}
@@ -431,11 +466,7 @@ def test_run_task_evaluate_accepts_root_level_part_files_with_control_sidecar(mo
 
     monkeypatch.setattr(evaluation, "standard_evaluation", _fake_standard_evaluation)
 
-    st._run_task(
-        req,
-        local_algorithm_jar=tmp_path / "algo.jar",
-        local_parameter_zip=None,
-    )
+    st._run_task(req)
 
     assert captured["path"] == str(source_dir)
 
@@ -463,7 +494,7 @@ def test_run_task_evaluate_accepts_predict_task_root_with_out_prediction(monkeyp
         samples=None,
         target_rps=None,
         target_throughput_fraction=None,
-        algorithm_definition={"algorithm_name": "demo-algo"},
+        algorithm_source=None,
     )
 
     captured = {}
@@ -474,11 +505,7 @@ def test_run_task_evaluate_accepts_predict_task_root_with_out_prediction(monkeyp
 
     monkeypatch.setattr(evaluation, "standard_evaluation", _fake_standard_evaluation)
 
-    st._run_task(
-        req,
-        local_algorithm_jar=tmp_path / "algo.jar",
-        local_parameter_zip=None,
-    )
+    st._run_task(req)
 
     assert captured["path"] == str(prediction_dir)
 
@@ -504,15 +531,11 @@ def test_run_task_evaluate_rejects_multiple_root_level_non_part_prediction_files
         samples=None,
         target_rps=None,
         target_throughput_fraction=None,
-        algorithm_definition={"algorithm_name": "demo-algo"},
+        algorithm_source=None,
     )
 
     with pytest.raises(FileNotFoundError, match="Could not locate prediction input"):
-        st._run_task(
-            req,
-            local_algorithm_jar=tmp_path / "algo.jar",
-            local_parameter_zip=None,
-        )
+        st._run_task(req)
 
 
 def test_upload_single_public_output_writes_predict_parts_at_public_prefix(monkeypatch, tmp_path: Path):
@@ -533,7 +556,7 @@ def test_upload_single_public_output_writes_predict_parts_at_public_prefix(monke
         samples=None,
         target_rps=None,
         target_throughput_fraction=None,
-        algorithm_definition={"algorithm_name": "demo-algo"},
+        algorithm_source=_direct_source(tmp_path),
     )
 
     uploads = []
@@ -573,7 +596,7 @@ def test_run_task_evaluate_accepts_single_prediction_file_in_source_channel(monk
         samples=None,
         target_rps=None,
         target_throughput_fraction=None,
-        algorithm_definition={"algorithm_name": "demo-algo"},
+        algorithm_source=None,
     )
 
     captured = {}
@@ -584,11 +607,7 @@ def test_run_task_evaluate_accepts_single_prediction_file_in_source_channel(monk
 
     monkeypatch.setattr(evaluation, "standard_evaluation", _fake_standard_evaluation)
 
-    st._run_task(
-        req,
-        local_algorithm_jar=tmp_path / "algo.jar",
-        local_parameter_zip=None,
-    )
+    st._run_task(req)
 
     assert captured["path"] == str(prediction_file)
 
@@ -616,7 +635,7 @@ def test_run_task_evaluate_accepts_single_prediction_file_with_underscore_sideca
         samples=None,
         target_rps=None,
         target_throughput_fraction=None,
-        algorithm_definition={"algorithm_name": "demo-algo"},
+        algorithm_source=None,
     )
 
     captured = {}
@@ -627,11 +646,7 @@ def test_run_task_evaluate_accepts_single_prediction_file_with_underscore_sideca
 
     monkeypatch.setattr(evaluation, "standard_evaluation", _fake_standard_evaluation)
 
-    st._run_task(
-        req,
-        local_algorithm_jar=tmp_path / "algo.jar",
-        local_parameter_zip=None,
-    )
+    st._run_task(req)
 
     assert captured["path"] == str(prediction_file)
 
@@ -656,15 +671,11 @@ def test_run_task_evaluate_rejects_underscore_metadata_without_prediction(tmp_pa
         samples=None,
         target_rps=None,
         target_throughput_fraction=None,
-        algorithm_definition={"algorithm_name": "demo-algo"},
+        algorithm_source=None,
     )
 
     with pytest.raises(FileNotFoundError, match="Could not locate prediction input"):
-        st._run_task(
-            req,
-            local_algorithm_jar=tmp_path / "algo.jar",
-            local_parameter_zip=None,
-        )
+        st._run_task(req)
 
 
 def test_run_one_shot_from_sagemaker_env_supports_evaluate_without_parameter_zip(monkeypatch, tmp_path: Path):
@@ -678,8 +689,6 @@ def test_run_one_shot_from_sagemaker_env_supports_evaluate_without_parameter_zip
             self.hyperparameters = {
                 "hotvect_task": "evaluate",
                 "hotvect_task_output": json.dumps({"s3_uri": "s3://bucket/output", "compression": "none"}),
-                "s3_uri_algorithm_jar": "s3://bucket/algo.jar",
-                "s3_uri_algorithm_definition": "s3://bucket/algo-def.json",
                 "s3_uri_metadata": "s3://bucket/meta",
                 "s3_uri_result_file": "s3://bucket/result.json",
                 "hotvect_source_channel": "source",
@@ -694,11 +703,6 @@ def test_run_one_shot_from_sagemaker_env_supports_evaluate_without_parameter_zip
     monkeypatch.setitem(sys.modules, "sagemaker_training.environment", env_module)
     monkeypatch.setattr(
         st.boto3, "client", lambda *_args, **_kwargs: _make_fake_definition_s3_client({"algorithm_name": "demo-algo"})
-    )
-    monkeypatch.setattr(
-        st,
-        "_download_s3_file",
-        lambda s3_uri, dest_path, _client: downloads.append(s3_uri) or dest_path.write_text("x"),
     )
     monkeypatch.setattr(st, "_upload_directory_to_s3", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(st, "_upload_file_to_s3", lambda *_args, **_kwargs: None)
@@ -719,7 +723,7 @@ def test_run_one_shot_from_sagemaker_env_supports_evaluate_without_parameter_zip
     assert req.task == "evaluate"
     assert req.source_dir == input_source_dir
     assert req.task_output_s3_uri == "s3://bucket/output"
-    assert downloads == ["s3://bucket/algo.jar"]
+    assert downloads == []
 
 
 def test_run_one_shot_from_sagemaker_env_does_not_use_predict_parameter_output_as_input(monkeypatch, tmp_path: Path):
@@ -733,8 +737,7 @@ def test_run_one_shot_from_sagemaker_env_does_not_use_predict_parameter_output_a
             self.hyperparameters = {
                 "hotvect_task": "encode",
                 "hotvect_task_output": json.dumps({"s3_uri": "s3://bucket/output", "compression": "none"}),
-                "s3_uri_algorithm_jar": "s3://bucket/algo.jar",
-                "s3_uri_algorithm_definition": "s3://bucket/algo-def.json",
+                "hotvect_offline_source_manifest_s3_uri": "s3://bucket/offline-source/manifest.json",
                 "s3_uri_metadata": "s3://bucket/meta",
                 "s3_uri_result_file": "s3://bucket/result.json",
                 "s3_uri_predict_parameters_zip": "s3://bucket/predict-params.zip",
@@ -753,8 +756,8 @@ def test_run_one_shot_from_sagemaker_env_does_not_use_predict_parameter_output_a
     )
     monkeypatch.setattr(
         st,
-        "_download_s3_file",
-        lambda s3_uri, dest_path, _client: downloads.append(s3_uri) or dest_path.write_text("x"),
+        "materialize_offline_algorithm_source",
+        lambda s3_uri, **_kwargs: downloads.append(s3_uri) or _direct_source(tmp_path),
     )
     monkeypatch.setattr(st, "_upload_directory_to_s3", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(st, "_upload_file_to_s3", lambda *_args, **_kwargs: None)
@@ -775,7 +778,7 @@ def test_run_one_shot_from_sagemaker_env_does_not_use_predict_parameter_output_a
     assert req.task == "encode"
     assert req.source_dir == input_source_dir
     assert req.task_output_s3_uri == "s3://bucket/output"
-    assert downloads == ["s3://bucket/algo.jar"]
+    assert downloads == ["s3://bucket/offline-source/manifest.json"]
 
 
 def test_run_one_shot_from_sagemaker_env_skips_legacy_output_upload_for_parallel_worker(monkeypatch, tmp_path: Path):
@@ -787,8 +790,7 @@ def test_run_one_shot_from_sagemaker_env_skips_legacy_output_upload_for_parallel
         def __init__(self):
             self.hyperparameters = {
                 "hotvect_task": "predict",
-                "s3_uri_algorithm_jar": "s3://bucket/algo.jar",
-                "s3_uri_algorithm_definition": "s3://bucket/algo-def.json",
+                "hotvect_offline_source_manifest_s3_uri": "s3://bucket/offline-source/manifest.json",
                 "s3_uri_metadata": "s3://bucket/meta",
                 "s3_uri_result_file": "s3://bucket/result.json",
                 "hotvect_task_output": json.dumps({"s3_uri": "s3://bucket/final/", "compression": "none"}),
@@ -807,7 +809,11 @@ def test_run_one_shot_from_sagemaker_env_skips_legacy_output_upload_for_parallel
     monkeypatch.setattr(
         st.boto3, "client", lambda *_args, **_kwargs: _make_fake_definition_s3_client({"algorithm_name": "demo-algo"})
     )
-    monkeypatch.setattr(st, "_download_s3_file", lambda _s3_uri, dest_path, _client: dest_path.write_text("x"))
+    monkeypatch.setattr(
+        st,
+        "materialize_offline_algorithm_source",
+        lambda *_args, **_kwargs: _direct_source(tmp_path),
+    )
     monkeypatch.setattr(
         st,
         "_upload_directory_to_s3",
@@ -843,8 +849,7 @@ def test_run_one_shot_from_sagemaker_env_skips_public_output_upload_for_skipped_
         def __init__(self):
             self.hyperparameters = {
                 "hotvect_task": "predict",
-                "s3_uri_algorithm_jar": "s3://bucket/algo.jar",
-                "s3_uri_algorithm_definition": "s3://bucket/algo-def.json",
+                "hotvect_offline_source_manifest_s3_uri": "s3://bucket/offline-source/manifest.json",
                 "s3_uri_metadata": "s3://bucket/meta",
                 "s3_uri_result_file": "s3://bucket/result.json",
                 "hotvect_task_output": json.dumps({"s3_uri": "s3://bucket/final/", "compression": "none"}),
@@ -864,7 +869,11 @@ def test_run_one_shot_from_sagemaker_env_skips_public_output_upload_for_skipped_
     monkeypatch.setattr(
         st.boto3, "client", lambda *_args, **_kwargs: _make_fake_definition_s3_client({"algorithm_name": "demo-algo"})
     )
-    monkeypatch.setattr(st, "_download_s3_file", lambda _s3_uri, dest_path, _client: dest_path.write_text("x"))
+    monkeypatch.setattr(
+        st,
+        "materialize_offline_algorithm_source",
+        lambda *_args, **_kwargs: _direct_source(tmp_path),
+    )
     monkeypatch.setattr(
         st,
         "_upload_directory_to_s3",
@@ -922,15 +931,14 @@ def test_run_one_shot_from_sagemaker_env_requires_hotvect_task_output(monkeypatc
         st.run_one_shot_from_sagemaker_env()
 
 
-def test_run_one_shot_from_sagemaker_env_requires_algorithm_definition_uri(monkeypatch, tmp_path: Path):
+def test_run_one_shot_from_sagemaker_env_requires_offline_source_manifest(monkeypatch, tmp_path: Path):
     import hotvect.sagemaker_tasks as st
 
     class FakeEnvironment:
         def __init__(self):
             self.hyperparameters = {
-                "hotvect_task": "evaluate",
+                "hotvect_task": "predict",
                 "hotvect_task_output": json.dumps({"s3_uri": "s3://bucket/output", "compression": "none"}),
-                "s3_uri_algorithm_jar": "s3://bucket/algo.jar",
                 "s3_uri_metadata": "s3://bucket/meta",
                 "s3_uri_result_file": "s3://bucket/result.json",
                 "hotvect_source_channel": "source",
@@ -945,5 +953,5 @@ def test_run_one_shot_from_sagemaker_env_requires_algorithm_definition_uri(monke
     monkeypatch.setitem(sys.modules, "sagemaker_training.environment", env_module)
     monkeypatch.setattr(st.boto3, "client", lambda *_args, **_kwargs: object())
 
-    with pytest.raises(ValueError, match="Missing: s3_uri_algorithm_definition"):
+    with pytest.raises(ValueError, match="Missing: hotvect_offline_source_manifest_s3_uri"):
         st.run_one_shot_from_sagemaker_env()

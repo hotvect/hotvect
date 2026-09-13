@@ -39,6 +39,143 @@ def try_load_config() -> dict[str, Any] | None:
         return None
 
 
+def _load_qa_run_section() -> dict[str, Any]:
+    cfg = try_load_config()
+    if cfg is None:
+        return {}
+
+    qa = cfg.get("qa")
+    if qa is None:
+        return {}
+    if not isinstance(qa, dict):
+        raise ValueError("Config field 'qa' must be an object")
+
+    run = qa.get("run")
+    if run is None:
+        return {}
+    if not isinstance(run, dict):
+        raise ValueError("Config field 'qa.run' must be an object")
+
+    return dict(run)
+
+
+def load_qa_run_defaults() -> dict[str, Any]:
+    """Return optional hv-qa run defaults from ~/.hotvect/config.json.
+
+    Expected shape:
+      {
+        "qa": {
+          "run": {
+            "defaults": { ... }
+          }
+        }
+      }
+    """
+
+    run = _load_qa_run_section()
+    defaults = run.get("defaults")
+    if defaults is None:
+        return {}
+    if not isinstance(defaults, dict):
+        raise ValueError("Config field 'qa.run.defaults' must be an object")
+
+    return dict(defaults)
+
+
+def load_qa_run_execution_context() -> dict[str, Any]:
+    """Return optional hv-qa run execution defaults from ~/.hotvect/config.json.
+
+    Expected shape:
+      {
+        "qa": {
+          "run": {
+            "execution": { ... }
+          }
+        }
+      }
+    """
+
+    run = _load_qa_run_section()
+    execution = run.get("execution")
+    if execution is None:
+        return {}
+    if not isinstance(execution, dict):
+        raise ValueError("Config field 'qa.run.execution' must be an object")
+    return dict(execution)
+
+
+def load_qa_run_system_performance() -> dict[str, Any]:
+    """Return optional hv-qa run system-performance defaults.
+
+    Expected shape:
+      {
+        "qa": {
+          "run": {
+            "system_performance": { ... }
+          }
+        }
+      }
+    """
+
+    run = _load_qa_run_section()
+    system_performance = run.get("system_performance")
+    if system_performance is None:
+        return {}
+    if not isinstance(system_performance, dict):
+        raise ValueError("Config field 'qa.run.system_performance' must be an object")
+    return dict(system_performance)
+
+
+def load_qa_run_backtest() -> dict[str, Any]:
+    """Return optional hv-qa run backtest defaults.
+
+    Expected shape:
+      {
+        "qa": {
+          "run": {
+            "backtest": { ... }
+          }
+        }
+      }
+    """
+
+    run = _load_qa_run_section()
+    backtest = run.get("backtest")
+    if backtest is None:
+        return {}
+    if not isinstance(backtest, dict):
+        raise ValueError("Config field 'qa.run.backtest' must be an object")
+    return dict(backtest)
+
+
+def load_sagemaker_defaults() -> dict[str, Any]:
+    """Return the top-level sagemaker config object if present."""
+
+    cfg = try_load_config()
+    if cfg is None:
+        return {}
+    sagemaker = cfg.get("sagemaker")
+    if sagemaker is None:
+        return {}
+    if not isinstance(sagemaker, dict):
+        raise ValueError("Config field 'sagemaker' must be an object")
+    return dict(sagemaker)
+
+
+def load_directory_defaults() -> dict[str, Any]:
+    """Return the top-level directories config object if present."""
+
+    cfg = try_load_config()
+    if cfg is None:
+        return {}
+    directories = cfg.get("directories")
+    if directories is None:
+        return {}
+    if not isinstance(directories, dict):
+        raise ValueError("Config field 'directories' must be an object")
+    return dict(directories)
+
+
 def resolve_meta_dir(*, meta_dir: str | None = None) -> Path:
     """Resolve a meta directory from CLI arg or ~/.hotvect/config.json directories.output_base_dir/meta."""
     if meta_dir:

@@ -126,23 +126,26 @@ public class CpuIntensiveAggregator<Z, X> {
 
     public Z aggregate(Stream<X> input) {
         checkState(!this.cpuIntensiveExecutor.isShutdown(), "This aggregator is shutdown");
-        UnmodifiableIterator<List<X>> batches = Iterators.partition(input.iterator(), batchSize);
-        // Batches are submitted in order and thus the futures are sorted by order
-        while (batches.hasNext()) {
-            List<X> batch = batches.next();
-            cpuIntensiveExecutor.submit(new ComputationTask(error, batch));
-        }
-        LOGGER.debug("Loading finished");
-
-        this.cpuIntensiveExecutor.shutdown();
-        try {
-            checkState(this.cpuIntensiveExecutor.awaitTermination(Integer.MAX_VALUE, TimeUnit.MILLISECONDS));
-            if (error.get() != null) {
-                // We had encountered at least one error
-                throw new IllegalStateException(Throwables.getRootCause(error.get()));
+        try (cpuIntensiveExecutor) {
+            UnmodifiableIterator<List<X>> batches = Iterators.partition(input.iterator(), batchSize);
+            // Batches are submitted in order and thus the futures are sorted by order
+            while (batches.hasNext()) {
+                List<X> batch = batches.next();
+                cpuIntensiveExecutor.submit(new ComputationTask(error, batch));
             }
-        } catch (InterruptedException e) {
-            throw new RuntimeException(e);
+            LOGGER.debug("Loading finished");
+
+            this.cpuIntensiveExecutor.shutdown();
+            try {
+                checkState(this.cpuIntensiveExecutor.awaitTermination(Integer.MAX_VALUE, TimeUnit.MILLISECONDS));
+                if (error.get() != null) {
+                    // We had encountered at least one error
+                    throw new IllegalStateException(Throwables.getRootCause(error.get()));
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new RuntimeException(e);
+            }
         }
         return this.state;
     }

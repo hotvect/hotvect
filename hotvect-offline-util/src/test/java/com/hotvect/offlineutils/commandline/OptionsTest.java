@@ -2,12 +2,20 @@ package com.hotvect.offlineutils.commandline;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import picocli.CommandLine;
 import picocli.CommandLine.ParameterException;
 
 import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Stream;
 
 class OptionsTest {
 
@@ -128,6 +136,105 @@ class OptionsTest {
     }
 
     @Test
+    void encodeAcceptsSourceDestMappingsWithoutSourceOrDest() {
+        Main.EncodeInputOptions input = new Main.EncodeInputOptions();
+        input.sourceDestMappingsFile = new File("mappings.json");
+        CommandLine commandLine = new CommandLine(new Main.EncodeCommand());
+
+        Assertions.assertDoesNotThrow(
+                () -> Main.validateEncodeInputOptions(commandLine.getCommandSpec(), input)
+        );
+    }
+
+    @Test
+    void encodeRejectsSourceDestMappingsCombinedWithSourceOrDest() {
+        Main.EncodeInputOptions input = new Main.EncodeInputOptions();
+        input.sourceDestMappingsFile = new File("mappings.json");
+        input.sourceFiles = new Main.SourceFilesOption.SourceFilesSpec(Map.of("default", List.of(new File("input"))));
+        CommandLine commandLine = new CommandLine(new Main.EncodeCommand());
+
+        ParameterException exception = Assertions.assertThrows(
+                ParameterException.class,
+                () -> Main.validateEncodeInputOptions(commandLine.getCommandSpec(), input)
+        );
+
+        Assertions.assertTrue(exception.getMessage().contains("cannot be combined"));
+    }
+
+    @Test
+    void encodeRejectsSourceWithoutDest() {
+        Main.EncodeInputOptions input = new Main.EncodeInputOptions();
+        input.sourceFiles = new Main.SourceFilesOption.SourceFilesSpec(Map.of("default", List.of(new File("input"))));
+        CommandLine commandLine = new CommandLine(new Main.EncodeCommand());
+
+        ParameterException exception = Assertions.assertThrows(
+                ParameterException.class,
+                () -> Main.validateEncodeInputOptions(commandLine.getCommandSpec(), input)
+        );
+
+        Assertions.assertTrue(exception.getMessage().contains("either --source together with --dest"));
+    }
+
+    @Test
+    void readsSourceDestMappings(@TempDir Path tempDir) throws IOException {
+        Path mappingsFile = tempDir.resolve("mappings.json");
+        Files.writeString(
+                mappingsFile,
+                """
+                        [
+                          {"sources": ["input/day-1"], "dest": "output/day-1"},
+                          {"sources": ["input/day-2", "input/day-2-extra"], "dest": "output/day-2"}
+                        ]
+                        """
+        );
+        CommandLine commandLine = new CommandLine(new Main.EncodeCommand());
+
+        List<SourceDestMapping> mappings = Main.readSourceDestMappings(
+                commandLine.getCommandSpec(),
+                mappingsFile.toFile()
+        );
+
+        Assertions.assertEquals(2, mappings.size());
+        Assertions.assertEquals(List.of(new File("input/day-1")), mappings.get(0).sources());
+        Assertions.assertEquals(new File("output/day-2"), mappings.get(1).dest());
+    }
+
+    static Stream<Arguments> invalidSourceDestMappings() {
+        return Stream.of(
+                Arguments.of("[]", "at least one mapping"),
+                Arguments.of("[null]", "must be an object"),
+                Arguments.of("[{\"sources\": [], \"dest\": \"output\"}]", "non-blank source"),
+                Arguments.of("[{\"sources\": [\"\"], \"dest\": \"output\"}]", "non-blank source"),
+                Arguments.of("[{\"sources\": [\"input\"]}]", "contain dest"),
+                Arguments.of("[{\"sources\": [\"input\"], \"dest\": \" \"}]", "contain dest"),
+                Arguments.of(
+                        """
+                                [
+                                  {"sources": ["input/day-1"], "dest": "output/day-1"},
+                                  {"sources": ["input/day-2"], "dest": "output/../output/day-1"}
+                                ]
+                                """,
+                        "Duplicate destination"
+                )
+        );
+    }
+
+    @ParameterizedTest
+    @MethodSource("invalidSourceDestMappings")
+    void rejectsInvalidSourceDestMappings(String json, String expectedError, @TempDir Path tempDir) throws IOException {
+        Path mappingsFile = tempDir.resolve("mappings.json");
+        Files.writeString(mappingsFile, json);
+        CommandLine commandLine = new CommandLine(new Main.EncodeCommand());
+
+        ParameterException exception = Assertions.assertThrows(
+                ParameterException.class,
+                () -> Main.readSourceDestMappings(commandLine.getCommandSpec(), mappingsFile.toFile())
+        );
+
+        Assertions.assertTrue(exception.getMessage().contains(expectedError));
+    }
+
+    @Test
     void testPredictDoesNotRequireParameters() {
         Main.PredictCommand predict = new Main.PredictCommand();
         CommandLine cmd = new CommandLine(predict);
@@ -139,7 +246,22 @@ class OptionsTest {
                 "--dest", "prediction"
         );
 
-        Assertions.assertNull(predict.parameters.parameters);
+        Assertions.assertNull(predict.algorithmSource.direct.parameters);
+    }
+
+    @Test
+    void performanceTestAcceptsFixedCompositionWithoutParameters() {
+        Main.PerformanceTestCommand performanceTest = new Main.PerformanceTestCommand();
+        CommandLine cmd = new CommandLine(performanceTest);
+
+        cmd.parseArgs(
+                "--composition", "composition.json",
+                "--source", "requests.jsonl"
+        );
+
+        Assertions.assertEquals(
+                new File("composition.json"),
+                performanceTest.algorithmSource.fixed.composition);
     }
 
     @Test

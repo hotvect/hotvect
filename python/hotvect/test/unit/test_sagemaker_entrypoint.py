@@ -4,6 +4,8 @@ from importlib.machinery import SourceFileLoader
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 
+from hotvect.experiment_management import Algorithm
+
 
 def _load_entrypoint_module(monkeypatch):
     sagemaker_training_module = ModuleType("sagemaker_training")
@@ -36,9 +38,9 @@ def test_train_uses_experiment_management_updater_agent(monkeypatch):
             self.sagemaker_env = SimpleNamespace(
                 hyperparameters={
                     module.SHOULD_UPDATE_EMS_PARAMETER_VAR: True,
-                    module.EMS_S3_OUTPUT_PREFIX_VAR: "s3://bucket/output",
+                    module.EMS_S3_OUTPUT_PREFIX_VAR: "s3://example-bucket/output",
                     module.EMS_URI_VAR: "https://ems.example",
-                    module.ZALANDO_TOKEN_SECRET_ID_VAR: "secret-id",
+                    module.EMS_TOKEN_SECRET_ID_VAR: "secret-id",
                 }
             )
             self.algorithm_pipeline = "pipeline"
@@ -68,8 +70,55 @@ def test_train_uses_experiment_management_updater_agent(monkeypatch):
     assert captured["disabled"] is True
     assert captured["init"] == {
         "algorithm_pipeline": "pipeline",
-        "output_s3_path": "s3://bucket/output",
+        "output_s3_path": "s3://example-bucket/output",
         "ems_uri": "https://ems.example",
         "secret_id": "secret-id",
     }
     assert captured["uploaded"] is True
+
+
+def test_ems_parameter_update_uses_canonical_algorithm_parameter(monkeypatch):
+    module = _load_entrypoint_module(monkeypatch)
+    captured = {}
+
+    class FakeClient:
+        def get_algorithm(self, algorithm_name, algorithm_version):
+            captured["lookup"] = (algorithm_name, algorithm_version)
+            return Algorithm(
+                algorithm_name=algorithm_name,
+                algorithm_version=algorithm_version,
+                absolute_s3_jar_path="s3://example-bucket/algorithm.jar",
+                algorithm_training_image_name="algorithm:1.0.0",
+                parameter_mode="REQUIRED",
+            )
+
+        def create_algorithm_parameter(self, parameter):
+            captured["parameter"] = parameter
+
+    updater = module.ExperimentManagementUpdaterAgent.__new__(module.ExperimentManagementUpdaterAgent)
+    updater._algorithm_pipeline = SimpleNamespace(
+        algorithm_name="algorithm",
+        algorithm_version="1.0.0",
+        parameter_version="parameter-1",
+    )
+    updater._output_s3_path = "s3://example-bucket/output"
+    updater._experiment_management_client = FakeClient()
+
+    updater._update_parameter_in_ems()
+
+    assert captured["lookup"] == ("algorithm", "1.0.0")
+    assert captured["parameter"].model_dump() == {
+        "algorithm_parameter_id": "parameter-1",
+        "algorithm": {
+            "algorithm_name": "algorithm",
+            "algorithm_version": "1.0.0",
+            "state": None,
+            "absolute_s3_jar_path": "s3://example-bucket/algorithm.jar",
+            "created_at": None,
+            "algorithm_training_image_name": "algorithm:1.0.0",
+            "parameter_mode": "REQUIRED",
+        },
+        "evaluation_results": "",
+        "created_at": None,
+        "absolute_s3_path": "s3://example-bucket/output/parameter-1.parameters.zip",
+    }

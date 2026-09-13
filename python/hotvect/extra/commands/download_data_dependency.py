@@ -1,4 +1,4 @@
-"""Data dependency command for hv-ext CLI."""
+"""Data dependency discovery and download commands."""
 
 import argparse
 import json
@@ -12,7 +12,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date
 from pathlib import Path
-from typing import NamedTuple
+from typing import Any, NamedTuple
 from urllib.parse import urlparse
 
 import boto3
@@ -147,7 +147,13 @@ Output:
             formatter_class=argparse.RawDescriptionHelpFormatter,
         )
 
-        # Download control (mutually exclusive)
+        cls.add_download_arguments(parser)
+        cls.add_resolution_arguments(parser)
+        cls.add_download_tuning_arguments(parser)
+        return parser
+
+    @staticmethod
+    def add_download_arguments(parser):
         download_group = parser.add_mutually_exclusive_group()
         download_group.add_argument(
             "--download-all",
@@ -162,7 +168,9 @@ Output:
             help="Download specific dependency by data_prefix name. Can be specified multiple times.",
         )
 
-        # Required arguments
+    @staticmethod
+    def add_resolution_arguments(parser):
+        parser.set_defaults(sample_ratio=None, max_parallel_downloads=DEFAULT_MAX_CONCURRENT_DOWNLOADS)
         parser.add_argument("--repo-url", required=True, help="Git repository URL containing the algorithm")
         parser.add_argument(
             "--git-reference",
@@ -200,6 +208,40 @@ Output:
             help="Path to algorithm override JSON file",
         )
         parser.add_argument("--role-arn", help="AWS role ARN to assume for S3 access")
+
+    @staticmethod
+    def add_canonical_selection_arguments(parser):
+        """Add the shared algorithm-revision selectors for ``hv data dependencies``."""
+        parser.add_argument("--repo-url", required=True, help="Git repository URL containing the algorithm")
+        parser.add_argument(
+            "--git-reference",
+            required=True,
+            help="Git reference (branch, tag, or commit) to inspect",
+        )
+        parser.add_argument("--scratch-dir", required=True, help="Scratch directory for temporary algorithm builds")
+        parser.add_argument("--last-test-time", required=True, help="Last test time in YYYY-MM-DD format")
+        parser.add_argument(
+            "--target",
+            choices=["parameters", "predict", "evaluate"],
+            default="evaluate",
+            help=(
+                "Dependency target: 'evaluate' uses test_data_spec, 'predict' uses prediction_spec, "
+                "and 'parameters' includes only parameter-preparation dependencies (default: evaluate)"
+            ),
+        )
+        parser.add_argument("--algorithm-override", help="Path to an algorithm override JSON file")
+
+    @staticmethod
+    def add_canonical_s3_access_arguments(parser):
+        """Add S3 authentication shared by canonical remote operations."""
+        parser.add_argument(
+            "--s3-base-dir",
+            help="Fallback S3 base URI for dependencies without a declared production s3_uri",
+        )
+        parser.add_argument("--role-arn", help="AWS role ARN to assume for remote S3 access")
+
+    @staticmethod
+    def add_download_tuning_arguments(parser):
         parser.add_argument(
             "--sample-ratio",
             type=float,
@@ -212,7 +254,250 @@ Output:
             help=f"Maximum number of parallel downloads (default: {DEFAULT_MAX_CONCURRENT_DOWNLOADS})",
         )
 
-        return parser
+    def execute_canonical(self, args) -> None:
+        """Execute one of the canonical ``hv data dependencies`` operations."""
+        self._validate_canonical_arguments(args)
+        last_test_time = date.fromisoformat(args.last_test_time)
+        algorithm_name, algorithm_version, dependencies = self._get_data_dependencies(
+            args.repo_url,
+            args.git_reference,
+            args.scratch_dir,
+            last_test_time,
+            args.target,
+            args.algorithm_override,
+        )
+
+        if args.dependency_command == "inspect":
+            self._execute_canonical_inspect(args, algorithm_name, algorithm_version, dependencies)
+            return
+        if args.dependency_command == "download":
+            self._execute_canonical_download(args, dependencies)
+            return
+        raise ValueError(f"Unknown data dependency operation: {args.dependency_command}")
+
+    @staticmethod
+    def _validate_canonical_arguments(args) -> None:
+        if args.dependency_command == "inspect":
+            if args.local_dir and not args.remote:
+                raise ValueError("--local-dir requires --remote")
+            if args.output_format == "sagemaker" and not args.remote:
+                raise ValueError("--format sagemaker requires --remote")
+            if args.local_dir and args.output_format == "sagemaker":
+                raise ValueError("--local-dir cannot be combined with --format sagemaker")
+            return
+        if args.dependency_command == "download":
+            if args.sample_ratio is not None and not 0 < args.sample_ratio <= 1:
+                raise ValueError("--sample-ratio must be between 0 and 1")
+            if args.max_parallel_downloads < 1:
+                raise ValueError("--max-parallel-downloads must be positive")
+            return
+        raise ValueError(f"Unknown data dependency operation: {args.dependency_command}")
+
+    def _execute_canonical_inspect(
+        self,
+        args,
+        algorithm_name: str,
+        algorithm_version: str,
+        dependencies: list[DataDependency],
+    ) -> None:
+        if args.output_format == "sagemaker":
+            output = self._sagemaker_input_data_config(
+                algorithm_name,
+                algorithm_version,
+                args.git_reference,
+                args.target,
+                dependencies,
+                args.s3_base_dir,
+            )
+            print(json.dumps(output, indent=2))
+            return
+
+        s3_client = self._canonical_s3_client(args.role_arn) if args.local_dir else None
+        output = {
+            "algorithm_name": algorithm_name,
+            "algorithm_version": algorithm_version,
+            "git_reference": args.git_reference,
+            "target": args.target,
+            "dependencies": [
+                self._canonical_dependency_metadata(
+                    dependency,
+                    include_remote=args.remote,
+                    local_dir=args.local_dir,
+                    s3_client=s3_client,
+                    default_s3_base=args.s3_base_dir,
+                )
+                for dependency in dependencies
+            ],
+        }
+        print(json.dumps(output, indent=2))
+
+    def _execute_canonical_download(self, args, dependencies: list[DataDependency]) -> None:
+        if args.download_all:
+            dependencies_to_download = dependencies
+        else:
+            dependencies_to_download = self._select_canonical_dependencies(dependencies, args.download_dependencies)
+
+        for dependency in dependencies_to_download:
+            self._production_s3_location(dependency, args.s3_base_dir)
+
+        local_data_path = Path(args.local_dir)
+        local_data_path.mkdir(parents=True, exist_ok=True)
+        s3_client = self._canonical_s3_client(args.role_arn, args.max_parallel_downloads)
+        download_plan, missing_data, skipped_existing = self._create_download_plan(
+            dependencies_to_download,
+            local_data_path,
+            s3_client,
+            default_s3_base=args.s3_base_dir,
+            sample_ratio=args.sample_ratio,
+            skip_if_present=True,
+        )
+
+        if missing_data:
+            missing_locations = ", ".join(entry.s3_path for entry in missing_data)
+            raise ValueError(f"Required data is missing from S3: {missing_locations}")
+
+        if not download_plan:
+            message = (
+                f"All {skipped_existing} required date directories are already present locally."
+                if skipped_existing
+                else "No partitioned data dependencies require download."
+            )
+            print(json.dumps({"status": "success", "message": message}, indent=2))
+            return
+
+        self._execute_downloads(
+            download_plan,
+            s3_client,
+            args.local_dir,
+            args.scratch_dir,
+            args.max_parallel_downloads,
+        )
+        print(json.dumps({"status": "success", "downloaded_date_directories": len(download_plan)}, indent=2))
+
+    @staticmethod
+    def _select_canonical_dependencies(
+        dependencies: list[DataDependency], requested_names: list[str]
+    ) -> list[DataDependency]:
+        selected = [dependency for dependency in dependencies if dependency.data_prefix in requested_names]
+        resolved_names = {dependency.data_prefix for dependency in selected}
+        missing_names = sorted(set(requested_names) - resolved_names)
+        if missing_names:
+            raise ValueError(f"Unknown dependency names: {', '.join(missing_names)}")
+        return selected
+
+    @staticmethod
+    def _canonical_s3_client(role_arn: str | None, max_parallel_downloads: int = 1) -> S3Client:
+        logging.getLogger("urllib3.connectionpool").setLevel(logging.ERROR)
+        session = get_boto_session_after_assuming_role(role_arn) if role_arn else boto3.Session()
+        return session.client("s3", config=Config(max_pool_connections=max_parallel_downloads * 2 + 10))
+
+    def _canonical_dependency_metadata(
+        self,
+        dependency: DataDependency,
+        *,
+        include_remote: bool,
+        local_dir: str | None,
+        s3_client: S3Client | None,
+        default_s3_base: str | None,
+    ) -> dict[str, object]:
+        output: dict[str, object] = {
+            "data_prefix": dependency.data_prefix,
+            "data_dates": [entry.isoformat() for entry in dependency.data_dates],
+            "data_type": dependency.data_type,
+            "additional_properties": dependency.additional_properties,
+        }
+        if not include_remote:
+            return output
+
+        s3_uri, s3_bucket, s3_prefix = self._production_s3_location(dependency, default_s3_base)
+        output["s3_uri"] = s3_uri
+        if local_dir:
+            if s3_client is None:
+                raise ValueError("S3 client is required when inspecting local data")
+            output.update(self._local_dependency_status(dependency, Path(local_dir), s3_client, s3_bucket, s3_prefix))
+        return output
+
+    @staticmethod
+    def _production_s3_location(dependency: DataDependency, default_s3_base: str | None = None) -> tuple[str, str, str]:
+        s3_uri = resolve_data_dependency_s3_uri(
+            dependency,
+            environment="production",
+            default_s3_base=default_s3_base,
+        )
+        if not s3_uri:
+            raise ValueError(
+                f"Dependency '{dependency.data_prefix}' has no production s3_uri. "
+                "Declare one in the algorithm definition or provide --s3-base-dir."
+            )
+        parsed_s3_uri = urlparse(s3_uri)
+        if parsed_s3_uri.scheme != "s3" or not parsed_s3_uri.netloc:
+            raise ValueError(f"Dependency '{dependency.data_prefix}' has an invalid S3 URI: {s3_uri}")
+        return s3_uri, parsed_s3_uri.netloc, parsed_s3_uri.path.strip("/")
+
+    def _local_dependency_status(
+        self,
+        dependency: DataDependency,
+        local_dir: Path,
+        s3_client: S3Client,
+        s3_bucket: str,
+        s3_prefix: str,
+    ) -> dict[str, object]:
+        if not dependency.data_dates:
+            return {"local_path": str(local_dir / dependency.data_prefix), "local_status": "not_partitioned"}
+
+        complete_dates = 0
+        missing_dates = 0
+        for dependency_date in dependency.data_dates:
+            date_str = dependency_date.isoformat()
+            s3_date_prefix = build_s3_date_path(s3_prefix, date_str=date_str)
+            remote_files, _ = self._list_s3_files(s3_client, s3_bucket, s3_date_prefix)
+            local_date_dir = local_dir / dependency.data_prefix / f"dt={date_str}"
+            local_files = self._local_file_relative_paths(local_date_dir)
+            expected_files = {self._relative_key_under_prefix(item, s3_date_prefix) for item in remote_files}
+            if remote_files and local_files == expected_files:
+                complete_dates += 1
+            else:
+                missing_dates += 1
+
+        if complete_dates == len(dependency.data_dates):
+            status = "complete"
+        elif complete_dates:
+            status = "partial"
+        else:
+            status = "missing"
+        return {
+            "local_path": str(local_dir / dependency.data_prefix),
+            "local_status": status,
+            "dates_present": complete_dates,
+            "dates_missing": missing_dates,
+        }
+
+    def _sagemaker_input_data_config(
+        self,
+        algorithm_name: str,
+        algorithm_version: str,
+        git_reference: str,
+        target: str,
+        dependencies: list[DataDependency],
+        default_s3_base: str | None,
+    ) -> dict[str, object]:
+        channels = []
+        for dependency in dependencies:
+            s3_uri, _, _ = self._production_s3_location(dependency, default_s3_base)
+            channels.append(
+                {
+                    "ChannelName": dependency.data_prefix,
+                    "DataSource": {"S3DataSource": {"S3DataType": "S3Prefix", "S3Uri": s3_uri}},
+                    "InputMode": "FastFile",
+                }
+            )
+        return {
+            "algorithm_name": algorithm_name,
+            "algorithm_version": algorithm_version,
+            "git_reference": git_reference,
+            "target": target,
+            "InputDataConfig": channels,
+        }
 
     def execute(self, args):
         """Execute the data dependency operation."""
@@ -231,11 +516,7 @@ Output:
                     print("Error: --sample-ratio must be between 0 and 1", file=sys.stderr)
                     sys.exit(1)
 
-            # Create directories
             local_data_path = Path(args.local_data_dir)
-            local_data_path.mkdir(parents=True, exist_ok=True)
-            scratch_path = Path(args.scratch_dir)
-            scratch_path.mkdir(parents=True, exist_ok=True)
 
             # Log to stderr (human-readable progress)
             print("Analyzing data dependencies...", file=sys.stderr)
@@ -289,6 +570,8 @@ Output:
                 )
                 return
 
+            local_data_path.mkdir(parents=True, exist_ok=True)
+
             # Filter dependencies based on download mode
             if download_mode == "all":
                 deps_to_download = dependencies
@@ -305,9 +588,8 @@ Output:
                 deps_to_download,
                 local_data_path,
                 s3_client,
-                s3_bucket,
-                s3_prefix,
-                args.sample_ratio,
+                default_s3_base=args.s3_base_dir,
+                sample_ratio=args.sample_ratio,
                 skip_if_present=True,
             )
 
@@ -356,7 +638,7 @@ Output:
         scratch_dir: str,
         last_test_time: date,
         target: str,
-        algorithm_override: str,
+        algorithm_override: str | dict[str, Any] | None,
     ) -> tuple[str, str, list[DataDependency]]:
         """
         Get data dependencies for a single algorithm git reference.
@@ -401,10 +683,12 @@ Output:
 
             # Parse algorithm override if provided
             algorithm_definition = algorithm_name
-            if algorithm_override:
+            if isinstance(algorithm_override, str):
                 with open(algorithm_override) as f:
                     override_config = json.load(f)
                 algorithm_definition = (algorithm_name, override_config)
+            elif algorithm_override:
+                algorithm_definition = (algorithm_name, algorithm_override)
 
             # Create pipeline and get dependencies
             pipeline = AlgorithmPipeline(
@@ -582,8 +866,7 @@ Output:
         dependencies: list[DataDependency],
         local_data_path: Path,
         s3_client: S3Client,
-        s3_bucket: str,
-        s3_prefix: str,
+        default_s3_base: str | None,
         sample_ratio: float | None,
         skip_if_present: bool,
     ) -> tuple[list[DownloadPlanItem], list[MissingData], int]:
@@ -608,15 +891,16 @@ Output:
 
             # Resolve S3 URI and normalize to always include data_prefix
             resolved_uri = resolve_data_dependency_s3_uri(
-                dep, environment="production", default_s3_base=f"s3://{s3_bucket}/{s3_prefix}"
+                dep, environment="production", default_s3_base=default_s3_base
             )
             if resolved_uri:
                 # resolved_uri already includes full path with data_prefix
                 dep_s3_bucket, dep_s3_base_prefix = parse_s3_uri(resolved_uri)
             else:
-                # Fallback: manually append data_prefix to base
-                dep_s3_bucket = s3_bucket
-                dep_s3_base_prefix = s3_prefix.rstrip("/") + "/" + dep.data_prefix
+                raise ValueError(
+                    f"Dependency '{dep.data_prefix}' has no production s3_uri. "
+                    "Declare one in the algorithm definition."
+                )
 
             for dep_date in sorted(dep.data_dates):
                 date_str = dep_date.strftime("%Y-%m-%d")

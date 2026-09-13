@@ -5,7 +5,7 @@
     <parent>
         <groupId>com.hotvect</groupId>
         <artifactId>hotvect-parent</artifactId>
-        <version>10.43.2</version>
+        <version>11.0.2</version>
     </parent>
 
     <artifactId>hotvect-api</artifactId>
@@ -20,7 +20,6 @@
         <dependency>
             <groupId>com.google.guava</groupId>
             <artifactId>guava</artifactId>
-            <scope>provided</scope>
         </dependency>
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>

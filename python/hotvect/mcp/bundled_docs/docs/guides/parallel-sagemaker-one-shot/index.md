@@ -2,9 +2,9 @@
 
 Hotvect supports fan-out execution for one-shot SageMaker commands:
 
-- `hv audit --sagemaker`
-- `hv predict --sagemaker`
-- `hv encode --sagemaker`
+- `hv algorithm audit --sagemaker`
+- `hv algorithm predict --sagemaker`
+- `hv algorithm encode --sagemaker`
 
 This mode is intended for batch workloads where splitting one large input into multiple SageMaker jobs reduces total wall-clock time.
 
@@ -50,7 +50,7 @@ Hotvect stores:
 ### Default: submit, wait, and finalize
 
 ```bash
-hv predict \
+hv algorithm predict \
   --sagemaker \
   --algorithm-jar my-algo.jar \
   --algorithm-name my-algo \
@@ -73,7 +73,7 @@ If the local process is interrupted, the remote SageMaker jobs continue running.
 ### Submit and exit immediately
 
 ```bash
-hv predict \
+hv algorithm predict \
   --sagemaker \
   --no-wait \
   --algorithm-jar my-algo.jar \
@@ -98,7 +98,7 @@ In this mode Hotvect:
 Later, run:
 
 ```bash
-hv predict \
+hv algorithm predict \
   --sagemaker \
   --verify \
   --dest-path s3://example-bucket/output/predict/dt=2000-02-01/ \
@@ -129,8 +129,8 @@ Allowed values:
 Examples:
 
 ```bash
-hv predict ... --job-parallelism 8 --compression gzip
-hv audit --parameter-s3-uri s3://example-bucket/params.zip ... --job-parallelism 4 --compression none
+hv algorithm predict ... --job-parallelism 8 --compression gzip
+hv algorithm audit --parameter-s3-uri s3://example-bucket/params.zip ... --job-parallelism 4 --compression none
 ```
 
 `encode` does not support `--compression`.
@@ -138,13 +138,18 @@ hv audit --parameter-s3-uri s3://example-bucket/params.zip ... --job-parallelism
 ## Constraints
 
 - Parallel one-shot mode requires `--sagemaker`.
+- The training image must have a readable version tag and must be Hotvect `10.41.1` or newer. Direct algorithm sources
+  use the original JAR/definition protocol on `10.41.1` through `10.48.x`; `10.49.0` and newer use the offline-source
+  manifest protocol. Fixed-composition and EMS sources require `10.49.0` or newer.
 - `--job-parallelism` is supported only for `audit`, `predict`, and `encode`.
 - `--verify` is supported only for parallel one-shot SageMaker runs.
 - `--no-wait` requires `--sagemaker`. In single-job one-shot mode it has no additional effect because submission is already asynchronous.
 - Parallel one-shot is an unordered-only mode. `--ordered` cannot be combined with `--job-parallelism`; `--unordered` is allowed but redundant.
 - `--writer-num-shards` is supported in parallel one-shot mode and applies within each shard job. The effective
   algorithm definition may also set its writer shard count.
-- If the effective algorithm definition or override explicitly requires ordered output, parallel submission fails fast instead of silently switching to unordered output.
+- If a direct effective algorithm definition or override explicitly requires ordered output, submission fails fast. Fixed
+  and EMS roots are checked after the composed runtime is initialized and before input processing begins. Neither path
+  silently switches an ordered algorithm contract to unordered output.
 - `--sagemaker-job-prefix` is still required and still overrides any `TrainingJobName` present in the SageMaker template.
 
 Related: [Run backtests on AWS SageMaker](../sagemaker-backtests/index.md) for full lifecycle runs and the

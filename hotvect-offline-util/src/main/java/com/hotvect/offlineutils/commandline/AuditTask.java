@@ -2,6 +2,7 @@ package com.hotvect.offlineutils.commandline;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.hotvect.api.algodefinition.AlgorithmDefinition;
+import com.hotvect.api.algodefinition.AlgorithmDependencies;
 import com.hotvect.api.algodefinition.ranking.RankingVectorizer;
 import com.hotvect.api.codec.common.ExampleDecoder;
 import com.hotvect.api.codec.common.ExampleEncoder;
@@ -37,13 +38,25 @@ public class AuditTask<EXAMPLE extends Example<? extends OfflineRequest, ?>, SUB
 
     @Override
     protected Map<String, Object> perform() throws Exception {
-        AlgorithmOfflineSupporterFactory algorithmSupporterFactory = new AlgorithmOfflineSupporterFactory(this.offlineTaskContext.classLoader());
+        try (AlgorithmOfflineSupporterFactory algorithmSupporterFactory =
+                     new AlgorithmOfflineSupporterFactory(this.offlineTaskContext.classLoader())) {
+            return perform(algorithmSupporterFactory);
+        }
+    }
 
+    private Map<String, Object> perform(
+            AlgorithmOfflineSupporterFactory algorithmSupporterFactory) throws Exception {
         ExampleDecoder<EXAMPLE> scoringExampleDecoder = algorithmSupporterFactory.getTrainDecoder(offlineTaskContext.algorithmDefinition());
 
-        SUBJECT subject = instantiateSubject(algorithmSupporterFactory, offlineTaskContext.algorithmDefinition(), this.offlineTaskContext.options().parameters);
+        SUBJECT subject = instantiateSubject(
+                algorithmSupporterFactory,
+                offlineTaskContext.algorithmDefinition(),
+                this.offlineTaskContext.directRuntime().algorithmSource().parameters());
 
-        ExampleEncoder<EXAMPLE> exampleEncoder = instantiateAuditEncoder(algorithmSupporterFactory, subject, offlineTaskContext.options().includeFeatureStoreResponses);
+        ExampleEncoder<EXAMPLE> exampleEncoder = instantiateAuditEncoder(
+                algorithmSupporterFactory,
+                subject,
+                offlineTaskContext.options().includeFeatureStoreResponses);
         String extension = exampleEncoder.encodedFileExtension();
         if (extension == null) {
             throw new IllegalStateException(
@@ -59,12 +72,12 @@ public class AuditTask<EXAMPLE extends Example<? extends OfflineRequest, ?>, SUB
         }
 
         // List of ByteBuffers belonging to a single Example, and there can be multiple Examples
-        Function<String, List<ByteBuffer>> transformation = scoringExampleDecoder.andThen(s -> ListTransform.map(s, exampleEncoder));
+        Function<String, List<ByteBuffer>> transformation = scoringExampleDecoder.andThen(
+                s -> ListTransform.map(s, exampleEncoder));
 
         checkState(
-                this.offlineTaskContext.options().sourceFiles.size() == 1 &&
-                        this.offlineTaskContext.options().sourceFiles.keySet().iterator().next().equals("default")
-                ,
+                this.offlineTaskContext.options().sourceFiles.size() == 1
+                        && this.offlineTaskContext.options().sourceFiles.keySet().iterator().next().equals("default"),
                 "Only one source file type is supported for audit tasks"
         );
 
@@ -77,7 +90,9 @@ public class AuditTask<EXAMPLE extends Example<? extends OfflineRequest, ?>, SUB
         Map<String, Object> metadata = new HashMap<>(orderedOutput
                 ? performOrderedAudit(transformation)
                 : performUnorderedAudit(transformation, extension));
-        long totalRecordCount = ((Number) metadata.getOrDefault("total_record_count", metadata.getOrDefault("lines_written", 0L))).longValue();
+        long totalRecordCount = ((Number) metadata.getOrDefault(
+                "total_record_count",
+                metadata.getOrDefault("lines_written", 0L))).longValue();
         if (totalRecordCount == 0L) {
             throw new Exception("No rows have been written.");
         }
@@ -156,7 +171,8 @@ public class AuditTask<EXAMPLE extends Example<? extends OfflineRequest, ?>, SUB
     }
 
     private boolean shouldWriteOrderedAudit() {
-        Optional<JsonNode> rawAlgorithmDefinition = Optional.ofNullable(this.offlineTaskContext.algorithmDefinition().rawAlgorithmDefinition());
+        Optional<JsonNode> rawAlgorithmDefinition = Optional.of(
+                this.offlineTaskContext.algorithmDefinition().rawAlgorithmDefinition());
         return resolveOrderedOutput(
                 HyperparamUtils.getOrDefault(
                         rawAlgorithmDefinition,
@@ -175,7 +191,8 @@ public class AuditTask<EXAMPLE extends Example<? extends OfflineRequest, ?>, SUB
             return this.offlineTaskContext.options().writerNumShards;
         }
 
-        Optional<JsonNode> rawAlgorithmDefinition = Optional.ofNullable(this.offlineTaskContext.algorithmDefinition().rawAlgorithmDefinition());
+        Optional<JsonNode> rawAlgorithmDefinition = Optional.of(
+                this.offlineTaskContext.algorithmDefinition().rawAlgorithmDefinition());
         int writerNumShards = HyperparamUtils.getOrDefault(
                 rawAlgorithmDefinition,
                 JsonNode::asInt,
@@ -211,8 +228,14 @@ public class AuditTask<EXAMPLE extends Example<? extends OfflineRequest, ?>, SUB
         return destinationFile;
     }
 
-    private SUBJECT instantiateSubject(AlgorithmOfflineSupporterFactory algorithmSupporterFactory, AlgorithmDefinition algorithmDefinition, File parameters) throws Exception {
-        return algorithmSupporterFactory.loadFeatureExtractionDependency(algorithmDefinition, parameters, Map.of());
+    private SUBJECT instantiateSubject(
+            AlgorithmOfflineSupporterFactory algorithmSupporterFactory,
+            AlgorithmDefinition algorithmDefinition,
+            File parameters) throws Exception {
+        return algorithmSupporterFactory.prepareFeatureExtraction(
+                algorithmDefinition,
+                parameters,
+                AlgorithmDependencies.empty());
     }
 
 

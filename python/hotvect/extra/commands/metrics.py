@@ -1,4 +1,4 @@
-"""Metrics subcommands for hv-ext CLI."""
+"""Metrics subcommands shared by ``hv`` and the legacy ``hv-ext`` entrypoint."""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ import re
 import statistics
 import sys
 import textwrap
+from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -52,6 +53,54 @@ SYSTEM_METRICS = (
     "p999",
 )
 
+SYSTEM_METRIC_SET = set(SYSTEM_METRICS)
+RESULTS_RUN_METADATA_FILENAME = ".hvext-run.json"
+SECTION_QUALITY = "quality"
+SECTION_SYSTEM_PERFORMANCE = "system_performance"
+SECTION_PIPELINE_PERFORMANCE = "pipeline_performance"
+
+_SOURCE_METADATA_FIELDS = (
+    "parameter_version",
+    "hyperparameter_version",
+    "source_parameter_uri",
+    "source_result_file",
+    "source_result_uri",
+    "source_sagemaker_job_name",
+)
+
+_SECTION_SOURCE_METADATA_FIELDS = (
+    "algorithm_definition",
+    "algorithm_override",
+    "evaluation_policy",
+    "missing_reward",
+    "benchmark_specification",
+    *_SOURCE_METADATA_FIELDS,
+)
+
+_QUALITY_METADATA_FIELDS = (
+    "algorithm_definition",
+    "algorithm_override",
+    "evaluation_policy",
+    "missing_reward",
+    *_SOURCE_METADATA_FIELDS,
+)
+
+_SYSTEM_METADATA_FIELDS = (
+    "algorithm_definition",
+    "algorithm_override",
+    "benchmark_specification",
+    *_SOURCE_METADATA_FIELDS,
+)
+
+_PIPELINE_METADATA_FIELDS = (
+    "algorithm_definition",
+    "algorithm_override",
+    "cache_usage",
+    "dependencies",
+    "timing_info_sec",
+    *_SOURCE_METADATA_FIELDS,
+)
+
 DIFFERENCE_RELATIVE_METRICS = {
     "roc_auc",
     "pr_auc",
@@ -76,6 +125,7 @@ DEFAULT_EXPORT_METRICS = (
 _NON_METRIC_KEYS = {
     "algorithm_id",
     "algorithm_definition",
+    "algorithm_override",
     "benchmark_specification",
     "cache_usage",
     "dependencies",
@@ -85,6 +135,7 @@ _NON_METRIC_KEYS = {
     "source_result_file",
     "source_result_uri",
     "source_sagemaker_job_name",
+    "section_sources",
     "test_date",
     "timing_info_sec",
     "version",
@@ -155,10 +206,8 @@ class RelativeBaselineSpec:
         return self.value
 
     @property
-    def version_selector(self) -> str:
-        if self.kind == "online":
-            return "online"
-        return self.value
+    def algorithm_id_selector(self) -> str:
+        return self.display_name
 
 
 @dataclass
@@ -166,7 +215,7 @@ class PlotDataset:
     df: Any
     table_rows: list[dict[str, Any]]
     metrics: list[str]
-    versions: list[str]
+    algorithm_ids: list[str]
     baseline: RelativeBaselineSpec
 
 
@@ -182,6 +231,16 @@ class TimingBreakdownDataset:
     components: list[str]
 
 
+@dataclass
+class SectionAssemblyDataset:
+    records: list[dict[str, Any]]
+    quality_records: list[dict[str, Any]]
+    system_records: list[dict[str, Any]]
+    pipeline_records: list[dict[str, Any]]
+    source_root: str
+    source_files: int
+
+
 @dataclass(frozen=True)
 class AlgorithmSpecification:
     algorithm_id: str
@@ -189,6 +248,12 @@ class AlgorithmSpecification:
     git_describe: str | None
     git_commit: str | None
     algorithm_parameters: dict[str, Any] | None
+    override_status: str = "not recorded"
+    override_files: tuple[str, ...] = ()
+    override_reasons: tuple[str, ...] = ()
+    override_fields: tuple[str, ...] = ()
+    code_dirty: bool | None = None
+    code_exact_tag: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -242,6 +307,20 @@ def _git_commit_from_git_describe(git_describe: str | None) -> str | None:
     if not match:
         return None
     return match.group(1)
+
+
+def _git_describe_is_dirty(git_describe: str | None) -> bool | None:
+    if not git_describe:
+        return None
+    return git_describe.endswith("-dirty")
+
+
+def _git_describe_is_exact_tag(git_describe: str | None) -> bool | None:
+    if not git_describe:
+        return None
+    if git_describe.endswith("-dirty"):
+        return False
+    return re.search(r"-\d+-g[0-9a-fA-F]+$", git_describe) is None
 
 
 def _report_hotvect_version() -> str:
@@ -327,6 +406,10 @@ def _copy_result_metadata(record: dict[str, Any], result_dict: dict[str, Any]) -
     if benchmark_specification:
         record["benchmark_specification"] = benchmark_specification
 
+    algorithm_override = result_dict.get("algorithm_override")
+    if isinstance(algorithm_override, dict):
+        record["algorithm_override"] = algorithm_override
+
     timing_info = result_dict.get("timing_info_sec")
     if isinstance(timing_info, dict):
         record["timing_info_sec"] = timing_info
@@ -342,6 +425,329 @@ def _copy_result_metadata(record: dict[str, Any], result_dict: dict[str, Any]) -
     cache_usage = _cache_usage_from_result(result_dict)
     if cache_usage:
         record["cache_usage"] = cache_usage
+
+
+def _resolve_output_base_scan_dirs(output_base_dir: str) -> tuple[Path, Path]:
+    base_dir = Path(output_base_dir)
+    if (base_dir / "meta").is_dir():
+        return base_dir, base_dir / "meta"
+    if base_dir.name == "meta":
+        return base_dir.parent, base_dir
+    return base_dir, base_dir
+
+
+def _all_result_json_paths_from_output_base_dir(output_base_dir: str, *, include_all_runs: bool) -> list[Path]:
+    root_dir, meta_dir = _resolve_output_base_scan_dirs(output_base_dir)
+    patterns: list[Path] = []
+    if include_all_runs:
+        patterns.append(root_dir / "runs" / "*" / "meta" / "*@*" / "*last_test_date_*" / "result.json")
+    patterns.append(meta_dir / "*@*" / "*last_test_date_*" / "result.json")
+
+    resolved_paths: dict[str, Path] = {}
+    for pattern in patterns:
+        for path in glob.glob(str(pattern)):
+            candidate = Path(path)
+            if not candidate.exists():
+                continue
+            resolved = candidate.resolve()
+            resolved_paths.setdefault(str(resolved), resolved)
+    return [resolved_paths[key] for key in sorted(resolved_paths)]
+
+
+def _sort_key_for_result_file(path: Path) -> tuple[float, str]:
+    metadata_path = path.parent / RESULTS_RUN_METADATA_FILENAME
+    if metadata_path.is_file():
+        try:
+            metadata = json.loads(metadata_path.read_text())
+            last_modified = metadata.get("result_json", {}).get("last_modified")
+            if isinstance(last_modified, str) and last_modified:
+                return (datetime.fromisoformat(last_modified.replace("Z", "+00:00")).timestamp(), str(path))
+        except Exception:
+            pass
+    return (path.stat().st_mtime, str(path))
+
+
+def _record_identity_from_result(
+    result_dict: dict[str, Any], *, extracted: dict[str, Any] | None, file_path: Path
+) -> tuple[str, date]:
+    algorithm_id: Any = None
+    test_date_value: Any = None
+    if extracted is not None:
+        algorithm_id = extracted.get("algorithm_id")
+        test_date_value = extracted.get("test_date")
+    if algorithm_id is None:
+        algorithm_id = result_dict.get("algorithm_id")
+    if test_date_value is None:
+        test_date_value = result_dict.get("test_date") or result_dict.get("test_data_time")
+
+    if not isinstance(algorithm_id, str) or not algorithm_id:
+        raise ValueError(f"Missing algorithm_id in {file_path}")
+    if test_date_value is None:
+        raise ValueError(f"Missing test_date/test_data_time in {file_path}")
+    return algorithm_id, _parse_test_date(test_date_value)
+
+
+def _record_matches_output_filters(
+    *,
+    algorithm_id: str,
+    test_date: date,
+    algorithm_name_pattern: str,
+    algorithm_version_pattern: str,
+    from_date: date | None,
+    to_date: date | None,
+) -> bool:
+    algorithm_name = algorithm_id.split("@", 1)[0] if "@" in algorithm_id else algorithm_id
+    algorithm_version = _version_from_algorithm_id(algorithm_id)
+    return all(
+        [
+            from_date is None or test_date >= from_date,
+            to_date is None or test_date <= to_date,
+            re.match(algorithm_name_pattern, algorithm_name),
+            re.match(algorithm_version_pattern, algorithm_version),
+        ]
+    )
+
+
+def _base_result_record(
+    result_dict: dict[str, Any], *, extracted: dict[str, Any] | None, file_path: Path
+) -> dict[str, Any]:
+    algorithm_id, test_date = _record_identity_from_result(result_dict, extracted=extracted, file_path=file_path)
+    record: dict[str, Any] = {
+        "algorithm_id": algorithm_id,
+        "test_date": test_date,
+    }
+    record.update(_extract_run_metadata(result_dict))
+    _copy_result_metadata(record, result_dict)
+    _copy_source_metadata(record, file_path)
+    return record
+
+
+def _copy_fields(target: dict[str, Any], source: dict[str, Any], fields: Sequence[str]) -> None:
+    for field in fields:
+        if field in source:
+            target[field] = source[field]
+
+
+def _quality_record_from_result(
+    result_dict: dict[str, Any], *, extracted: dict[str, Any] | None, file_path: Path
+) -> dict[str, Any] | None:
+    if extracted is None:
+        return None
+    quality_metrics = {
+        key: value
+        for key, value in extracted.items()
+        if key not in {"algorithm_id", "test_date", *SYSTEM_METRIC_SET}
+        and (isinstance(value, (int, float)) or _is_metric_value(value))
+    }
+    if not quality_metrics:
+        return None
+    record = _base_result_record(result_dict, extracted=extracted, file_path=file_path)
+    output = {
+        "algorithm_id": record["algorithm_id"],
+        "test_date": record["test_date"],
+        **quality_metrics,
+    }
+    _copy_fields(output, record, _QUALITY_METADATA_FIELDS)
+    return output
+
+
+def _system_record_from_result(
+    result_dict: dict[str, Any], *, extracted: dict[str, Any] | None, file_path: Path
+) -> dict[str, Any] | None:
+    try:
+        perf = _load_performance_file(str(file_path))
+    except Exception:
+        return None
+
+    record = _base_result_record(result_dict, extracted=extracted, file_path=file_path)
+    output: dict[str, Any] = {
+        "algorithm_id": record["algorithm_id"],
+        "test_date": record["test_date"],
+    }
+    if perf.get("max_memory_usage") is not None:
+        output["max_memory_usage"] = perf["max_memory_usage"]
+    if perf.get("mean_throughput") is not None:
+        output["mean_throughput"] = perf["mean_throughput"]
+    response_time_metrics = perf.get("response_time_metrics") or {}
+    for key in ["mean", "p50", "p75", "p95", "p99", "p999"]:
+        value = response_time_metrics.get(key)
+        if isinstance(value, dict) and isinstance(value.get("mean"), (int, float)):
+            output[key] = float(value["mean"])
+    if not any(metric in output for metric in SYSTEM_METRIC_SET):
+        return None
+    _copy_fields(output, record, _SYSTEM_METADATA_FIELDS)
+    return output
+
+
+def _pipeline_record_from_result(
+    result_dict: dict[str, Any], *, extracted: dict[str, Any] | None, file_path: Path
+) -> dict[str, Any] | None:
+    timing_metrics = _extract_timing_metrics(result_dict)
+    timing_breakdown = _extract_timing_breakdown(result_dict)
+    if not timing_metrics and not timing_breakdown:
+        return None
+
+    record = _base_result_record(result_dict, extracted=extracted, file_path=file_path)
+    output: dict[str, Any] = {
+        "algorithm_id": record["algorithm_id"],
+        "test_date": record["test_date"],
+    }
+    _copy_fields(output, record, _PIPELINE_METADATA_FIELDS)
+    for key, value in record.items():
+        if key in output or key in {"algorithm_id", "test_date", *SYSTEM_METRIC_SET}:
+            continue
+        if isinstance(value, dict) and value.get("skipped"):
+            output[key] = value
+    return output
+
+
+def _section_source_snapshot(section_record: dict[str, Any]) -> dict[str, Any]:
+    snapshot = {
+        "algorithm_id": section_record["algorithm_id"],
+        "test_date": section_record["test_date"],
+    }
+    _copy_fields(snapshot, section_record, _SECTION_SOURCE_METADATA_FIELDS)
+    return snapshot
+
+
+def _combine_section_records(
+    *,
+    algorithm_id: str,
+    test_date: date,
+    quality_record: dict[str, Any] | None,
+    system_record: dict[str, Any] | None,
+    pipeline_record: dict[str, Any] | None,
+) -> dict[str, Any]:
+    combined: dict[str, Any] = {
+        "algorithm_id": algorithm_id,
+        "test_date": test_date,
+    }
+    if quality_record is not None:
+        _copy_fields(combined, quality_record, _QUALITY_METADATA_FIELDS)
+        for key, value in quality_record.items():
+            if key in {"algorithm_id", "test_date", *_QUALITY_METADATA_FIELDS}:
+                continue
+            combined[key] = value
+
+    if system_record is not None:
+        _copy_fields(combined, system_record, _SYSTEM_METADATA_FIELDS)
+        for key in SYSTEM_METRICS:
+            if key in system_record:
+                combined[key] = system_record[key]
+
+    if pipeline_record is not None:
+        _copy_fields(combined, pipeline_record, _PIPELINE_METADATA_FIELDS)
+        for key, value in pipeline_record.items():
+            if key in {"algorithm_id", "test_date", *_PIPELINE_METADATA_FIELDS}:
+                continue
+            combined[key] = value
+
+    section_sources: dict[str, dict[str, Any]] = {}
+    if quality_record is not None:
+        section_sources[SECTION_QUALITY] = _section_source_snapshot(quality_record)
+    if system_record is not None:
+        section_sources[SECTION_SYSTEM_PERFORMANCE] = _section_source_snapshot(system_record)
+    if pipeline_record is not None:
+        section_sources[SECTION_PIPELINE_PERFORMANCE] = _section_source_snapshot(pipeline_record)
+    if section_sources:
+        combined["section_sources"] = section_sources
+
+    # An assembled record has no single authoritative algorithm specification or
+    # override. Consumers must inspect every contributing section source.
+    combined.pop("algorithm_definition", None)
+    combined.pop("algorithm_override", None)
+
+    return combined
+
+
+def _assemble_latest_section_records(
+    *,
+    output_base_dir: str,
+    algorithm_name_pattern: str,
+    algorithm_version_pattern: str,
+    from_date: date | None,
+    to_date: date | None,
+) -> SectionAssemblyDataset:
+    selected_quality: dict[tuple[str, str], tuple[tuple[float, str], dict[str, Any]]] = {}
+    selected_system: dict[tuple[str, str], tuple[tuple[float, str], dict[str, Any]]] = {}
+    selected_pipeline: dict[tuple[str, str], tuple[tuple[float, str], dict[str, Any]]] = {}
+
+    for result_json_path in _all_result_json_paths_from_output_base_dir(output_base_dir, include_all_runs=True):
+        raw = _load_result_json(result_json_path)
+        extracted = extract_evaluation(raw)
+        algorithm_id, test_date = _record_identity_from_result(raw, extracted=extracted, file_path=result_json_path)
+        if not _record_matches_output_filters(
+            algorithm_id=algorithm_id,
+            test_date=test_date,
+            algorithm_name_pattern=algorithm_name_pattern,
+            algorithm_version_pattern=algorithm_version_pattern,
+            from_date=from_date,
+            to_date=to_date,
+        ):
+            continue
+
+        record_key = (algorithm_id, test_date.isoformat())
+        freshness = _sort_key_for_result_file(result_json_path)
+
+        quality_record = _quality_record_from_result(raw, extracted=extracted, file_path=result_json_path)
+        if quality_record is not None:
+            previous = selected_quality.get(record_key)
+            if previous is None or previous[0] < freshness:
+                selected_quality[record_key] = (freshness, quality_record)
+
+        system_record = _system_record_from_result(raw, extracted=extracted, file_path=result_json_path)
+        if system_record is not None:
+            previous = selected_system.get(record_key)
+            if previous is None or previous[0] < freshness:
+                selected_system[record_key] = (freshness, system_record)
+
+        pipeline_record = _pipeline_record_from_result(raw, extracted=extracted, file_path=result_json_path)
+        if pipeline_record is not None:
+            previous = selected_pipeline.get(record_key)
+            if previous is None or previous[0] < freshness:
+                selected_pipeline[record_key] = (freshness, pipeline_record)
+
+    all_keys = set(selected_quality) | set(selected_system) | set(selected_pipeline)
+    if not all_keys:
+        return SectionAssemblyDataset(
+            records=[],
+            quality_records=[],
+            system_records=[],
+            pipeline_records=[],
+            source_root=str(output_base_dir),
+            source_files=0,
+        )
+
+    combined_records: list[dict[str, Any]] = []
+    selected_sources: set[str] = set()
+    for algorithm_id, test_date_s in sorted(all_keys):
+        quality_record = selected_quality.get((algorithm_id, test_date_s), (None, None))[1]
+        system_record = selected_system.get((algorithm_id, test_date_s), (None, None))[1]
+        pipeline_record = selected_pipeline.get((algorithm_id, test_date_s), (None, None))[1]
+        combined_record = _combine_section_records(
+            algorithm_id=algorithm_id,
+            test_date=date.fromisoformat(test_date_s),
+            quality_record=quality_record,
+            system_record=system_record,
+            pipeline_record=pipeline_record,
+        )
+        combined_records.append(combined_record)
+        for source_record in (quality_record, system_record, pipeline_record):
+            if source_record is None:
+                continue
+            source = _record_source_value(source_record, "source_result_uri", "source_result_file")
+            if source:
+                selected_sources.add(source)
+
+    root_dir, _meta_dir = _resolve_output_base_scan_dirs(output_base_dir)
+    return SectionAssemblyDataset(
+        records=combined_records,
+        quality_records=[record for _, record in sorted(selected_quality.values(), key=lambda item: item[0])],
+        system_records=[record for _, record in sorted(selected_system.values(), key=lambda item: item[0])],
+        pipeline_records=[record for _, record in sorted(selected_pipeline.values(), key=lambda item: item[0])],
+        source_root=str(root_dir),
+        source_files=len(selected_sources),
+    )
 
 
 def _benchmark_specification_from_result(result_dict: dict[str, Any]) -> dict[str, Any]:
@@ -495,14 +901,63 @@ def _copy_source_metadata(record: dict[str, Any], source_result_file: Path) -> N
         record["source_sagemaker_job_name"] = job_name
 
 
+def _unique_strings(values: Sequence[Any]) -> tuple[str, ...]:
+    return tuple(sorted(dict.fromkeys(str(value) for value in values if isinstance(value, str) and value)))
+
+
+def _override_summary_for_records(
+    records: Sequence[dict[str, Any]],
+) -> tuple[str, tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
+    override_records = [
+        record["algorithm_override"] for record in records if isinstance(record.get("algorithm_override"), dict)
+    ]
+    if not override_records:
+        return "not recorded", (), (), ()
+
+    supplied_values = {
+        override["supplied"] for override in override_records if isinstance(override.get("supplied"), bool)
+    }
+    if supplied_values == {False}:
+        base_status = "not supplied"
+    elif True in supplied_values:
+        base_status = "supplied"
+    else:
+        base_status = "recorded without supplied flag"
+
+    if len(override_records) != len(records):
+        status = f"partially recorded: {base_status} ({len(override_records)}/{len(records)} records)"
+    else:
+        status = base_status
+
+    files: list[str] = []
+    reasons: list[str] = []
+    fields: list[str] = []
+    for override in override_records:
+        raw_files = override.get("files")
+        if isinstance(raw_files, list):
+            files.extend(value for value in raw_files if isinstance(value, str))
+        raw_reasons = override.get("reasons")
+        if isinstance(raw_reasons, list):
+            reasons.extend(value for value in raw_reasons if isinstance(value, str))
+        raw_fields = override.get("fields")
+        if isinstance(raw_fields, list):
+            fields.extend(value for value in raw_fields if isinstance(value, str))
+
+    return status, _unique_strings(files), _unique_strings(reasons), _unique_strings(fields)
+
+
 def _algorithm_specification_for_algorithm(
     records: Sequence[dict[str, Any]], algorithm_id: str
 ) -> AlgorithmSpecification:
+    matching_records = _provenance_records(
+        [record for record in records if str(record.get("algorithm_id")) == algorithm_id]
+    )
     matching_definitions = [
         record.get("algorithm_definition")
-        for record in records
-        if str(record.get("algorithm_id")) == algorithm_id and isinstance(record.get("algorithm_definition"), dict)
+        for record in matching_records
+        if isinstance(record.get("algorithm_definition"), dict)
     ]
+    override_status, override_files, override_reasons, override_fields = _override_summary_for_records(matching_records)
     if not matching_definitions:
         return AlgorithmSpecification(
             algorithm_id=algorithm_id,
@@ -510,6 +965,10 @@ def _algorithm_specification_for_algorithm(
             git_describe=None,
             git_commit=None,
             algorithm_parameters=None,
+            override_status=override_status,
+            override_files=override_files,
+            override_reasons=override_reasons,
+            override_fields=override_fields,
         )
 
     hotvect_version = _require_consistent(
@@ -539,11 +998,16 @@ def _algorithm_specification_for_algorithm(
     )
     algorithm_parameters = _require_consistent(
         [
-            definition.get("algorithm_parameters")
+            definition.get("algorithm_parameters") if isinstance(definition.get("algorithm_parameters"), dict) else None
             for definition in matching_definitions
-            if isinstance(definition.get("algorithm_parameters"), dict)
         ],
         label=f"{algorithm_id} algorithm parameters",
+    )
+
+    definition_metadata_complete = len(matching_definitions) == len(matching_records)
+    git_describe_metadata_complete = definition_metadata_complete and all(
+        isinstance(definition.get("git_describe"), str) and bool(definition.get("git_describe"))
+        for definition in matching_definitions
     )
 
     return AlgorithmSpecification(
@@ -556,6 +1020,20 @@ def _algorithm_specification_for_algorithm(
             else _git_commit_from_git_describe(git_describe if isinstance(git_describe, str) else None)
         ),
         algorithm_parameters=algorithm_parameters if isinstance(algorithm_parameters, dict) else None,
+        override_status=override_status,
+        override_files=override_files,
+        override_reasons=override_reasons,
+        override_fields=override_fields,
+        code_dirty=(
+            _git_describe_is_dirty(git_describe if isinstance(git_describe, str) else None)
+            if git_describe_metadata_complete
+            else None
+        ),
+        code_exact_tag=(
+            _git_describe_is_exact_tag(git_describe if isinstance(git_describe, str) else None)
+            if git_describe_metadata_complete
+            else None
+        ),
     )
 
 
@@ -830,7 +1308,7 @@ def _is_metric_value(value: Any) -> bool:
     return False
 
 
-def _discover_metrics(records: Sequence[dict[str, Any]]) -> list[str]:
+def _discover_metrics(records: Sequence[dict[str, Any]], *, require_all_records: bool = True) -> list[str]:
     candidates: set[str] = set()
     for record in records:
         for key, value in record.items():
@@ -849,14 +1327,16 @@ def _discover_metrics(records: Sequence[dict[str, Any]]) -> list[str]:
 
     discovered: list[str] = []
     for metric in sorted(candidates):
-        ok = True
-        for record in records:
-            value = record.get(metric)
-            if value is None or (not isinstance(value, (int, float)) and not _is_metric_value(value)):
-                ok = False
-                break
-        if ok:
-            discovered.append(metric)
+        if require_all_records:
+            ok = True
+            for record in records:
+                value = record.get(metric)
+                if value is None or (not isinstance(value, (int, float)) and not _is_metric_value(value)):
+                    ok = False
+                    break
+            if not ok:
+                continue
+        discovered.append(metric)
 
     preferred_order = list(QUALITY_METRICS) + list(SYSTEM_METRICS)
     ordered: list[str] = [m for m in preferred_order if m in discovered]
@@ -895,6 +1375,24 @@ def _filter_to_common_dates(records: Sequence[dict[str, Any]]) -> list[dict[str,
         raise ValueError("No common test dates across versions.")
     allowed = set(common_dates)
     return [r for r in records if r["test_date"] in allowed]
+
+
+def _common_dates_by_algorithm_id(records: Sequence[dict[str, Any]]) -> list[date]:
+    by_algorithm_id: dict[str, set[date]] = {}
+    for record in records:
+        algorithm_id = str(record["algorithm_id"])
+        by_algorithm_id.setdefault(algorithm_id, set()).add(_parse_test_date(record["test_date"]))
+    if not by_algorithm_id:
+        return []
+    return sorted(set.intersection(*by_algorithm_id.values()))
+
+
+def _filter_to_common_dates_by_algorithm_id(records: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
+    common_dates = _common_dates_by_algorithm_id(records)
+    if not common_dates:
+        raise ValueError("No common test dates across algorithm_ids.")
+    allowed = set(common_dates)
+    return [record for record in records if _parse_test_date(record["test_date"]) in allowed]
 
 
 def _aggregate_by_date(
@@ -991,24 +1489,27 @@ def _parse_relative_baseline(selector: str) -> RelativeBaselineSpec:
         if not dimension:
             raise ValueError("Online relative baseline must be in the form online:<dimension>.")
         return RelativeBaselineSpec(kind="online", value=dimension)
-    return RelativeBaselineSpec(kind="version", value=selector.split("@", 1)[-1])
+    baseline_algorithm_id = selector.strip()
+    if not baseline_algorithm_id:
+        raise ValueError("--relative-baseline must not be empty.")
+    return RelativeBaselineSpec(kind="algorithm_id", value=baseline_algorithm_id)
 
 
 def _parse_treatment_descriptions(values: Sequence[str] | None) -> dict[str, str]:
     descriptions: dict[str, str] = {}
     for value in values or []:
         if "=" not in value:
-            raise ValueError("--treatment-description must use VERSION=TEXT")
-        version, description = value.split("=", 1)
-        version = version.strip()
+            raise ValueError("--treatment-description must use ALGORITHM_ID=TEXT")
+        algorithm_id, description = value.split("=", 1)
+        algorithm_id = algorithm_id.strip()
         description = description.strip()
-        if not version:
-            raise ValueError("--treatment-description must include a non-empty VERSION")
+        if not algorithm_id:
+            raise ValueError("--treatment-description must include a non-empty ALGORITHM_ID")
         if not description:
             raise ValueError("--treatment-description must include non-empty TEXT")
-        if version in descriptions:
-            raise ValueError(f"Duplicate --treatment-description for version: {version}")
-        descriptions[version] = description
+        if algorithm_id in descriptions:
+            raise ValueError(f"Duplicate --treatment-description for algorithm_id: {algorithm_id}")
+        descriptions[algorithm_id] = description
     return descriptions
 
 
@@ -1016,30 +1517,34 @@ def _validate_plot_descriptions(
     *,
     baseline_description: str | None,
     treatment_descriptions: dict[str, str],
-    versions: Sequence[str],
+    algorithm_ids: Sequence[str],
     baseline: RelativeBaselineSpec,
 ) -> str | None:
     normalized_baseline_description = baseline_description.strip() if baseline_description else None
     if normalized_baseline_description == "":
         raise ValueError("--baseline-description must not be empty")
 
-    allowed_versions = set(versions)
-    unknown_versions = sorted(version for version in treatment_descriptions if version not in allowed_versions)
-    if unknown_versions:
+    allowed_algorithm_ids = set(algorithm_ids)
+    unknown_algorithm_ids = sorted(
+        algorithm_id for algorithm_id in treatment_descriptions if algorithm_id not in allowed_algorithm_ids
+    )
+    if unknown_algorithm_ids:
         raise ValueError(
-            "--treatment-description refers to version(s) that are not plotted: " + ", ".join(unknown_versions)
+            "--treatment-description refers to algorithm_id(s) that are not plotted: "
+            + ", ".join(unknown_algorithm_ids)
         )
 
-    baseline_selector = baseline.version_selector
-    if baseline.kind == "version" and baseline_selector in treatment_descriptions:
+    baseline_selector = baseline.algorithm_id_selector
+    if baseline.kind == "algorithm_id" and baseline_selector in treatment_descriptions:
         raise ValueError(
-            f"--treatment-description {baseline_selector}=... describes the baseline; "
+            f"--treatment-description {baseline_selector}=... describes the baseline algorithm_id; "
             "use --baseline-description instead"
         )
 
-    if baseline.kind == "online" and "online" in treatment_descriptions:
+    if baseline.kind == "online" and baseline_selector in treatment_descriptions:
         raise ValueError(
-            "--treatment-description online=... describes the baseline; use --baseline-description instead"
+            f"--treatment-description {baseline_selector}=... describes the baseline; "
+            "use --baseline-description instead"
         )
 
     return normalized_baseline_description
@@ -1059,7 +1564,6 @@ def _build_plot_rows(
         row = {
             "algorithm_id": record["algorithm_id"],
             "test_date": _parse_test_date(record["test_date"]).isoformat(),
-            "version": _version_from_algorithm_id(record["algorithm_id"]),
         }
         for metric in metrics:
             row[metric] = record.get(metric)
@@ -1151,9 +1655,8 @@ def _synthesize_online_control_rows(
     online_values = {metric: _online_metric_values_by_date(raw_rows, metric, baseline) for metric in metrics}
     for test_date in sorted({row["test_date"] for row in raw_rows}):
         online_row = {
-            "algorithm_id": f"online:{baseline.value}",
+            "algorithm_id": baseline.algorithm_id_selector,
             "test_date": test_date,
-            "version": baseline.version_selector,
         }
         for metric in metrics:
             online_row[metric] = online_values[metric].get(test_date)
@@ -1167,7 +1670,6 @@ def _table_rows_for_metrics(rows: Sequence[dict[str, Any]], metrics: Sequence[st
         output_row = {
             "algorithm_id": row["algorithm_id"],
             "test_date": row["test_date"],
-            "version": row["version"],
         }
         for metric in metrics:
             est = row.get(metric)
@@ -1194,25 +1696,25 @@ def _drop_metric_columns(rows: Sequence[dict[str, Any]], metrics: Sequence[str])
     return [{key: value for key, value in row.items() if key not in metric_columns} for row in rows]
 
 
-def _resolve_plot_versions(
+def _resolve_plot_algorithm_ids(
     table_rows: Sequence[dict[str, Any]],
-    explicit_versions: Sequence[str] | None,
+    explicit_algorithm_ids: Sequence[str] | None,
     baseline: RelativeBaselineSpec,
 ) -> list[str]:
-    versions = list(dict.fromkeys(row["version"] for row in table_rows))
-    if explicit_versions:
-        versions = [v.split("@", 1)[-1] for v in explicit_versions]
-    versions = [
-        baseline.version_selector,
-        *[version for version in versions if version != baseline.version_selector],
+    algorithm_ids = list(dict.fromkeys(str(row["algorithm_id"]) for row in table_rows))
+    if explicit_algorithm_ids:
+        algorithm_ids = list(explicit_algorithm_ids)
+    algorithm_ids = [
+        baseline.algorithm_id_selector,
+        *[algorithm_id for algorithm_id in algorithm_ids if algorithm_id != baseline.algorithm_id_selector],
     ]
-    return list(dict.fromkeys(versions))
+    return list(dict.fromkeys(algorithm_ids))
 
 
 def _build_plot_dataset(
     records: Sequence[dict[str, Any]],
     metrics: Sequence[str],
-    explicit_versions: Sequence[str] | None,
+    explicit_algorithm_ids: Sequence[str] | None,
     relative_baseline: str,
 ) -> PlotDataset:
     import pandas as pd  # type: ignore
@@ -1234,16 +1736,25 @@ def _build_plot_dataset(
     if df.empty:
         raise ValueError("No data available for plotting after filtering.")
 
-    versions = _resolve_plot_versions(table_rows, explicit_versions, baseline)
-    df["version"] = pd.Categorical(df["version"], categories=versions, ordered=True)
-    if baseline.kind == "version" and baseline.version_selector not in df["version"].cat.categories:
-        raise ValueError(f"Relative baseline version not present in data: {baseline.value}")
+    present_algorithm_ids = list(dict.fromkeys(str(row["algorithm_id"]) for row in table_rows))
+    if explicit_algorithm_ids:
+        missing_algorithm_ids = [
+            algorithm_id for algorithm_id in explicit_algorithm_ids if algorithm_id not in present_algorithm_ids
+        ]
+        if missing_algorithm_ids:
+            raise ValueError("Requested algorithm_id(s) not present in plot data: " + ", ".join(missing_algorithm_ids))
+
+    if baseline.kind == "algorithm_id" and baseline.algorithm_id_selector not in present_algorithm_ids:
+        raise ValueError(f"Relative baseline algorithm_id not present in data: {baseline.value}")
+
+    algorithm_ids = _resolve_plot_algorithm_ids(table_rows, explicit_algorithm_ids, baseline)
+    df["algorithm_id"] = pd.Categorical(df["algorithm_id"], categories=algorithm_ids, ordered=True)
 
     return PlotDataset(
         df=df,
         table_rows=table_rows,
         metrics=final_metrics,
-        versions=versions,
+        algorithm_ids=algorithm_ids,
         baseline=baseline,
     )
 
@@ -1375,7 +1886,9 @@ def _has_production_training_breakdown_signal(components: Sequence[str]) -> bool
     return any(component != "package_predict_params" for component in components)
 
 
-def _build_timing_plot_dataset(records: Sequence[dict[str, Any]], versions: Sequence[str]) -> TimingPlotDataset | None:
+def _build_timing_plot_dataset(
+    records: Sequence[dict[str, Any]], algorithm_ids: Sequence[str]
+) -> TimingPlotDataset | None:
     import pandas as pd  # type: ignore
 
     rows: list[dict[str, Any]] = []
@@ -1387,7 +1900,6 @@ def _build_timing_plot_dataset(records: Sequence[dict[str, Any]], versions: Sequ
         row: dict[str, Any] = {
             "algorithm_id": record["algorithm_id"],
             "test_date": _parse_test_date(record["test_date"]).isoformat(),
-            "version": _version_from_algorithm_id(record["algorithm_id"]),
         }
         row.update(timing_metrics)
         rows.append(row)
@@ -1397,7 +1909,7 @@ def _build_timing_plot_dataset(records: Sequence[dict[str, Any]], versions: Sequ
         return None
 
     df = pd.DataFrame(rows)
-    df["version"] = pd.Categorical(df["version"], categories=list(versions), ordered=True)
+    df["algorithm_id"] = pd.Categorical(df["algorithm_id"], categories=list(algorithm_ids), ordered=True)
     metrics: list[str] = []
     for metric in sorted(all_metrics, key=_timing_metric_sort_key):
         values = df[metric].dropna().astype(float)
@@ -1411,7 +1923,7 @@ def _build_timing_plot_dataset(records: Sequence[dict[str, Any]], versions: Sequ
 
 
 def _build_timing_breakdown_dataset(
-    records: Sequence[dict[str, Any]], versions: Sequence[str]
+    records: Sequence[dict[str, Any]], algorithm_ids: Sequence[str]
 ) -> TimingBreakdownDataset | None:
     import pandas as pd  # type: ignore
 
@@ -1424,7 +1936,6 @@ def _build_timing_breakdown_dataset(
         row: dict[str, Any] = {
             "algorithm_id": record["algorithm_id"],
             "test_date": _parse_test_date(record["test_date"]).isoformat(),
-            "version": _version_from_algorithm_id(record["algorithm_id"]),
         }
         row.update(breakdown)
         rows.append(row)
@@ -1434,7 +1945,7 @@ def _build_timing_breakdown_dataset(
         return None
 
     df = pd.DataFrame(rows)
-    df["version"] = pd.Categorical(df["version"], categories=list(versions), ordered=True)
+    df["algorithm_id"] = pd.Categorical(df["algorithm_id"], categories=list(algorithm_ids), ordered=True)
     components = [
         component
         for component in sorted(all_components, key=_timing_metric_sort_key)
@@ -1487,8 +1998,8 @@ def _format_timing_estimate(values: Sequence[float]) -> tuple[float, str] | None
 
 def _build_timing_summary_lines(
     timing_dataset: TimingPlotDataset,
-    versions: Sequence[str],
-    baseline_version: str,
+    algorithm_ids: Sequence[str],
+    baseline_algorithm_id: str,
 ) -> list[str]:
     lines: list[str] = [
         "Pipeline Performance Summary",
@@ -1508,24 +2019,26 @@ def _build_timing_summary_lines(
     df = timing_dataset.df
 
     for metric in timing_dataset.metrics:
-        metric_values = df[["version", metric]].dropna(subset=[metric])
+        metric_values = df[["algorithm_id", metric]].dropna(subset=[metric])
         if metric_values.empty:
             continue
-        baseline_rows = metric_values[metric_values["version"] == baseline_version][metric].astype(float).tolist()
+        baseline_rows = (
+            metric_values[metric_values["algorithm_id"] == baseline_algorithm_id][metric].astype(float).tolist()
+        )
         baseline_estimate = _format_timing_estimate(baseline_rows)
         baseline_mean = baseline_estimate[0] if baseline_estimate is not None else None
 
         lines.append("")
         lines.extend(_wrap_labeled_text("Metric:", metric, label_width=12))
-        for version in versions:
-            version_rows = metric_values[metric_values["version"] == version][metric].astype(float).tolist()
-            version_estimate = _format_timing_estimate(version_rows)
-            if version_estimate is None:
+        for algorithm_id in algorithm_ids:
+            algorithm_rows = metric_values[metric_values["algorithm_id"] == algorithm_id][metric].astype(float).tolist()
+            algorithm_estimate = _format_timing_estimate(algorithm_rows)
+            if algorithm_estimate is None:
                 continue
-            mean, rendered = version_estimate
-            if version != baseline_version and baseline_mean is not None and baseline_mean != 0:
+            mean, rendered = algorithm_estimate
+            if algorithm_id != baseline_algorithm_id and baseline_mean is not None and baseline_mean != 0:
                 rendered = f"{rendered}; mean {mean / baseline_mean:.3g}x baseline"
-            lines.extend(_wrap_labeled_text("Version:", f"{version}: {rendered}", label_width=12))
+            lines.extend(_wrap_labeled_text("Algorithm ID:", f"{algorithm_id}: {rendered}", label_width=12))
 
     return lines
 
@@ -1699,8 +2212,33 @@ def _format_mapping(mapping: dict[str, Any] | None) -> str:
     return ", ".join(f"{key}={value}" for key, value in _flatten_mapping(mapping))
 
 
+def _format_optional_bool(value: bool | None) -> str:
+    if value is None:
+        return "unknown"
+    return "yes" if value else "no"
+
+
+def _final_report_validity(spec: AlgorithmSpecification) -> str:
+    blockers: list[str] = []
+    if spec.override_status != "not supplied":
+        blockers.append(f"override status is {spec.override_status}")
+    if spec.code_dirty is not False:
+        blockers.append(f"code dirty is {_format_optional_bool(spec.code_dirty)}")
+    if spec.code_exact_tag is not True:
+        blockers.append(f"exact git tag is {_format_optional_bool(spec.code_exact_tag)}")
+    if not blockers:
+        return "valid"
+    return "not final: " + "; ".join(blockers)
+
+
 def _evaluation_specification_from_record(record: dict[str, Any]) -> dict[str, Any]:
-    algorithm_definition = record.get("algorithm_definition")
+    section_sources = record.get("section_sources")
+    specification_record = record
+    if isinstance(section_sources, dict):
+        quality_source = section_sources.get(SECTION_QUALITY)
+        specification_record = quality_source if isinstance(quality_source, dict) else {}
+
+    algorithm_definition = specification_record.get("algorithm_definition")
     if not isinstance(algorithm_definition, dict):
         algorithm_definition = {}
 
@@ -1714,7 +2252,7 @@ def _evaluation_specification_from_record(record: dict[str, Any]) -> dict[str, A
     elif not isinstance(evaluation_function, dict):
         evaluation_function = {}
 
-    evaluation_policy = record.get("evaluation_policy")
+    evaluation_policy = specification_record.get("evaluation_policy")
     if not isinstance(evaluation_policy, dict):
         evaluation_policy = {}
 
@@ -1730,11 +2268,17 @@ def _evaluation_specification_from_record(record: dict[str, Any]) -> dict[str, A
 
 
 def _benchmark_specification_from_record(record: dict[str, Any]) -> dict[str, Any]:
-    benchmark_specification = record.get("benchmark_specification")
+    section_sources = record.get("section_sources")
+    specification_record = record
+    if isinstance(section_sources, dict):
+        system_source = section_sources.get(SECTION_SYSTEM_PERFORMANCE)
+        specification_record = system_source if isinstance(system_source, dict) else {}
+
+    benchmark_specification = specification_record.get("benchmark_specification")
     if isinstance(benchmark_specification, dict):
         return benchmark_specification
 
-    result_like = {"algorithm_definition": record.get("algorithm_definition")}
+    result_like = {"algorithm_definition": specification_record.get("algorithm_definition")}
     return _benchmark_specification_from_result(result_like)
 
 
@@ -1840,14 +2384,36 @@ def _source_patterns(
     return sorted(dict.fromkeys(patterns))
 
 
+def _provenance_records(records: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
+    flattened: list[dict[str, Any]] = []
+    for record in records:
+        section_sources = record.get("section_sources")
+        if isinstance(section_sources, dict) and section_sources:
+            for section, source in section_sources.items():
+                if not isinstance(source, dict):
+                    continue
+                flattened.append(
+                    {
+                        **source,
+                        "algorithm_id": source.get("algorithm_id") or record.get("algorithm_id"),
+                        "test_date": source.get("test_date") or record.get("test_date"),
+                        "__section": section,
+                    }
+                )
+            continue
+        flattened.append(record)
+    return flattened
+
+
 def _build_provenance_lines(records: Sequence[dict[str, Any]]) -> list[str]:
     lines: list[str] = []
     records_sorted = sorted(
-        records,
+        _provenance_records(records),
         key=lambda record: (
             _parse_test_date(record["test_date"]),
             str(record.get("algorithm_id") or ""),
             str(record.get("source_result_file") or ""),
+            str(record.get("__section") or ""),
         ),
     )
 
@@ -1879,6 +2445,29 @@ def _build_provenance_lines(records: Sequence[dict[str, Any]]) -> list[str]:
             if record.get("source_sagemaker_job_name")
         }
     )
+    section_counts = Counter(
+        str(record["__section"]) for record in records_sorted if isinstance(record.get("__section"), str)
+    )
+
+    section_source_patterns: list[str] = []
+    section_override_statuses: list[str] = []
+    for section in sorted(section_counts):
+        section_records = [record for record in records_sorted if record.get("__section") == section]
+        patterns = _source_patterns(
+            section_records,
+            "source_result_uri",
+            result_root,
+            fallback_field="source_result_file",
+        )
+        section_source_patterns.extend(f"{section}: {pattern}" for pattern in patterns)
+        for algorithm_id in algorithm_ids:
+            algorithm_section_records = [
+                record for record in section_records if str(record.get("algorithm_id")) == algorithm_id
+            ]
+            if not algorithm_section_records:
+                continue
+            override_status, _files, _reasons, _fields = _override_summary_for_records(algorithm_section_records)
+            section_override_statuses.append(f"{algorithm_id} / {section}: {override_status}")
 
     lines.append("Source Summary")
     lines.extend(_wrap_labeled_text("Runs:", str(len(records_sorted)), label_width=16))
@@ -1902,6 +2491,30 @@ def _build_provenance_lines(records: Sequence[dict[str, Any]]) -> list[str]:
                 label_width=16,
             )
         )
+    if section_counts:
+        lines.extend(
+            _wrap_labeled_values(
+                "Sections:",
+                [f"{section} ({count})" for section, count in sorted(section_counts.items())],
+                label_width=16,
+            )
+        )
+        lines.extend(
+            _wrap_labeled_values(
+                "Section Sources:",
+                section_source_patterns,
+                max_items=18,
+                label_width=18,
+            )
+        )
+        lines.extend(
+            _wrap_labeled_values(
+                "Section Overrides:",
+                section_override_statuses,
+                max_items=18,
+                label_width=18,
+            )
+        )
 
     return lines
 
@@ -1909,8 +2522,8 @@ def _build_provenance_lines(records: Sequence[dict[str, Any]]) -> list[str]:
 def _relative_frame(
     df: Any,
     metric: str,
-    versions: Sequence[str],
-    baseline_version: str,
+    algorithm_ids: Sequence[str],
+    baseline_algorithm_id: str,
     *,
     include_baseline: bool,
 ) -> Any:
@@ -1921,21 +2534,21 @@ def _relative_frame(
 
     pivoted = df.pivot_table(
         values=pivot_values,
-        index=["version", "test_date"],
+        index=["algorithm_id", "test_date"],
         aggfunc="mean",
         observed=False,
     ).reset_index()
     if metric not in pivoted.columns:
         return df.iloc[0:0].copy()
 
-    baseline = pivoted[pivoted["version"] == baseline_version].set_index("test_date")[metric].to_dict()
+    baseline = pivoted[pivoted["algorithm_id"] == baseline_algorithm_id].set_index("test_date")[metric].to_dict()
     if not baseline:
         return df.iloc[0:0].copy()
 
     relative_rows: list[dict[str, Any]] = []
     for _, row in pivoted.iterrows():
-        version = row["version"]
-        if not include_baseline and version == baseline_version:
+        algorithm_id = row["algorithm_id"]
+        if not include_baseline and algorithm_id == baseline_algorithm_id:
             continue
         base = baseline.get(row["test_date"])
         val = row[metric]
@@ -1952,7 +2565,7 @@ def _relative_frame(
             scale = abs(base)
             rel_unc_down = float(row.get(unc_down_col, 0.0) or 0.0) / scale if scale else 0.0
             rel_unc_up = float(row.get(unc_up_col, 0.0) or 0.0) / scale if scale else 0.0
-        if version == baseline_version:
+        if algorithm_id == baseline_algorithm_id:
             expected = _relative_axis_origin(metric)
             if not math.isclose(float(rel), expected, rel_tol=1e-12, abs_tol=1e-12):
                 raise ValueError(
@@ -1961,7 +2574,7 @@ def _relative_frame(
             rel = expected
         relative_rows.append(
             {
-                "version": version,
+                "algorithm_id": algorithm_id,
                 "test_date": row["test_date"],
                 metric: rel,
                 unc_down_col: rel_unc_down,
@@ -1975,16 +2588,18 @@ def _relative_frame(
     import pandas as pd  # type: ignore
 
     rel_df = pd.DataFrame(relative_rows)
-    categories = [version for version in versions if include_baseline or version != baseline_version]
-    rel_df["version"] = pd.Categorical(rel_df["version"], categories=categories, ordered=True)
+    categories = [
+        algorithm_id for algorithm_id in algorithm_ids if include_baseline or algorithm_id != baseline_algorithm_id
+    ]
+    rel_df["algorithm_id"] = pd.Categorical(rel_df["algorithm_id"], categories=categories, ordered=True)
     return rel_df
 
 
 def _collect_relative_metric_frames(
     df: Any,
     metrics: Sequence[str],
-    versions: Sequence[str],
-    baseline_version: str,
+    algorithm_ids: Sequence[str],
+    baseline_algorithm_id: str,
 ) -> tuple[list[str], list[str], dict[str, Any], dict[str, Any]]:
     relative_point_metrics: list[str] = []
     relative_time_metrics: list[str] = []
@@ -1999,8 +2614,8 @@ def _collect_relative_metric_frames(
         rel_point_df = _relative_frame(
             df,
             metric,
-            versions,
-            baseline_version,
+            algorithm_ids,
+            baseline_algorithm_id,
             include_baseline=True,
         )
         if not rel_point_df.empty:
@@ -2009,8 +2624,8 @@ def _collect_relative_metric_frames(
         rel_time_df = _relative_frame(
             df,
             metric,
-            versions,
-            baseline_version,
+            algorithm_ids,
+            baseline_algorithm_id,
             include_baseline=False,
         )
         if not rel_time_df.empty:
@@ -2057,16 +2672,33 @@ def _truncate_metric_list(items: list[str], *, limit: int = 40) -> list[str]:
     return [*items[:limit], f"… (+{remaining} more)"]
 
 
-def _treatment_description_lines(
-    treatment_algorithm_ids: Sequence[str],
-    treatment_descriptions: dict[str, str],
+def _wrap_indented_labeled_text(
+    label: str,
+    text: str,
+    *,
+    indent: str,
+    label_width: int,
 ) -> list[str]:
-    lines: list[str] = []
-    for algorithm_id in treatment_algorithm_ids:
-        version = _version_from_algorithm_id(algorithm_id)
-        description = treatment_descriptions.get(version)
-        if description:
-            lines.extend(_wrap_labeled_text(f"{version}:", description, label_width=20))
+    prefix = f"{indent}{label:<{label_width}} "
+    return textwrap.fill(
+        text,
+        width=110,
+        initial_indent=prefix,
+        subsequent_indent=" " * len(prefix),
+    ).splitlines()
+
+
+def _subject_entry_lines(title: str, algorithm_id: str, description: str | None) -> list[str]:
+    lines = [f"  - {title}:"]
+    lines.extend(_wrap_indented_labeled_text("ID:", algorithm_id, indent="      ", label_width=12))
+    lines.extend(
+        _wrap_indented_labeled_text(
+            "Description:",
+            description or "(not provided)",
+            indent="      ",
+            label_width=12,
+        )
+    )
     return lines
 
 
@@ -2084,6 +2716,7 @@ def _build_header_lines(
     date_min: str,
     date_max: str,
     metrics: Sequence[str],
+    assembly_mode: str | None = None,
 ) -> list[str]:
     metrics_display = _truncate_metric_list(list(metrics))
     root_lines = _wrap_labeled_text("Root:", source_root)
@@ -2092,20 +2725,10 @@ def _build_header_lines(
 
     header_lines: list[str] = []
     header_lines.append("Subject of Evaluation")
-    header_lines.extend(
-        _wrap_labeled_values(
-            "Treatment:" if len(treatment_algorithm_ids) == 1 else "Treatments:",
-            treatment_algorithm_ids,
-            label_width=20,
-        )
-    )
-    header_lines.extend(_wrap_labeled_text("Baseline:", baseline_label, label_width=20))
-    if baseline_description:
-        header_lines.extend(_wrap_labeled_text("Baseline Desc.:", baseline_description, label_width=20))
-    treatment_description_lines = _treatment_description_lines(treatment_algorithm_ids, treatment_descriptions)
-    if treatment_description_lines:
-        header_lines.append("  Treatment Desc.:")
-        header_lines.extend(treatment_description_lines)
+    header_lines.extend(_subject_entry_lines("Baseline", baseline_label, baseline_description))
+    for index, algorithm_id in enumerate(treatment_algorithm_ids, start=1):
+        title = "Treatment" if len(treatment_algorithm_ids) == 1 else f"Treatment {index}"
+        header_lines.extend(_subject_entry_lines(title, algorithm_id, treatment_descriptions.get(algorithm_id)))
     header_lines.append("")
     header_lines.append("Execution Parameters")
     header_lines.extend(_wrap_labeled_text("Test Date Range:", date_range, label_width=20))
@@ -2115,6 +2738,8 @@ def _build_header_lines(
     header_lines.extend(root_lines)
     header_lines.extend(_wrap_labeled_text("Files:", files_line))
     header_lines.extend(_wrap_labeled_values("Metrics:", metrics_display, label_width=20))
+    if assembly_mode:
+        header_lines.extend(_wrap_labeled_text("Assembly:", assembly_mode, label_width=20))
     return header_lines
 
 
@@ -2124,12 +2749,16 @@ def _build_specification_lines(
     generated_with: str,
     evaluation_specification: dict[str, Any],
     benchmark_specification: dict[str, Any],
+    baseline_specs: Sequence[AlgorithmSpecification],
     treatment_specs: Sequence[AlgorithmSpecification],
+    assembly_mode: str | None = None,
 ) -> list[str]:
     lines: list[str] = []
     lines.append("Report Generation")
     lines.extend(_wrap_labeled_text("Generated At:", generated_at, label_width=20))
     lines.extend(_wrap_labeled_text("Generated With:", generated_with, label_width=20))
+    if assembly_mode:
+        lines.extend(_wrap_labeled_text("Assembly Mode:", assembly_mode, label_width=20))
 
     evaluation_function = evaluation_specification.get("evaluation_function")
     if not isinstance(evaluation_function, dict):
@@ -2188,22 +2817,41 @@ def _build_specification_lines(
     if benchmark_status:
         lines.extend(_wrap_labeled_text("Status:", _format_mapping(benchmark_status), label_width=20))
 
-    for spec in treatment_specs:
-        title = (
-            "Treatment Specification" if len(treatment_specs) == 1 else f"Treatment Specification ({spec.algorithm_id})"
-        )
+    def append_algorithm_spec(title: str, spec: AlgorithmSpecification) -> None:
         lines.append("")
         lines.append(title)
         lines.extend(_wrap_labeled_text("Algorithm ID:", spec.algorithm_id, label_width=20))
         lines.extend(
             _wrap_labeled_text("Algorithm Params:", _format_mapping(spec.algorithm_parameters), label_width=20)
         )
+        lines.extend(_wrap_labeled_text("Override Status:", spec.override_status, label_width=20))
+        if spec.override_files:
+            lines.extend(_wrap_labeled_values("Override Files:", spec.override_files, max_items=8, label_width=20))
+        if spec.override_reasons:
+            lines.extend(_wrap_labeled_values("Override Reasons:", spec.override_reasons, max_items=8, label_width=20))
+        if spec.override_fields:
+            lines.extend(_wrap_labeled_values("Override Fields:", spec.override_fields, max_items=16, label_width=20))
+        lines.extend(_wrap_labeled_text("Code Dirty:", _format_optional_bool(spec.code_dirty), label_width=20))
+        lines.extend(_wrap_labeled_text("Exact Git Tag:", _format_optional_bool(spec.code_exact_tag), label_width=20))
+        lines.extend(_wrap_labeled_text("Final Validity:", _final_report_validity(spec), label_width=20))
         if spec.hotvect_version:
             lines.extend(_wrap_labeled_text("Hotvect Version:", spec.hotvect_version, label_width=20))
         if spec.git_describe:
             lines.extend(_wrap_labeled_text("Git Describe:", spec.git_describe, label_width=20))
         if spec.git_commit:
             lines.extend(_wrap_labeled_text("Git Commit:", spec.git_commit, label_width=20))
+
+    for spec in baseline_specs:
+        title = (
+            "Baseline Specification" if len(baseline_specs) == 1 else f"Baseline Specification ({spec.algorithm_id})"
+        )
+        append_algorithm_spec(title, spec)
+
+    for spec in treatment_specs:
+        title = (
+            "Treatment Specification" if len(treatment_specs) == 1 else f"Treatment Specification ({spec.algorithm_id})"
+        )
+        append_algorithm_spec(title, spec)
 
     return lines
 
@@ -2217,14 +2865,17 @@ class MetricsCommand(BaseCommand):
             "metrics",
             help="Metrics utilities (quality + system)",
         )
+        cls.add_arguments(parser)
+        return parser
+
+    @staticmethod
+    def add_arguments(parser):
         metrics_subparsers = parser.add_subparsers(dest="metrics_command", metavar="<metrics-command>")
 
         MetricsCompareQualityCommand.register_parser(metrics_subparsers)
         MetricsCompareSystemCommand.register_parser(metrics_subparsers)
         MetricsExportCommand.register_parser(metrics_subparsers)
         MetricsPlotCommand.register_parser(metrics_subparsers)
-
-        return parser
 
     def execute(self, args):
         if args.metrics_command == "compare-quality":
@@ -2236,7 +2887,7 @@ class MetricsCommand(BaseCommand):
         elif args.metrics_command == "plot":
             MetricsPlotCommand().execute(args)
         else:
-            raise SystemExit("Missing metrics subcommand. Use `hv-ext metrics -h`.")
+            raise SystemExit("Missing metrics subcommand. Use `hv metrics -h`.")
 
 
 class MetricsCompareQualityCommand(BaseCommand):
@@ -2594,12 +3245,12 @@ class MetricsPlotCommand(BaseCommand):
         parser.add_argument("--algorithm-version-pattern", default=".*", help="Regex for algorithm version filtering")
         parser.add_argument("--from-test-date", help="Start date (YYYY-MM-DD)")
         parser.add_argument("--to-test-date", help="End date (YYYY-MM-DD)")
-        parser.add_argument("--versions", nargs="*", help="Optional ordered version list")
+        parser.add_argument("--algorithm-ids", nargs="*", help="Optional ordered algorithm_id list")
         parser.add_argument("--metrics", nargs="*", help="Optional metric list override")
         parser.add_argument(
             "--relative-baseline",
             required=True,
-            help="Relative baseline: either a plotted version or online:<dimension> (e.g. online:algorithm)",
+            help="Relative baseline: either a plotted algorithm_id or online:<dimension> (e.g. online:algorithm)",
         )
         parser.add_argument(
             "--baseline-description",
@@ -2608,10 +3259,18 @@ class MetricsPlotCommand(BaseCommand):
         parser.add_argument(
             "--treatment-description",
             action="append",
-            metavar="VERSION=TEXT",
+            metavar="ALGORITHM_ID=TEXT",
             help=(
-                "Short human-readable description for a plotted treatment version shown in the PDF summary. "
+                "Short human-readable description for a plotted treatment algorithm_id shown in the PDF summary. "
                 "May be repeated."
+            ),
+        )
+        parser.add_argument(
+            "--assemble-latest-sections",
+            action="store_true",
+            help=(
+                "When scanning --output-base-dir, assemble the report from the latest valid run per section "
+                "(quality, system performance, pipeline performance) for each algorithm/date."
             ),
         )
         parser.add_argument("--out", default="metrics-plots.pdf", help="Output PDF file path")
@@ -2630,6 +3289,7 @@ class MetricsPlotCommand(BaseCommand):
                 "metrics plot requires plotting libraries. Install with `pip install 'hotvect[ext-viz]'`."
             ) from e
 
+        section_assembly: SectionAssemblyDataset | None = None
         result_files: list[str] = []
         if args.result_files:
             result_files.extend(args.result_files)
@@ -2637,69 +3297,115 @@ class MetricsPlotCommand(BaseCommand):
             result_files.extend(glob.glob(args.result_glob, recursive=True))
 
         if result_files:
+            if args.assemble_latest_sections:
+                raise ValueError("--assemble-latest-sections only works with --output-base-dir.")
             records = _records_from_result_files(result_files)
         else:
             if not args.output_base_dir:
                 raise ValueError("--output-base-dir is required when no result files are provided.")
             from_date = date.fromisoformat(args.from_test_date) if args.from_test_date else None
             to_date = date.fromisoformat(args.to_test_date) if args.to_test_date else None
-            records = _records_from_output_base_dir(
-                output_base_dir=args.output_base_dir,
-                algorithm_name_pattern=args.algorithm_name_pattern,
-                algorithm_version_pattern=args.algorithm_version_pattern,
-                from_date=from_date,
-                to_date=to_date,
-            )
+            if args.assemble_latest_sections:
+                section_assembly = _assemble_latest_section_records(
+                    output_base_dir=args.output_base_dir,
+                    algorithm_name_pattern=args.algorithm_name_pattern,
+                    algorithm_version_pattern=args.algorithm_version_pattern,
+                    from_date=from_date,
+                    to_date=to_date,
+                )
+                records = section_assembly.records
+            else:
+                records = _records_from_output_base_dir(
+                    output_base_dir=args.output_base_dir,
+                    algorithm_name_pattern=args.algorithm_name_pattern,
+                    algorithm_version_pattern=args.algorithm_version_pattern,
+                    from_date=from_date,
+                    to_date=to_date,
+                )
 
         if not records:
             raise ValueError("No evaluation records found.")
 
-        if args.versions:
-            allowed_versions = list(args.versions)
-            filtered: list[dict[str, Any]] = []
-            for record in records:
-                version = _version_from_algorithm_id(record["algorithm_id"])
-                if any(
-                    (
-                        v == record["algorithm_id"],
-                        v == version,
-                        ("@" in v and v == record["algorithm_id"]),
-                    )
-                    for v in allowed_versions
-                ):
-                    filtered.append(record)
-            records = filtered
-            if not records:
-                raise ValueError("No records matched --versions filter.")
+        if args.algorithm_ids:
+            requested_algorithm_ids = list(dict.fromkeys(args.algorithm_ids))
+            available_algorithm_ids = sorted({str(record["algorithm_id"]) for record in records})
+            missing_algorithm_ids = [
+                algorithm_id for algorithm_id in requested_algorithm_ids if algorithm_id not in available_algorithm_ids
+            ]
+            if missing_algorithm_ids:
+                raise ValueError(
+                    "Requested algorithm_id(s) not found: "
+                    + ", ".join(missing_algorithm_ids)
+                    + f". Available: {available_algorithm_ids}"
+                )
+            requested_algorithm_id_set = set(requested_algorithm_ids)
+            records = [record for record in records if str(record["algorithm_id"]) in requested_algorithm_id_set]
 
-        records = _filter_to_common_dates(records)
+        records = _filter_to_common_dates_by_algorithm_id(records)
+        if section_assembly is not None:
+            selected_keys = {
+                (str(record["algorithm_id"]), _parse_test_date(record["test_date"]).isoformat()) for record in records
+            }
+
+            def selected_section_records(section_records: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
+                return [
+                    record
+                    for record in section_records
+                    if (str(record["algorithm_id"]), _parse_test_date(record["test_date"]).isoformat()) in selected_keys
+                ]
+
+            quality_records = selected_section_records(section_assembly.quality_records)
+            system_records = selected_section_records(section_assembly.system_records)
+            pipeline_records = selected_section_records(section_assembly.pipeline_records)
+            source_files = {
+                source
+                for record in [*quality_records, *system_records, *pipeline_records]
+                if (source := _record_source_value(record, "source_result_uri", "source_result_file"))
+            }
+            section_assembly = SectionAssemblyDataset(
+                records=records,
+                quality_records=quality_records,
+                system_records=system_records,
+                pipeline_records=pipeline_records,
+                source_root=section_assembly.source_root,
+                source_files=len(source_files),
+            )
 
         metrics: list[str] | None = args.metrics
         if metrics == []:
             metrics = None
         if metrics is None:
-            metrics = _discover_metrics(records) or list(DEFAULT_EXPORT_METRICS)
+            metrics = _discover_metrics(records, require_all_records=not args.assemble_latest_sections) or list(
+                DEFAULT_EXPORT_METRICS
+            )
         plot_dataset = _build_plot_dataset(
             records=records,
             metrics=metrics,
-            explicit_versions=args.versions,
+            explicit_algorithm_ids=args.algorithm_ids,
             relative_baseline=args.relative_baseline,
         )
         df = plot_dataset.df
         rows = plot_dataset.table_rows
         final_metrics = plot_dataset.metrics
-        versions = plot_dataset.versions
+        algorithm_ids = plot_dataset.algorithm_ids
         baseline = plot_dataset.baseline
         treatment_descriptions = _parse_treatment_descriptions(args.treatment_description)
         baseline_description = _validate_plot_descriptions(
             baseline_description=args.baseline_description,
             treatment_descriptions=treatment_descriptions,
-            versions=versions,
+            algorithm_ids=algorithm_ids,
             baseline=baseline,
         )
 
-        evaluation_specification = _common_evaluation_specification(records)
-        benchmark_specification_result = _common_benchmark_specification_result(records)
+        evaluation_specification = _common_evaluation_specification(
+            section_assembly.quality_records if section_assembly is not None else records
+        )
+        benchmark_records = section_assembly.system_records if section_assembly is not None else records
+        benchmark_specification_result = (
+            _common_benchmark_specification_result(benchmark_records)
+            if benchmark_records
+            else CommonSpecificationResult(specification={}, mismatch_summary=None)
+        )
         benchmark_specification = benchmark_specification_result.specification
         performance_test_warning = None
         omitted_system_metrics: list[str] = []
@@ -2807,10 +3513,10 @@ class MetricsPlotCommand(BaseCommand):
             origin = _relative_axis_origin(metric)
             ax.axhline(origin, color="#666666", linewidth=0.8, linestyle="--", alpha=0.7)
 
-        _VERSION_COLORS = plt.get_cmap("tab10").colors
+        _ALGORITHM_COLORS = plt.get_cmap("tab10").colors
 
-        def _version_color(version_index: int) -> Any:
-            return _VERSION_COLORS[version_index % len(_VERSION_COLORS)]
+        def _algorithm_color(algorithm_index: int) -> Any:
+            return _ALGORITHM_COLORS[algorithm_index % len(_ALGORITHM_COLORS)]
 
         def point_plot(
             ax: Any,
@@ -2820,39 +3526,45 @@ class MetricsPlotCommand(BaseCommand):
             *,
             relative: bool = False,
             plain_numeric_axis: bool = False,
-            baseline_version: str | None = None,
+            baseline_algorithm_id: str | None = None,
         ) -> None:
             unc_down_col = f"{metric}__unc_down"
             unc_up_col = f"{metric}__unc_up"
             has_unc = unc_down_col in data.columns and unc_up_col in data.columns
             origin = _relative_axis_origin(metric) if relative else 0.0
-            all_versions = [v for v in versions if v in data["version"].cat.categories]
-            draw_baseline_as_band = relative and baseline_version is not None
+            all_algorithm_ids = [
+                algorithm_id for algorithm_id in algorithm_ids if algorithm_id in data["algorithm_id"].cat.categories
+            ]
+            draw_baseline_as_band = relative and baseline_algorithm_id is not None
             # When drawing the baseline as a band, exclude it from the x-axis tick list
-            tick_versions = [v for v in all_versions if not (draw_baseline_as_band and v == baseline_version)]
-            x_pos = {v: i for i, v in enumerate(tick_versions)}
+            tick_algorithm_ids = [
+                algorithm_id
+                for algorithm_id in all_algorithm_ids
+                if not (draw_baseline_as_band and algorithm_id == baseline_algorithm_id)
+            ]
+            x_pos = {algorithm_id: i for i, algorithm_id in enumerate(tick_algorithm_ids)}
 
-            for version in all_versions:
-                vdata = data[data["version"] == version].dropna(subset=[metric])
-                if vdata.empty:
+            for algorithm_id in all_algorithm_ids:
+                algorithm_data = data[data["algorithm_id"] == algorithm_id].dropna(subset=[metric])
+                if algorithm_data.empty:
                     continue
-                central = float(vdata[metric].mean())
+                central = float(algorithm_data[metric].mean())
                 if has_unc:
                     per_date_uncertainties = list(
                         zip(
-                            vdata[unc_down_col].fillna(0.0).tolist(),
-                            vdata[unc_up_col].fillna(0.0).tolist(),
+                            algorithm_data[unc_down_col].fillna(0.0).tolist(),
+                            algorithm_data[unc_up_col].fillna(0.0).tolist(),
                         )
                     )
                     unc = _combine_gaussian_uncertainties(per_date_uncertainties)
                     unc_down, unc_up = unc, unc
                 else:
                     unc_down, unc_up = 0.0, 0.0
-                if draw_baseline_as_band and version == baseline_version:
+                if draw_baseline_as_band and algorithm_id == baseline_algorithm_id:
                     ax.axhspan(origin - unc_down, origin + unc_up, color="gray", alpha=0.2, zorder=0)
                 else:
-                    i = x_pos[version]
-                    color = _version_color(i)
+                    i = x_pos[algorithm_id]
+                    color = _algorithm_color(i)
                     ax.errorbar(
                         i,
                         central,
@@ -2869,8 +3581,8 @@ class MetricsPlotCommand(BaseCommand):
             display_title = _plot_metric_label(metric, relative=relative)
             ax.set_title(display_title, fontsize=10)
             ax.set_ylabel(display_title, fontsize=9)
-            ax.set_xticks(list(range(len(tick_versions))))
-            ax.set_xticklabels([str(v) for v in tick_versions])
+            ax.set_xticks(list(range(len(tick_algorithm_ids))))
+            ax.set_xticklabels([str(algorithm_id) for algorithm_id in tick_algorithm_ids])
             ax.yaxis.grid(True)
             if relative:
                 format_relative_axis(ax, metric)
@@ -2889,7 +3601,7 @@ class MetricsPlotCommand(BaseCommand):
             show_legend: bool,
             relative: bool = False,
             plain_numeric_axis: bool = False,
-            baseline_version: str | None = None,
+            baseline_algorithm_id: str | None = None,
             baseline_point_data: pd.DataFrame | None = None,
         ) -> bool:
             if "test_date" not in data.columns:
@@ -2904,12 +3616,16 @@ class MetricsPlotCommand(BaseCommand):
             unc_up_col = f"{metric}__unc_up"
             has_unc = unc_down_col in plot_data.columns and unc_up_col in plot_data.columns
             origin = _relative_axis_origin(metric) if relative else 0.0
-            ordered_versions = [v for v in versions if v in plot_data["version"].cat.categories]
+            ordered_algorithm_ids = [
+                algorithm_id
+                for algorithm_id in algorithm_ids
+                if algorithm_id in plot_data["algorithm_id"].cat.categories
+            ]
 
             # For relative time series, draw a date-varying gray band for the baseline.
             # fill_between with a single point has zero x-width, so we use axhspan per date
             # extended to the half-interval between adjacent ticks.
-            if relative and baseline_version is not None and baseline_point_data is not None:
+            if relative and baseline_algorithm_id is not None and baseline_point_data is not None:
                 band_data = baseline_point_data.copy()
                 band_data["test_date"] = pd.to_datetime(band_data["test_date"], errors="coerce")
                 band_data = band_data.dropna(subset=["test_date"]).sort_values("test_date")
@@ -2949,25 +3665,25 @@ class MetricsPlotCommand(BaseCommand):
                         ax.add_patch(rect)
                     ax.add_artist(
                         ax.legend(
-                            handles=[Patch(facecolor="gray", alpha=0.4, label=f"{baseline_version} (band)")],
+                            handles=[Patch(facecolor="gray", alpha=0.4, label=f"{baseline_algorithm_id} (band)")],
                             loc="upper left",
                             fontsize=8,
                         )
                     )
 
-            for i, version in enumerate(ordered_versions):
-                vdata = plot_data[plot_data["version"] == version].sort_values("test_date")
-                if vdata.empty:
+            for i, algorithm_id in enumerate(ordered_algorithm_ids):
+                algorithm_data = plot_data[plot_data["algorithm_id"] == algorithm_id].sort_values("test_date")
+                if algorithm_data.empty:
                     continue
-                color = _version_color(i)
-                dates = vdata["test_date"].values
-                values_arr = vdata[metric].values
+                color = _algorithm_color(i)
+                dates = algorithm_data["test_date"].values
+                values_arr = algorithm_data[metric].values
                 if has_unc:
-                    unc_down = vdata[unc_down_col].fillna(0.0).values
-                    unc_up = vdata[unc_up_col].fillna(0.0).values
+                    unc_down = algorithm_data[unc_down_col].fillna(0.0).values
+                    unc_up = algorithm_data[unc_up_col].fillna(0.0).values
                 else:
-                    unc_down = [0.0] * len(vdata)
-                    unc_up = [0.0] * len(vdata)
+                    unc_down = [0.0] * len(algorithm_data)
+                    unc_up = [0.0] * len(algorithm_data)
                 ax.errorbar(
                     dates,
                     values_arr,
@@ -2979,7 +3695,7 @@ class MetricsPlotCommand(BaseCommand):
                     capthick=1.0,
                     elinewidth=1.0,
                     markersize=5,
-                    label=str(version),
+                    label=str(algorithm_id),
                     zorder=3,
                 )
 
@@ -3013,7 +3729,7 @@ class MetricsPlotCommand(BaseCommand):
             *,
             relative: bool = False,
             plain_numeric_axis: bool = False,
-            baseline_version: str | None = None,
+            baseline_algorithm_id: str | None = None,
             relative_point_frames: dict[str, Any] | None = None,
         ) -> None:
             fig, axes = plt.subplots(
@@ -3035,16 +3751,16 @@ class MetricsPlotCommand(BaseCommand):
                         metric,
                         relative=relative,
                         plain_numeric_axis=plain_numeric_axis,
-                        baseline_version=baseline_version,
+                        baseline_algorithm_id=baseline_algorithm_id,
                     )
                 elif plot_kind == "time":
                     # For relative time series: supply the baseline slice from the point frame
                     # so the date-varying band can be drawn.
                     baseline_point_data: pd.DataFrame | None = None
-                    if relative and baseline_version is not None and relative_point_frames is not None:
+                    if relative and baseline_algorithm_id is not None and relative_point_frames is not None:
                         point_frame = relative_point_frames.get(metric)
                         if point_frame is not None:
-                            baseline_slice = point_frame[point_frame["version"] == baseline_version]
+                            baseline_slice = point_frame[point_frame["algorithm_id"] == baseline_algorithm_id]
                             if not baseline_slice.empty:
                                 baseline_point_data = baseline_slice
                     plotted = time_series_plot(
@@ -3055,7 +3771,7 @@ class MetricsPlotCommand(BaseCommand):
                         show_legend=index == 0,
                         relative=relative,
                         plain_numeric_axis=plain_numeric_axis,
-                        baseline_version=baseline_version,
+                        baseline_algorithm_id=baseline_algorithm_id,
                         baseline_point_data=baseline_point_data,
                     )
                     if not plotted:
@@ -3074,16 +3790,16 @@ class MetricsPlotCommand(BaseCommand):
         def timing_breakdown_page(
             pdf: PdfPages,
             breakdown_dataset: TimingBreakdownDataset,
-            version_order: Sequence[str],
+            algorithm_id_order: Sequence[str],
         ) -> None:
             components = _production_training_timing_components(breakdown_dataset.components)
             if not components:
                 return
 
-            component_values = breakdown_dataset.df[["version", *components]].copy()
+            component_values = breakdown_dataset.df[["algorithm_id", *components]].copy()
             component_values[components] = component_values[components].fillna(0.0)
-            grouped = component_values.groupby("version", observed=False)[components].mean()
-            grouped = grouped.reindex(version_order).fillna(0.0)
+            grouped = component_values.groupby("algorithm_id", observed=False)[components].mean()
+            grouped = grouped.reindex(algorithm_id_order).fillna(0.0)
             grouped = grouped.loc[:, (grouped != 0).any(axis=0)]
             if grouped.empty:
                 return
@@ -3126,16 +3842,16 @@ class MetricsPlotCommand(BaseCommand):
 
             total_estimates: dict[str, tuple[float, tuple[float, float] | None]] = {}
             component_values["_total"] = component_values[list(grouped.columns)].sum(axis=1)
-            for version in grouped.index:
-                version_totals = (
-                    component_values[component_values["version"] == version]["_total"].astype(float).tolist()
+            for algorithm_id in grouped.index:
+                algorithm_totals = (
+                    component_values[component_values["algorithm_id"] == algorithm_id]["_total"].astype(float).tolist()
                 )
-                estimate = _mean_ci_95(version_totals)
+                estimate = _mean_ci_95(algorithm_totals)
                 if estimate is not None:
-                    total_estimates[str(version)] = estimate
+                    total_estimates[str(algorithm_id)] = estimate
 
-            for x_position, version, total in zip(x_positions, grouped.index, bottoms):
-                mean, ci = total_estimates.get(str(version), (total, None))
+            for x_position, algorithm_id, total in zip(x_positions, grouped.index, bottoms):
+                mean, ci = total_estimates.get(str(algorithm_id), (total, None))
                 if ci is not None:
                     low, high = ci
                     ax.errorbar(
@@ -3157,7 +3873,7 @@ class MetricsPlotCommand(BaseCommand):
                 )
 
             ax.set_xticks(x_positions)
-            ax.set_xticklabels([str(version) for version in grouped.index], rotation=35, ha="right")
+            ax.set_xticklabels([str(algorithm_id) for algorithm_id in grouped.index], rotation=35, ha="right")
             ax.set_ylabel("production training path seconds")
             ax.yaxis.grid(True)
             format_plain_numeric_axis(ax)
@@ -3180,17 +3896,24 @@ class MetricsPlotCommand(BaseCommand):
                 common_root = result_file_paths[0].parent
             source_root = str(common_root)
             source_files = len(result_file_paths)
+        elif section_assembly is not None:
+            source_root = section_assembly.source_root
+            source_files = section_assembly.source_files
         else:
             source_root = str(args.output_base_dir)
             source_files = 0
 
-        non_online_algorithm_ids = list(dict.fromkeys(str(record["algorithm_id"]) for record in records))
+        plotted_algorithm_ids = [
+            algorithm_id
+            for algorithm_id in algorithm_ids
+            if not (baseline.kind == "online" and algorithm_id == baseline.algorithm_id_selector)
+        ]
         if baseline.kind == "online":
             baseline_label = baseline.display_name
-            treatment_algorithm_ids = non_online_algorithm_ids
+            treatment_algorithm_ids = plotted_algorithm_ids
         else:
-            baseline_label = _select_algorithm_id(records, baseline.value)
-            treatment_algorithm_ids = [algo_id for algo_id in non_online_algorithm_ids if algo_id != baseline_label]
+            baseline_label = baseline.algorithm_id_selector
+            treatment_algorithm_ids = [algo_id for algo_id in plotted_algorithm_ids if algo_id != baseline_label]
             if not treatment_algorithm_ids:
                 treatment_algorithm_ids = [baseline_label]
         header_lines_common = _build_header_lines(
@@ -3206,9 +3929,17 @@ class MetricsPlotCommand(BaseCommand):
             date_min=date_min,
             date_max=date_max,
             metrics=final_metrics,
+            assembly_mode=(
+                "latest valid run per section (quality/system performance/pipeline performance)"
+                if args.assemble_latest_sections
+                else None
+            ),
         )
         generated_at = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M %Z").strip()
         generated_with = f"hotvect {_report_hotvect_version()}"
+        baseline_specs = (
+            [] if baseline.kind == "online" else [_algorithm_specification_for_algorithm(records, baseline_label)]
+        )
         treatment_specs = [
             _algorithm_specification_for_algorithm(records, algorithm_id) for algorithm_id in treatment_algorithm_ids
         ]
@@ -3217,10 +3948,16 @@ class MetricsPlotCommand(BaseCommand):
             generated_with=generated_with,
             evaluation_specification=evaluation_specification,
             benchmark_specification=benchmark_specification,
+            baseline_specs=baseline_specs,
             treatment_specs=treatment_specs,
+            assembly_mode=(
+                "latest valid run per section (quality/system performance/pipeline performance)"
+                if args.assemble_latest_sections
+                else None
+            ),
         )
-        timing_dataset = _build_timing_plot_dataset(records, versions)
-        timing_breakdown_dataset = _build_timing_breakdown_dataset(records, versions)
+        timing_dataset = _build_timing_plot_dataset(records, algorithm_ids)
+        timing_breakdown_dataset = _build_timing_breakdown_dataset(records, algorithm_ids)
 
         with PdfPages(out_path) as pdf:
             relative_baseline_display = baseline.display_name
@@ -3237,8 +3974,8 @@ class MetricsPlotCommand(BaseCommand):
             ) = _collect_relative_metric_frames(
                 df=df,
                 metrics=final_metrics,
-                versions=versions,
-                baseline_version=baseline.version_selector,
+                algorithm_ids=algorithm_ids,
+                baseline_algorithm_id=baseline.algorithm_id_selector,
             )
 
             if not relative_point_metrics and not relative_time_metrics and performance_test_warning is None:
@@ -3252,7 +3989,7 @@ class MetricsPlotCommand(BaseCommand):
                     f"Relative point plots (baseline={relative_baseline_display}; page {page_num})",
                     "point",
                     relative=True,
-                    baseline_version=baseline.version_selector,
+                    baseline_algorithm_id=baseline.algorithm_id_selector,
                 )
 
             for page_num, metric_group in enumerate(_chunked_metrics(relative_time_metrics), start=1):
@@ -3260,10 +3997,10 @@ class MetricsPlotCommand(BaseCommand):
                     pdf,
                     pd.concat([relative_time_frames[m] for m in metric_group], ignore_index=True),
                     metric_group,
-                    f"Relative time series (baseline={relative_baseline_display}; non-baseline variants; page {page_num})",
+                    f"Relative time series (baseline={relative_baseline_display}; non-baseline algorithms; page {page_num})",
                     "time",
                     relative=True,
-                    baseline_version=baseline.version_selector,
+                    baseline_algorithm_id=baseline.algorithm_id_selector,
                     relative_point_frames=relative_point_frames,
                 )
 
@@ -3293,8 +4030,8 @@ class MetricsPlotCommand(BaseCommand):
             if timing_dataset is not None:
                 timing_summary_lines = _build_timing_summary_lines(
                     timing_dataset,
-                    versions,
-                    baseline.version_selector,
+                    algorithm_ids,
+                    baseline.algorithm_id_selector,
                 )
                 has_cache_hits = _has_cache_hits(records)
                 if has_cache_hits:
@@ -3311,7 +4048,7 @@ class MetricsPlotCommand(BaseCommand):
                 timing_summary_lines.extend(_build_cache_usage_lines(records))
                 text_pages(pdf, "Pipeline Performance", timing_summary_lines)
                 if timing_breakdown_dataset is not None and not has_cache_hits:
-                    timing_breakdown_page(pdf, timing_breakdown_dataset, versions)
+                    timing_breakdown_page(pdf, timing_breakdown_dataset, algorithm_ids)
                 (
                     timing_relative_point_metrics,
                     _timing_relative_time_metrics,
@@ -3320,8 +4057,8 @@ class MetricsPlotCommand(BaseCommand):
                 ) = _collect_relative_metric_frames(
                     df=timing_dataset.df,
                     metrics=timing_dataset.metrics,
-                    versions=versions,
-                    baseline_version=baseline.version_selector,
+                    algorithm_ids=algorithm_ids,
+                    baseline_algorithm_id=baseline.algorithm_id_selector,
                 )
 
                 for page_num, metric_group in enumerate(_chunked_metrics(timing_relative_point_metrics), start=1):

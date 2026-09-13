@@ -4,9 +4,10 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.google.common.collect.ImmutableMap;
 import com.hotvect.api.algodefinition.AlgorithmDefinition;
+import com.hotvect.api.algodefinition.AlgorithmDependencies;
 import com.hotvect.api.algodefinition.AlgorithmId;
-import com.hotvect.api.algodefinition.AlgorithmInstance;
 import com.hotvect.api.algodefinition.common.CompositeAlgorithmFactory;
+import com.hotvect.api.algodefinition.storage.LocalStateStorage;
 import com.hotvect.api.algorithms.Algorithm;
 import com.hotvect.api.execution.ExecutionContext;
 import com.hotvect.api.execution.InputSemantic;
@@ -49,7 +50,6 @@ class CompositeAlgorithmParameterStreamTest {
                 JsonNodeFactory.instance.objectNode(),
                 new AlgorithmId("composite-repro", "1.0.0"),
                 ImmutableMap.of(),
-                ImmutableMap.of(),
                 null,
                 null,
                 null,
@@ -63,13 +63,20 @@ class CompositeAlgorithmParameterStreamTest {
                 Optional.empty(),
                 Optional.empty()
         );
-        AlgorithmInstance<ParameterEchoAlgorithm> instance = new AlgorithmInstanceFactory(
+        try (AlgorithmGraph<ParameterEchoAlgorithm> graph = new AlgorithmInstanceFactory(
                 Thread.currentThread().getContextClassLoader(),
-                ExecutionContext.of(WorkloadMode.BATCH, InputSemantic.OFFLINE),
-                true
-        ).load(definition, parameterZip.toFile(), ImmutableMap.of());
-
-        assertEquals("expected-parameter", instance.algorithm().parameter);
+                new AlgorithmInstanceFactory.Options(
+                        InputSemantic.OFFLINE,
+                        true,
+                        false,
+                        Optional.empty())
+        ).loadGraph(
+                definition,
+                parameterZip.toFile(),
+                AlgorithmDependencies.empty(),
+                ExecutionContext.batch(InputSemantic.OFFLINE))) {
+            assertEquals("expected-parameter", graph.algorithm().parameter);
+        }
     }
 
     private static void writeEntry(ZipOutputStream out, String name, String value) throws IOException {
@@ -80,10 +87,12 @@ class CompositeAlgorithmParameterStreamTest {
 
     public static final class StreamReadingCompositeFactory implements CompositeAlgorithmFactory<ParameterEchoAlgorithm> {
         @Override
-        public ParameterEchoAlgorithm apply(
+        public ParameterEchoAlgorithm create(
+                ExecutionContext executionContext,
+                Optional<LocalStateStorage> localStateStorage,
                 Optional<JsonNode> hyperparameters,
                 Map<String, InputStream> parameters,
-                Map<String, AlgorithmInstance<?>> algorithmDependencies) {
+                AlgorithmDependencies algorithmDependencies) {
             try {
                 String parameter = new String(
                         parameters.get("model.parameter").readAllBytes(),

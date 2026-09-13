@@ -1,4 +1,5 @@
 site_name: Hotvect
+site_url: https://hotvect.docs.zalando.net/
 site_description: An application framework and runtime for complete, composable decision algorithms.
 docs_dir: python/hotvect/mcp/bundled_docs/docs
 
@@ -11,25 +12,25 @@ nav:
       - Overview: index.md
       - What's new: whats-new/index.md
       - Hotvect v10: whats-new/v10/index.md
-  - Concepts:
+  - Learn:
       - Overview: concepts/index.md
       - Start here:
           - How Hotvect works: concepts/how-hotvect-works/index.md
           - Requests, decisions, and examples: concepts/data-model/index.md
           - Complete algorithms: concepts/complete-algorithm/index.md
           - Why Hotvect: concepts/motivation/index.md
-      - Components and lifecycle:
+      - Core model:
           - Components and connections: concepts/dependencies-and-bindings/index.md
           - Feature computation: concepts/feature-computation/index.md
+          - Feature-store integration: concepts/feature-store-integration/index.md
           - Packages and identity: concepts/artifacts-and-identity/index.md
           - Configuration and experiments: concepts/configuration-and-experimentation/index.md
-          - Where it runs: concepts/execution-contexts/index.md
+          - Loading algorithm packages: concepts/jar-loading/index.md
       - Architecture:
           - Overview: architecture/index.md
-          - Online runtime and embedding: architecture/online-runtime/index.md
-          - Offline lifecycle: architecture/offline-lifecycle/index.md
+          - System map: components/index.md
           - Where components run: architecture/runtime-topologies/index.md
-          - Loading algorithm packages: concepts/jar-loading/index.md
+          - Execution contexts: concepts/execution-contexts/index.md
           - Status and direction: architecture/status-and-direction/index.md
       - Advanced:
           - Namespace identity: concepts/namespaces/index.md
@@ -40,8 +41,8 @@ nav:
           - Run the product example: guides/first-run/index.md
           - Study the product example: guides/example-product-algorithms/index.md
           - Tour an existing algorithm: guides/first-workflow/index.md
-          - Prepare local development: guides/local-development-env/index.md
-      - Build algorithms:
+      - Algorithm SDK and packages:
+          - Overview: components/algorithm-package/index.md
           - Build your first algorithm: guides/first-algorithm/index.md
           - Train your first model-backed algorithm: guides/first-trainable-algorithm/index.md
           - Compose your first algorithm: guides/first-composite-algorithm/index.md
@@ -49,38 +50,61 @@ nav:
           - Develop an algorithm: guides/develop-algorithms/index.md
           - Generate a ranking transformer: guides/simple-ranking-transformer/index.md
           - Parent-child algorithms: guides/patterns/parent-child/index.md
-      - Train, evaluate, and run:
+      - Developer tools:
+          - Overview: components/developer-tools/index.md
+          - Prepare local development: guides/local-development-env/index.md
+          - Docs and prompts over MCP: guides/docs-mcp/index.md
+      - Offline workflows:
+          - Overview: components/offline-workflow-runtime/index.md
+          - Lifecycle architecture: architecture/offline-lifecycle/index.md
+          - Pipeline stages: guides/pipeline-stages/index.md
           - Generate runtime data: guides/state-generation/index.md
           - Train locally: guides/local-train/index.md
           - Backtest locally: guides/local-backtest/index.md
-          - Take a change to a live experiment: guides/change-to-live-experiment/index.md
-          - Pipeline stages: guides/pipeline-stages/index.md
           - Caching: guides/caching/index.md
-          - Reuse previous outputs: guides/reuse-outputs/index.md
           - Data dependencies: guides/patterns/data-dependencies/index.md
-          - Overrides: guides/patterns/override-files/index.md
-          - Branching and versioning: guides/patterns/branching-and-versioning/index.md
-      - Remote execution:
           - SageMaker backtests: guides/sagemaker-backtests/index.md
           - Parallel one-shot runs: guides/parallel-sagemaker-one-shot/index.md
           - Custom SageMaker payloads: guides/sagemaker-upgrade-custom-py/index.md
           - FlatMap UDF API: guides/sagemaker-udf/index.md
+      - Release lifecycle:
+          - Take a change to a live experiment: guides/change-to-live-experiment/index.md
+          - Publish and store artifacts: components/artifact-publication-and-storage/index.md
+          - Reuse previous outputs: guides/reuse-outputs/index.md
+          - Overrides: guides/patterns/override-files/index.md
+          - Branching and versioning: guides/patterns/branching-and-versioning/index.md
   - Validate and investigate:
       - Overview: guides/validate-and-investigate/index.md
-      - Evaluation metrics and uncertainty: reference/evaluation-metrics/index.md
-      - Performance benchmarking: guides/performance-benchmarking/index.md
-      - Performance investigations: guides/performance-investigations/index.md
-      - Performance and optimization: guides/performance-optimization/index.md
-      - Debug feature engineering: guides/debug-feature-engineering/index.md
-      - Feature audits: guides/feature-audits/index.md
-      - Predict with feature logging: guides/feature-logging/index.md
-      - Score equivalence testing: guides/score-equivalence/index.md
-      - Online/offline parity gaps: guides/online-offline-parity/index.md
+      - Developer tools:
+          - Feature audits: guides/feature-audits/index.md
+          - Debug feature engineering: guides/debug-feature-engineering/index.md
+          - Score equivalence testing: guides/score-equivalence/index.md
+          - Performance benchmarking: guides/performance-benchmarking/index.md
+      - Offline workflows:
+          - Release QA validation: guides/hv-qa-release-validation/index.md
+          - Evaluation metrics and uncertainty: reference/evaluation-metrics/index.md
+          - Performance investigations: guides/performance-investigations/index.md
+          - Performance and optimization: guides/performance-optimization/index.md
+      - Online runtime integration:
+          - Predict with feature logging: guides/feature-logging/index.md
+          - Online/offline parity gaps: guides/online-offline-parity/index.md
   - Serve and integrate:
       - Overview: guides/serve-and-integrate/index.md
-      - Embed Hotvect in Java: guides/application-integration/index.md
-      - Integrate direct Python workers: design/direct-python-workers/index.md
-      - Debug an algorithm in the browser: guides/local-algorithm-debugging/index.md
+      - Local development:
+          - Local server and debugger: components/local-algorithm-server/index.md
+          - Debug an algorithm in the browser: guides/local-algorithm-debugging/index.md
+      - Online runtime integration:
+          - Overview: architecture/online-runtime/index.md
+          - Embed Hotvect in Java: guides/application-integration/index.md
+          - Connect an online runtime to EMS: guides/connect-online-runtime-to-ems/index.md
+          - Runtime state, refresh, and assignment: components/ems-runtime-client/index.md
+          - Integrate direct Python workers: design/direct-python-workers/index.md
+      - Experiment management:
+          - Overview: components/experiment-management-service/index.md
+          - Domain model: components/experiment-management-domain/index.md
+          - Operations and state transitions: components/experiment-management-operations/index.md
+          - Traffic assignment and ramp-up: components/experiment-assignment/index.md
+          - Clients and operator tools: components/ems-clients-and-tools/index.md
   - Agent workflow:
       - Overview: agents/index.md
       - Contracts:
@@ -99,6 +123,7 @@ nav:
       - Glossary: reference/glossary/index.md
       - Command-line interfaces: reference/cli/index.md
       - Java API map: reference/java-api/index.md
+      - Ranking and prediction contracts: reference/ranking-and-prediction-contracts/index.md
       - Python EMS client: reference/python-ems-client/index.md
       - Configuration: reference/config/index.md
       - Version compatibility: reference/version-compatibility/index.md
@@ -133,7 +158,6 @@ theme:
     - navigation.tracking
     - navigation.tabs
     - navigation.tabs.sticky
-    - navigation.sections
     - navigation.top
     - navigation.footer
     - toc.follow
@@ -156,6 +180,12 @@ theme:
       toggle:
         icon: material/weather-sunny
         name: Switch to light mode
+
+validation:
+  omitted_files: warn
+  absolute_links: warn
+  unrecognized_links: warn
+  anchors: warn
 
 plugins:
   - search:

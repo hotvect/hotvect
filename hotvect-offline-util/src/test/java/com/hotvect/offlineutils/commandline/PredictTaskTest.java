@@ -2,24 +2,31 @@ package com.hotvect.offlineutils.commandline;
 
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.core.JsonPointer;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.hotvect.api.algodefinition.AlgorithmDefinition;
 import com.hotvect.api.algodefinition.AlgorithmId;
+import com.hotvect.api.algodefinition.AlgorithmRuntimeId;
+import com.hotvect.api.algodefinition.HyperparameterizedAlgorithmId;
+import com.hotvect.api.algodefinition.ParameterizedAlgorithmId;
 import com.hotvect.api.algodefinition.common.RewardFunction;
 import com.hotvect.api.algodefinition.common.RewardFunctionFactory;
 import com.hotvect.api.algodefinition.ranking.RankerFactory;
 import com.hotvect.api.algodefinition.ranking.RankingExampleDecoderFactory;
 import com.hotvect.api.algodefinition.ranking.RankingTransformer;
 import com.hotvect.api.algodefinition.ranking.RankingTransformerFactory;
+import com.hotvect.api.algodefinition.storage.LocalStateStorage;
 import com.hotvect.api.algorithms.Ranker;
 import com.hotvect.api.codec.ranking.RankingExampleDecoder;
 import com.hotvect.api.data.common.Example;
 import com.hotvect.api.data.ranking.*;
 import com.hotvect.onlineutils.concurrency.fileutils.OrderedFileMapper;
 import com.hotvect.onlineutils.concurrency.fileutils.UnorderedFileMapper;
+import com.hotvect.onlineutils.serving.AlgorithmSelection;
+import com.hotvect.onlineutils.serving.SlotAssignment;
 import org.junit.jupiter.api.Test;
 
 import java.io.File;
@@ -27,15 +34,17 @@ import java.io.InputStream;
 import java.lang.reflect.Field;
 import java.net.URL;
 import java.net.URLClassLoader;
-import java.lang.reflect.Field;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.LongAdder;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -76,6 +85,8 @@ public class PredictTaskTest {
     }
 
     public static class TestAlgorithmFactory implements RankerFactory<RankingTransformer<String, String>, String, String> {
+        private static final AtomicBoolean localStateStorageAvailable = new AtomicBoolean();
+
         @Override
         public Ranker<String, String> apply(RankingTransformer<String, String> stringStringStringRankingTransformer, Map<String, InputStream> parameters, Optional<JsonNode> hyperparameter) {
             return rankingRequest -> RankingResponse.newResponse(
@@ -87,6 +98,17 @@ public class PredictTaskTest {
                             .toList()
             );
         }
+
+        @Override
+        public Ranker<String, String> create(
+                com.hotvect.api.execution.ExecutionContext executionContext,
+                Optional<LocalStateStorage> localStateStorage,
+                RankingTransformer<String, String> transformer,
+                Map<String, InputStream> parameters,
+                Optional<JsonNode> hyperparameters) {
+            localStateStorageAvailable.set(localStateStorage.isPresent());
+            return apply(transformer, parameters, hyperparameters);
+        }
     }
 
     public static class TestRewardFunctionFactoroy implements RewardFunctionFactory<String> {
@@ -96,8 +118,38 @@ public class PredictTaskTest {
         }
     }
 
+    @Test
+    void emsCompositionMetadataOrdersSelectionsBeyondRuntimeId() {
+        AlgorithmRuntimeId runtimeId = AlgorithmRuntimeId.leaf(new ParameterizedAlgorithmId(
+                new HyperparameterizedAlgorithmId(new AlgorithmId("root", "1"), null),
+                "parameters"));
+        ParameterizedAlgorithmId rootAlgorithm = runtimeId.algorithm();
+        AlgorithmSelection second = new AlgorithmSelection(
+                "root-slot",
+                runtimeId,
+                Map.of("root-slot", new SlotAssignment("2", rootAlgorithm)));
+        AlgorithmSelection first = new AlgorithmSelection(
+                "root-slot",
+                runtimeId,
+                Map.of("root-slot", new SlotAssignment("1", rootAlgorithm)));
+        LongAdder secondCount = new LongAdder();
+        secondCount.add(20);
+        LongAdder firstCount = new LongAdder();
+        firstCount.add(10);
+        Map<AlgorithmSelection, LongAdder> counts = new LinkedHashMap<>();
+        counts.put(second, secondCount);
+        counts.put(first, firstCount);
+
+        List<Map<String, Object>> metadata = PredictTask.emsCompositionMetadata(counts);
+
+        assertEquals(10L, metadata.get(0).get("record_count"));
+        assertEquals(Map.of("root-slot", new SlotAssignment("1", rootAlgorithm)), metadata.get(0).get("assignments"));
+        assertEquals(20L, metadata.get(1).get("record_count"));
+        assertEquals(Map.of("root-slot", new SlotAssignment("2", rootAlgorithm)), metadata.get(1).get("assignments"));
+    }
+
     private static AlgorithmDefinition algorithmDefinition() {
-        return algorithmDefinition(null);
+        return algorithmDefinition(JsonNodeFactory.instance.objectNode());
     }
 
     private static AlgorithmDefinition algorithmDefinition(JsonNode rawAlgorithmDefinition) {
@@ -105,7 +157,6 @@ public class PredictTaskTest {
         return new AlgorithmDefinition(
                 rawAlgorithmDefinition,
                 new AlgorithmId("test-algorithm", "1.2.3"),
-                ImmutableMap.of(),
                 ImmutableMap.of(),
                 null,
                 nestedClassPrefix + ExampleDecoderFactory.class.getSimpleName(),
@@ -123,8 +174,40 @@ public class PredictTaskTest {
     }
 
     @Test
+    void extractsOneAssignmentKeyPerPredictionRecordUsingRfc6901Pointer() {
+        assertEquals(
+                "customer-42",
+                PredictTask.assignmentKey(
+                        JsonPointer.compile("/shared/customer~1id"),
+                        "{\"shared\":{\"customer/id\":\"customer-42\"}}"));
+        assertEquals(
+                "12345",
+                PredictTask.assignmentKey(JsonPointer.compile("/customer_id"), "{\"customer_id\":12345}"));
+    }
+
+    @Test
+    void rejectsMalformedOrMissingAssignmentKeys() {
+        JsonPointer pointer = JsonPointer.compile("/shared/customer_id");
+
+        assertThrows(IllegalArgumentException.class, () -> PredictTask.assignmentKey(pointer, "not-json"));
+        assertThrows(IllegalArgumentException.class, () -> PredictTask.assignmentKey(pointer, "{}"));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> PredictTask.assignmentKey(pointer, "{\"shared\":{\"customer_id\":null}}"));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> PredictTask.assignmentKey(pointer, "{\"shared\":{\"customer_id\":{}}}"));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> PredictTask.assignmentKey(pointer, "{\"shared\":{\"customer_id\":[]}}"));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> PredictTask.assignmentKey(pointer, "{\"shared\":{\"customer_id\":\"  \"}}"));
+    }
+
+    @Test
     void supportsMissingParameterZipWhenAlgorithmDoesNotNeedParameters() throws Exception {
-        Options options = new Options();
+        Options options = OfflineTaskTestOptions.direct();
         options.sourceFiles = ImmutableMap.of("default", ImmutableList.of(Paths.get(Objects.requireNonNull(this.getClass().getResource("multiple")).toURI()).toFile()));
         Path tempDir = Files.createTempDirectory("predict-no-parameters");
         options.destinationFile = tempDir.resolve("prediction").toFile();
@@ -157,9 +240,39 @@ public class PredictTaskTest {
     }
 
     @Test
+    void directPredictionMakesLocalStateStorageAvailable() throws Exception {
+        TestAlgorithmFactory.localStateStorageAvailable.set(false);
+        Options options = OfflineTaskTestOptions.direct();
+        options.sourceFiles = ImmutableMap.of(
+                "default",
+                ImmutableList.of(Paths.get(Objects.requireNonNull(this.getClass().getResource("multiple")).toURI()).toFile()));
+        Path tempDir = Files.createTempDirectory("predict-local-state");
+        options.destinationFile = tempDir.resolve("prediction").toFile();
+        ObjectNode definition = JsonNodeFactory.instance.objectNode();
+
+        try (OfflineTaskContext offlineTaskContext = new OfflineTaskContext(
+                new URLClassLoader(new URL[0], this.getClass().getClassLoader()),
+                new SimpleMeterRegistry(),
+                options,
+                algorithmDefinition(definition))) {
+            PredictTask<? extends Example<?, ?>, Ranker<String, String>, String> testSubject = new PredictTask<>(offlineTaskContext) {
+                @Override
+                protected Map<String, Object> callUnorderedFileMapper(UnorderedFileMapper<String> processor) {
+                    return Map.of("lines_written", 1L);
+                }
+            };
+
+            testSubject.perform();
+
+            assertTrue(TestAlgorithmFactory.localStateStorageAvailable.get());
+        } finally {
+            deleteRecursively(tempDir);
+        }
+    }
+
+    @Test
     void noSampling() throws Exception {
-        Options options = new Options();
-        options.parameters = Paths.get(Objects.requireNonNull(this.getClass().getResource("test-algorithm-parameter.zip")).toURI()).toFile();
+        Options options = OfflineTaskTestOptions.direct(Paths.get(Objects.requireNonNull(this.getClass().getResource("test-algorithm-parameter.zip")).toURI()).toFile());
         options.sourceFiles = ImmutableMap.of("default", ImmutableList.of(Paths.get(Objects.requireNonNull(this.getClass().getResource("multiple")).toURI()).toFile()));
         Path tempDir = Files.createTempDirectory("predict-no-sampling");
         options.destinationFile = tempDir.resolve("prediction").toFile();
@@ -179,8 +292,7 @@ public class PredictTaskTest {
 
     @Test
     void withSampling() throws Exception {
-        Options options = new Options();
-        options.parameters = Paths.get(Objects.requireNonNull(this.getClass().getResource("test-algorithm-parameter.zip")).toURI()).toFile();
+        Options options = OfflineTaskTestOptions.direct(Paths.get(Objects.requireNonNull(this.getClass().getResource("test-algorithm-parameter.zip")).toURI()).toFile());
         options.sourceFiles = ImmutableMap.of("default", ImmutableList.of(Paths.get(Objects.requireNonNull(this.getClass().getResource("multiple")).toURI()).toFile()));
         Path tempDir = Files.createTempDirectory("predict-with-sampling");
         options.destinationFile = tempDir.resolve("prediction").toFile();
@@ -202,8 +314,7 @@ public class PredictTaskTest {
 
     @Test
     void defaultsToUnorderedPredictWhenFlagsAndAlgorithmDefinitionDoNotSpecifyOrdering() throws Exception {
-        Options options = new Options();
-        options.parameters = Paths.get(Objects.requireNonNull(this.getClass().getResource("test-algorithm-parameter.zip")).toURI()).toFile();
+        Options options = OfflineTaskTestOptions.direct(Paths.get(Objects.requireNonNull(this.getClass().getResource("test-algorithm-parameter.zip")).toURI()).toFile());
         options.sourceFiles = ImmutableMap.of("default", ImmutableList.of(Paths.get(Objects.requireNonNull(this.getClass().getResource("multiple")).toURI()).toFile()));
         Path tempDir = Files.createTempDirectory("predict-default-unordered");
         options.destinationFile = tempDir.resolve("prediction").toFile();
@@ -235,8 +346,7 @@ public class PredictTaskTest {
 
     @Test
     void unorderedPredictShouldWriteShardedOutputDirectory() throws Exception {
-        Options options = new Options();
-        options.parameters = Paths.get(Objects.requireNonNull(this.getClass().getResource("test-algorithm-parameter.zip")).toURI()).toFile();
+        Options options = OfflineTaskTestOptions.direct(Paths.get(Objects.requireNonNull(this.getClass().getResource("test-algorithm-parameter.zip")).toURI()).toFile());
         options.sourceFiles = ImmutableMap.of("default", ImmutableList.of(Paths.get(Objects.requireNonNull(this.getClass().getResource("multiple")).toURI()).toFile()));
         File tempDir = Files.createTempDirectory("predict-unordered").toFile();
         tempDir.deleteOnExit();
@@ -289,8 +399,7 @@ public class PredictTaskTest {
 
     @Test
     void algorithmDefinitionCanEnableUnorderedPredict() throws Exception {
-        Options options = new Options();
-        options.parameters = Paths.get(Objects.requireNonNull(this.getClass().getResource("test-algorithm-parameter.zip")).toURI()).toFile();
+        Options options = OfflineTaskTestOptions.direct(Paths.get(Objects.requireNonNull(this.getClass().getResource("test-algorithm-parameter.zip")).toURI()).toFile());
         options.sourceFiles = ImmutableMap.of("default", ImmutableList.of(Paths.get(Objects.requireNonNull(this.getClass().getResource("multiple")).toURI()).toFile()));
         Path tempDir = Files.createTempDirectory("predict-algodef-unordered");
         options.destinationFile = tempDir.resolve("prediction").toFile();
@@ -328,8 +437,7 @@ public class PredictTaskTest {
 
     @Test
     void orderedPredictWritesSinglePartFile() throws Exception {
-        Options options = new Options();
-        options.parameters = Paths.get(Objects.requireNonNull(this.getClass().getResource("test-algorithm-parameter.zip")).toURI()).toFile();
+        Options options = OfflineTaskTestOptions.direct(Paths.get(Objects.requireNonNull(this.getClass().getResource("test-algorithm-parameter.zip")).toURI()).toFile());
         options.sourceFiles = ImmutableMap.of("default", ImmutableList.of(Paths.get(Objects.requireNonNull(this.getClass().getResource("multiple")).toURI()).toFile()));
         Path tempDir = Files.createTempDirectory("predict-ordered-layout");
         Path destinationPath = tempDir.resolve("prediction");
@@ -366,8 +474,7 @@ public class PredictTaskTest {
 
     @Test
     void algorithmDefinitionCanAutoDetermineUnorderedPredictShardCount() throws Exception {
-        Options options = new Options();
-        options.parameters = Paths.get(Objects.requireNonNull(this.getClass().getResource("test-algorithm-parameter.zip")).toURI()).toFile();
+        Options options = OfflineTaskTestOptions.direct(Paths.get(Objects.requireNonNull(this.getClass().getResource("test-algorithm-parameter.zip")).toURI()).toFile());
         options.sourceFiles = ImmutableMap.of("default", ImmutableList.of(Paths.get(Objects.requireNonNull(this.getClass().getResource("multiple")).toURI()).toFile()));
         Path tempDir = Files.createTempDirectory("predict-algodef-unordered-auto");
         options.destinationFile = tempDir.resolve("prediction").toFile();
@@ -405,8 +512,7 @@ public class PredictTaskTest {
 
     @Test
     void unorderedPredictHonorsQueueLengthForReadAndWriteQueues() throws Exception {
-        Options options = new Options();
-        options.parameters = Paths.get(Objects.requireNonNull(this.getClass().getResource("test-algorithm-parameter.zip")).toURI()).toFile();
+        Options options = OfflineTaskTestOptions.direct(Paths.get(Objects.requireNonNull(this.getClass().getResource("test-algorithm-parameter.zip")).toURI()).toFile());
         options.sourceFiles = ImmutableMap.of("default", ImmutableList.of(Paths.get(Objects.requireNonNull(this.getClass().getResource("multiple")).toURI()).toFile()));
         Path tempDir = Files.createTempDirectory("predict-queue-length");
         options.destinationFile = tempDir.resolve("prediction").toFile();
@@ -440,8 +546,7 @@ public class PredictTaskTest {
 
     @Test
     void forwardsLegacyQueueLengthToUnorderedMapper() throws Exception {
-        Options options = new Options();
-        options.parameters = Paths.get(Objects.requireNonNull(this.getClass().getResource("test-algorithm-parameter.zip")).toURI()).toFile();
+        Options options = OfflineTaskTestOptions.direct(Paths.get(Objects.requireNonNull(this.getClass().getResource("test-algorithm-parameter.zip")).toURI()).toFile());
         options.sourceFiles = ImmutableMap.of("default", ImmutableList.of(Paths.get(Objects.requireNonNull(this.getClass().getResource("multiple")).toURI()).toFile()));
         Path tempDir = Files.createTempDirectory("predict-unordered-legacy-queue");
         options.destinationFile = tempDir.resolve("prediction").toFile();
@@ -479,8 +584,7 @@ public class PredictTaskTest {
 
     @Test
     void forwardsSplitQueueLengthsToUnorderedMapper() throws Exception {
-        Options options = new Options();
-        options.parameters = Paths.get(Objects.requireNonNull(this.getClass().getResource("test-algorithm-parameter.zip")).toURI()).toFile();
+        Options options = OfflineTaskTestOptions.direct(Paths.get(Objects.requireNonNull(this.getClass().getResource("test-algorithm-parameter.zip")).toURI()).toFile());
         options.sourceFiles = ImmutableMap.of("default", ImmutableList.of(Paths.get(Objects.requireNonNull(this.getClass().getResource("multiple")).toURI()).toFile()));
         Path tempDir = Files.createTempDirectory("predict-unordered-split-queue");
         options.destinationFile = tempDir.resolve("prediction").toFile();
@@ -520,8 +624,7 @@ public class PredictTaskTest {
 
     @Test
     void unorderedPredictUsesMapperDefaultQueueLengthWhenNoQueueSizesAreConfigured() throws Exception {
-        Options options = new Options();
-        options.parameters = Paths.get(Objects.requireNonNull(this.getClass().getResource("test-algorithm-parameter.zip")).toURI()).toFile();
+        Options options = OfflineTaskTestOptions.direct(Paths.get(Objects.requireNonNull(this.getClass().getResource("test-algorithm-parameter.zip")).toURI()).toFile());
         options.sourceFiles = ImmutableMap.of("default", ImmutableList.of(Paths.get(Objects.requireNonNull(this.getClass().getResource("multiple")).toURI()).toFile()));
         Path tempDir = Files.createTempDirectory("predict-default-queue-length");
         options.destinationFile = tempDir.resolve("prediction").toFile();
@@ -558,8 +661,7 @@ public class PredictTaskTest {
 
     @Test
     void unorderedPredictTreatsZeroMaxThreadsAsAutoAndComputesPositiveDefaultQueueLength() throws Exception {
-        Options options = new Options();
-        options.parameters = Paths.get(Objects.requireNonNull(this.getClass().getResource("test-algorithm-parameter.zip")).toURI()).toFile();
+        Options options = OfflineTaskTestOptions.direct(Paths.get(Objects.requireNonNull(this.getClass().getResource("test-algorithm-parameter.zip")).toURI()).toFile());
         options.sourceFiles = ImmutableMap.of("default", ImmutableList.of(Paths.get(Objects.requireNonNull(this.getClass().getResource("multiple")).toURI()).toFile()));
         Path tempDir = Files.createTempDirectory("predict-default-queue-length-zero-max-threads");
         options.destinationFile = tempDir.resolve("prediction").toFile();
@@ -597,8 +699,7 @@ public class PredictTaskTest {
 
     @Test
     void unorderedPredictAutoWriterShardsFollowEffectiveComputationThreads() throws Exception {
-        Options options = new Options();
-        options.parameters = Paths.get(Objects.requireNonNull(this.getClass().getResource("test-algorithm-parameter.zip")).toURI()).toFile();
+        Options options = OfflineTaskTestOptions.direct(Paths.get(Objects.requireNonNull(this.getClass().getResource("test-algorithm-parameter.zip")).toURI()).toFile());
         options.sourceFiles = ImmutableMap.of("default", ImmutableList.of(Paths.get(Objects.requireNonNull(this.getClass().getResource("multiple")).toURI()).toFile()));
         Path tempDir = Files.createTempDirectory("predict-auto-writer-shards");
         options.destinationFile = tempDir.resolve("prediction").toFile();
@@ -630,8 +731,7 @@ public class PredictTaskTest {
 
     @Test
     void unorderedPredictCanOverrideReaderThreadsFromAlgorithmDefinition() throws Exception {
-        Options options = new Options();
-        options.parameters = Paths.get(Objects.requireNonNull(this.getClass().getResource("test-algorithm-parameter.zip")).toURI()).toFile();
+        Options options = OfflineTaskTestOptions.direct(Paths.get(Objects.requireNonNull(this.getClass().getResource("test-algorithm-parameter.zip")).toURI()).toFile());
         options.sourceFiles = ImmutableMap.of("default", ImmutableList.of(Paths.get(Objects.requireNonNull(this.getClass().getResource("multiple")).toURI()).toFile()));
         Path tempDir = Files.createTempDirectory("predict-reader-threads");
         options.destinationFile = tempDir.resolve("prediction").toFile();
@@ -669,8 +769,7 @@ public class PredictTaskTest {
 
     @Test
     void shouldThrowExceptionWhenNoRowsWritten() throws Exception {
-        Options options = new Options();
-        options.parameters = Paths.get(Objects.requireNonNull(this.getClass().getResource("test-algorithm-parameter.zip")).toURI()).toFile();
+        Options options = OfflineTaskTestOptions.direct(Paths.get(Objects.requireNonNull(this.getClass().getResource("test-algorithm-parameter.zip")).toURI()).toFile());
         options.sourceFiles = ImmutableMap.of("default", ImmutableList.of(Paths.get(Objects.requireNonNull(this.getClass().getResource("multiple")).toURI()).toFile()));
         Path tempDir = Files.createTempDirectory("predict-empty-ordered");
         options.destinationFile = tempDir.resolve("prediction").toFile();
@@ -695,8 +794,7 @@ public class PredictTaskTest {
 
     @Test
     void shouldThrowExceptionWhenNoRowsWrittenInUnorderedMode() throws Exception {
-        Options options = new Options();
-        options.parameters = Paths.get(Objects.requireNonNull(this.getClass().getResource("test-algorithm-parameter.zip")).toURI()).toFile();
+        Options options = OfflineTaskTestOptions.direct(Paths.get(Objects.requireNonNull(this.getClass().getResource("test-algorithm-parameter.zip")).toURI()).toFile());
         options.sourceFiles = ImmutableMap.of("default", ImmutableList.of(Paths.get(Objects.requireNonNull(this.getClass().getResource("multiple")).toURI()).toFile()));
         Path tempDir = Files.createTempDirectory("predict-empty-unordered");
         options.destinationFile = tempDir.resolve("prediction").toFile();
@@ -721,8 +819,7 @@ public class PredictTaskTest {
 
     @Test
     void shouldRejectMultipleWriterShardsForOrderedPredict() throws Exception {
-        Options options = new Options();
-        options.parameters = Paths.get(Objects.requireNonNull(this.getClass().getResource("test-algorithm-parameter.zip")).toURI()).toFile();
+        Options options = OfflineTaskTestOptions.direct(Paths.get(Objects.requireNonNull(this.getClass().getResource("test-algorithm-parameter.zip")).toURI()).toFile());
         options.sourceFiles = ImmutableMap.of("default", ImmutableList.of(Paths.get(Objects.requireNonNull(this.getClass().getResource("multiple")).toURI()).toFile()));
         Path tempDir = Files.createTempDirectory("predict-ordered-multiple-shards");
         options.destinationFile = tempDir.resolve("prediction").toFile();

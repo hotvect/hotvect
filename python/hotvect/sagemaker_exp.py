@@ -8,7 +8,6 @@ import signal
 import socket
 import subprocess
 import sys
-import tarfile
 import tempfile
 import time
 from dataclasses import dataclass
@@ -23,19 +22,26 @@ from mypy_boto3_sagemaker import SageMakerClient
 
 from hotvect import utils
 from hotvect.build_utils import parse_pom_xml, select_algorithm_jar
-from hotvect.utils import (
-    capture_output,
-    get_boto_session_after_assuming_role,
-    hexigest_as_alphanumeric,
-    prepare_dir,
-    stream_output,
-)
+from hotvect.utils import get_boto_session_after_assuming_role, hexigest_as_alphanumeric, prepare_dir, stream_output
 
 logger = logging.getLogger(__name__)
 
 
 def runshell(command, shell: bool = False, env: dict[str, str] | None = None):
-    return capture_output(command, shell=shell, env=env)
+    if shell:
+        raise ValueError("SageMaker script execution requires an argv list; shell=True is not supported")
+
+    def _display(chunk: str) -> None:
+        sys.stdout.write(chunk)
+        sys.stdout.flush()
+
+    stream_output(command, _display, env=env)
+    return {
+        "command": " ".join(map(str, command)),
+        "return_code": 0,
+        "stdout": "",
+        "stderr": "",
+    }
 
 
 def _prepare_jar(repo_url: str, work_dir: str, git_reference: str) -> Path:
@@ -144,14 +150,37 @@ class SageMakerScriptExecutor:
 
         script_location = os.path.join(temp_dir, "custom.py")
         tracing_ctx = self._maybe_start_local_tracing(hyperparameters=hyperparameters_copy)
+        jfr_ctx = None
+        command_env = tracing_ctx.env if tracing_ctx else None
+        if str(hyperparameters_copy.get(self._JFR_ENABLED_KEY, "")).strip() == "true":
+            if command_env is None:
+                command_env = os.environ.copy()
+            jfr_ctx = self._configure_jfr(hyperparameters=hyperparameters_copy, env=command_env)
+
+        run_error: BaseException | None = None
         try:
             cmd = ["python", script_location, hyperparameters_file]
-            if tracing_ctx:
-                return runshell(cmd, env=tracing_ctx.env)
+            if command_env is not None:
+                return runshell(cmd, env=command_env)
             return runshell(cmd)
+        except BaseException as error:
+            run_error = error
+            raise
         finally:
             if tracing_ctx:
-                self._finalize_local_tracing(tracing_ctx=tracing_ctx, hyperparameters=hyperparameters_copy)
+                try:
+                    self._finalize_local_tracing(tracing_ctx=tracing_ctx, hyperparameters=hyperparameters_copy)
+                except Exception:
+                    logger.exception("Failed to finalize local OpenTelemetry tracing")
+                    if run_error is None:
+                        raise
+            if jfr_ctx:
+                try:
+                    self._check_jfr_recording(jfr_ctx=jfr_ctx)
+                except Exception:
+                    logger.exception("Failed to finalize Java Flight Recorder output")
+                    if run_error is None:
+                        raise
 
     @dataclass(frozen=True)
     class _LocalTracingContext:
@@ -160,12 +189,19 @@ class SageMakerScriptExecutor:
         output_dir: Path
         log_path: Path
 
+    @dataclass(frozen=True)
+    class _JfrContext:
+        recording_path: Path
+
     _TRACE_MODE_KEY = "otel_trace_mode"
     _TRACE_MODE_LOCAL_JAEGER = "local_jaeger"
     _S3_URI_JAEGER_BIN_KEY = "s3_uri_jaeger_all_in_one"
     _S3_URI_OTEL_JAVAAGENT_KEY = "s3_uri_otel_javaagent"
-    _SERVICE_NAME_KEY = "otel_service_name"
-    _TRACE_RATIO_KEY = "otel_trace_ratio"
+    _JFR_ENABLED_KEY = "jfr_enabled"
+    _JFR_METADATA_DIR = Path("/opt/ml/output/data/meta/jfr")
+    _JFR_FILENAME = "performance-test.jfr"
+    _OTEL_SERVICE_NAME = "hotvect-sagemaker-performance-test"
+    _OTEL_TRACE_RATIO = "1.0"
 
     def _maybe_start_local_tracing(self, *, hyperparameters: dict[str, Any]) -> Optional["_LocalTracingContext"]:
         trace_mode = str(hyperparameters.get(self._TRACE_MODE_KEY, "")).strip()
@@ -186,10 +222,10 @@ class SageMakerScriptExecutor:
         if not s3_uri_metadata:
             raise KeyError(
                 f"{self._TRACE_MODE_KEY}={self._TRACE_MODE_LOCAL_JAEGER!r} requires hyperparameter 's3_uri_metadata' "
-                "so the trace archive can be uploaded under metadata/otel/"
+                "so Jaeger storage is preserved under metadata/otel-jaeger/"
             )
 
-        output_dir = Path("/opt/ml/output/otel-jaeger").resolve()
+        output_dir = Path("/opt/ml/output/data/meta/otel-jaeger").resolve()
         output_dir.mkdir(parents=True, exist_ok=True)
         log_path = output_dir / "jaeger-all-in-one.log"
 
@@ -215,7 +251,7 @@ class SageMakerScriptExecutor:
             }
         )
 
-        logger.info("Starting local Jaeger all-in-one for OTLP ingestion (traces will be archived).")
+        logger.info("Starting local Jaeger all-in-one for OTLP ingestion; storage is under metadata/otel-jaeger/.")
         with log_path.open("ab") as log_fp:
             jaeger_proc = subprocess.Popen(
                 [
@@ -244,35 +280,54 @@ class SageMakerScriptExecutor:
             }
         )
 
-        service_name = str(hyperparameters.get(self._SERVICE_NAME_KEY, "")).strip()
-        if service_name:
-            env["OTEL_SERVICE_NAME"] = service_name
-
-        trace_ratio_raw = hyperparameters.get(self._TRACE_RATIO_KEY, 0.01)
-        try:
-            trace_ratio = float(trace_ratio_raw)
-        except Exception as e:
-            raise ValueError(f"Invalid {self._TRACE_RATIO_KEY!r}: {trace_ratio_raw!r}") from e
-        trace_ratio = max(0.0, min(1.0, trace_ratio))
         env["OTEL_TRACES_SAMPLER"] = "traceidratio"
-        env["OTEL_TRACES_SAMPLER_ARG"] = str(trace_ratio)
+        env["OTEL_TRACES_SAMPLER_ARG"] = self._OTEL_TRACE_RATIO
+        env["OTEL_SERVICE_NAME"] = self._OTEL_SERVICE_NAME
 
         existing_java_tool_options = env.get("JAVA_TOOL_OPTIONS", "").strip()
         javaagent_flag = f"-javaagent:{javaagent_path}"
-        env["JAVA_TOOL_OPTIONS"] = f"{javaagent_flag} {existing_java_tool_options}".strip()
+        env["JAVA_TOOL_OPTIONS"] = self._prepend_java_tool_options(existing_java_tool_options, javaagent_flag)
 
         return self._LocalTracingContext(env=env, jaeger_proc=jaeger_proc, output_dir=output_dir, log_path=log_path)
 
     def _finalize_local_tracing(self, *, tracing_ctx: "_LocalTracingContext", hyperparameters: dict[str, Any]) -> None:
         self._stop_process(tracing_ctx.jaeger_proc)
+        logger.info("OpenTelemetry Jaeger data is available in metadata directory: %s", tracing_ctx.output_dir)
 
-        archive_path = tracing_ctx.output_dir / "otel-jaeger-traces.tgz"
-        self._create_trace_archive(output_dir=tracing_ctx.output_dir, archive_path=archive_path)
+    def _configure_jfr(self, *, hyperparameters: dict[str, Any], env: dict[str, str]) -> "_JfrContext":
+        s3_uri_metadata = hyperparameters.get("s3_uri_metadata")
+        if not s3_uri_metadata:
+            raise KeyError(
+                f"{self._JFR_ENABLED_KEY}=true requires hyperparameter 's3_uri_metadata' "
+                "so the JFR recording can be uploaded under metadata/jfr/"
+            )
 
-        s3_uri_metadata = hyperparameters["s3_uri_metadata"]
-        s3_uri_archive = self._s3_join_prefix(str(s3_uri_metadata), "otel/jaeger-traces.tgz")
-        logger.info("Uploading trace archive: %s", s3_uri_archive)
-        self._upload_file_to_s3(local_file_path=str(archive_path), s3_target_uri=str(s3_uri_archive))
+        output_dir = self._JFR_METADATA_DIR.resolve()
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        recording_path = output_dir / self._JFR_FILENAME
+        jfr_flag = (
+            "-XX:StartFlightRecording="
+            f"name=hotvect-sagemaker,"
+            f"settings=profile,"
+            f"filename={recording_path},"
+            "dumponexit=true"
+        )
+        env["JAVA_TOOL_OPTIONS"] = self._prepend_java_tool_options(env.get("JAVA_TOOL_OPTIONS", "").strip(), jfr_flag)
+        logger.info("Java Flight Recorder enabled; recording will be written to %s", recording_path)
+        return self._JfrContext(recording_path=recording_path)
+
+    def _check_jfr_recording(self, *, jfr_ctx: "_JfrContext") -> None:
+        if not jfr_ctx.recording_path.is_file():
+            raise FileNotFoundError(f"JFR was enabled, but no recording was found at {jfr_ctx.recording_path}")
+        logger.info("JFR recording is available in metadata directory: %s", jfr_ctx.recording_path)
+
+    @staticmethod
+    def _prepend_java_tool_options(existing_java_tool_options: str, *new_options: str) -> str:
+        options = [option for option in new_options if option]
+        if existing_java_tool_options:
+            options.append(existing_java_tool_options)
+        return " ".join(options).strip()
 
     def _wait_for_tcp(self, host: str, port: int, timeout_s: float) -> None:
         deadline = time.time() + timeout_s
@@ -302,22 +357,6 @@ class SageMakerScriptExecutor:
         except Exception:
             pass
 
-    def _create_trace_archive(self, *, output_dir: Path, archive_path: Path) -> None:
-        archive_path.parent.mkdir(parents=True, exist_ok=True)
-        with tarfile.open(archive_path, mode="w:gz") as tar:
-            for rel in ("badger", "jaeger-all-in-one.log", "opentelemetry-javaagent.jar"):
-                p = output_dir / rel
-                if p.exists():
-                    tar.add(str(p), arcname=rel)
-
-    def _s3_join_prefix(self, s3_uri_prefix: str, suffix: str) -> str:
-        parsed = urlparse(str(s3_uri_prefix))
-        if parsed.scheme != "s3" or not parsed.netloc or not parsed.path:
-            raise ValueError(f"Expected s3:// uri, got: {s3_uri_prefix!r}")
-        key_prefix = parsed.path.lstrip("/")
-        key_prefix = key_prefix.rstrip("/") + "/"
-        return f"s3://{parsed.netloc}/{key_prefix}{suffix.lstrip('/')}"
-
     def _download_s3_file(self, *, s3_uri: str, dest_path: Path) -> None:
         parsed = urlparse(str(s3_uri))
         if parsed.scheme != "s3" or not parsed.netloc or not parsed.path:
@@ -328,13 +367,6 @@ class SageMakerScriptExecutor:
             Key=parsed.path.lstrip("/"),
             Filename=str(dest_path),
         )
-
-    def _upload_file_to_s3(self, *, local_file_path: str, s3_target_uri: str) -> None:
-        s3_uri_parsed = urlparse(s3_target_uri)
-        s3_target_bucket: str = s3_uri_parsed.netloc
-        s3_target_key: str = s3_uri_parsed.path.lstrip("/")
-
-        self._s3_client.upload_file(Filename=local_file_path, Bucket=s3_target_bucket, Key=s3_target_key)
 
     def hyperparameters_as_file(self, hyperparameters: dict[str, Any]):
         class StringEncoder(json.JSONEncoder):

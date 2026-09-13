@@ -63,7 +63,7 @@ class TestHvExtCLI(unittest.TestCase):
 
         # Check that help was displayed
         output = mock_stdout.getvalue()
-        self.assertIn("Extended utilities for hotvect ML operations", output)
+        self.assertIn("Compatibility entrypoint for migrated Hotvect utilities", output)
         self.assertIn("metrics", output)
         self.assertIn("catboost-convert", output)
 
@@ -80,7 +80,7 @@ class TestHvExtCLI(unittest.TestCase):
 
         # Check that help was displayed
         output = mock_stdout.getvalue()
-        self.assertIn("Extended utilities for hotvect ML operations", output)
+        self.assertIn("Compatibility entrypoint for migrated Hotvect utilities", output)
         self.assertIn("Examples:", output)
 
     @patch("sys.argv", ["hv-ext", "metrics", "--help"])
@@ -105,17 +105,6 @@ class TestHvExtCLI(unittest.TestCase):
         self.assertIn("--schema-file", output)
         self.assertIn("--encoded-file", output)
         self.assertIn("--output", output)
-
-    @patch("sys.argv", ["hv-ext", "compare-equivalence", "--help"])
-    @patch("sys.stdout", new_callable=StringIO)
-    def test_compare_equivalence_help(self, mock_stdout):
-        """Test that compare-equivalence --help works."""
-        with self.assertRaises(SystemExit):
-            main()
-
-        output = mock_stdout.getvalue()
-        self.assertIn("--score-eps", output)
-        self.assertIn("--allow-non-deterministic-tie-breaking", output)
 
     @patch("sys.stdout", new_callable=StringIO)
     def test_perf_compare_integration(self, mock_stdout):
@@ -258,7 +247,7 @@ class TestHvExtCLI(unittest.TestCase):
 
         # Should show help message since we handle invalid commands in CLI
         output = mock_stdout.getvalue()
-        self.assertIn("Extended utilities for hotvect ML operations", output)
+        self.assertIn("Compatibility entrypoint for migrated Hotvect utilities", output)
 
         # Should exit with error code 1 (our custom handling)
         self.assertTrue(mock_exit.called)

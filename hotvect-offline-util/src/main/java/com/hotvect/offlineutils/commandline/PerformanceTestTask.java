@@ -5,13 +5,14 @@ import com.hotvect.onlineutils.concurrency.CpuIntensiveAggregator;
 import io.micrometer.core.instrument.MeterRegistry;
 import com.codahale.metrics.Timer;
 import com.codahale.metrics.UniformReservoir;
-import com.fasterxml.jackson.databind.ObjectMapper;
 
+import com.fasterxml.jackson.core.JsonPointer;
 import com.google.common.util.concurrent.RateLimiter;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
-import com.hotvect.api.algodefinition.AlgorithmInstance;
+import com.hotvect.api.algodefinition.AlgorithmDependencies;
+import com.hotvect.api.algodefinition.AlgorithmRuntimeId;
 import com.hotvect.api.algorithms.*;
 import com.hotvect.api.codec.common.ExampleDecoder;
 import com.hotvect.api.data.common.Example;
@@ -25,6 +26,12 @@ import com.hotvect.offlineutils.hotdeploy.AlgorithmOfflineSupporterFactory;
 import com.hotvect.onlineutils.util.MathUtils;
 import com.hotvect.onlineutils.util.StreamUtils;
 import com.hotvect.onlineutils.hotdeploy.AlgorithmInstanceFactory;
+import com.hotvect.onlineutils.hotdeploy.AlgorithmGraph;
+import com.hotvect.onlineutils.serving.AlgorithmSelection;
+import com.hotvect.onlineutils.serving.AlgorithmRuntimeContext;
+import com.hotvect.onlineutils.serving.EmsPredictionRuntime;
+import com.hotvect.onlineutils.serving.FixedCompositionRuntime;
+import com.hotvect.onlineutils.serving.SelectedAlgorithmRuntime;
 import com.hotvect.onlineutils.concurrency.fileutils.FileFormat;
 import com.hotvect.onlineutils.concurrency.fileutils.FileUtils;
 import com.hotvect.onlineutils.concurrency.fileutils.RecordReader;
@@ -40,7 +47,10 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Random;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.LongAdder;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -49,121 +59,164 @@ import static com.google.common.base.Preconditions.checkState;
 import static java.lang.Math.max;
 
 public class PerformanceTestTask<EXAMPLE extends Example<? extends OfflineRequest, ?>, ALGO extends Algorithm> extends Task {
-    private static final ObjectMapper OM = new ObjectMapper();
     static final int DEFAULT_SAMPLE_POOL_SIZE = 3_000;
     private static final Logger logger = LoggerFactory.getLogger(PerformanceTestTask.class);
+    private final JsonPointer assignmentKeyPointer;
+    private final Map<AlgorithmRuntimeId, Function<String, List<Example<?, ?>>>> emsDecoders =
+            new ConcurrentHashMap<>();
+    private final Map<AlgorithmSelection, LongAdder> emsSelectionCounts = new ConcurrentHashMap<>();
 
     protected PerformanceTestTask(OfflineTaskContext offlineTaskContext) {
         super(offlineTaskContext);
+        this.assignmentKeyPointer = offlineTaskContext.source() instanceof OfflineTaskContext.EmsRuntime ems
+                ? JsonPointer.compile(ems.assignmentKeyJsonPointer())
+                : null;
     }
 
 
     @Override
     protected Map<String, Object> perform() throws Exception {
         WorkloadMode workloadMode = resolveWorkloadMode(offlineTaskContext.options().performanceTestWorkloadMode);
-        AlgorithmOfflineSupporterFactory algorithmSupporterFactory = new AlgorithmOfflineSupporterFactory(this.offlineTaskContext.classLoader());
-        AlgorithmInstanceFactory algoAlgorithmInstanceFactory = new AlgorithmInstanceFactory(
-                offlineTaskContext.classLoader(),
-                ExecutionContext.of(workloadMode, InputSemantic.OFFLINE),
-                false
-        );
-        ExampleDecoder<EXAMPLE> decoder = algorithmSupporterFactory.getTestDecoder(offlineTaskContext.algorithmDefinition());
+        return switch (offlineTaskContext.source()) {
+            case OfflineTaskContext.DirectRuntime direct -> performLocalAlgorithmTest(direct, workloadMode);
+            case OfflineTaskContext.FixedRuntime fixed -> performFixedCompositionTest(fixed, workloadMode);
+            case OfflineTaskContext.EmsRuntime ems -> performEmsCompositionTest(ems, workloadMode);
+        };
+    }
 
+    private Map<String, Object> performLocalAlgorithmTest(
+            OfflineTaskContext.DirectRuntime source,
+            WorkloadMode workloadMode) throws Exception {
+        Optional<Path> localStateRoot = Optional.of(offlineTaskContext.localStateRoot());
 
-        try (AlgorithmInstance<ALGO> algoAlgorithmInstance = algoAlgorithmInstanceFactory.load(
-                this.offlineTaskContext.algorithmDefinition(),
-                this.offlineTaskContext.options().parameters,
-                Map.of()
-        )) {
-            LOGGER.info("Loaded AlgorithmInstance:{}", algoAlgorithmInstance);
-            Options options = offlineTaskContext.options();
-
-            checkState(
-                    this.offlineTaskContext.options().sourceFiles.size() == 1 &&
-                            this.offlineTaskContext.options().sourceFiles.keySet().iterator().next().equals("default")
-                    ,
-                    "Only one source file type is supported for performance test"
-            );
-
-            checkState(
-                    options.samplePoolSize == -1 || options.samplePoolSize > 0,
-                    "--sample-pool-size must be > 0 (or left unset), got: %s",
-                    options.samplePoolSize
-            );
-
-            final int samplePoolSize = pickSamplePoolSize(options);
-            final int oversampleFactor = 3;
-            final long samplingSeed = 42L;
-            final int linesPerFile = 200;
-            final int minFilesToTouch = 20;
-
-            List<EXAMPLE> sampledData = sampleDecodedExamples(
-                    super.offlineTaskContext.options().sourceFiles.values().iterator().next(),
-                    decoder,
-                    samplePoolSize,
-                    oversampleFactor,
-                    samplingSeed,
-                    linesPerFile,
-                    minFilesToTouch
-            );
-
-            // Warm up
-            Map<String, Double> warmUpResult = performTestRun(sampledData.stream(), algoAlgorithmInstance.algorithm(), sampledData.size());
-            double meanThroughput = warmUpResult.get("mean_throughput");
-
-            checkState(Double.isFinite(meanThroughput) && meanThroughput > 0.0, "Warmup throughput must be positive, got: %s", meanThroughput);
-            checkState(
-                    Double.isFinite(options.targetThroughputFraction) && options.targetThroughputFraction >= 0.0 && options.targetThroughputFraction <= 1.0,
-                    "--target-throughput-fraction must be within [0, 1], got: %s",
-                    options.targetThroughputFraction
-            );
-            checkState(
-                    options.targetRps == -1.0 || (Double.isFinite(options.targetRps) && options.targetRps > 0.0),
-                    "--target-rps must be > 0 (or left unset), got: %s",
-                    options.targetRps
-            );
-
-            Double targetRps = null;
-            if (options.targetRps > 0.0) {
-                targetRps = options.targetRps;
-            } else if (options.targetThroughputFraction > 0.0) {
-                targetRps = meanThroughput * options.targetThroughputFraction;
-            }
-            if (targetRps != null) {
-                logger.info("Pacing performance test at {} rps (warmup mean_throughput={} targetThroughputFraction={})",
-                        targetRps, meanThroughput, options.targetThroughputFraction);
-            } else {
-                logger.info("No pacing configured for performance test (warmup mean_throughput={})", meanThroughput);
-            }
-
-            double sampleSizingThroughput = targetRps == null ? meanThroughput : targetRps;
-            int samplePerTest = pickSamplePerTest(options, sampleSizingThroughput);
-            logger.info("Using sample size {} for the performance test", samplePerTest);
-
-            // Actual measurement
-            List<Map<String, Double>> results = new ArrayList<>();
-            for (int i = 0; i < 5; i++) {
-                RateLimiter rateLimiter = targetRps == null ? null : RateLimiter.create(targetRps);
-                results.add(performTestRun(
-                        StreamUtils.repeatToLength(sampledData, samplePerTest),
-                        algoAlgorithmInstance.algorithm(),
-                        samplePerTest,
-                        rateLimiter
-                ));
-            }
-
-            Map<String, Object> metadata = new HashMap<>();
-
-            Map<String, Object> aggregatedPerformanceTestResult = aggregate(results);
-            metadata.put("response_time_metrics", aggregatedPerformanceTestResult);
-            metadata.put("warmup_mean_throughput", meanThroughput);
-            metadata.put("target_rps", targetRps);
-            metadata.put("requested_sample_pool_size", samplePoolSize);
-            metadata.put("sample_pool_size", sampledData.size());
-            metadata.put("samples", samplePerTest);
-            metadata.put("workload_mode", workloadMode.name().toLowerCase(Locale.ROOT));
-            return metadata;
+        try (AlgorithmOfflineSupporterFactory algorithmSupporterFactory =
+                     new AlgorithmOfflineSupporterFactory(this.offlineTaskContext.classLoader());
+             AlgorithmInstanceFactory algorithmInstanceFactory = new AlgorithmInstanceFactory(
+                     offlineTaskContext.classLoader(),
+                     new AlgorithmInstanceFactory.Options(
+                             InputSemantic.OFFLINE,
+                             false,
+                             false,
+                             localStateRoot));
+             AlgorithmGraph<ALGO> algorithmGraph = algorithmInstanceFactory.loadGraph(
+                     this.offlineTaskContext.algorithmDefinition(),
+                     source.algorithmSource().parameters(),
+                     AlgorithmDependencies.empty(),
+                     ExecutionContext.of(workloadMode, InputSemantic.OFFLINE)
+             )) {
+            ExampleDecoder<EXAMPLE> decoder =
+                    algorithmSupporterFactory.getTestDecoder(offlineTaskContext.algorithmDefinition());
+            localStateRoot.ifPresent(path -> LOGGER.info("Using performance-test local state root: {}", path));
+            LOGGER.info("Loaded algorithm graph rooted at:{}", algorithmGraph.root());
+            return performTest(
+                    input -> directPerformanceInputs(decoder.apply(input), algorithmGraph.algorithm()),
+                    workloadMode);
         }
+    }
+
+    private Map<String, Object> performFixedCompositionTest(
+            OfflineTaskContext.FixedRuntime source,
+            WorkloadMode workloadMode) throws Exception {
+        FixedCompositionRuntime runtime = source.runtime();
+        AlgorithmRuntimeContext context = runtime.context();
+        Function<String, List<Example<?, ?>>> decoder = decoderFor(context);
+        Map<String, Object> metadata = performTest(
+                input -> fixedPerformanceInputs(decoder.apply(input), context),
+                workloadMode);
+        metadata.put("composition_source", runtime.compositionSource().toUri().toString());
+        metadata.put("composition", runtime.canonicalComposition());
+        metadata.put("algorithm_runtime_id", runtime.runtimeId());
+        metadata.put("composition_execution_context", executionContextDescription(workloadMode));
+        return metadata;
+    }
+
+    private Map<String, Object> performEmsCompositionTest(
+            OfflineTaskContext.EmsRuntime source,
+            WorkloadMode workloadMode) throws Exception {
+        Map<String, Object> metadata = performTest(input -> emsPerformanceInputs(source, input), workloadMode);
+        metadata.put("ems_root_slot", source.rootSlot());
+        metadata.put("ems_assignment_key_json_pointer", source.assignmentKeyJsonPointer());
+        metadata.put("ems_state_source", source.stateSource());
+        metadata.put("ems_execution_context", executionContextDescription(workloadMode));
+        metadata.put("ems_compositions", PredictTask.emsCompositionMetadata(emsSelectionCounts));
+        return metadata;
+    }
+
+    private Map<String, Object> performTest(
+            Function<String, List<PerformanceInput>> decoder,
+            WorkloadMode workloadMode) throws Exception {
+        Options options = offlineTaskContext.options();
+        checkState(
+                options.sourceFiles.size() == 1 && options.sourceFiles.containsKey("default"),
+                "Only one source file type is supported for performance test");
+        checkState(
+                options.samplePoolSize == -1 || options.samplePoolSize > 0,
+                "--sample-pool-size must be > 0 (or left unset), got: %s",
+                options.samplePoolSize);
+
+        int samplePoolSize = pickSamplePoolSize(options);
+        List<PerformanceInput> sampledData = sampleDecodedExamples(
+                options.sourceFiles.get("default"),
+                decoder,
+                samplePoolSize,
+                3,
+                42L,
+                200,
+                20);
+
+        Map<String, Double> warmUpResult = performTestRun(sampledData.stream(), sampledData.size());
+        double meanThroughput = warmUpResult.get("mean_throughput");
+        checkState(
+                Double.isFinite(meanThroughput) && meanThroughput > 0.0,
+                "Warmup throughput must be positive, got: %s",
+                meanThroughput);
+        checkState(
+                Double.isFinite(options.targetThroughputFraction)
+                        && options.targetThroughputFraction >= 0.0
+                        && options.targetThroughputFraction <= 1.0,
+                "--target-throughput-fraction must be within [0, 1], got: %s",
+                options.targetThroughputFraction);
+        checkState(
+                options.targetRps == -1.0 || (Double.isFinite(options.targetRps) && options.targetRps > 0.0),
+                "--target-rps must be > 0 (or left unset), got: %s",
+                options.targetRps);
+
+        Double targetRps = null;
+        if (options.targetRps > 0.0) {
+            targetRps = options.targetRps;
+        } else if (options.targetThroughputFraction > 0.0) {
+            targetRps = meanThroughput * options.targetThroughputFraction;
+        }
+        if (targetRps != null) {
+            logger.info(
+                    "Pacing performance test at {} rps (warmup mean_throughput={} targetThroughputFraction={})",
+                    targetRps,
+                    meanThroughput,
+                    options.targetThroughputFraction);
+        } else {
+            logger.info("No pacing configured for performance test (warmup mean_throughput={})", meanThroughput);
+        }
+
+        int samplePerTest = pickSamplePerTest(options, targetRps == null ? meanThroughput : targetRps);
+        logger.info("Using sample size {} for the performance test", samplePerTest);
+        List<Map<String, Double>> results = new ArrayList<>();
+        for (int i = 0; i < 5; i++) {
+            RateLimiter rateLimiter = targetRps == null ? null : RateLimiter.create(targetRps);
+            results.add(performTestRun(
+                    StreamUtils.repeatToLength(sampledData, samplePerTest),
+                    samplePerTest,
+                    rateLimiter));
+        }
+
+        Map<String, Object> metadata = new HashMap<>();
+        metadata.put("response_time_metrics", aggregate(results));
+        metadata.put("warmup_mean_throughput", meanThroughput);
+        metadata.put("target_rps", targetRps);
+        metadata.put("requested_sample_pool_size", samplePoolSize);
+        metadata.put("sample_pool_size", sampledData.size());
+        metadata.put("samples", samplePerTest);
+        metadata.put("workload_mode", workloadMode.name().toLowerCase(Locale.ROOT));
+        return metadata;
     }
 
     static WorkloadMode resolveWorkloadMode(String configuredValue) {
@@ -209,27 +262,27 @@ public class PerformanceTestTask<EXAMPLE extends Example<? extends OfflineReques
         Collections.shuffle(files, new Random(seed));
 
         int targetDecoded = Math.max(sampleSize, sampleSize * oversampleFactor);
-            ReservoirSample<T> reservoirSample = reservoirSampleDecodedExamples(
-                    files,
-                    decoder,
-                    sampleSize,
-                    targetDecoded,
-                    seed,
-                    linesPerFile,
-                    minFilesToTouch
-            );
-            List<T> sampled = reservoirSample.sample();
+        ReservoirSample<T> reservoirSample = reservoirSampleDecodedExamples(
+                files,
+                decoder,
+                sampleSize,
+                targetDecoded,
+                seed,
+                linesPerFile,
+                minFilesToTouch
+        );
+        List<T> sampled = reservoirSample.sample();
 
-            checkState(!sampled.isEmpty(), "Performance test sampling did not decode any examples");
+        checkState(!sampled.isEmpty(), "Performance test sampling did not decode any examples");
 
-            if (sampled.size() < sampleSize) {
-                logger.warn(
-                    "Only sampled {} examples (requested {}): candidates={} filesTouched={} sweeps={}",
-                    sampled.size(),
-                    sampleSize,
-                    reservoirSample.candidatesSeen(),
-                    reservoirSample.maxFilesTouched(),
-                    reservoirSample.sweeps()
+        if (sampled.size() < sampleSize) {
+            logger.warn(
+                "Only sampled {} examples (requested {}): candidates={} filesTouched={} sweeps={}",
+                sampled.size(),
+                sampleSize,
+                reservoirSample.candidatesSeen(),
+                reservoirSample.maxFilesTouched(),
+                reservoirSample.sweeps()
             );
         } else {
             logger.info(
@@ -273,15 +326,9 @@ public class PerformanceTestTask<EXAMPLE extends Example<? extends OfflineReques
                     break;
                 }
 
-                int candidatesBeforeSweep = candidatesSeen;
+                boolean consumedInput = false;
                 for (int fileIndex = 0; fileIndex < files.size(); fileIndex++) {
-                    maxFilesTouched = Math.max(maxFilesTouched, fileIndex + 1);
-                    minFilesSatisfied = maxFilesTouched >= effectiveMinFilesToTouch;
-
                     if (exhausted[fileIndex]) {
-                        if (minFilesSatisfied && candidatesSeen >= targetDecoded) {
-                            break;
-                        }
                         continue;
                     }
 
@@ -291,15 +338,15 @@ public class PerformanceTestTask<EXAMPLE extends Example<? extends OfflineReques
                         readers.set(fileIndex, reader);
                     }
 
-                    for (int i = 0; i < linesPerFile && reader.hasNext() && candidatesSeen < targetDecoded; i++) {
+                    // The target is a stopping threshold, not a cap that prevents required
+                    // additional files from contributing candidates to the reservoir.
+                    for (int i = 0; i < linesPerFile && reader.hasNext(); i++) {
                         List<T> decoded = decoder.apply(reader.next());
+                        consumedInput = true;
                         if (decoded == null || decoded.isEmpty()) {
                             continue;
                         }
                         for (T decodedExample : decoded) {
-                            if (candidatesSeen >= targetDecoded) {
-                                break;
-                            }
                             candidatesSeen++;
                             if (sample.size() < sampleSize) {
                                 sample.add(decodedExample);
@@ -309,9 +356,18 @@ public class PerformanceTestTask<EXAMPLE extends Example<? extends OfflineReques
                                     sample.set(replacementIndex, decodedExample);
                                 }
                             }
+                            if (candidatesSeen >= targetDecoded) {
+                                break;
+                            }
+                        }
+                        if (candidatesSeen >= targetDecoded) {
+                            break;
                         }
                     }
 
+                    // Count a file only after consuming its chunk or establishing that it is empty.
+                    maxFilesTouched = Math.max(maxFilesTouched, fileIndex + 1);
+                    minFilesSatisfied = maxFilesTouched >= effectiveMinFilesToTouch;
                     if (!reader.hasNext()) {
                         reader.close();
                         readers.set(fileIndex, null);
@@ -323,7 +379,7 @@ public class PerformanceTestTask<EXAMPLE extends Example<? extends OfflineReques
                     }
                 }
 
-                if (candidatesSeen == candidatesBeforeSweep) {
+                if (!consumedInput) {
                     break;
                 }
                 sweeps++;
@@ -336,83 +392,6 @@ public class PerformanceTestTask<EXAMPLE extends Example<? extends OfflineReques
         return new ReservoirSample<>(sample, candidatesSeen, maxFilesTouched, sweeps);
     }
 
-    static <T> SamplingCandidates<T> collectDecodedCandidates(
-            List<File> files,
-            Function<String, List<T>> decoder,
-            int targetDecoded,
-            int linesPerFile,
-            int minFilesToTouch
-    ) throws Exception {
-        checkState(targetDecoded > 0, "targetDecoded must be positive");
-        int effectiveMinFilesToTouch = Math.min(minFilesToTouch, files.size());
-
-        List<T> candidates = new ArrayList<>(Math.min(targetDecoded, 100_000));
-        int maxFilesTouched = 0;
-        int sweeps = 0;
-        List<RecordReader<String>> readers = new ArrayList<>(Collections.nCopies(files.size(), null));
-        boolean[] exhausted = new boolean[files.size()];
-
-        try {
-            while (true) {
-                boolean minFilesSatisfied = maxFilesTouched >= effectiveMinFilesToTouch;
-                if (minFilesSatisfied && candidates.size() >= targetDecoded) {
-                    break;
-                }
-
-                int candidatesBeforeSweep = candidates.size();
-                for (int fileIndex = 0; fileIndex < files.size(); fileIndex++) {
-                    maxFilesTouched = Math.max(maxFilesTouched, fileIndex + 1);
-                    minFilesSatisfied = maxFilesTouched >= effectiveMinFilesToTouch;
-
-                    if (exhausted[fileIndex]) {
-                        if (minFilesSatisfied && candidates.size() >= targetDecoded) {
-                            break;
-                        }
-                        continue;
-                    }
-
-                    RecordReader<String> reader = readers.get(fileIndex);
-                    if (reader == null) {
-                        reader = RecordReader.create(files.get(fileIndex));
-                        readers.set(fileIndex, reader);
-                    }
-
-                    for (int i = 0; i < linesPerFile && reader.hasNext() && candidates.size() < targetDecoded; i++) {
-                        List<T> decoded = decoder.apply(reader.next());
-                        if (decoded == null || decoded.isEmpty()) {
-                            continue;
-                        }
-                        int remaining = targetDecoded - candidates.size();
-                        if (decoded.size() <= remaining) {
-                            candidates.addAll(decoded);
-                        } else {
-                            candidates.addAll(decoded.subList(0, remaining));
-                        }
-                    }
-
-                    if (!reader.hasNext()) {
-                        reader.close();
-                        readers.set(fileIndex, null);
-                        exhausted[fileIndex] = true;
-                    }
-
-                    if (minFilesSatisfied && candidates.size() >= targetDecoded) {
-                        break;
-                    }
-                }
-
-                if (candidates.size() == candidatesBeforeSweep) {
-                    break;
-                }
-                sweeps++;
-            }
-        } finally {
-            closeReaders(readers);
-        }
-        return new SamplingCandidates<>(candidates, maxFilesTouched, sweeps);
-    }
-
-    record SamplingCandidates<T>(List<T> candidates, int maxFilesTouched, int sweeps) {}
     record ReservoirSample<T>(List<T> sample, int candidatesSeen, int maxFilesTouched, int sweeps) {}
 
     private static void closeReaders(List<RecordReader<String>> readers) throws Exception {
@@ -481,21 +460,64 @@ public class PerformanceTestTask<EXAMPLE extends Example<? extends OfflineReques
     }
 
 
-    private Map<String, Double> performTestRun(Stream<EXAMPLE> data, ALGO algo, int sampleSize) throws Exception {
-        return performTestRun(data, algo, sampleSize, null);
+    private List<PerformanceInput> directPerformanceInputs(List<EXAMPLE> examples, ALGO algorithm) {
+        return examples.stream()
+                .<PerformanceInput>map(example -> (responseTimer, rateLimiter) ->
+                        invokeMeasured(responseTimer, rateLimiter, () -> invokeAlgorithm(algorithm, example)))
+                .toList();
     }
 
-    private Map<String, Double> performTestRun(Stream<EXAMPLE> data, ALGO algo, int sampleSize, RateLimiter rateLimiter) throws Exception {
+    private List<PerformanceInput> fixedPerformanceInputs(
+            List<Example<?, ?>> examples,
+            AlgorithmRuntimeContext context) {
+        return examples.stream()
+                .<PerformanceInput>map(example -> new FixedPerformanceInput(context, example))
+                .toList();
+    }
+
+    private List<PerformanceInput> emsPerformanceInputs(
+            OfflineTaskContext.EmsRuntime source,
+            String input) {
+        String assignmentKey = PredictTask.assignmentKey(assignmentKeyPointer, input);
+        EmsPredictionRuntime runtime = source.runtime();
+        SelectedAlgorithmRuntime selected = runtime.select(assignmentKey);
+        return emsDecoders
+                .computeIfAbsent(selected.context().runtimeId(), ignored -> decoderFor(selected.context()))
+                .apply(input)
+                .stream()
+                .<PerformanceInput>map(example -> new EmsPerformanceInput(
+                        runtime,
+                        assignmentKey,
+                        example,
+                        emsSelectionCounts))
+                .toList();
+    }
+
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    private Function<String, List<Example<?, ?>>> decoderFor(AlgorithmRuntimeContext context) {
+        AlgorithmOfflineSupporterFactory supporter = new AlgorithmOfflineSupporterFactory(
+                context.rootArtifactClassLoader());
+        ExampleDecoder decoder = supporter.getTestDecoder(context.algorithmInstance().algorithmDefinition());
+        return input -> (List<Example<?, ?>>) (List<?>) decoder.apply(input);
+    }
+
+    private Map<String, Double> performTestRun(Stream<PerformanceInput> data, int sampleSize) throws Exception {
+        return performTestRun(data, sampleSize, null);
+    }
+
+    private Map<String, Double> performTestRun(
+            Stream<PerformanceInput> data,
+            int sampleSize,
+            RateLimiter rateLimiter) throws Exception {
         MeterRegistry meterRegistry = super.offlineTaskContext.meterRegistry();
         UniformReservoir uniformReservoir = new UniformReservoir(sampleSize);
         Timer timer = new Timer(uniformReservoir);
-        Function<EXAMPLE, Void> sink = getSink(algo, timer, rateLimiter);
 
-        CpuIntensiveAggregator<Integer, EXAMPLE> processor = new CpuIntensiveAggregator<>(
+        CpuIntensiveAggregator<Integer, PerformanceInput> processor = new CpuIntensiveAggregator<>(
                 meterRegistry,
                 () -> 0,
                 (_acc, record) -> {
-                    sink.apply(record);
+                    record.invoke(timer, rateLimiter);
                     return _acc;
                 },
                 this.offlineTaskContext.options().maxThreads < 0 ? max(Runtime.getRuntime().availableProcessors() - 1, 1) : this.offlineTaskContext.options().maxThreads,
@@ -517,52 +539,77 @@ public class PerformanceTestTask<EXAMPLE extends Example<? extends OfflineReques
         return result.build();
     }
 
-    private Function<EXAMPLE, Void> getSink(ALGO algo, Timer responseTimer, RateLimiter rateLimiter) {
-        if (algo instanceof Ranker<?, ?>) {
-            Ranker ranker = (Ranker) algo;
-            return example -> {
-                RankingExample<?, ?, ?> rankingExample = (RankingExample<?, ?, ?>) example;
-                if (rateLimiter != null) {
-                    rateLimiter.acquire();
-                }
-                try (var ignored = responseTimer.time()) {
-                    var result = ranker.rank(rankingExample.rankingRequest());
-                    consume(result);
-                    return null;
-                }
-            };
-        } else if (algo instanceof BulkScorer bulkScorer){
-            return example -> {
-                RankingExample<?, ?, ?> rankingExample = (RankingExample<?, ?, ?>) example;
-                if (rateLimiter != null) {
-                    rateLimiter.acquire();
-                }
-                try (var ignored = responseTimer.time()) {
-                    var result = bulkScorer.score(rankingExample.rankingRequest());
-                    consume(result);
-                    return null;
-                }
-            };
-
-        } else if (algo instanceof TopK topK) {
-            return example -> {
-                TopKExample<?, ?, ?> topKExample = (TopKExample<?, ?, ?>) example;
-                if (rateLimiter != null) {
-                    rateLimiter.acquire();
-                }
-                try (var ignored = responseTimer.time()) {
-                    var result = topK.apply(topKExample.request());
-                    consume(result);
-                    return null;
-                }
-            };
-
-        } else {
-            throw new AssertionError("Unknown algorithm type:" + algo.getClass().getCanonicalName());
+    private static void invokeMeasured(Timer responseTimer, RateLimiter rateLimiter, Runnable invocation) {
+        if (rateLimiter != null) {
+            rateLimiter.acquire();
+        }
+        try (var ignored = responseTimer.time()) {
+            invocation.run();
         }
     }
 
-    private void consume(Object result) {
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    private static void invokeAlgorithm(Algorithm algorithm, Example<?, ?> example) {
+        if (algorithm instanceof Ranker ranker) {
+            if (!(example instanceof RankingExample<?, ?, ?> rankingExample)) {
+                throw new IllegalArgumentException("Ranker requires a RankingExample");
+            }
+            consume(ranker.rank(rankingExample.rankingRequest()));
+            return;
+        }
+        if (algorithm instanceof BulkScorer bulkScorer) {
+            if (!(example instanceof RankingExample<?, ?, ?> rankingExample)) {
+                throw new IllegalArgumentException("BulkScorer requires a RankingExample");
+            }
+            consume(bulkScorer.score(rankingExample.rankingRequest()));
+            return;
+        }
+        if (algorithm instanceof TopK topK) {
+            if (!(example instanceof TopKExample<?, ?, ?> topKExample)) {
+                throw new IllegalArgumentException("TopK requires a TopKExample");
+            }
+            consume(topK.apply(topKExample.request()));
+            return;
+        }
+        throw new AssertionError("Unknown algorithm type:" + algorithm.getClass().getCanonicalName());
+    }
+
+    private static String executionContextDescription(WorkloadMode workloadMode) {
+        return workloadMode.name() + "/" + InputSemantic.OFFLINE.name();
+    }
+
+    private interface PerformanceInput {
+        void invoke(Timer responseTimer, RateLimiter rateLimiter);
+    }
+
+    private record FixedPerformanceInput(
+            AlgorithmRuntimeContext context,
+            Example<?, ?> example) implements PerformanceInput {
+        @Override
+        public void invoke(Timer responseTimer, RateLimiter rateLimiter) {
+            invokeMeasured(
+                    responseTimer,
+                    rateLimiter,
+                    () -> invokeAlgorithm(context.algorithmInstance().algorithm(), example));
+        }
+    }
+
+    private record EmsPerformanceInput(
+            EmsPredictionRuntime runtime,
+            String assignmentKey,
+            Example<?, ?> example,
+            Map<AlgorithmSelection, LongAdder> selectionCounts) implements PerformanceInput {
+        @Override
+        public void invoke(Timer responseTimer, RateLimiter rateLimiter) {
+            invokeMeasured(responseTimer, rateLimiter, () -> {
+                SelectedAlgorithmRuntime selected = runtime.select(assignmentKey);
+                invokeAlgorithm(selected.context().algorithmInstance().algorithm(), example);
+                selectionCounts.computeIfAbsent(selected.selection(), ignored -> new LongAdder()).increment();
+            });
+        }
+    }
+
+    private static void consume(Object result) {
         // A poor man's Blackhole (https://github.com/openjdk/jmh/blob/master/jmh-core/src/main/java/org/openjdk/jmh/infra/Blackhole.java)
         // Described in Tim Peierls, Brian Goetz, Joshua Bloch, Joseph Bowbeer, Doug Lea, and David Holmes. 2005. Java Concurrency in Practice. Addison-Wesley Professional.
 

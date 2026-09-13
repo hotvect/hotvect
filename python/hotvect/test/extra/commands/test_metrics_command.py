@@ -5,6 +5,7 @@ import json
 import os
 import re
 import tempfile
+import types
 import unittest
 from io import StringIO
 from pathlib import Path
@@ -15,6 +16,8 @@ import pandas as pd
 from hotvect.extra.commands.metrics import (
     AlgorithmSpecification,
     MetricsCommand,
+    _algorithm_specification_for_algorithm,
+    _assemble_latest_section_records,
     _build_cache_usage_lines,
     _build_header_lines,
     _build_plot_dataset,
@@ -33,6 +36,8 @@ from hotvect.extra.commands.metrics import (
     _copy_result_metadata,
     _extract_timing_breakdown,
     _extract_timing_metrics,
+    _filter_to_common_dates_by_algorithm_id,
+    _final_report_validity,
     _git_commit_from_git_describe,
     _has_cache_hits,
     _has_production_training_breakdown_signal,
@@ -59,89 +64,110 @@ class TestMetricsCommand(unittest.TestCase):
     def test_parse_relative_baseline_online(self):
         online = _parse_relative_baseline("online:algorithm")
         self.assertEqual(
-            (online.kind, online.value, online.display_name, online.version_selector),
-            ("online", "algorithm", "online:algorithm", "online"),
+            (online.kind, online.value, online.display_name, online.algorithm_id_selector),
+            ("online", "algorithm", "online:algorithm", "online:algorithm"),
         )
 
-        version = _parse_relative_baseline("81.0.8")
+        algorithm_id = _parse_relative_baseline("algo@81.0.8")
         self.assertEqual(
-            (version.kind, version.value, version.display_name, version.version_selector),
-            ("version", "81.0.8", "81.0.8", "81.0.8"),
+            (
+                algorithm_id.kind,
+                algorithm_id.value,
+                algorithm_id.display_name,
+                algorithm_id.algorithm_id_selector,
+            ),
+            ("algorithm_id", "algo@81.0.8", "algo@81.0.8", "algo@81.0.8"),
         )
 
     def test_parse_and_validate_plot_descriptions(self):
-        descriptions = _parse_treatment_descriptions(["82.2.34=Candidate using ZMCLIP query encoder"])
-        self.assertEqual(descriptions, {"82.2.34": "Candidate using ZMCLIP query encoder"})
+        descriptions = _parse_treatment_descriptions(["algo@82.2.34=Candidate using ZMCLIP query encoder"])
+        self.assertEqual(descriptions, {"algo@82.2.34": "Candidate using ZMCLIP query encoder"})
 
         baseline_description = _validate_plot_descriptions(
             baseline_description="LMDB example-feature-state control",
             treatment_descriptions=descriptions,
-            versions=["81.0.8", "82.2.34"],
-            baseline=_parse_relative_baseline("81.0.8"),
+            algorithm_ids=["algo@81.0.8", "algo@82.2.34"],
+            baseline=_parse_relative_baseline("algo@81.0.8"),
         )
         self.assertEqual(baseline_description, "LMDB example-feature-state control")
 
-        with self.assertRaisesRegex(ValueError, "VERSION=TEXT"):
+        with self.assertRaisesRegex(ValueError, "ALGORITHM_ID=TEXT"):
             _parse_treatment_descriptions(["82.2.34:missing-equals"])
         with self.assertRaisesRegex(ValueError, "not plotted"):
             _validate_plot_descriptions(
                 baseline_description=None,
-                treatment_descriptions={"83.0.0": "unknown"},
-                versions=["81.0.8", "82.2.34"],
-                baseline=_parse_relative_baseline("81.0.8"),
+                treatment_descriptions={"algo@83.0.0": "unknown"},
+                algorithm_ids=["algo@81.0.8", "algo@82.2.34"],
+                baseline=_parse_relative_baseline("algo@81.0.8"),
             )
         with self.assertRaisesRegex(ValueError, "use --baseline-description"):
             _validate_plot_descriptions(
                 baseline_description=None,
-                treatment_descriptions={"81.0.8": "wrong flag"},
-                versions=["81.0.8", "82.2.34"],
-                baseline=_parse_relative_baseline("81.0.8"),
+                treatment_descriptions={"algo@81.0.8": "wrong flag"},
+                algorithm_ids=["algo@81.0.8", "algo@82.2.34"],
+                baseline=_parse_relative_baseline("algo@81.0.8"),
             )
 
     def test_relative_frame_can_exclude_baseline_for_timeseries(self):
         df = pd.DataFrame(
             [
-                {"version": "81.0.8", "test_date": "2026-01-01", "p99": 10.0},
-                {"version": "82.2.34", "test_date": "2026-01-01", "p99": 20.0},
-                {"version": "81.0.8", "test_date": "2026-01-02", "p99": 5.0},
-                {"version": "82.2.34", "test_date": "2026-01-02", "p99": 15.0},
+                {"algorithm_id": "algo@81.0.8", "test_date": "2000-01-01", "p99": 10.0},
+                {"algorithm_id": "algo@82.2.34", "test_date": "2000-01-01", "p99": 20.0},
+                {"algorithm_id": "algo@81.0.8", "test_date": "2000-01-02", "p99": 5.0},
+                {"algorithm_id": "algo@82.2.34", "test_date": "2000-01-02", "p99": 15.0},
             ]
         )
-        df["version"] = pd.Categorical(df["version"], categories=["81.0.8", "82.2.34"], ordered=True)
+        df["algorithm_id"] = pd.Categorical(
+            df["algorithm_id"], categories=["algo@81.0.8", "algo@82.2.34"], ordered=True
+        )
 
         rel_df = _relative_frame(
             df,
             "p99",
-            ["81.0.8", "82.2.34"],
-            "81.0.8",
+            ["algo@81.0.8", "algo@82.2.34"],
+            "algo@81.0.8",
             include_baseline=False,
         )
 
-        self.assertEqual(rel_df["version"].tolist(), ["82.2.34", "82.2.34"])
+        self.assertEqual(rel_df["algorithm_id"].tolist(), ["algo@82.2.34", "algo@82.2.34"])
         self.assertEqual(rel_df["p99"].tolist(), [2.0, 3.0])
 
     def test_relative_frame_uses_difference_for_auc_metrics(self):
         df = pd.DataFrame(
             [
-                {"version": "online", "test_date": "2026-01-01", "roc_auc": 0.70},
-                {"version": "81.0.8", "test_date": "2026-01-01", "roc_auc": 0.69},
-                {"version": "82.2.34", "test_date": "2026-01-01", "roc_auc": 0.72},
-                {"version": "online", "test_date": "2026-01-02", "roc_auc": 0.74},
-                {"version": "81.0.8", "test_date": "2026-01-02", "roc_auc": 0.73},
-                {"version": "82.2.34", "test_date": "2026-01-02", "roc_auc": 0.75},
+                {"algorithm_id": "online:algorithm", "test_date": "2000-01-01", "roc_auc": 0.70},
+                {"algorithm_id": "algo@81.0.8", "test_date": "2000-01-01", "roc_auc": 0.69},
+                {"algorithm_id": "algo@82.2.34", "test_date": "2000-01-01", "roc_auc": 0.72},
+                {"algorithm_id": "online:algorithm", "test_date": "2000-01-02", "roc_auc": 0.74},
+                {"algorithm_id": "algo@81.0.8", "test_date": "2000-01-02", "roc_auc": 0.73},
+                {"algorithm_id": "algo@82.2.34", "test_date": "2000-01-02", "roc_auc": 0.75},
             ]
         )
-        df["version"] = pd.Categorical(df["version"], categories=["online", "81.0.8", "82.2.34"], ordered=True)
+        df["algorithm_id"] = pd.Categorical(
+            df["algorithm_id"],
+            categories=["online:algorithm", "algo@81.0.8", "algo@82.2.34"],
+            ordered=True,
+        )
 
         rel_df = _relative_frame(
             df,
             "roc_auc",
-            ["online", "81.0.8", "82.2.34"],
-            "online",
+            ["online:algorithm", "algo@81.0.8", "algo@82.2.34"],
+            "online:algorithm",
             include_baseline=True,
         )
 
-        self.assertEqual(rel_df["version"].tolist(), ["online", "online", "81.0.8", "81.0.8", "82.2.34", "82.2.34"])
+        self.assertEqual(
+            rel_df["algorithm_id"].tolist(),
+            [
+                "online:algorithm",
+                "online:algorithm",
+                "algo@81.0.8",
+                "algo@81.0.8",
+                "algo@82.2.34",
+                "algo@82.2.34",
+            ],
+        )
         self.assertEqual(
             rel_df["roc_auc"].tolist(),
             [0.0, 0.0, 0.69 - 0.70, 0.73 - 0.74, 0.72 - 0.70, 0.75 - 0.74],
@@ -150,11 +176,23 @@ class TestMetricsCommand(unittest.TestCase):
     def test_relative_frame_uses_ratio_for_map_ndcg_and_system_metrics(self):
         df = pd.DataFrame(
             [
-                {"version": "64.4.0", "test_date": "2026-01-01", "map_at_50": 0.007, "ndcg_at_50": 0.02, "p99": 10.0},
-                {"version": "77.1.0", "test_date": "2026-01-01", "map_at_50": 0.008, "ndcg_at_50": 0.03, "p99": 15.0},
+                {
+                    "algorithm_id": "algo@64.4.0",
+                    "test_date": "2000-01-01",
+                    "map_at_50": 0.007,
+                    "ndcg_at_50": 0.02,
+                    "p99": 10.0,
+                },
+                {
+                    "algorithm_id": "algo@77.1.0",
+                    "test_date": "2000-01-01",
+                    "map_at_50": 0.008,
+                    "ndcg_at_50": 0.03,
+                    "p99": 15.0,
+                },
             ]
         )
-        df["version"] = pd.Categorical(df["version"], categories=["64.4.0", "77.1.0"], ordered=True)
+        df["algorithm_id"] = pd.Categorical(df["algorithm_id"], categories=["algo@64.4.0", "algo@77.1.0"], ordered=True)
 
         for metric, expected in {
             "map_at_50": [1.0, 0.008 / 0.007],
@@ -164,27 +202,29 @@ class TestMetricsCommand(unittest.TestCase):
             rel_df = _relative_frame(
                 df,
                 metric,
-                ["64.4.0", "77.1.0"],
-                "64.4.0",
+                ["algo@64.4.0", "algo@77.1.0"],
+                "algo@64.4.0",
                 include_baseline=True,
             )
-            self.assertEqual(rel_df["version"].tolist(), ["64.4.0", "77.1.0"])
+            self.assertEqual(rel_df["algorithm_id"].tolist(), ["algo@64.4.0", "algo@77.1.0"])
             self.assertEqual(rel_df[metric].tolist(), expected)
 
     def test_collect_relative_metric_frames_excludes_uncalibrated_mean_score(self):
         df = pd.DataFrame(
             [
-                {"version": "81.0.8", "test_date": "2026-01-01", "roc_auc": 0.8, "mean_score": -0.1},
-                {"version": "82.2.34", "test_date": "2026-01-01", "roc_auc": 0.82, "mean_score": -0.2},
+                {"algorithm_id": "algo@81.0.8", "test_date": "2000-01-01", "roc_auc": 0.8, "mean_score": -0.1},
+                {"algorithm_id": "algo@82.2.34", "test_date": "2000-01-01", "roc_auc": 0.82, "mean_score": -0.2},
             ]
         )
-        df["version"] = pd.Categorical(df["version"], categories=["81.0.8", "82.2.34"], ordered=True)
+        df["algorithm_id"] = pd.Categorical(
+            df["algorithm_id"], categories=["algo@81.0.8", "algo@82.2.34"], ordered=True
+        )
 
         relative_point_metrics, relative_time_metrics, _, _ = _collect_relative_metric_frames(
             df=df,
             metrics=["roc_auc", "mean_score"],
-            versions=["81.0.8", "82.2.34"],
-            baseline_version="81.0.8",
+            algorithm_ids=["algo@81.0.8", "algo@82.2.34"],
+            baseline_algorithm_id="algo@81.0.8",
         )
 
         self.assertEqual(relative_point_metrics, ["roc_auc"])
@@ -224,18 +264,21 @@ class TestMetricsCommand(unittest.TestCase):
         dataset = _build_plot_dataset(
             records=records,
             metrics=["roc_auc", "mean_score"],
-            explicit_versions=["82.2.34"],
+            explicit_algorithm_ids=["algo@82.2.34"],
             relative_baseline="online:algorithm",
         )
 
-        self.assertEqual(dataset.versions, ["online", "82.2.34"])
-        self.assertEqual(dataset.baseline.version_selector, "online")
-        self.assertEqual(sorted({row["version"] for row in dataset.table_rows}), ["82.2.34", "online"])
-        online_rows = [row for row in dataset.table_rows if row["version"] == "online"]
+        self.assertEqual(dataset.algorithm_ids, ["online:algorithm", "algo@82.2.34"])
+        self.assertEqual(dataset.baseline.algorithm_id_selector, "online:algorithm")
+        self.assertEqual(
+            sorted({row["algorithm_id"] for row in dataset.table_rows}),
+            ["algo@82.2.34", "online:algorithm"],
+        )
+        online_rows = [row for row in dataset.table_rows if row["algorithm_id"] == "online:algorithm"]
         self.assertEqual(len(online_rows), 2)
         self.assertEqual(online_rows[0]["roc_auc"], 0.81)
 
-    def test_build_plot_dataset_places_version_baseline_first(self):
+    def test_build_plot_dataset_places_algorithm_id_baseline_first(self):
         records = [
             {
                 "algorithm_id": "algo@82.2.34",
@@ -252,12 +295,35 @@ class TestMetricsCommand(unittest.TestCase):
         dataset = _build_plot_dataset(
             records=records,
             metrics=["roc_auc"],
-            explicit_versions=["82.2.34", "81.0.8"],
-            relative_baseline="81.0.8",
+            explicit_algorithm_ids=["algo@82.2.34", "algo@81.0.8"],
+            relative_baseline="algo@81.0.8",
         )
 
-        self.assertEqual(dataset.versions, ["81.0.8", "82.2.34"])
-        self.assertEqual(list(dataset.df["version"].cat.categories), ["81.0.8", "82.2.34"])
+        self.assertEqual(dataset.algorithm_ids, ["algo@81.0.8", "algo@82.2.34"])
+        self.assertEqual(list(dataset.df["algorithm_id"].cat.categories), ["algo@81.0.8", "algo@82.2.34"])
+
+    def test_build_plot_dataset_keeps_same_version_algorithm_ids_distinct(self):
+        records = [
+            {"algorithm_id": "control@1.0.0", "test_date": "2000-01-01", "roc_auc": 0.81},
+            {"algorithm_id": "candidate@1.0.0", "test_date": "2000-01-01", "roc_auc": 0.83},
+        ]
+
+        dataset = _build_plot_dataset(
+            records=records,
+            metrics=["roc_auc"],
+            explicit_algorithm_ids=["control@1.0.0", "candidate@1.0.0"],
+            relative_baseline="control@1.0.0",
+        )
+
+        self.assertEqual(dataset.algorithm_ids, ["control@1.0.0", "candidate@1.0.0"])
+        self.assertEqual(
+            list(dataset.df["algorithm_id"].cat.categories),
+            ["control@1.0.0", "candidate@1.0.0"],
+        )
+        self.assertEqual(
+            sorted(dataset.df["algorithm_id"].astype(str).unique()),
+            ["candidate@1.0.0", "control@1.0.0"],
+        )
 
     def test_extract_timing_metrics_expands_dependency_stages(self):
         result = {
@@ -340,7 +406,7 @@ class TestMetricsCommand(unittest.TestCase):
             },
         )
 
-        dataset = _build_timing_plot_dataset([record], ["81.0.8"])
+        dataset = _build_timing_plot_dataset([record], ["algo@81.0.8"])
 
         self.assertIsNotNone(dataset)
         assert dataset is not None
@@ -397,7 +463,7 @@ class TestMetricsCommand(unittest.TestCase):
         self.assertNotIn("dependencies.sibling-algo.unaccounted", breakdown)
         self.assertAlmostEqual(sum(breakdown.values()), 18.0)
 
-        dataset = _build_timing_breakdown_dataset([result], ["81.0.8"])
+        dataset = _build_timing_breakdown_dataset([result], ["algo@81.0.8"])
         self.assertIsNotNone(dataset)
         assert dataset is not None
         self.assertIn("dependencies.child-algo.train", dataset.components)
@@ -531,21 +597,39 @@ class TestMetricsCommand(unittest.TestCase):
             },
         ]
 
-        dataset = _build_timing_plot_dataset(records, ["81.0.8", "82.2.34"])
+        dataset = _build_timing_plot_dataset(records, ["algo@81.0.8", "algo@82.2.34"])
         self.assertIsNotNone(dataset)
         assert dataset is not None
         self.assertEqual(dataset.metrics, ["total_pipeline", "predict", "evaluate"])
         self.assertNotIn("performance_test", dataset.metrics)
-        self.assertEqual(list(dataset.df["version"].cat.categories), ["81.0.8", "82.2.34"])
+        self.assertEqual(list(dataset.df["algorithm_id"].cat.categories), ["algo@81.0.8", "algo@82.2.34"])
 
-        lines = _build_timing_summary_lines(dataset, ["81.0.8", "82.2.34"], "81.0.8")
+        lines = _build_timing_summary_lines(dataset, ["algo@81.0.8", "algo@82.2.34"], "algo@81.0.8")
         joined = "\n".join(lines)
         self.assertIn("Pipeline Performance Summary", joined)
         self.assertIn("total_pipeline", joined)
         self.assertIn("95% CI", joined)
         self.assertIn("mean 1.46x baseline", joined)
+        self.assertIn("Algorithm ID:", joined)
         self.assertIn("production training path", joined)
         self.assertIn("excludes offline-only", joined)
+
+    def test_common_dates_for_plot_are_intersected_by_algorithm_id(self):
+        records = [
+            {"algorithm_id": "control@1.0.0", "test_date": "2000-01-01"},
+            {"algorithm_id": "control@1.0.0", "test_date": "2000-01-02"},
+            {"algorithm_id": "candidate@1.0.0", "test_date": "2000-01-02"},
+        ]
+
+        filtered = _filter_to_common_dates_by_algorithm_id(records)
+
+        self.assertEqual(
+            filtered,
+            [
+                {"algorithm_id": "control@1.0.0", "test_date": "2000-01-02"},
+                {"algorithm_id": "candidate@1.0.0", "test_date": "2000-01-02"},
+            ],
+        )
 
     def test_build_cache_usage_lines_calls_out_observed_cache_hits(self):
         usage_one = _cache_usage_from_result(
@@ -635,7 +719,7 @@ class TestMetricsCommand(unittest.TestCase):
             _build_plot_dataset(
                 records=records,
                 metrics=["roc_auc"],
-                explicit_versions=["82.2.34", "83.0.0"],
+                explicit_algorithm_ids=["algo@82.2.34", "algo@83.0.0"],
                 relative_baseline="online:algorithm",
             )
 
@@ -649,10 +733,10 @@ class TestMetricsCommand(unittest.TestCase):
         lines = _build_header_lines(
             source_root="/tmp/results",
             source_files=12,
-            treatment_algorithm_ids=["anchored-article-topk@8.0.0"],
+            treatment_algorithm_ids=["example-topk-algorithm@8.0.0"],
             baseline_label="online:algorithm",
             baseline_description="Current production online scorer.",
-            treatment_descriptions={"8.0.0": "Candidate with article retrieval changes."},
+            treatment_descriptions={"example-topk-algorithm@8.0.0": "Candidate with example retrieval changes."},
             from_last_test_date="2026-03-19",
             to_last_test_date="2026-03-25",
             n_dates=6,
@@ -663,14 +747,16 @@ class TestMetricsCommand(unittest.TestCase):
 
         joined = "\n".join(lines)
         self.assertIn("Subject of Evaluation", joined)
-        self.assertIn("Treatment:", joined)
-        self.assertIn("anchored-article-topk@8.0.0", joined)
         self.assertIn("Baseline:", joined)
+        self.assertIn("Treatment:", joined)
+        self.assertIn("ID:", joined)
+        self.assertIn("Description:", joined)
         self.assertIn("online:algorithm", joined)
-        self.assertIn("Baseline Desc.:", joined)
         self.assertIn("Current production online scorer.", joined)
-        self.assertIn("Treatment Desc.:", joined)
-        self.assertIn("Candidate with article retrieval changes.", joined)
+        self.assertIn("example-topk-algorithm@8.0.0", joined)
+        self.assertIn("Candidate with example retrieval changes.", joined)
+        self.assertNotIn("Baseline Desc.:", joined)
+        self.assertNotIn("Treatment Desc.:", joined)
         self.assertIn("Execution Parameters", joined)
         self.assertIn("Test Date Range:", joined)
         self.assertIn("2026-03-19 .. 2026-03-25", joined)
@@ -704,6 +790,18 @@ class TestMetricsCommand(unittest.TestCase):
                 "input": {"kind": "performance_data_spec"},
                 "contract": {"instance_type": "ml.c7i.4xlarge", "max_threads": 2},
             },
+            baseline_specs=[
+                AlgorithmSpecification(
+                    algorithm_id="example-topk-algorithm@8.0.0",
+                    hotvect_version="9.34.0",
+                    git_describe="8.0.0",
+                    git_commit=None,
+                    algorithm_parameters=None,
+                    override_status="not supplied",
+                    code_dirty=False,
+                    code_exact_tag=True,
+                )
+            ],
             treatment_specs=[
                 AlgorithmSpecification(
                     algorithm_id="anchored-article-topk@9.0.0",
@@ -711,6 +809,12 @@ class TestMetricsCommand(unittest.TestCase):
                     git_describe="7.3.11-4-gc5709d7",
                     git_commit="c5709d7",
                     algorithm_parameters={"enable_rerank": True},
+                    override_status="supplied",
+                    override_files=("candidate.override.json",),
+                    override_reasons=("force candidate test parameter",),
+                    override_fields=("hotvect_execution_parameters.with_parameter",),
+                    code_dirty=False,
+                    code_exact_tag=False,
                 )
             ],
         )
@@ -739,7 +843,16 @@ class TestMetricsCommand(unittest.TestCase):
         self.assertIn("kind=performance_data_spec", joined)
         self.assertIn("Contract:", joined)
         self.assertIn("instance_type=ml.c7i.4xlarge", joined)
-        self.assertNotIn("Baseline Artifact", joined)
+        self.assertIn("Baseline Specification", joined)
+        self.assertIn("example-topk-algorithm@8.0.0", joined)
+        self.assertIn("Override Status:", joined)
+        self.assertIn("not supplied", joined)
+        self.assertIn("Code Dirty:", joined)
+        self.assertIn("no", joined)
+        self.assertIn("Exact Git Tag:", joined)
+        self.assertIn("yes", joined)
+        self.assertIn("Final Validity:", joined)
+        self.assertIn("valid", joined)
         self.assertIn("Hotvect Version:", joined)
         self.assertIn("Git Describe:", joined)
         self.assertIn("Git Commit:", joined)
@@ -747,19 +860,23 @@ class TestMetricsCommand(unittest.TestCase):
         self.assertIn("anchored-article-topk@9.0.0", joined)
         self.assertIn("Algorithm Params:", joined)
         self.assertIn("enable_rerank=true", joined)
+        self.assertIn("candidate.override.json", joined)
+        self.assertIn("force candidate test parameter", joined)
+        self.assertIn("hotvect_execution_parameters.with_parameter", joined)
+        self.assertIn("not final: override status is supplied", joined)
         self.assertIn("c5709d7", joined)
 
     def test_metrics_plot_paginates_large_specification(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
-            versions = [f"variant-{index:02d}" for index in range(12)]
+            algorithm_ids = [f"algo-variant-{index:02d}@1.0.0" for index in range(12)]
             result_files = []
-            for index, version in enumerate(versions):
-                result_file = temp_path / f"{version}.result.json"
+            for index, algorithm_id in enumerate(algorithm_ids):
+                result_file = temp_path / f"variant-{index:02d}.result.json"
                 result_file.write_text(
                     json.dumps(
                         {
-                            "algorithm_id": f"algo@{version}",
+                            "algorithm_id": algorithm_id,
                             "test_data_time": "2026-01-01",
                             "algorithm_definition": {
                                 "algorithm_parameters": {
@@ -784,10 +901,10 @@ class TestMetricsCommand(unittest.TestCase):
                         "plot",
                         "--out",
                         str(out),
-                        "--versions",
-                        *versions,
+                        "--algorithm-ids",
+                        *algorithm_ids,
                         "--relative-baseline",
-                        versions[0],
+                        algorithm_ids[0],
                         "--metrics",
                         "ndcg_at_10",
                         "--result-files",
@@ -816,6 +933,270 @@ class TestMetricsCommand(unittest.TestCase):
             ax.plot(frame[x], frame[y], marker="o", label=str(value))
         ax.legend()
         return ax
+
+    @staticmethod
+    def _write_output_result(
+        root: Path,
+        *,
+        job_name: str,
+        algorithm_id: str,
+        test_date: str,
+        payload: dict,
+        last_modified: str,
+    ) -> Path:
+        result_dir = root / "runs" / job_name / "meta" / algorithm_id / f"last_test_date_{test_date}"
+        result_dir.mkdir(parents=True, exist_ok=True)
+        result_path = result_dir / "result.json"
+        result_path.write_text(json.dumps(payload))
+        (result_dir / ".hvext-run.json").write_text(json.dumps({"result_json": {"last_modified": last_modified}}))
+        return result_path
+
+    def test_assemble_latest_sections_combines_distinct_run_sections(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            algorithm_id = "algo@1.0.0"
+            test_date = "2000-01-01"
+
+            self._write_output_result(
+                root,
+                job_name="quality-run",
+                algorithm_id=algorithm_id,
+                test_date=test_date,
+                last_modified="2000-01-02T01:00:00Z",
+                payload={
+                    "algorithm_id": algorithm_id,
+                    "test_data_time": test_date,
+                    "algorithm_definition": {
+                        "hotvect_execution_parameters": {"performance-test": {"enabled": True, "samples": 100000}}
+                    },
+                    "algorithm_override": {
+                        "supplied": True,
+                        "fields": ["hotvect_execution_parameters.performance-test.samples"],
+                        "reasons": ["Quality run used candidate sampling"],
+                    },
+                    "evaluate": {"roc_auc": {"mean": 0.81}},
+                },
+            )
+            self._write_output_result(
+                root,
+                job_name="system-run",
+                algorithm_id=algorithm_id,
+                test_date=test_date,
+                last_modified="2000-01-02T02:00:00Z",
+                payload={
+                    "algorithm_id": algorithm_id,
+                    "test_data_time": test_date,
+                    "algorithm_definition": {
+                        "hotvect_execution_parameters": {"performance-test": {"enabled": True, "samples": 300000}}
+                    },
+                    "algorithm_override": {"supplied": False},
+                    "performance_test": {
+                        "max_memory_usage": 900.0,
+                        "response_time_metrics": {
+                            "mean_throughput": {"mean": 520.0},
+                            "mean": {"mean": 10.0},
+                            "p50": {"mean": 8.0},
+                            "p75": {"mean": 12.0},
+                            "p95": {"mean": 20.0},
+                            "p99": {"mean": 25.0},
+                            "p999": {"mean": 40.0},
+                        },
+                    },
+                },
+            )
+            self._write_output_result(
+                root,
+                job_name="pipeline-run",
+                algorithm_id=algorithm_id,
+                test_date=test_date,
+                last_modified="2000-01-02T03:00:00Z",
+                payload={
+                    "algorithm_id": algorithm_id,
+                    "test_data_time": test_date,
+                    "timing_info_sec": {"total_time": 11.0, "predict": 9.0, "evaluate": 2.0},
+                },
+            )
+
+            dataset = _assemble_latest_section_records(
+                output_base_dir=str(root),
+                algorithm_name_pattern=".*",
+                algorithm_version_pattern=".*",
+                from_date=None,
+                to_date=None,
+            )
+
+            self.assertEqual(len(dataset.records), 1)
+            record = dataset.records[0]
+            self.assertEqual(record["roc_auc"]["value"], 0.81)
+            self.assertEqual(record["mean_throughput"], 520.0)
+            self.assertEqual(record["p99"], 25.0)
+            self.assertEqual(record["timing_info_sec"]["total_time"], 11.0)
+            self.assertNotIn("algorithm_definition", record)
+            self.assertNotIn("algorithm_override", record)
+            self.assertTrue(record["section_sources"]["quality"]["algorithm_override"]["supplied"])
+            self.assertFalse(record["section_sources"]["system_performance"]["algorithm_override"]["supplied"])
+            self.assertEqual(
+                Path(record["section_sources"]["quality"]["source_result_file"]).parts[-5],
+                "quality-run",
+            )
+            self.assertEqual(
+                Path(record["section_sources"]["system_performance"]["source_result_file"]).parts[-5],
+                "system-run",
+            )
+            self.assertEqual(
+                Path(record["section_sources"]["pipeline_performance"]["source_result_file"]).parts[-5],
+                "pipeline-run",
+            )
+            self.assertEqual(dataset.source_files, 3)
+
+            specification = _algorithm_specification_for_algorithm(dataset.records, algorithm_id)
+            self.assertEqual(specification.override_status, "partially recorded: supplied (2/3 records)")
+            self.assertIn("Quality run used candidate sampling", specification.override_reasons)
+            self.assertIn("not final", _final_report_validity(specification))
+
+            provenance = "\n".join(_build_provenance_lines(dataset.records))
+            self.assertIn("Section Sources:", provenance)
+            self.assertIn(f"{algorithm_id} / quality: supplied", provenance)
+            self.assertIn(f"{algorithm_id} / system_performance: not supplied", provenance)
+            self.assertIn(f"{algorithm_id} / pipeline_performance: not recorded", provenance)
+
+    def test_assembled_specification_rejects_incompatible_subjects(self):
+        algorithm_id = "algo@1.0.0"
+        cases = [
+            ({"git_describe": "1.0.0"}, {"git_describe": "1.0.0-1-gabc1234"}, "git describe"),
+            (
+                {"algorithm_parameters": {"enable_candidate": False}},
+                {"algorithm_parameters": {"enable_candidate": True}},
+                "algorithm parameters",
+            ),
+        ]
+
+        for quality_definition, system_definition, mismatch_label in cases:
+            with self.subTest(mismatch_label=mismatch_label):
+                records = [
+                    {
+                        "algorithm_id": algorithm_id,
+                        "test_date": "2000-01-01",
+                        "section_sources": {
+                            "quality": {
+                                "algorithm_id": algorithm_id,
+                                "test_date": "2000-01-01",
+                                "algorithm_definition": quality_definition,
+                                "algorithm_override": {"supplied": False},
+                            },
+                            "system_performance": {
+                                "algorithm_id": algorithm_id,
+                                "test_date": "2000-01-01",
+                                "algorithm_definition": system_definition,
+                                "algorithm_override": {"supplied": False},
+                            },
+                        },
+                    },
+                ]
+
+                with self.assertRaisesRegex(ValueError, f"{mismatch_label} differs across plotted records"):
+                    _algorithm_specification_for_algorithm(records, algorithm_id)
+
+    def test_metrics_plot_assemble_latest_sections_uses_system_benchmark_spec(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            test_date = "2000-01-01"
+            for version, roc_auc, quality_samples, p99 in [
+                ("1.0.0", 0.81, 100000, 25.0),
+                ("1.0.1", 0.83, 200000, 20.0),
+            ]:
+                algorithm_id = f"algo@{version}"
+                self._write_output_result(
+                    root,
+                    job_name=f"quality-{version}",
+                    algorithm_id=algorithm_id,
+                    test_date=test_date,
+                    last_modified=f"2000-01-02T0{1 if version == '1.0.0' else 2}:00:00Z",
+                    payload={
+                        "algorithm_id": algorithm_id,
+                        "test_data_time": test_date,
+                        "algorithm_definition": {
+                            "hotvect_execution_parameters": {
+                                "performance-test": {"enabled": True, "samples": quality_samples}
+                            }
+                        },
+                        "evaluate": {"roc_auc": {"mean": roc_auc}},
+                    },
+                )
+                self._write_output_result(
+                    root,
+                    job_name=f"system-{version}",
+                    algorithm_id=algorithm_id,
+                    test_date=test_date,
+                    last_modified=f"2000-01-02T1{1 if version == '1.0.0' else 2}:00:00Z",
+                    payload={
+                        "algorithm_id": algorithm_id,
+                        "test_data_time": test_date,
+                        "algorithm_definition": {
+                            "hotvect_execution_parameters": {"performance-test": {"enabled": True, "samples": 300000}}
+                        },
+                        "performance_test": {
+                            "max_memory_usage": 900.0,
+                            "response_time_metrics": {
+                                "mean_throughput": {"mean": 520.0},
+                                "mean": {"mean": 10.0},
+                                "p50": {"mean": 8.0},
+                                "p75": {"mean": 12.0},
+                                "p95": {"mean": 20.0},
+                                "p99": {"mean": p99},
+                                "p999": {"mean": 40.0},
+                            },
+                        },
+                    },
+                )
+                self._write_output_result(
+                    root,
+                    job_name=f"pipeline-{version}",
+                    algorithm_id=algorithm_id,
+                    test_date=test_date,
+                    last_modified=f"2000-01-02T2{1 if version == '1.0.0' else 2}:00:00Z",
+                    payload={
+                        "algorithm_id": algorithm_id,
+                        "test_data_time": test_date,
+                        "timing_info_sec": {"total_time": 12.0, "predict": 10.0, "evaluate": 2.0},
+                    },
+                )
+
+            out = root / "assembled-metrics.pdf"
+            fake_seaborn = types.SimpleNamespace(
+                pointplot=self._fake_pointplot,
+                lineplot=self._fake_lineplot,
+            )
+            with (
+                patch(
+                    "sys.argv",
+                    [
+                        "hv-ext",
+                        "metrics",
+                        "plot",
+                        "--output-base-dir",
+                        str(root),
+                        "--assemble-latest-sections",
+                        "--algorithm-ids",
+                        "algo@1.0.0",
+                        "algo@1.0.1",
+                        "--relative-baseline",
+                        "algo@1.0.0",
+                        "--metrics",
+                        "roc_auc",
+                        "p99",
+                        "--out",
+                        str(out),
+                    ],
+                ),
+                patch.dict("sys.modules", {"seaborn": fake_seaborn}),
+            ):
+                from hotvect.extra.cli import main
+
+                main()
+
+            self.assertTrue(out.exists())
+            self.assertGreaterEqual(len(re.findall(rb"/Type\s*/Page\b", out.read_bytes())), 6)
 
     def test_common_evaluation_specification_rejects_mixed_specs(self):
         records = [
@@ -954,11 +1335,11 @@ class TestMetricsCommand(unittest.TestCase):
                     str(out),
                     "--table-out",
                     str(table_out),
-                    "--versions",
-                    "81.0.8",
-                    "82.2.34",
+                    "--algorithm-ids",
+                    "algo@81.0.8",
+                    "algo@82.2.34",
                     "--relative-baseline",
-                    "81.0.8",
+                    "algo@81.0.8",
                     "--metrics",
                     "ndcg_at_10",
                     "p95",
@@ -1050,6 +1431,17 @@ class TestMetricsCommand(unittest.TestCase):
         self.assertEqual(plot_args.command, "metrics")
         self.assertEqual(plot_args.metrics_command, "plot")
         self.assertEqual(plot_args.relative_baseline, "online:algorithm")
+        self.assertFalse(plot_args.assemble_latest_sections)
+
+        plot_args = main_parser.parse_args(
+            ["metrics", "plot", "--algorithm-ids", "algo@1", "algo@2", "--relative-baseline", "algo@1"]
+        )
+        self.assertEqual(plot_args.algorithm_ids, ["algo@1", "algo@2"])
+
+        assemble_args = main_parser.parse_args(
+            ["metrics", "plot", "--relative-baseline", "online:algorithm", "--assemble-latest-sections"]
+        )
+        self.assertTrue(assemble_args.assemble_latest_sections)
 
     @patch("sys.stdout", new_callable=StringIO)
     def test_compare_quality_single_day(self, mock_stdout):

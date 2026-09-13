@@ -6,8 +6,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.google.common.collect.ImmutableMap;
 import com.hotvect.api.algodefinition.AlgorithmDefinition;
+import com.hotvect.api.algodefinition.AlgorithmDependencies;
 import com.hotvect.api.algodefinition.AlgorithmId;
-import com.hotvect.api.algodefinition.AlgorithmInstance;
 import com.hotvect.api.algodefinition.common.CompositeAlgorithmFactory;
 import com.hotvect.api.algodefinition.common.NonCompositeAlgorithmFactory;
 import com.hotvect.api.algodefinition.common.SimpleAlgorithmFactory;
@@ -37,31 +37,47 @@ class LocalStateStoragePropagationTest {
     Path tempDir;
 
     @Test
-    void allAlgorithmFactoryKindsCanAllocateLocalStateStorage() {
+    void allAlgorithmFactoryKindsCanAllocateLocalStateStorage() throws Exception {
         Path stateRoot = tempDir.resolve("states");
         AlgorithmInstanceFactory factory = new AlgorithmInstanceFactory(
                 Thread.currentThread().getContextClassLoader(),
-                ExecutionContext.realtime(InputSemantic.ONLINE),
-                true,
-                Optional.of(stateRoot));
+                new AlgorithmInstanceFactory.Options(
+                        InputSemantic.ONLINE,
+                        true,
+                        false,
+                        Optional.of(stateRoot)));
 
-        List<Path> allocatedDirectories = List.of(
-                load(factory, definition("state", StorageStateFactory.class, null)).algorithm().stateDirectory(),
-                load(factory, definition("non-composite", StorageNonCompositeFactory.class, NoopTransformerFactory.class))
-                        .algorithm().stateDirectory(),
-                load(factory, definition("composite", StorageCompositeFactory.class, null)).algorithm().stateDirectory(),
-                load(factory, definition("simple", StorageSimpleFactory.class, null)).algorithm().stateDirectory());
+        try (AlgorithmGraph<StorageAlgorithm> state = load(factory, definition("state", StorageStateFactory.class, null));
+                AlgorithmGraph<StorageAlgorithm> nonComposite = load(
+                        factory,
+                        definition("non-composite", StorageNonCompositeFactory.class, NoopTransformerFactory.class));
+                AlgorithmGraph<StorageAlgorithm> composite = load(
+                        factory,
+                        definition("composite", StorageCompositeFactory.class, null));
+                AlgorithmGraph<StorageAlgorithm> simple = load(
+                        factory,
+                        definition("simple", StorageSimpleFactory.class, null))) {
+            List<Path> allocatedDirectories = List.of(
+                    state.algorithm().stateDirectory(),
+                    nonComposite.algorithm().stateDirectory(),
+                    composite.algorithm().stateDirectory(),
+                    simple.algorithm().stateDirectory());
 
-        assertEquals(4, Set.copyOf(allocatedDirectories).size());
-        assertEquals(
-                Set.of(stateRoot.toAbsolutePath()),
-                allocatedDirectories.stream().map(Path::getParent).collect(java.util.stream.Collectors.toSet()));
+            assertEquals(4, Set.copyOf(allocatedDirectories).size());
+            assertEquals(
+                    Set.of(stateRoot.toAbsolutePath()),
+                    allocatedDirectories.stream().map(Path::getParent).collect(java.util.stream.Collectors.toSet()));
+        }
     }
 
-    private static AlgorithmInstance<StorageAlgorithm> load(
+    private static AlgorithmGraph<StorageAlgorithm> load(
             AlgorithmInstanceFactory factory,
             AlgorithmDefinition definition) {
-        return factory.load(definition, null, ImmutableMap.of());
+        return factory.loadGraph(
+                definition,
+                null,
+                AlgorithmDependencies.empty(),
+                ExecutionContext.realtime(InputSemantic.ONLINE));
     }
 
     private static AlgorithmDefinition definition(
@@ -71,7 +87,6 @@ class LocalStateStoragePropagationTest {
         return new AlgorithmDefinition(
                 JsonNodeFactory.instance.objectNode(),
                 new AlgorithmId(name, "1"),
-                ImmutableMap.of(),
                 ImmutableMap.of(),
                 null,
                 null,
@@ -129,20 +144,12 @@ class LocalStateStoragePropagationTest {
 
     public static final class StorageCompositeFactory implements CompositeAlgorithmFactory<StorageAlgorithm> {
         @Override
-        public StorageAlgorithm apply(
-                Optional<JsonNode> hyperparameters,
-                Map<String, InputStream> parameters,
-                Map<String, AlgorithmInstance<?>> algorithmDependencies) {
-            throw new AssertionError("Legacy composite factory overload should not be used");
-        }
-
-        @Override
         public StorageAlgorithm create(
                 ExecutionContext executionContext,
                 Optional<LocalStateStorage> localStateStorage,
                 Optional<JsonNode> hyperparameters,
                 Map<String, InputStream> parameters,
-                Map<String, AlgorithmInstance<?>> algorithmDependencies) {
+                AlgorithmDependencies algorithmDependencies) {
             return new StorageAlgorithm(localStateStorage.orElseThrow().allocateDirectory());
         }
     }

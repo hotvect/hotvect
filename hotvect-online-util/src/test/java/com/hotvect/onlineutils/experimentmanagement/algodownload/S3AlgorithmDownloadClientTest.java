@@ -17,6 +17,22 @@ import software.amazon.awssdk.services.s3.S3Utilities;
 class S3AlgorithmDownloadClientTest {
 
     @Test
+    void resolvesDefaultRegionFromAwsSdkConfiguration() {
+        final String originalRegion = System.getProperty("aws.region");
+        try {
+            System.setProperty("aws.region", "us-west-2");
+
+            assertEquals(Region.US_WEST_2, S3AlgorithmDownloadClient.resolveDefaultRegion());
+        } finally {
+            if (originalRegion == null) {
+                System.clearProperty("aws.region");
+            } else {
+                System.setProperty("aws.region", originalRegion);
+            }
+        }
+    }
+
+    @Test
     void closeDoesNotCloseInjectedClientByDefault() {
         final AtomicInteger closeCalls = new AtomicInteger();
         final S3AsyncClient s3Client = testS3Client(closeCalls);

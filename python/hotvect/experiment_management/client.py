@@ -1,356 +1,227 @@
 from __future__ import annotations
 
-from enum import Enum
+from datetime import datetime
+from typing import Any
 
 import requests
-from pydantic import TypeAdapter
 from requests.auth import AuthBase
 
+from ._generated_operations import _GeneratedEmsOperations
 from .models import (
+    Algorithm,
+    AlgorithmCreate,
     AlgorithmParameter,
-    AlgorithmParameterSpec,
-    AlgorithmSpec,
-    AlgorithmState,
+    AlgorithmPatch,
     AlgorithmStateLog,
+    AlgorithmsWithVariantsDTO,
     AlgorithmWithActiveVariantsResponse,
     AlgorithmWithLatestParameter,
-    CampaignForcedAssignment,
+    ChangeRampUpPercentageInput,
     Experiment,
+    ExperimentCreate,
     ExperimentRampUpLog,
-    ExperimentSpec,
     ExperimentWithVariantDetails,
     Shard,
     ShardLog,
     Slot,
     SlotActiveInfo,
+    SlotAllExperimentsWithVariantDetailsResponse,
+    SlotInput,
     SlotSalt,
-    SlotSpec,
     UserForcedAssignment,
+    UserForcedAssignmentInput,
+    UserForcedAssignmentResponse,
     Variant,
     VariantAlgorithmLog,
+    VariantUpdateAlgorithmInput,
 )
 
 DEFAULT_CONNECT_TIMEOUT_SECONDS = 5.0
 DEFAULT_READ_TIMEOUT_SECONDS = 15.0
 
 
-class Environment(Enum):
-    def __init__(self, url: str):
-        self.url = url
+class ExperimentManagementClient:
+    """Synchronous typed client for a configured EMS endpoint."""
 
-    STAGING = "https://example-experiment-service-stg.example.com"
-    PROD = "https://example-experiment-service.example.com"
-    LOCAL = "http://localhost:8080"
-
-
-class Method(Enum):
-    GET, POST, PUT, PATCH, DELETE = range(5)
-
-
-class ExperimentManagementConnection:
     def __init__(
         self,
         *,
-        environment: Environment | str,
+        base_url: str,
+        auth: AuthBase,
         connect_timeout: float = DEFAULT_CONNECT_TIMEOUT_SECONDS,
         read_timeout: float = DEFAULT_READ_TIMEOUT_SECONDS,
-        bearer_auth: AuthBase,
     ):
-        self._base_url = environment.url if isinstance(environment, Environment) else str(environment)
+        normalized_base_url = base_url.rstrip("/")
+        if not normalized_base_url:
+            raise ValueError("base_url must not be empty")
+        if connect_timeout <= 0:
+            raise ValueError("connect_timeout must be greater than zero")
+        if read_timeout <= 0:
+            raise ValueError("read_timeout must be greater than zero")
+        self._base_url = normalized_base_url
         self._connect_timeout = connect_timeout
         self._read_timeout = read_timeout
-        self._bearer_auth = bearer_auth
+        self._auth = auth
+        self._operations = _GeneratedEmsOperations(self._make_request)
 
-    def make_request(
+    def _make_request(
         self,
         *,
-        method: Method,
+        method: str,
         endpoint: str,
-        params: dict | None = None,
-        body: dict | None = None,
+        params: dict[str, Any] | None = None,
+        body: dict[str, Any] | None = None,
     ) -> requests.Response:
+        if not endpoint.startswith("/"):
+            raise ValueError(f"EMS endpoint must start with '/': {endpoint}")
         return requests.request(
-            method=method.name,
+            method=method,
             url=self._base_url + endpoint,
             params=params,
             json=body,
-            auth=self._bearer_auth,
+            auth=self._auth,
             timeout=(self._connect_timeout, self._read_timeout),
         )
 
+    def get_experiment(self, slot_name: str, experiment_id: int) -> Experiment:
+        return self._operations.operation_get_one_2(slot_name, experiment_id)
 
-class ExperimentManagementClient:
-    """
-    Wrapper around an experiment-management REST API.
-    """
-
-    def __init__(self, connection: ExperimentManagementConnection):
-        self._connection = connection
-
-    def _request(
-        self,
-        method: Method,
-        endpoint: str,
-        params: dict | None = None,
-        body: dict | None = None,
-        *,
-        ignore_404: bool = False,
-    ):
-        response = self._connection.make_request(method=method, endpoint=endpoint, params=params, body=body)
-        if not (response.status_code == 404 and ignore_404):
-            response.raise_for_status()
-        return response.json() if response.text else None
-
-    def get_experiment(self, slot_name: str, experiment_id: int, *, ignore_404: bool = False) -> Experiment | None:
-        endpoint = f"/slots/{slot_name}/experiments/{experiment_id}"
-        experiment_json = self._request(Method.GET, endpoint, ignore_404=ignore_404)
-        return Experiment.model_validate(experiment_json) if experiment_json else None
-
-    def create_experiment(self, slot_name: str, experiment: ExperimentSpec) -> None:
-        endpoint = f"/slots/{slot_name}/experiments"
-        self._request(Method.POST, endpoint, body=experiment.model_dump())
+    def create_experiment(self, slot_name: str, experiment: ExperimentCreate) -> Experiment:
+        return self._operations.operation_add_1(slot_name, experiment)
 
     def terminate_experiment(self, slot_name: str, experiment_id: int) -> None:
-        endpoint = f"/slots/{slot_name}/experiments/{experiment_id}/terminate"
-        self._request(Method.PUT, endpoint)
+        self._operations.operation_terminate(slot_name, experiment_id)
 
     def change_ramp_up_percentage(
-        self, slot_name: str, experiment_id: int, new_ramp_up_percentage: int
-    ) -> Experiment | None:
-        endpoint = f"/slots/{slot_name}/experiments/{experiment_id}/changeRampUpPercentage"
-        patched_experiment_json = self._request(
-            Method.PATCH, endpoint, body={"new_ramp_up_percentage": new_ramp_up_percentage}
-        )
-        return Experiment.model_validate(patched_experiment_json) if patched_experiment_json else None
+        self,
+        slot_name: str,
+        experiment_id: int,
+        change: ChangeRampUpPercentageInput,
+    ) -> Experiment:
+        return self._operations.operation_change_ramp_up_percentage(slot_name, experiment_id, change)
 
-    def get_experiments(self, slot_name: str) -> list[ExperimentWithVariantDetails] | None:
-        endpoint = f"/slots/{slot_name}/experiments"
-        response = self._request(Method.GET, endpoint)
-        return (
-            TypeAdapter(list[ExperimentWithVariantDetails]).validate_python(response["experiments"])
-            if response
-            else None
-        )
+    def get_experiments(self, slot_name: str) -> list[ExperimentWithVariantDetails]:
+        response: SlotAllExperimentsWithVariantDetailsResponse = self._operations.operation_get_all(slot_name)
+        return response.experiments
 
-    def get_algorithms(self) -> list[AlgorithmWithLatestParameter] | None:
-        algorithms_json = self._request(Method.GET, "/algorithms")
-        if not algorithms_json:
-            return None
-        return TypeAdapter(list[AlgorithmWithLatestParameter]).validate_python(algorithms_json["algorithms"])
+    def get_algorithms(self) -> list[AlgorithmWithLatestParameter]:
+        return self._operations.operation_list_1()
 
-    def get_algorithm(
-        self, algorithm_name: str, algorithm_version: str, *, ignore_404: bool = False
-    ) -> AlgorithmWithLatestParameter | None:
-        endpoint = f"/algorithms/{algorithm_name}/{algorithm_version}"
-        algorithm_json = self._request(Method.GET, endpoint, ignore_404=ignore_404)
-        return AlgorithmWithLatestParameter.model_validate(algorithm_json) if algorithm_json else None
+    def get_algorithm(self, algorithm_name: str, algorithm_version: str) -> Algorithm:
+        return self._operations.operation_get_one(algorithm_name, algorithm_version)
 
-    def get_latest_algorithm_parameter(self, algorithm_name: str, algorithm_version: str) -> AlgorithmParameter | None:
-        endpoint = f"/algorithms/{algorithm_name}/{algorithm_version}/latest-algorithm-parameter"
-        algorithm_parameter_json = self._request(Method.GET, endpoint)
-        return AlgorithmParameter.model_validate(algorithm_parameter_json) if algorithm_parameter_json else None
+    def get_latest_algorithm_parameter(self, algorithm_name: str, algorithm_version: str) -> AlgorithmParameter:
+        return self._operations.operation_get_latest_algorithm_parameter(algorithm_name, algorithm_version)
 
-    def get_active_algorithms(self) -> list[AlgorithmWithLatestParameter] | None:
-        algorithms_json = self._request(Method.GET, "/algorithms/active")
-        if not algorithms_json:
-            return None
-        return TypeAdapter(list[AlgorithmWithLatestParameter]).validate_python(algorithms_json["algorithms"])
+    def get_active_algorithms(self) -> list[AlgorithmWithLatestParameter]:
+        return self._operations.operation_list_active_1()
 
-    def create_algorithm(self, algorithm: AlgorithmSpec) -> None:
-        self._request(Method.POST, "/algorithms", body=algorithm.model_dump())
+    def create_algorithm(self, algorithm: AlgorithmCreate) -> AlgorithmWithLatestParameter:
+        return self._operations.operation_add_2(algorithm)
 
-    def promote_algorithm(self, slot_name: str, algorithm_name: str, algorithm_version: str) -> None:
-        endpoint = f"/algorithms/{algorithm_name}/{algorithm_version}/promote"
-        self._request(Method.PUT, endpoint, body={"slot_name": slot_name})
+    def update_algorithm(self, algorithm_name: str, algorithm_version: str, patch: AlgorithmPatch) -> None:
+        self._operations.operation_patch(algorithm_name, algorithm_version, patch)
 
-    def update_algorithm(
-        self, algorithm_name: str, algorithm_version: str, new_state: AlgorithmState
-    ) -> AlgorithmWithLatestParameter | None:
-        endpoint = f"/algorithms/{algorithm_name}/{algorithm_version}"
-        updated_algorithm_json = self._request(Method.PATCH, endpoint, body={"state": new_state.name})
-        return AlgorithmWithLatestParameter.model_validate(updated_algorithm_json) if updated_algorithm_json else None
+    def get_shards(self, slot_name: str) -> list[Shard]:
+        return self._operations.operation_list_3(slot_name)
 
-    def activate_algorithm(self, algorithm_name: str, algorithm_version: str) -> AlgorithmWithLatestParameter | None:
-        return self.update_algorithm(algorithm_name, algorithm_version, AlgorithmState.ACTIVE)
+    def get_shard(self, slot_name: str, shard_id: int) -> Shard:
+        return self._operations.operation_get_one_1(slot_name, shard_id)
 
-    def get_shards(self, slot_name: str) -> list[Shard] | None:
-        shards_json = self._request(Method.GET, f"/slots/{slot_name}/shards")
-        if not shards_json:
-            return None
-        return TypeAdapter(list[Shard]).validate_python(shards_json["shards"])
+    def get_shard_logs(self, slot_name: str) -> list[ShardLog]:
+        return self._operations.operation_list_4(slot_name)
 
-    def get_shard(self, slot_name: str, shard_id: int) -> Shard | None:
-        shard_json = self._request(Method.GET, f"/slots/{slot_name}/shards/{shard_id}")
-        return Shard.model_validate(shard_json) if shard_json else None
+    def get_algorithm_parameters(self) -> list[AlgorithmParameter]:
+        return self._operations.operation_list_2()
 
-    def get_shard_logs(self, slot_name: str) -> list[ShardLog] | None:
-        shard_logs_json = self._request(Method.GET, f"/slots/{slot_name}/shard-logs")
-        if not shard_logs_json:
-            return None
-        return TypeAdapter(list[ShardLog]).validate_python(shard_logs_json["shard_logs"])
+    def get_algorithm_parameter(self, algorithm_parameter_id: str) -> AlgorithmParameter:
+        return self._operations.operation_get_one_3(algorithm_parameter_id)
 
-    def get_algorithm_parameters(self) -> list[AlgorithmParameter] | None:
-        algorithm_parameters_json = self._request(Method.GET, "/algorithm-parameters")
-        if not algorithm_parameters_json:
-            return None
-        if isinstance(algorithm_parameters_json, list):
-            return TypeAdapter(list[AlgorithmParameter]).validate_python(algorithm_parameters_json)
-        if isinstance(algorithm_parameters_json, dict) and "algorithm_parameters" in algorithm_parameters_json:
-            return TypeAdapter(list[AlgorithmParameter]).validate_python(
-                algorithm_parameters_json["algorithm_parameters"]
-            )
-        raise ValueError("Unexpected /algorithm-parameters response shape")
-
-    def get_algorithm_parameter(self, algorithm_parameter_id: str) -> AlgorithmParameter | None:
-        endpoint = f"/algorithm-parameters/{algorithm_parameter_id}"
-        algorithm_parameter_json = self._request(Method.GET, endpoint)
-        return AlgorithmParameter.model_validate(algorithm_parameter_json) if algorithm_parameter_json else None
-
-    def create_algorithm_parameter(self, algorithm_parameter: AlgorithmParameterSpec) -> None:
-        self._request(Method.POST, "/algorithm-parameters", body=algorithm_parameter.model_dump())
-
-    def get_algorithm_state_logs(self) -> list[AlgorithmStateLog] | None:
-        algorithm_state_logs_json = self._request(Method.GET, "/algorithm-state-logs")
-        if not algorithm_state_logs_json:
-            return None
-        if isinstance(algorithm_state_logs_json, list):
-            return TypeAdapter(list[AlgorithmStateLog]).validate_python(algorithm_state_logs_json)
-        if isinstance(algorithm_state_logs_json, dict) and "algorithm_state_logs" in algorithm_state_logs_json:
-            return TypeAdapter(list[AlgorithmStateLog]).validate_python(
-                algorithm_state_logs_json["algorithm_state_logs"]
-            )
-        raise ValueError("Unexpected /algorithm-state-logs response shape")
-
-    def get_algorithms_with_active_variants(self) -> list[AlgorithmWithActiveVariantsResponse] | None:
-        algorithms_json = self._request(Method.GET, "/algorithms/with-active-variants")
-        if not algorithms_json:
-            return None
-        return TypeAdapter(list[AlgorithmWithActiveVariantsResponse]).validate_python(algorithms_json["algorithms"])
-
-    def get_variants(self, slot_name: str) -> list[Variant] | None:
-        variants_json = self._request(Method.GET, f"/slots/{slot_name}/variants")
-        if not variants_json:
-            return None
-        if isinstance(variants_json, list):
-            return TypeAdapter(list[Variant]).validate_python(variants_json)
-        if isinstance(variants_json, dict) and "variants" in variants_json:
-            return TypeAdapter(list[Variant]).validate_python(variants_json["variants"])
-        raise ValueError("Unexpected /variants response shape")
-
-    def get_active_variants(self, slot_name: str) -> list[Variant] | None:
-        variants_json = self._request(Method.GET, f"/slots/{slot_name}/variants/active")
-        if not variants_json:
-            return None
-        if isinstance(variants_json, list):
-            return TypeAdapter(list[Variant]).validate_python(variants_json)
-        if isinstance(variants_json, dict) and "variants" in variants_json:
-            return TypeAdapter(list[Variant]).validate_python(variants_json["variants"])
-        raise ValueError("Unexpected /variants/active response shape")
-
-    def get_slots(self) -> list[Slot] | None:
-        slots_json = self._request(Method.GET, "/slots")
-        return TypeAdapter(list[Slot]).validate_python(slots_json) if slots_json else None
-
-    def get_slot(self, slot_name: str) -> Slot | None:
-        slot_json = self._request(Method.GET, f"/slots/{slot_name}")
-        return Slot.model_validate(slot_json) if slot_json else None
-
-    def create_slot(self, slot: SlotSpec) -> None:
-        self._request(Method.POST, "/slots", body=slot.model_dump())
-
-    def get_slot_salts(self, slot_name: str) -> list[SlotSalt] | None:
-        slot_salts_json = self._request(Method.GET, f"/slots/{slot_name}/salts")
-        return TypeAdapter(list[SlotSalt]).validate_python(slot_salts_json["slot_salts"]) if slot_salts_json else None
-
-    def refresh_slot_salt(self, slot_name: str) -> Slot | None:
-        slot_json = self._request(Method.PATCH, f"/slots/{slot_name}/salts/refresh")
-        return Slot.model_validate(slot_json) if slot_json else None
-
-    def get_default_variant_and_active_experiments(self, slot_name: str) -> SlotActiveInfo | None:
-        slot_active_info_json = self._request(Method.GET, f"/slots/{slot_name}/defaultVariantAndActiveExperiments")
-        return SlotActiveInfo.model_validate(slot_active_info_json) if slot_active_info_json else None
-
-    def get_user_forced_assignments(self, slot_name: str) -> list[UserForcedAssignment] | None:
-        user_forced_assignments_json = self._request(Method.GET, f"/slots/{slot_name}/userForcedAssignments")
-        if not user_forced_assignments_json:
-            return None
-        return TypeAdapter(list[UserForcedAssignment]).validate_python(
-            user_forced_assignments_json["user_forced_assignments"]
+    def get_algorithm_parameters_by_algorithm(
+        self,
+        algorithm_name: str,
+        algorithm_version: str,
+        *,
+        top: int | None = None,
+        min_created_at: datetime | None = None,
+    ) -> list[AlgorithmParameter]:
+        return self._operations.operation_get_by_algorithm(
+            algorithm_name,
+            algorithm_version,
+            top=top,
+            min_created_at=min_created_at,
         )
 
-    def get_user_forced_assignment(self, slot_name: str, user_id: str) -> UserForcedAssignment | None:
-        endpoint = f"/slots/{slot_name}/userForcedAssignments/{user_id}"
-        user_forced_assignment_json = self._request(Method.GET, endpoint)
-        return UserForcedAssignment.model_validate(user_forced_assignment_json) if user_forced_assignment_json else None
+    def create_algorithm_parameter(self, parameter: AlgorithmParameter) -> AlgorithmParameter:
+        return self._operations.operation_add_3(parameter)
 
-    def upsert_user_forced_assignment(self, slot_name: str, user_id: str, variant_id: int) -> None:
-        endpoint = f"/slots/{slot_name}/userForcedAssignments/{user_id}"
-        self._request(Method.PUT, endpoint, body={"variant_id": variant_id})
+    def get_algorithm_state_logs(self) -> list[AlgorithmStateLog]:
+        return self._operations.operation_list_5()
+
+    def get_algorithms_with_active_variants(self) -> list[AlgorithmsWithVariantsDTO]:
+        response: AlgorithmWithActiveVariantsResponse = self._operations.operation_list_active_with_variants()
+        if response.algorithms is None:
+            raise ValueError("EMS active-algorithm response must contain algorithms")
+        return response.algorithms
+
+    def get_variants(self, slot_name: str) -> list[Variant]:
+        return self._operations.operation_list_all(slot_name)
+
+    def get_active_variants(self, slot_name: str) -> list[Variant]:
+        return self._operations.operation_list_active(slot_name)
+
+    def get_slots(self) -> list[Slot]:
+        return self._operations.operation_list()
+
+    def get_slot(self, slot_name: str) -> Slot:
+        return self._operations.operation_get_one_by_name(slot_name)
+
+    def create_slot(self, slot: SlotInput) -> Slot:
+        return self._operations.operation_add(slot)
+
+    def get_slot_salts(self, slot_name: str) -> list[SlotSalt]:
+        return self._operations.operation_list_salts(slot_name)
+
+    def refresh_slot_salt(self, slot_name: str) -> Slot:
+        return self._operations.operation_refresh_salt(slot_name)
+
+    def get_default_variant_and_active_experiments(self, slot_name: str) -> SlotActiveInfo:
+        return self._operations.operation_get_default_variant_and_active_experiments(slot_name)
+
+    def get_user_forced_assignments(self, slot_name: str) -> list[UserForcedAssignment]:
+        response: UserForcedAssignmentResponse = self._operations.operation_list_all_by_slot_1(slot_name)
+        return response.user_forced_assignments or []
+
+    def get_user_forced_assignment(self, slot_name: str, user_id: str) -> UserForcedAssignment:
+        return self._operations.operation_get_one_by_user_id(slot_name, user_id)
+
+    def upsert_user_forced_assignment(
+        self,
+        slot_name: str,
+        user_id: str,
+        assignment: UserForcedAssignmentInput,
+    ) -> None:
+        self._operations.operation_upsert(slot_name, user_id, assignment)
 
     def delete_user_forced_assignment(self, slot_name: str, user_id: str) -> None:
-        endpoint = f"/slots/{slot_name}/userForcedAssignments/{user_id}"
-        self._request(Method.DELETE, endpoint)
+        self._operations.operation_delete(slot_name, user_id)
 
-    def get_variant_algorithm_logs(self, slot_name: str) -> list[VariantAlgorithmLog] | None:
-        variant_algorithm_logs_json = self._request(Method.GET, f"/slots/{slot_name}/variantAlgorithmLogs")
-        if not variant_algorithm_logs_json:
-            return None
-        return TypeAdapter(list[VariantAlgorithmLog]).validate_python(
-            variant_algorithm_logs_json["variant_algorithm_logs"]
-        )
+    def get_variant_algorithm_logs(self, slot_name: str) -> list[VariantAlgorithmLog]:
+        return self._operations.operation_list_all_by_slot(slot_name)
 
     def get_variant(self, slot_name: str, variant_id: int) -> Variant:
-        variant_json = self._request(Method.GET, f"/slots/{slot_name}/variants/{variant_id}")
-        return Variant.model_validate(variant_json)
+        return self._operations.operation_get_variant(slot_name, variant_id)
 
     def update_variant_algorithm(
         self,
         slot_name: str,
         variant_id: int,
-        new_algorithm_name: str,
-        new_algorithm_version: str,
-    ) -> Variant | None:
-        endpoint = f"/slots/{slot_name}/variants/{variant_id}/updateAlgorithm"
-        updated_variant_json = self._request(
-            Method.PATCH,
-            endpoint,
-            body={"algorithm_name": new_algorithm_name, "algorithm_version": new_algorithm_version},
-        )
-        return Variant.model_validate(updated_variant_json) if updated_variant_json else None
+        update: VariantUpdateAlgorithmInput,
+    ) -> Variant:
+        return self._operations.operation_update_algorithm(slot_name, variant_id, update)
 
-    def get_campaign_forced_assignments(self, slot_name: str) -> list[CampaignForcedAssignment] | None:
-        campaign_forced_assignments_json = self._request(Method.GET, f"/slots/{slot_name}/campaignForcedAssignments")
-        if not campaign_forced_assignments_json:
-            return None
-        return TypeAdapter(list[CampaignForcedAssignment]).validate_python(
-            campaign_forced_assignments_json["campaign_forced_assignments"]
-        )
+    def promote_algorithm(self, algorithm_name: str, algorithm_version: str, slot: SlotInput) -> None:
+        self._operations.operation_promote(algorithm_name, algorithm_version, slot)
 
-    def get_campaign_forced_assignment(self, slot_name: str, campaign_id: str) -> CampaignForcedAssignment | None:
-        endpoint = f"/slots/{slot_name}/campaignForcedAssignments/{campaign_id}"
-        campaign_forced_assignment_json = self._request(Method.GET, endpoint)
-        return (
-            CampaignForcedAssignment.model_validate(campaign_forced_assignment_json)
-            if campaign_forced_assignment_json
-            else None
-        )
-
-    def upsert_campaign_forced_assignment(self, slot_name: str, campaign_id: str, variant_id: int) -> None:
-        endpoint = f"/slots/{slot_name}/campaignForcedAssignments/{campaign_id}"
-        self._request(Method.PUT, endpoint, body={"variant_id": variant_id})
-
-    def delete_campaign_forced_assignment(self, slot_name: str, campaign_id: str) -> None:
-        endpoint = f"/slots/{slot_name}/campaignForcedAssignments/{campaign_id}"
-        self._request(Method.DELETE, endpoint)
-
-    def get_experiment_rampup_logs(self, slot_name: str) -> list[ExperimentRampUpLog] | None:
-        # Note: endpoint name is `experimentRampUpLog` in the OpenAPI spec. Some older clients used
-        # `ExperimentRampUpLog`. Prefer the spec casing.
-        rampup_logs_json = self._request(Method.GET, f"/slots/{slot_name}/experimentRampUpLog")
-        if not rampup_logs_json:
-            return None
-        if isinstance(rampup_logs_json, list):
-            return TypeAdapter(list[ExperimentRampUpLog]).validate_python(rampup_logs_json)
-        if isinstance(rampup_logs_json, dict) and "experiment_ramp_up_log" in rampup_logs_json:
-            return TypeAdapter(list[ExperimentRampUpLog]).validate_python(rampup_logs_json["experiment_ramp_up_log"])
-        raise ValueError("Unexpected experimentRampUpLog response shape")
+    def get_experiment_ramp_up_logs(self, slot_name: str) -> list[ExperimentRampUpLog]:
+        return self._operations.operation_list_all_by_experiment(slot_name)

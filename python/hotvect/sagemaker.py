@@ -13,7 +13,6 @@ import tempfile
 import time
 import traceback
 import typing as t
-from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -30,13 +29,18 @@ from hotvect.algorithm_definition_overrides import (
 from hotvect.benchmark_contract import build_benchmark_contract
 from hotvect.evaluation import evaluation
 from hotvect.jvm_args import normalize_pipeline_jvm_options
-from hotvect.pyhotvect import PARTITION_CACHE_CHANNEL_NAME, AlgorithmPipeline, AlgorithmPipelineContext
+from hotvect.offline_source_manifest import OFFLINE_SOURCE_MANIFEST_HYPERPARAMETER
+from hotvect.pyhotvect import AlgorithmPipeline, AlgorithmPipelineContext
 from hotvect.s3_utils import download_json_from_s3, join_s3_uri, normalize_s3_prefix_uri, require_s3_uri
 from hotvect.s3_utils import upload_directory_to_s3 as _shared_upload_directory_to_s3
 from hotvect.s3_utils import upload_file_to_s3 as _shared_upload_file_to_s3
 from hotvect.s3_utils import upload_json_to_s3 as _shared_upload_json_to_s3
 from hotvect.sagemaker_config import HOTVECT_PREFERRED_INSTANCE_TYPES_KEY, HOTVECT_SUBMISSION_OPTIONS_KEY
-from hotvect.sagemaker_contracts import ALGO_DEF_S3_URI_HYPERPARAMETER, PREDICT_PARAMETERS_ZIP_HYPERPARAMETER
+from hotvect.sagemaker_contracts import (
+    ALGO_DEF_S3_URI_HYPERPARAMETER,
+    HOTVECT_INSTANCE_TYPE_HYPERPARAMETER,
+    PREDICT_PARAMETERS_ZIP_HYPERPARAMETER,
+)
 from hotvect.utils import get_boto_session_after_assuming_role
 
 SAGEMAKER_TAR_INCLUDE_METADATA_ENV_VARIABLE = "SAGEMAKER_TAR_INCLUDE_METADATA"
@@ -54,17 +58,14 @@ JOB_STATUS_POLLING_WAIT_IN_SECS = 60
 # Backward compatibility: some internal wheels referenced the old constant name.
 ALGORITHM_DEFINITION_S3_URI_HYPERPARAMETER: str = ALGO_DEF_S3_URI_HYPERPARAMETER
 """This is the prefix that the algorithm definition keys will have in the hyperparameter dictionary."""
-ALGO_PIPELINE_HYPERPARAMETER_PREFIX: str = "_pipeline_params_"
-"""This is the prefix that the algorithm pipeline params keys will have in the hyperparameter dictionary."""
-ALGO_PIPELINE_CONTEXT_PREFIX: str = "_pipeline_context_"
-"""This is the prefix that the algorithm pipeline context values will have in the hyperparameter dictionary."""
+ALGO_PIPELINE_S3_URI_HYPERPARAMETER: str = "_pipeline_s3_uri"
+ALGO_PIPELINE_S3_BASENAME = "pipeline.json"
 MANDATORY_PARAMETERS = [
     "s3_uri_result_file",
     "s3_uri_algorithm_jar",
 ]
 HOTVECT_JAVA_LOG_PATH = "/var/log/hotvect.log"
-PARTITION_CACHE_CHANNEL_PREFIX = f"{PARTITION_CACHE_CHANNEL_NAME}_"
-SAGEMAKER_CHANNEL_NAME_MAX_LENGTH = 64
+PARTITION_CACHE_CHANNEL_PREFIX = "hotvect_partition_cache_"
 """List of hyperparameters that HAVE to be set in order to successfully rebuild the AlgorithmPipeline.
 Algorithm definitions must be provided via s3_uri_algorithm_definition."""
 
@@ -75,128 +76,6 @@ logger = logging.getLogger(__name__)
 _upload_file_to_s3 = _shared_upload_file_to_s3
 _upload_directory_to_s3 = _shared_upload_directory_to_s3
 _upload_json_to_s3 = _shared_upload_json_to_s3
-
-
-@dataclass
-class _ParsedKey:
-    key: str
-    sub_key: str
-    key_type: str
-
-
-def _parse_key(key: str, object_separator_char: str = ".") -> _ParsedKey:
-    if not key:
-        raise ValueError(f"{key} should have a value")
-    escaped_separator = re.escape(object_separator_char)
-    split_key = re.split(f"{escaped_separator}|\\[(\\d+)]{escaped_separator}?", key, maxsplit=1)
-    # If there was no split, it's a basic key.
-    if len(split_key) == 1:
-        return _ParsedKey(split_key[0], "", "string")
-
-    # "key.sub_key" will result in ["key", None, "sub_key"]
-    if not split_key[1]:
-        return _ParsedKey(split_key[0], split_key[2], "object")
-
-    # If it wasn't one of the previous cases and there's no first part of the key:
-    if not split_key[0]:
-        if split_key[2].startswith("["):
-            # "[0][0]" will result in a split like ["", "0", "[0]"]
-            key_type = "list"
-        elif not split_key[2]:
-            # "[0]" will result in a split like ["", "0", ""]
-            key_type = "string"
-        else:
-            # "[0].sub_key" will result in a split like ["", "0", "sub_key"]
-            key_type = "object"
-        return _ParsedKey(split_key[1], split_key[2], key_type)
-
-    # "key[0]" will result in ["key", "0", ""].
-    if not split_key[2]:
-        return _ParsedKey(split_key[0], f"[{split_key[1]}]", "list")
-    return _ParsedKey(split_key[0], f"[{split_key[1]}].{split_key[2]}", "list")
-
-
-class _DictUnflattener:
-    def __init__(self, dictionary: t.Dict[str, str], prefix: str):
-        self._data = {}
-        for key, value in dictionary.items():
-            if key.startswith(prefix):
-                # remove the prefix and add the value
-                self._add_data(key[len(prefix) :], value)
-
-    def _add_data(self, key: str, value: str):
-        parsed_key: _ParsedKey = _parse_key(key)
-        if parsed_key.key not in self._data:
-            self._data[parsed_key.key] = _DictNode()
-        self._data[parsed_key.key].add_data(parsed_key, value)
-
-    def unflatten(self):
-        final_dict = {}
-        for k, v in self._data.items():
-            final_dict[k] = v.get_data()
-        return final_dict
-
-
-class _DictNode:
-    def __init__(self) -> None:
-        self._type: t.Optional[str] = None
-        self._data: t.Union[str, t.Dict, None] = None
-
-    def get_data(self):
-        if self._type == "string":
-            return self._data
-        elif self._type == "object":
-            return {k: v.get_data() for k, v in self._data.items()}
-        elif self._type == "list":
-            nodes_sorted_by_index = sorted(self._data.items(), key=lambda x: x[0])
-            # return a list with only the data of the values, the keys were already used to get the order
-            return [node[1].get_data() for node in nodes_sorted_by_index]
-
-    def add_data(self, key: _ParsedKey, value: str) -> None:
-        self._set_as(key.key_type)
-        if key.key_type == "string":
-            self._data = value
-            return
-
-        # Initialize the data if not yet done
-        if not self._data:
-            self._data = {}
-
-        parsed_subkey: _ParsedKey = _parse_key(key.sub_key)
-        if parsed_subkey.key not in self._data:
-            self._data[parsed_subkey.key] = _DictNode()
-        self._data[parsed_subkey.key].add_data(parsed_subkey, value)
-
-    def _set_as(self, type):
-        if not self._type:
-            self._type = type
-        assert self._type == type, f"This node already had another type ({self._type}). You can't change it to {type}"
-
-
-def unflatten_dict(dictionary: t.Dict[str, str], prefix: str = ""):
-    unflattener = _DictUnflattener(dictionary, prefix=prefix)
-    return unflattener.unflatten()
-
-
-def flatten_dict(dictionary: t.Dict[str, t.Any], prefix: str = "", separator: str = "") -> t.Dict[str, str]:
-    """Flattens the algorithm definition.
-
-    This function assumes that the keys won't contain dots. If they do, it could result into clobbering issues as
-    the dot is used for the separation of the nested dicts. So {"a.b": {"c": "x"}} will look the same as
-    {"a": {"b.c": "x"}}
-    """
-    prefix = "" or prefix
-    items = []
-    for key, value in dictionary.items():
-        new_key = f"{prefix}{separator}{key}"
-        if isinstance(value, dict):
-            items.extend(flatten_dict(value, prefix=new_key, separator=".").items())
-        elif isinstance(value, list):
-            for position, v in enumerate(value):
-                items.extend(flatten_dict({f"[{position}]": v}, new_key).items())
-        else:
-            items.append((new_key, json.dumps(value)))
-    return dict(items)
 
 
 class HotvectSagemakerError(Exception):
@@ -242,7 +121,6 @@ class SagemakerTrainingExecutor:
         self.training_job_definition: t.Dict[str, t.Any] = copy.deepcopy(training_job_definition)
         self._validate_cache_refresh_configuration(self.algorithm_pipeline)
         self._instance_type_fallbacks: t.List[str] = self._normalize_instance_type_preferences()
-        self._partition_cache_channel_names_by_root: t.Dict[str, str] = {}
 
         session = get_boto_session_after_assuming_role(role_arn_to_assume) if role_arn_to_assume else boto3.Session()
         try:
@@ -261,9 +139,8 @@ class SagemakerTrainingExecutor:
         self._add_s3_uri_metadata()
         self._add_s3_uri_python_log_file()
         self._add_s3_uri_predict_parameters_zip()
-        self._add_algorithm_pipeline_params_as_hyperparameters()
         self._maybe_add_partition_cache_input_channel()
-        self._add_algorithm_pipeline_context_as_hyperparameters()
+        self._add_algorithm_pipeline_as_hyperparameter()
         self._fail_if_prediction_output_uri_is_not_s3_for_sagemaker()
         self._fail_if_algorithm_overrides_would_be_ignored()
 
@@ -410,6 +287,8 @@ class SagemakerTrainingExecutor:
         logger.info(f"Result file expected in {self.hyperparameters['s3_uri_python_log_file']}")
 
     def _add_s3_uri_predict_parameters_zip(self) -> None:
+        if getattr(self.algorithm_pipeline, "run_target", "evaluate") == "encode-cache":
+            return
         try:
             should_publish = self.algorithm_pipeline.should_publish_predict_parameters_zip()
         except Exception as exc:
@@ -433,36 +312,51 @@ class SagemakerTrainingExecutor:
             ]
         )
 
-    def _add_algorithm_pipeline_params_as_hyperparameters(self):
-        """This method flattens the pipeline parameters, so it can be sent to Sagemaker."""
-        algorithm_pipeline_params_to_send = {
+    def _add_algorithm_pipeline_as_hyperparameter(self) -> None:
+        pipeline_context = self.algorithm_pipeline.algorithm_pipeline_context
+        pipeline_params = {
             "last_test_time": self.algorithm_pipeline.last_test_time.isoformat(),
             "parameter_version": self.algorithm_pipeline.parameter_version,
-            "run_target": getattr(self.algorithm_pipeline, "run_target", "evaluate"),
-            "data_environment": getattr(self.algorithm_pipeline, "data_environment", "production"),
-            "execute_performance_test": getattr(self.algorithm_pipeline, "execute_performance_test", True),
-            "encode_test_data": getattr(self.algorithm_pipeline, "encode_test_data", False),
-            "execute_audit": getattr(self.algorithm_pipeline, "execute_audit", False),
+            "run_target": self.algorithm_pipeline.run_target,
+            "data_environment": self.algorithm_pipeline.data_environment,
+            "execute_performance_test": self.algorithm_pipeline.execute_performance_test,
+            "encode_test_data": self.algorithm_pipeline.encode_test_data,
+            "execute_audit": self.algorithm_pipeline.execute_audit,
+            "ran_at": self.algorithm_pipeline.ran_at,
         }
-        ran_at = getattr(self.algorithm_pipeline, "ran_at", None)
-        if ran_at is not None:
-            algorithm_pipeline_params_to_send["ran_at"] = ran_at
-        self.hyperparameters[ALGO_PIPELINE_HYPERPARAMETER_PREFIX] = json.dumps(algorithm_pipeline_params_to_send)
-
-    def _add_algorithm_pipeline_context_as_hyperparameters(self):
-        """This method flattens the algorithm context, so it can be sent to Sagemaker."""
-        pipeline_context = self.algorithm_pipeline.algorithm_pipeline_context
-        algorithm_pipeline_context_to_send = {
-            "jvm_options": pipeline_context.jvm_options,
-            "max_threads": pipeline_context.max_threads,
-            "queue_length": pipeline_context.queue_length,
-            "read_queue_length": pipeline_context.read_queue_length,
-            "write_queue_length": pipeline_context.write_queue_length,
-            "batch_size": pipeline_context.batch_size,
-            "benchmark_contract": self._build_pipeline_benchmark_contract(),
-            "partition_cache_channels": self._partition_cache_channel_names_by_root,
-        }
-        self.hyperparameters[ALGO_PIPELINE_CONTEXT_PREFIX] = json.dumps(algorithm_pipeline_context_to_send)
+        encode_partition_dates_by_algorithm = self.algorithm_pipeline.encode_partition_dates_by_algorithm
+        if encode_partition_dates_by_algorithm is not None:
+            pipeline_params["encode_partition_dates_by_algorithm"] = {
+                algorithm_name: [partition_date.isoformat() for partition_date in partition_dates]
+                for algorithm_name, partition_dates in encode_partition_dates_by_algorithm.items()
+            }
+        pipeline_s3_uri = join_s3_uri(
+            self.hyperparameters["s3_uri_metadata"],
+            ALGO_PIPELINE_S3_BASENAME,
+        )
+        bucket, key = require_s3_uri(pipeline_s3_uri)
+        self._s3_client.put_object(
+            Bucket=bucket,
+            Key=key,
+            Body=json.dumps(
+                {
+                    "params": pipeline_params,
+                    "context": {
+                        "jvm_options": pipeline_context.jvm_options,
+                        "max_threads": pipeline_context.max_threads,
+                        "queue_length": pipeline_context.queue_length,
+                        "read_queue_length": pipeline_context.read_queue_length,
+                        "write_queue_length": pipeline_context.write_queue_length,
+                        "batch_size": pipeline_context.batch_size,
+                        "benchmark_contract": self._build_pipeline_benchmark_contract(),
+                        "partition_cache_channels": self._partition_cache_channel_names_by_root,
+                    },
+                },
+                separators=(",", ":"),
+            ).encode("utf-8"),
+            ContentType="application/json",
+        )
+        self.hyperparameters[ALGO_PIPELINE_S3_URI_HYPERPARAMETER] = pipeline_s3_uri
 
     def _maybe_add_partition_cache_input_channel(self) -> None:
         self._partition_cache_channel_names_by_root: t.Dict[str, str] = {}
@@ -484,18 +378,9 @@ class SagemakerTrainingExecutor:
                 f"InputDataConfig already contains Hotvect partition cache channel(s): {existing_partition_channels}"
             )
 
-        generated_channels: t.Dict[str, str] = {}
-        for cache_root, cache_key in sorted(cache_roots.items()):
-            channel_name = self._partition_cache_channel_name(cache_key)
-            previous_root = generated_channels.get(channel_name)
-            if previous_root and previous_root != cache_root:
-                raise ValueError(
-                    "Multiple partition cache roots resolve to the same SageMaker input channel "
-                    f"{channel_name}: {previous_root}, {cache_root}"
-                )
-            generated_channels[channel_name] = cache_root
-
-            cache_s3_uri = normalize_s3_prefix_uri(join_s3_uri(cache_root, "partitions"))
+        for channel_index, cache_root in enumerate(sorted(cache_roots)):
+            channel_name = f"{PARTITION_CACHE_CHANNEL_PREFIX}{channel_index}"
+            cache_s3_uri = normalize_s3_prefix_uri(join_s3_uri(cache_root, "partitions", "encode"))
             if not self._s3_prefix_has_objects(cache_s3_uri):
                 logger.info("Partition cache input channel skipped because %s has no objects", cache_s3_uri)
                 continue
@@ -520,27 +405,10 @@ class SagemakerTrainingExecutor:
     def _is_partition_cache_channel_name(channel_name: t.Any) -> bool:
         return isinstance(channel_name, str) and channel_name.startswith(PARTITION_CACHE_CHANNEL_PREFIX)
 
-    @staticmethod
-    def _sanitize_partition_cache_channel_segment(value: str) -> str:
-        segment = re.sub(r"[^A-Za-z0-9\-_]+", "-", value)
-        return re.sub(r"-+", "-", segment).strip("-_")
-
-    @classmethod
-    def _partition_cache_channel_name(cls, cache_key: str) -> str:
-        suffix_max_length = SAGEMAKER_CHANNEL_NAME_MAX_LENGTH - len(PARTITION_CACHE_CHANNEL_PREFIX)
-        algorithm_name, cache_version = cache_key.split("@", 1)
-        version_segment = cls._sanitize_partition_cache_channel_segment(cache_version)
-        version_suffix = f"_{version_segment}"
-        if len(version_suffix) >= suffix_max_length:
-            suffix = cls._sanitize_partition_cache_channel_segment(cache_key.replace("@", "_"))[:suffix_max_length]
-        else:
-            algorithm_segment = cls._sanitize_partition_cache_channel_segment(algorithm_name)
-            suffix = f"{algorithm_segment[: suffix_max_length - len(version_suffix)]}{version_suffix}"
-
-        return f"{PARTITION_CACHE_CHANNEL_PREFIX}{suffix}"
-
-    def _collect_partition_cache_roots(self, pipeline: AlgorithmPipeline) -> t.Dict[str, str]:
-        cache_roots = {}
+    def _collect_partition_cache_roots(self, pipeline: AlgorithmPipeline) -> set[str]:
+        cache_roots = set()
+        if pipeline._uses_prebuilt_parameters():
+            return cache_roots
         if pipeline._uses_encode_partition_cache() and not pipeline._cache_refresh_enabled():
             cache_root = pipeline._cache_algorithm_root()
             if not cache_root:
@@ -549,7 +417,7 @@ class SagemakerTrainingExecutor:
                 )
             if not cache_root.startswith("s3://"):
                 raise ValueError(f"SageMaker encode partition cache requires an s3:// cache_base_dir, got {cache_root}")
-            cache_roots[cache_root] = pipeline._cache_algorithm_key()
+            cache_roots.add(cache_root)
 
         for dependency_pipeline in pipeline.dependency_pipelines.values():
             cache_roots.update(self._collect_partition_cache_roots(dependency_pipeline))
@@ -623,14 +491,15 @@ class SagemakerTrainingExecutor:
             )
             return
 
-        minimum_supported_version = (10, 14, 0)
+        minimum_supported_version = (10, 43, 7)
         if semver >= minimum_supported_version:
             return
 
         raise ValueError(
-            "Refusing to submit SageMaker job: the selected TrainingImage predates the uploaded algorithm-definition "
-            f"contract required by this Hotvect submission path. TrainingImage={training_image!r} resolves to "
-            f"v{semver[0]}.{semver[1]}.{semver[2]}, but SageMaker training images must be >= v10.14.0 or use "
+            "Refusing to submit SageMaker job: selected TrainingImage predates the uploaded algorithm-definition "
+            "and S3 pipeline-parameters contract. "
+            f"TrainingImage={training_image!r} resolves to "
+            f"v{semver[0]}.{semver[1]}.{semver[2]}, but SageMaker training images must be >= v10.43.7 or use "
             "script-mode (`s3_uri_custom_jar`)."
         )
 
@@ -764,11 +633,12 @@ class SagemakerTrainingExecutor:
             HotvectSagemakerError: If the job didn't complete successfully or if it no execution could be found with
             this TrainingJobName.
         """
-        self.wait_for_sagemaker_job_completion()
-        job_description: DescribeTrainingJobResponseTypeDef = self.get_job_description()
+        job_description = self.wait_for_sagemaker_job_completion()
         if job_description["TrainingJobStatus"] != "Completed":
             raise HotvectSagemakerError(job_description["FailureReason"])
+        return self._download_hotvect_result()
 
+    def _download_hotvect_result(self) -> t.Dict:
         s3_uri_result_file = self.hyperparameters["s3_uri_result_file"]
         s3_uri_parsed = urlparse(s3_uri_result_file)
         s3_result_file_bucket: str = s3_uri_parsed.netloc
@@ -780,15 +650,14 @@ class SagemakerTrainingExecutor:
             result = json.load(temp_file)
         return result
 
-    def wait_for_sagemaker_job_completion(self) -> None:
-        while self.is_job_running():
+    def wait_for_sagemaker_job_completion(self) -> DescribeTrainingJobResponseTypeDef:
+        while True:
+            job_description = self.get_job_description()
+            if job_description["TrainingJobStatus"] != "InProgress":
+                return job_description
+            logger.debug(f"{self.training_job_name} is {job_description['TrainingJobStatus']}")
             logger.info(f"Job still running. Checking again in {JOB_STATUS_POLLING_WAIT_IN_SECS} seconds.")
             time.sleep(JOB_STATUS_POLLING_WAIT_IN_SECS)
-
-    def is_job_running(self):
-        job_description = self.get_job_description()
-        logger.debug(f"{self.training_job_name} is {job_description['TrainingJobStatus']}")
-        return job_description["TrainingJobStatus"] == "InProgress"
 
     def get_job_description(self) -> DescribeTrainingJobResponseTypeDef:
         try:
@@ -798,34 +667,106 @@ class SagemakerTrainingExecutor:
                 f"Couldn't retrieve the job {self.training_job_name}. Are you sure the job was created/run?"
             )
 
-    def get_results_as_iteration_results_params(self) -> t.Dict[str, t.Any]:
-        """Returns a dictionary with parameters needed to create a BacktestIterationResult.
 
-        Ideally this method would return the BacktestIterationResult object itself, but importing
-        that class here would cause a circular dependency since this module is imported in the
-        backtest module. The BacktestIterationResult could be moved to another module and be
-        consumed by both this and the backtest module from there, but that would force (if being)
-        strict a new major version... so leaving it like this for now.
-        """
+class OneShotSagemakerExecutor:
+    """Submit an already-materialized one-shot job without rebuilding an AlgorithmPipeline."""
+
+    _normalize_instance_type_list = staticmethod(SagemakerTrainingExecutor._normalize_instance_type_list)
+    _normalize_instance_type_preferences = SagemakerTrainingExecutor._normalize_instance_type_preferences
+
+    def __init__(
+        self,
+        *,
+        training_job_definition: t.Dict[str, t.Any],
+        output_slug: str,
+        role_arn_to_assume: t.Optional[str] = None,
+    ) -> None:
+        self.training_job_definition = copy.deepcopy(training_job_definition)
+        self._instance_type_fallbacks = self._normalize_instance_type_preferences()
+        session = get_boto_session_after_assuming_role(role_arn_to_assume) if role_arn_to_assume else boto3.Session()
         try:
-            result = self.get_hotvect_result()
-            error = None
-        except HotvectSagemakerError as e:
-            result = None
-            error = str(e)
-        return dict(
-            parameter_version=self.algorithm_pipeline.parameter_version,
-            test_data_time=self.algorithm_pipeline.last_test_time.isoformat(),
-            result=result,
-            error=error,
+            self._s3_client: S3Client = session.client("s3")
+            self._sagemaker_client: SageMakerClient = session.client("sagemaker")
+        except NoRegionError as error:
+            raise ValueError(
+                "AWS region is not configured. Set `AWS_DEFAULT_REGION` (or `AWS_REGION`), "
+                "or configure a default region in your AWS profile (e.g. in ~/.aws/config)."
+            ) from error
+
+        output_prefix = join_s3_uri(
+            self.training_job_definition["OutputDataConfig"]["S3OutputPath"],
+            self.training_job_name,
+            output_slug,
+        )
+        hyperparameters = self.training_job_definition.setdefault("HyperParameters", {})
+        hyperparameters["s3_uri_result_file"] = join_s3_uri(output_prefix, "result.json")
+        hyperparameters["s3_uri_metadata"] = join_s3_uri(output_prefix, "metadata")
+        hyperparameters["s3_uri_python_log_file"] = join_s3_uri(output_prefix, "hotvect_python.log")
+
+    @property
+    def training_job_name(self) -> str:
+        return self.training_job_definition["TrainingJobName"]
+
+    @property
+    def hyperparameters(self) -> t.Dict[str, str]:
+        return self.training_job_definition["HyperParameters"]
+
+    @property
+    def sagemaker_output_s3_path(self) -> str:
+        return join_s3_uri(
+            self.training_job_definition["OutputDataConfig"]["S3OutputPath"],
+            self.training_job_name,
         )
 
+    @property
+    def s3_client(self) -> S3Client:
+        return self._s3_client
 
-def wait_for_sagemaker_executors_to_finish(jobs_to_check: t.List[SagemakerTrainingExecutor]):
-    while pending_jobs := [x.training_job_name for x in jobs_to_check if x.is_job_running()]:
-        logger.info(f"Waiting for the following jobs to finish: {pending_jobs}")
-        logger.info(f"Checking again in {JOB_STATUS_POLLING_WAIT_IN_SECS} seconds")
-        time.sleep(JOB_STATUS_POLLING_WAIT_IN_SECS)
+    def run(self) -> CreateTrainingJobResponseTypeDef:
+        return self._create_training_job_with_instance_fallbacks()
+
+    def _create_training_job_with_instance_fallbacks(self) -> CreateTrainingJobResponseTypeDef:
+        current_instance_type = self.training_job_definition["ResourceConfig"]["InstanceType"]
+        attempt_instance_types = [current_instance_type, *self._instance_type_fallbacks]
+
+        for attempt_index, instance_type in enumerate(attempt_instance_types):
+            self.training_job_definition["ResourceConfig"]["InstanceType"] = instance_type
+            if HOTVECT_INSTANCE_TYPE_HYPERPARAMETER in self.hyperparameters:
+                self.hyperparameters[HOTVECT_INSTANCE_TYPE_HYPERPARAMETER] = instance_type
+            if attempt_index > 0:
+                logger.warning(
+                    "Retrying SageMaker job %s with fallback instance type %s after ResourceLimitExceeded",
+                    self.training_job_name,
+                    instance_type,
+                )
+            self._upload_effective_training_job_definition()
+            try:
+                return self._sagemaker_client.create_training_job(**self.training_job_definition)
+            except ClientError as error:
+                error_code = error.response.get("Error", {}).get("Code")
+                if error_code != "ResourceLimitExceeded" or attempt_index == len(attempt_instance_types) - 1:
+                    raise
+        raise AssertionError("Unreachable: retry loop exhausted without returning or raising")
+
+    def _upload_effective_training_job_definition(self) -> None:
+        _upload_json_to_s3(
+            self.training_job_definition,
+            join_s3_uri(self.hyperparameters["s3_uri_metadata"], EFFECTIVE_TRAINING_JOB_DEFINITION_BASENAME),
+            self._s3_client,
+            fail_fast=True,
+            default=str,
+        )
+
+    def build_submission_manifest(self, submission_response: CreateTrainingJobResponseTypeDef) -> t.Dict[str, t.Any]:
+        return {
+            "training_job_name": self.training_job_name,
+            "training_job_arn": submission_response.get("TrainingJobArn"),
+            "submission_status": "submitted",
+            "sagemaker_output_s3_path": self.sagemaker_output_s3_path,
+            "s3_uri_result_file": self.hyperparameters["s3_uri_result_file"],
+            "s3_uri_metadata": self.hyperparameters["s3_uri_metadata"],
+            "offline_source_manifest_s3_uri": self.hyperparameters.get(OFFLINE_SOURCE_MANIFEST_HYPERPARAMETER),
+        }
 
 
 class SagemakerAlgorithmPipelineRebuilder:
@@ -916,11 +857,13 @@ class SagemakerAlgorithmPipelineRebuilder:
         self._download_algorithm_jar(algorithm_jar_local_path, s3_uri_algorithm_jar)
 
         algorithm_definition = self._get_algorithm_definition(algorithm_jar_local_path)
-        algorithm_pipeline_context = self._rebuild_algorithm_pipeline_context(algorithm_jar_local_path)
-
-        algorithm_pipeline_params = self.sagemaker_env.hyperparameters.get(ALGO_PIPELINE_HYPERPARAMETER_PREFIX, {})
+        pipeline_payload = self._load_algorithm_pipeline_hyperparameter()
+        algorithm_pipeline_params = pipeline_payload["params"]
+        algorithm_pipeline_context = self._rebuild_algorithm_pipeline_context(
+            algorithm_jar_local_path,
+            pipeline_payload.get("context", {}),
+        )
         logger.info("Algorithm pipeline params: " + json.dumps(algorithm_pipeline_params))
-        execute_performance_test = algorithm_pipeline_params.get("execute_performance_test", True)
         algorithm_pipeline = AlgorithmPipeline(
             algorithm_pipeline_context=algorithm_pipeline_context,
             # _get_algorithm_definition() returns the full effective definition, not an override fragment.
@@ -930,14 +873,44 @@ class SagemakerAlgorithmPipelineRebuilder:
             evaluation_func=evaluation.standard_evaluation,
             hyperparameter_version=None,
             parameter_version=algorithm_pipeline_params["parameter_version"],
-            execute_performance_test=execute_performance_test,
-            encode_test_data=algorithm_pipeline_params.get("encode_test_data", False),
-            execute_audit=algorithm_pipeline_params.get("execute_audit", False),
-            run_target=algorithm_pipeline_params.get("run_target", "evaluate"),
-            data_environment=algorithm_pipeline_params.get("data_environment", "production"),
-            ran_at=algorithm_pipeline_params.get("ran_at"),
+            execute_performance_test=algorithm_pipeline_params["execute_performance_test"],
+            encode_test_data=algorithm_pipeline_params["encode_test_data"],
+            execute_audit=algorithm_pipeline_params["execute_audit"],
+            run_target=algorithm_pipeline_params["run_target"],
+            data_environment=algorithm_pipeline_params["data_environment"],
+            ran_at=algorithm_pipeline_params["ran_at"],
+            encode_partition_dates_by_algorithm={
+                algorithm_name: [datetime.date.fromisoformat(raw_date) for raw_date in partition_dates]
+                for algorithm_name, partition_dates in algorithm_pipeline_params[
+                    "encode_partition_dates_by_algorithm"
+                ].items()
+            }
+            if "encode_partition_dates_by_algorithm" in algorithm_pipeline_params
+            else None,
         )
         return algorithm_pipeline
+
+    def _load_algorithm_pipeline_hyperparameter(self) -> t.Dict[str, t.Dict[str, t.Any]]:
+        pipeline_s3_uri = self.sagemaker_env.hyperparameters.get(ALGO_PIPELINE_S3_URI_HYPERPARAMETER)
+        if not pipeline_s3_uri:
+            raise KeyError(f"Missing {ALGO_PIPELINE_S3_URI_HYPERPARAMETER}.")
+        payload = download_json_from_s3(pipeline_s3_uri, self._s3_client)
+        if not isinstance(payload, dict):
+            raise ValueError(
+                f"Expected {ALGO_PIPELINE_S3_URI_HYPERPARAMETER} to contain a JSON object, " f"got {type(payload)!r}"
+            )
+        if "params" not in payload or not set(payload) <= {"params", "context"}:
+            raise ValueError(
+                f"Expected {ALGO_PIPELINE_S3_URI_HYPERPARAMETER} to contain params and optional context, "
+                f"got {sorted(payload)}"
+            )
+        for field_name in payload:
+            if not isinstance(payload[field_name], dict):
+                raise ValueError(
+                    f"Expected {ALGO_PIPELINE_S3_URI_HYPERPARAMETER}.{field_name} to be a JSON object, "
+                    f"got {type(payload[field_name])!r}"
+                )
+        return payload
 
     def _get_algorithm_definition(self, algorithm_jar_local_path):
         s3_uri_algorithm_definition = self.sagemaker_env.hyperparameters.get(ALGO_DEF_S3_URI_HYPERPARAMETER)
@@ -962,7 +935,11 @@ class SagemakerAlgorithmPipelineRebuilder:
             download_json_from_s3(s3_uri_algorithm_definition, self._s3_client)
         )
 
-    def _rebuild_algorithm_pipeline_context(self, algorithm_jar_path) -> AlgorithmPipelineContext:
+    def _rebuild_algorithm_pipeline_context(
+        self,
+        algorithm_jar_path,
+        context_in_hyperparameters: t.Dict[str, t.Any],
+    ) -> AlgorithmPipelineContext:
         metadata_dir = self._get_metadata_dir()
         output_dir = self._get_output_dir()
 
@@ -973,12 +950,11 @@ class SagemakerAlgorithmPipelineRebuilder:
         metadata_base_path.mkdir(parents=True, exist_ok=True)
         output_data_base_path.mkdir(parents=True, exist_ok=True)
 
-        context_in_hyperparameters = self.sagemaker_env.hyperparameters.get(ALGO_PIPELINE_CONTEXT_PREFIX, {})
         logger.info(f"Algorithm context got from Hyperparameters: {json.dumps(context_in_hyperparameters, indent=2)}")
         jvm_options = normalize_pipeline_jvm_options(context_in_hyperparameters.get("jvm_options"))
         partition_cache_base_paths = self._rebuild_partition_cache_base_paths(
             data_base_path,
-            context_in_hyperparameters.get("partition_cache_channels", {}),
+            context_in_hyperparameters.get("partition_cache_channels"),
         )
         algorithm_pipeline_context = AlgorithmPipelineContext(
             algorithm_jar_path=Path(algorithm_jar_path),
@@ -997,7 +973,6 @@ class SagemakerAlgorithmPipelineRebuilder:
             additional_jar_files=list(),
             benchmark_contract=context_in_hyperparameters.get("benchmark_contract"),
             partition_cache_base_paths=partition_cache_base_paths or None,
-            sagemaker_training_job_name=self.sagemaker_env.job_name,
         )
         return algorithm_pipeline_context
 

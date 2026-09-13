@@ -1,18 +1,14 @@
-"""Show data dependency command for hv-ext CLI."""
+"""Legacy multi-revision data-dependency inspection command."""
 
 import argparse
 import json
 import logging
-import sys
-import tempfile
 from datetime import date
-from pathlib import Path
 
-from hotvect.build_utils import clone_and_build_algorithm_jar
-from hotvect.pyhotvect import AlgorithmPipeline, AlgorithmPipelineContext
-from hotvect.utils import resolve_data_dependency_s3_uri, sanitize_path_component
+from hotvect.utils import resolve_data_dependency_s3_uri
 
 from .base import BaseCommand
+from .download_data_dependency import DataDependencyCommand
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +33,11 @@ Examples:
             formatter_class=argparse.RawDescriptionHelpFormatter,
         )
 
-        # Required arguments
+        cls.add_arguments(parser)
+        return parser
+
+    @staticmethod
+    def add_arguments(parser):
         parser.add_argument("--repo-url", required=True, help="Git repository URL for the algorithm (required)")
         parser.add_argument(
             "--git-reference",
@@ -64,7 +64,7 @@ Examples:
             "--algorithm-override",
             action="append",
             dest="algorithm_overrides",
-            help="Path to JSON file containing algorithm configuration overrides. If one override provided, applies to all git references. If multiple overrides provided, applies to git references in order (optional)",
+            help="Path to JSON file containing an override for the corresponding --git-reference; repeat for each reference",
         )
         parser.add_argument(
             "--output",
@@ -72,39 +72,23 @@ Examples:
             help="Output file path (default: stdout)",
         )
 
-        return parser
-
     def execute(self, args):
         """Execute the show-data-dependency command."""
-        # Parse git references and overrides
-        git_references = []
+        git_references: list[tuple[str, dict | None]] = []
         overrides = args.algorithm_overrides or []
 
-        # Smart padding logic
-        if len(overrides) == 1 and len(args.git_references) > 1:
-            logger.info(
-                f"Single algorithm override provided for {len(args.git_references)} git references. "
-                f"Applying the same override to all references: {overrides[0]}"
+        if overrides and len(overrides) != len(args.git_references):
+            raise ValueError(
+                "--algorithm-override must be provided once for each --git-reference when overrides are used"
             )
-            while len(overrides) < len(args.git_references):
-                overrides.append(overrides[0])
-        elif len(overrides) > 1 and len(overrides) != len(args.git_references):
-            print(
-                f"Error: {len(overrides)} algorithm overrides provided but {len(args.git_references)} "
-                f"git references specified. Numbers don't match.",
-                file=sys.stderr,
-            )
-            sys.exit(2)
-        else:
-            while len(overrides) < len(args.git_references):
-                overrides.append(None)
 
-        for i, git_ref in enumerate(args.git_references):
+        for index, git_ref in enumerate(args.git_references):
+            override_path = overrides[index] if overrides else None
             override = None
-            if i < len(overrides) and overrides[i]:
-                with open(overrides[i]) as f:
+            if override_path:
+                with open(override_path) as f:
                     override = json.load(f)
-                logger.info(f"Applied algorithm override from {overrides[i]} to git reference {git_ref}")
+                logger.info(f"Applied algorithm override from {override_path} to git reference {git_ref}")
             else:
                 logger.info(f"No algorithm override applied to git reference {git_ref}")
             git_references.append((git_ref, override))
@@ -114,86 +98,38 @@ Examples:
 
         logger.info(f"Analyzing {len(git_references)} git references for data dependencies (target={args.target})")
 
-        # Collect dependencies from all git references
         all_dependencies_by_ref = {}
+        dependency_command = DataDependencyCommand()
 
         for git_ref, override in git_references:
             logger.info(f"Analyzing dependencies for {git_ref}...")
-
-            safe_ref = sanitize_path_component(git_ref)
-
-            # Create temp directory under user-provided scratch dir
-            scratch_base = Path(args.scratch_dir)
-            scratch_base.mkdir(parents=True, exist_ok=True)
-
-            with tempfile.TemporaryDirectory(prefix=f"show-dep-{safe_ref}-", dir=args.scratch_dir) as temp_dir:
-                temp_path = Path(temp_dir)
-
-                # Clone and build algorithm JAR
-                result = clone_and_build_algorithm_jar(
-                    repo_url=args.repo_url,
-                    git_reference=git_ref,
-                    work_dir=temp_path,
-                    copy_jar_to=None,  # Keep JAR in temp directory
-                    progress_stream=sys.stderr,
-                )
-
-                algorithm_name = result.algorithm_name
-                algorithm_version = result.algorithm_version
-                algorithm_jar = result.algorithm_jar_path
-
-                # Create AlgorithmPipeline to extract dependencies
-                context = AlgorithmPipelineContext(
-                    algorithm_jar_path=algorithm_jar,
-                    state_source_base_path=temp_path,
-                    data_base_path=temp_path,
-                    metadata_base_path=temp_path / "metadata",
-                    output_base_path=temp_path / "output",
-                    jvm_options=["-XX:MaxRAMPercentage=80"],
-                    max_threads=1,
-                )
-
-                # Construct algorithm definition (with override if present)
-                algorithm_definition = algorithm_name
-                if override:
-                    algorithm_definition = (algorithm_name, override)
-
-                # Create pipeline and extract dependencies
-                pipeline = AlgorithmPipeline(
-                    algorithm_pipeline_context=context,
-                    algorithm_definition=algorithm_definition,
-                    last_test_time=last_test_time,
-                    evaluation_func=None,
-                )
-
-                dependencies = pipeline.data_dependencies(target=args.target)
-                logger.info(f"  Found {len(dependencies)} dependencies")
-
-                # Convert dependencies to JSON-serializable format
-                deps_list = []
-                for dep in dependencies:
-                    # Try to resolve S3 URI for production environment
-                    resolved_s3_uri = None
-                    try:
-                        resolved_s3_uri = resolve_data_dependency_s3_uri(dep, environment="production")
-                    except ValueError as e:
-                        # Resolution failed - capture error for output
-                        resolved_s3_uri = f"ERROR: {str(e)}"
-
-                    dep_dict = {
+            algorithm_name, algorithm_version, dependencies = dependency_command._get_data_dependencies(
+                args.repo_url,
+                git_ref,
+                args.scratch_dir,
+                last_test_time,
+                args.target,
+                override,
+            )
+            deps_list = []
+            for dep in dependencies:
+                resolved_s3_uri = resolve_data_dependency_s3_uri(dep, environment="production")
+                if resolved_s3_uri is None:
+                    raise ValueError(f"Could not resolve production S3 URI for dependency: {dep.data_prefix}")
+                deps_list.append(
+                    {
                         "data_prefix": dep.data_prefix,
                         "data_dates": [d.isoformat() for d in dep.data_dates],
                         "data_type": dep.data_type,
                         "additional_properties": dep.additional_properties,
-                        "resolved_s3_uri_production": resolved_s3_uri,  # Show resolved URI for transparency
+                        "resolved_s3_uri_production": resolved_s3_uri,
                     }
-                    deps_list.append(dep_dict)
-
-                all_dependencies_by_ref[git_ref] = {
-                    "algorithm_name": algorithm_name,
-                    "algorithm_version": algorithm_version,
-                    "dependencies": deps_list,
-                }
+                )
+            all_dependencies_by_ref[git_ref] = {
+                "algorithm_name": algorithm_name,
+                "algorithm_version": algorithm_version,
+                "dependencies": deps_list,
+            }
 
         # Construct output JSON
         output = {

@@ -13,6 +13,9 @@ import javax.lang.model.element.ExecutableElement;
 import javax.lang.model.element.Modifier;
 import javax.lang.model.element.TypeElement;
 import javax.lang.model.element.VariableElement;
+import javax.lang.model.type.ArrayType;
+import javax.lang.model.type.DeclaredType;
+import javax.lang.model.type.TypeKind;
 import javax.lang.model.type.TypeMirror;
 import javax.lang.model.util.Types;
 import javax.tools.Diagnostic;
@@ -121,6 +124,14 @@ public final class FeatureScanner {
                             paramKind == ParamKind.ALGORITHM ? "InjectAlgorithm" : "Inject");
                     return null;
                 }
+                if (paramKind == ParamKind.ALGORITHM && !isSupportedAlgorithmDependencyType(param.asType())) {
+                    error(
+                            context,
+                            param,
+                            "@InjectAlgorithm parameter type must be a concrete Algorithm; found %s.",
+                            param.asType());
+                    return null;
+                }
             }
 
             if (paramKind == ParamKind.SHARED) {
@@ -209,6 +220,34 @@ public final class FeatureScanner {
                 String.class,
                 null
         );
+    }
+
+    private boolean isSupportedAlgorithmDependencyType(TypeMirror parameterType) {
+        return isConcreteAlgorithmType(parameterType);
+    }
+
+    private boolean isConcreteAlgorithmType(TypeMirror type) {
+        return type instanceof DeclaredType
+                && !containsTypeVariableOrWildcard(type)
+                && context.types().isAssignable(type, context.algorithmType().asType());
+    }
+
+    private boolean containsTypeVariableOrWildcard(TypeMirror type) {
+        if (type.getKind() == TypeKind.TYPEVAR || type.getKind() == TypeKind.WILDCARD) {
+            return true;
+        }
+        if (type instanceof ArrayType arrayType) {
+            return containsTypeVariableOrWildcard(arrayType.getComponentType());
+        }
+        if (type instanceof DeclaredType declaredType) {
+            TypeElement element = (TypeElement) declaredType.asElement();
+            return (!element.getTypeParameters().isEmpty() && declaredType.getTypeArguments().isEmpty())
+                    || declaredType.getTypeArguments().stream().anyMatch(this::containsTypeVariableOrWildcard)
+                    || declaredType.getEnclosingType().getKind() != TypeKind.NONE
+                    && !element.getModifiers().contains(Modifier.STATIC)
+                    && containsTypeVariableOrWildcard(declaredType.getEnclosingType());
+        }
+        return false;
     }
 
     private static void error(ProcessingContext context, Element element, String message, Object... args) {

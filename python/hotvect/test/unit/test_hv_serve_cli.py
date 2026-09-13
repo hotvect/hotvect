@@ -11,7 +11,6 @@ def _load_hv_module():
     hotvectjar_dir.mkdir(parents=True, exist_ok=True)
     for jar_name in (
         "hotvect-offline-util-test-jar-with-dependencies.jar",
-        "hotvect-algorithm-serve-test-jar-with-dependencies.jar",
         "hotvect-algorithm-demo-test-jar-with-dependencies.jar",
     ):
         jar_path = hotvectjar_dir / jar_name
@@ -28,11 +27,31 @@ def _load_hv_module():
     raise FileNotFoundError("Could not locate bin/hv relative to test file")
 
 
+def test_local_effective_definition_loader_uses_offline_override_semantics(monkeypatch):
+    hv = _load_hv_module()
+    captured = {}
+
+    def _capture_loader(*args, **kwargs):
+        captured["args"] = args
+        captured["kwargs"] = kwargs
+        return {"algorithm_name": "demo-algo"}
+
+    monkeypatch.setattr(hv, "_shared_load_effective_algorithm_definition", _capture_loader)
+
+    result = hv._load_effective_algorithm_definition("algo.jar", "demo-algo", "override.json")
+
+    assert result == {"algorithm_name": "demo-algo"}
+    assert captured == {
+        "args": ("algo.jar", "demo-algo", "override.json"),
+        "kwargs": {"offline": True},
+    }
+
+
 def test_hv_serve_uses_algorithm_demo_server(monkeypatch):
     hv = _load_hv_module()
     captured = {}
 
-    monkeypatch.setattr(hv.hotvect.hotvectjar, "HOTVECT_ALGORITHM_SERVE_JAR_PATH", Path("/tmp/serve.jar"))
+    monkeypatch.setattr(hv.hotvect.hotvectjar, "HOTVECT_ALGORITHM_DEMO_JAR_PATH", Path("/tmp/demo.jar"))
 
     def _capture_run(cmd, *, host, port, health_timeout_seconds, health_request_timeout_seconds, env=None):
         captured["cmd"] = cmd
@@ -67,8 +86,7 @@ def test_hv_serve_uses_algorithm_demo_server(monkeypatch):
 
     cmd = captured["cmd"]
     assert cmd[:2] == ["java", "-Xmx2g"]
-    assert cmd[cmd.index("-cp") + 1] == "/tmp/serve.jar"
-    assert "com.hotvect.algorithmserver.Main" in cmd
+    assert cmd[cmd.index("-jar") + 1] == "/tmp/demo.jar"
     assert "--ui" not in cmd
     assert cmd[cmd.index("--algorithm-name") + 1] == "demo-algo"
     assert cmd[cmd.index("--host") + 1] == "0.0.0.0"
@@ -115,7 +133,6 @@ def test_hv_serve_ui_passes_ui_flags(monkeypatch, tmp_path: Path):
     hv = _load_hv_module()
     captured = {}
 
-    monkeypatch.setattr(hv.hotvect.hotvectjar, "HOTVECT_ALGORITHM_SERVE_JAR_PATH", Path("/tmp/serve.jar"))
     monkeypatch.setattr(hv.hotvect.hotvectjar, "HOTVECT_ALGORITHM_DEMO_JAR_PATH", Path("/tmp/demo.jar"))
 
     def _capture_run(cmd, *, host, port, health_timeout_seconds, health_request_timeout_seconds, env=None):
@@ -155,8 +172,7 @@ def test_hv_serve_ui_passes_ui_flags(monkeypatch, tmp_path: Path):
     hv.main()
 
     cmd = captured["cmd"]
-    assert cmd[cmd.index("-cp") + 1] == "/tmp/demo.jar"
-    assert "com.hotvect.algorithmdemo.Main" in cmd
+    assert cmd[cmd.index("-jar") + 1] == "/tmp/demo.jar"
     assert "--ui" in cmd
     assert cmd[cmd.index("--source-path") + 1] == str(tmp_path / "examples")
     assert cmd[cmd.index("--action-metadata-path") + 1] == str(tmp_path / "metadata")
@@ -169,7 +185,7 @@ def test_hv_serve_passes_custom_startup_timeout(monkeypatch):
     hv = _load_hv_module()
     captured = {}
 
-    monkeypatch.setattr(hv.hotvect.hotvectjar, "HOTVECT_ALGORITHM_SERVE_JAR_PATH", Path("/tmp/serve.jar"))
+    monkeypatch.setattr(hv.hotvect.hotvectjar, "HOTVECT_ALGORITHM_DEMO_JAR_PATH", Path("/tmp/demo.jar"))
 
     def _capture_run(cmd, *, host, port, health_timeout_seconds, health_request_timeout_seconds, env=None):
         captured["cmd"] = cmd
@@ -200,130 +216,11 @@ def test_hv_serve_passes_custom_startup_timeout(monkeypatch):
     assert captured["health_timeout_seconds"] == 300
 
 
-def test_hv_serve_ems_mode_passes_ems_flags(monkeypatch, tmp_path: Path):
-    hv = _load_hv_module()
-    captured = {}
-
-    monkeypatch.setattr(hv.hotvect.hotvectjar, "HOTVECT_ALGORITHM_SERVE_JAR_PATH", Path("/tmp/serve.jar"))
-
-    def _capture_run(cmd, *, host, port, health_timeout_seconds, health_request_timeout_seconds, env=None):
-        captured["cmd"] = cmd
-        captured["host"] = host
-        captured["port"] = port
-
-    monkeypatch.setattr(hv, "_run_http_server_process", _capture_run)
-    monkeypatch.setattr(
-        sys,
-        "argv",
-        [
-            "hv",
-            "serve",
-            "--ems-url",
-            "http://ems.local",
-            "--ems-slot",
-            "catalog",
-            "--ems-assignment-key",
-            "customer-1",
-            "--ems-token-env",
-            "EMS_TOKEN_STAGING",
-            "--ems-scratch-dir",
-            str(tmp_path / "scratch"),
-            "--ems-refresh-period-seconds",
-            "60",
-            "--ems-connect-timeout-seconds",
-            "3",
-            "--ems-read-timeout-seconds",
-            "9",
-            "--port",
-            "8081",
-        ],
-    )
-
-    hv.main()
-
-    cmd = captured["cmd"]
-    assert "--algorithm-jar" not in cmd
-    assert "--algorithm-name" not in cmd
-    assert "--parameter-path" not in cmd
-    assert cmd[cmd.index("--ems-url") + 1] == "http://ems.local"
-    assert cmd[cmd.index("--ems-slot") + 1] == "catalog"
-    assert cmd[cmd.index("--ems-assignment-key") + 1] == "customer-1"
-    assert cmd[cmd.index("--ems-token-env") + 1] == "EMS_TOKEN_STAGING"
-    assert cmd[cmd.index("--ems-scratch-dir") + 1] == str(tmp_path / "scratch")
-    assert cmd[cmd.index("--ems-refresh-period-seconds") + 1] == "60"
-    assert cmd[cmd.index("--ems-connect-timeout-seconds") + 1] == "3"
-    assert cmd[cmd.index("--ems-read-timeout-seconds") + 1] == "9"
-    assert captured["host"] == "127.0.0.1"
-    assert captured["port"] == 8081
-
-
-def test_hv_serve_ems_mode_leaves_optional_defaults_to_java(monkeypatch):
-    hv = _load_hv_module()
-    captured = {}
-
-    monkeypatch.setattr(hv.hotvect.hotvectjar, "HOTVECT_ALGORITHM_SERVE_JAR_PATH", Path("/tmp/serve.jar"))
-
-    def _capture_run(cmd, *, host, port, health_timeout_seconds, health_request_timeout_seconds, env=None):
-        captured["cmd"] = cmd
-
-    monkeypatch.setattr(hv, "_run_http_server_process", _capture_run)
-    monkeypatch.setattr(
-        sys,
-        "argv",
-        [
-            "hv",
-            "serve",
-            "--ems-url",
-            "http://ems.local",
-            "--ems-slot",
-            "catalog",
-            "--port",
-            "8081",
-        ],
-    )
-
-    hv.main()
-
-    cmd = captured["cmd"]
-    assert cmd[cmd.index("--ems-url") + 1] == "http://ems.local"
-    assert cmd[cmd.index("--ems-slot") + 1] == "catalog"
-    assert "--ems-assignment-key" not in cmd
-    assert "--ems-token-env" not in cmd
-    assert "--ems-scratch-dir" not in cmd
-    assert "--ems-refresh-period-seconds" not in cmd
-    assert "--ems-connect-timeout-seconds" not in cmd
-    assert "--ems-read-timeout-seconds" not in cmd
-
-
-def test_hv_serve_rejects_mixed_local_and_ems_mode(monkeypatch):
-    hv = _load_hv_module()
-
-    monkeypatch.setattr(
-        sys,
-        "argv",
-        [
-            "hv",
-            "serve",
-            "--ems-url",
-            "http://ems.local",
-            "--ems-slot",
-            "catalog",
-            "--algorithm-jar",
-            "algo.jar",
-            "--port",
-            "8081",
-        ],
-    )
-
-    with pytest.raises(ValueError, match="--algorithm-jar is only supported in local algorithm mode"):
-        hv.main()
-
-
 def test_hv_serve_local_runtime_config_passes_runtime_config(monkeypatch, tmp_path: Path):
     hv = _load_hv_module()
     captured = {}
 
-    monkeypatch.setattr(hv.hotvect.hotvectjar, "HOTVECT_ALGORITHM_SERVE_JAR_PATH", Path("/tmp/serve.jar"))
+    monkeypatch.setattr(hv.hotvect.hotvectjar, "HOTVECT_ALGORITHM_DEMO_JAR_PATH", Path("/tmp/demo.jar"))
 
     def _capture_run(cmd, *, host, port, health_timeout_seconds, health_request_timeout_seconds, env=None):
         captured["cmd"] = cmd

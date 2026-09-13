@@ -160,7 +160,7 @@ Find the outer parameter ZIP and start the local UI:
 PARAMETERS="$OUTPUT/example-product-search-topk@$ALGORITHM_VERSION/last_test_date_2000-01-03/example-product-search-topk@$ALGORITHM_VERSION@last_test_date_2000-01-03.parameters.zip"
 test -f "$PARAMETERS"
 
-hv serve \
+hv algorithm serve \
   --algorithm-name example-product-search-topk \
   --algorithm-jar "$ALGORITHM_JAR" \
   --parameter-path "$PARAMETERS" \
@@ -186,7 +186,7 @@ stop the first server and package the exploration version:
 ```bash
 EXPLORATION_OUTPUT=output/example-product-exploration
 
-hv train \
+hv algorithm train \
   --algorithm-name example-product-search-topk \
   --algorithm-jar "$EXPLORATION_JAR" \
   --data-base-dir examples/product-search-and-ranking/example-data \
@@ -222,7 +222,7 @@ jq -n \
     }
   ]}' > "$RUNTIME_CONFIG"
 
-hv serve \
+hv algorithm serve \
   --local-runtime-config "$RUNTIME_CONFIG" \
   --source-path examples/product-search-and-ranking/example-data/example_product_search_examples/dt=2000-01-03 \
   --action-metadata-path examples/product-search-and-ranking/example-data/action-metadata \
@@ -255,7 +255,7 @@ Audit two examples against the scorer parameters created by the outer training r
 SCORER_PARAMETERS="$OUTPUT/example-product-scorer@$ALGORITHM_VERSION/last_test_date_2000-01-03/example-product-scorer@$ALGORITHM_VERSION@last_test_date_2000-01-03.parameters.zip"
 test -f "$SCORER_PARAMETERS"
 
-hv audit \
+hv algorithm audit \
   --algorithm-name example-product-scorer \
   --algorithm-jar "$ALGORITHM_JAR" \
   --parameter-path "$SCORER_PARAMETERS" \

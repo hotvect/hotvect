@@ -76,6 +76,45 @@ Key behaviors:
 - If the parent process has `CUDA_VISIBLE_DEVICES` set, it acts as a **hard allowlist** for what workers may use.
 - `request_timeout_ms` controls the per-request timeout.
 
+### Process and device selection
+
+| Field | Behavior |
+| --- | --- |
+| `accelerator` | `cpu`, `cuda`/`gpu`, or `auto`; an explicit CUDA mode fails when no allowed device is available |
+| `devices: "auto"` | Uses every allowed/detected CUDA device |
+| `devices: N` | Uses the first `N` devices from the allowed/detected list |
+| `devices: [i, ...]` | Uses indices into that list, not necessarily physical CUDA ordinals |
+| `workers_per_device` | Starts this many workers per selected GPU; in CPU mode it is the total worker count |
+
+When `workers_per_device` is omitted, CUDA defaults to one worker per selected device and CPU defaults to the JVM's
+available processor count. Set it explicitly when process count is part of a latency or capacity contract.
+
+### Queueing, timeouts, and retries
+
+The manager queue capacity is:
+
+```text
+worker count × ipc.work_queue_size_per_worker
+```
+
+`ipc.queue_full_policy` controls overload behavior:
+
+| Policy | Behavior |
+| --- | --- |
+| `reject` | Default. A full queue throws immediately; `request_timeout_ms` covers queue wait plus worker round trip |
+| `caller_blocks` | The submitting thread waits for queue capacity; the request timeout begins when a worker dispatches it |
+
+Use `caller_blocks` only when blocking the containing application's request thread is an intentional admission policy.
+Hotvect does not add another load-shedding or fallback layer around it.
+
+`ipc.retry.max_attempts` includes the first attempt and defaults to `1`. Additional attempts retry only a timeout or a
+`DirectWorkerFailedException`; worker-reported request errors and queue rejection are not retried. Retries reuse the
+logical request but receive a unique wire request ID. `ipc.retry.backoff_ms` is the fixed delay before each retry.
+
+`ipc.max_frame_bytes` limits protocol frames and defaults to 16 MiB. `ipc.uds_base_dir` chooses the directory in which
+the manager creates its Unix sockets. The configured shutdown timeouts bound SIGTERM, SIGKILL, and descendant-process
+cleanup independently.
+
 ## Python executable ownership
 
 For JVM-managed direct workers, the algorithm integration constructs `PythonWorkerCommand` with an explicit Python
@@ -130,6 +169,18 @@ The current `WORK` payload layout is:
 
 If your Python worker decodes the wrong fields (for example, reading only one int32 and treating it as payload length), the JVM will typically surface confusing errors like timeouts, truncated frames, or “identical outputs” due to misaligned request parsing.
 
+## Tracing
+
+When submission runs under a valid OpenTelemetry context, `DirectWorkerManager` propagates its W3C `traceparent` in
+the `WORK` frame and creates two spans:
+
+- `<prefix>.direct_worker.queue_wait`, with `batch.size`;
+- `<prefix>.direct_worker.worker_rtt`, with `batch.size` and `worker.index`.
+
+The default prefix is `hotvect`; an algorithm integration can supply a more specific prefix to the manager
+constructor. The Python worker must preserve or continue that context itself if it starts nested spans. These spans
+measure manager queueing and IPC round trip, not the containing application's full request latency.
+
 ## Debugging tips
 
 - Prefer fail-fast startup:
@@ -171,11 +222,11 @@ This design avoids `tf.io.parse_example(...)` on every request and shifts decodi
 
 Hotvect now distinguishes between two local debugging surfaces:
 
-- `hv serve` → serves the **full algorithm** over HTTP using the Java runtime
-- `hv serve --ui` → enables the browser debugger on the same algorithm server
+- `hv algorithm serve` → serves the **full algorithm** over HTTP using the Java runtime
+- `hv algorithm serve --ui` → enables the browser debugger on the same algorithm server
 - `hv worker serve` → serves the **worker runtime only** over HTTP using LitServe
 
-`hv worker serve` is intentionally narrower than `hv serve`:
+`hv worker serve` is intentionally narrower than `hv algorithm serve`:
 
 - it bypasses JVM request decoding and feature extraction
 - it expects **worker-ready feature rows** matching `encoded-schema-description`

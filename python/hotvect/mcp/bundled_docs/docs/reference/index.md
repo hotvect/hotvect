@@ -7,7 +7,8 @@ tags: [reference, cli, java, configuration]
 # Hotvect reference
 
 Reference pages describe exact interfaces and supported fields. Start with [Concepts](../concepts/index.md) when you
-need the mental model, or [Build and run](../guides/index.md) when you need a task workflow.
+need the mental model, the [system map](../components/index.md) when you need component and ownership boundaries, or
+[Build and run](../guides/index.md) when you need an implementation or execution procedure.
 
 <div class="grid cards" markdown>
 
@@ -19,7 +20,7 @@ need the mental model, or [Build and run](../guides/index.md) when you need a ta
 
 -   **Command-line interfaces**
 
-    Commands, flags, outputs, and remote-execution behavior for `hv`, `hv-ext`, and `hv-exp`.
+    Canonical `hv` namespaces, compatibility commands, flags, outputs, and remote-execution behavior.
 
     [Open CLI reference](cli/index.md){ .hv-btn }
 
@@ -29,9 +30,16 @@ need the mental model, or [Build and run](../guides/index.md) when you need a ta
 
     [Open Java API map](java-api/index.md){ .hv-btn }
 
+-   **Ranking and prediction contracts**
+
+    Exact request/response ordering, stable action identity, adapters, tie-breaking, metadata precedence, and JSON
+    output shapes.
+
+    [Open ranking contracts](ranking-and-prediction-contracts/index.md){ .hv-btn }
+
 -   **Python EMS client**
 
-    Typed read and mutation methods for an external Experiment Management Service, with explicit authorization
+    Typed read and mutation methods for a configured Experiment Management Service, with explicit authorization
     boundaries.
 
     [Open Python EMS client](python-ems-client/index.md){ .hv-btn }
@@ -56,7 +64,8 @@ need the mental model, or [Build and run](../guides/index.md) when you need a ta
 
 -   **Generated transformer backends**
 
-    CatBoost and TensorFlow feature type contracts and custom-backend extension points.
+    CatBoost and TensorFlow feature types, encoder/inference pairing, runtime settings, and custom-backend extension
+    points.
 
     [Open backend reference](generated-transformer-backends/index.md){ .hv-btn }
 

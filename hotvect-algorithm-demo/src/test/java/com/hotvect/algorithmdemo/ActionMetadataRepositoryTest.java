@@ -1,7 +1,6 @@
 package com.hotvect.algorithmdemo;
 
-import com.hotvect.algorithmserver.ActionMetadataLookup;
-import com.hotvect.algorithmserver.ContractViolationException;
+import com.hotvect.serve.ContractViolationException;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;

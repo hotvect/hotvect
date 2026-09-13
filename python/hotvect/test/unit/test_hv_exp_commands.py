@@ -4,6 +4,7 @@ import io
 import json
 from types import SimpleNamespace
 
+from hotvect.experiment_management._generated_operations import _GeneratedEmsOperations
 from hotvect.experiment_management.commands import (
     ExperimentCommand,
     _create_client_from_args,
@@ -29,27 +30,19 @@ def test_create_client_from_args_uses_cli_timeout_overrides(monkeypatch):
     )
     recorded = {}
 
-    class FakeConnection:
-        def __init__(self, *, environment, connect_timeout, read_timeout, bearer_auth):
-            recorded["environment"] = environment
-            recorded["connect_timeout"] = connect_timeout
-            recorded["read_timeout"] = read_timeout
-            recorded["bearer_auth"] = bearer_auth
-
     class FakeClient:
-        def __init__(self, connection):
-            recorded["connection"] = connection
+        def __init__(self, **kwargs):
+            recorded.update(kwargs)
 
     monkeypatch.setattr(
         "hotvect.experiment_management.commands.CommandTokenProvider", lambda command, ttl_seconds: command
     )
     monkeypatch.setattr("hotvect.experiment_management.commands.TokenProviderAuth", lambda provider: provider)
-    monkeypatch.setattr("hotvect.experiment_management.commands.ExperimentManagementConnection", FakeConnection)
     monkeypatch.setattr("hotvect.experiment_management.commands.ExperimentManagementClient", FakeClient)
 
     _create_client_from_args(args)
 
-    assert recorded["environment"] == "http://localhost:9999"
+    assert recorded["base_url"] == "http://localhost:9999"
     assert recorded["connect_timeout"] == 4.5
     assert recorded["read_timeout"] == 19.0
 
@@ -80,29 +73,73 @@ def test_create_client_from_args_uses_config_timeouts_when_cli_omits_them(monkey
     )
     recorded = {}
 
-    class FakeConnection:
-        def __init__(self, *, environment, connect_timeout, read_timeout, bearer_auth):
-            recorded["environment"] = environment
-            recorded["connect_timeout"] = connect_timeout
-            recorded["read_timeout"] = read_timeout
-            recorded["bearer_auth"] = bearer_auth
-
     class FakeClient:
-        def __init__(self, connection):
-            recorded["connection"] = connection
+        def __init__(self, **kwargs):
+            recorded.update(kwargs)
 
     monkeypatch.setattr(
         "hotvect.experiment_management.commands.CommandTokenProvider", lambda command, ttl_seconds: command
     )
     monkeypatch.setattr("hotvect.experiment_management.commands.TokenProviderAuth", lambda provider: provider)
-    monkeypatch.setattr("hotvect.experiment_management.commands.ExperimentManagementConnection", FakeConnection)
     monkeypatch.setattr("hotvect.experiment_management.commands.ExperimentManagementClient", FakeClient)
 
     _create_client_from_args(args)
 
-    assert recorded["environment"] == "http://localhost:9999"
+    assert recorded["base_url"] == "http://localhost:9999"
     assert recorded["connect_timeout"] == 6.0
     assert recorded["read_timeout"] == 17.5
+
+
+def test_snapshot_export_uses_configured_auth_and_passes_token_only_through_child_environment(monkeypatch, tmp_path):
+    args = SimpleNamespace(
+        subcommand="snapshot",
+        snapshot_subcommand="export",
+        root_slot="product-ranking",
+        output=str(tmp_path / "ems-snapshot.json"),
+        domain_model_jar=["product-domain.jar", "shared-types.jar"],
+        url="https://ems.example",
+        token_provider_command="get-ems-token",
+        token_provider_ttl_ms=123_000,
+        connect_timeout_seconds=4.5,
+        read_timeout_seconds=17.0,
+        config_path="",
+    )
+    captured = {}
+
+    class StubTokenProvider:
+        def __init__(self, *, command, ttl_seconds):
+            assert command == "get-ems-token"
+            assert ttl_seconds == 123.0
+
+        def __call__(self):
+            return "secret-ems-token"
+
+    def capture(command, _display, env=None):
+        captured.update(command=command, env=env)
+
+    monkeypatch.setattr("hotvect.experiment_management.commands.CommandTokenProvider", StubTokenProvider)
+    monkeypatch.setattr("hotvect.experiment_management.commands.stream_output", capture)
+    monkeypatch.setattr("hotvect.hotvectjar.HOTVECT_JAR_PATH", tmp_path / "offline.jar")
+    printed = _capture_print(monkeypatch)
+
+    ExperimentCommand().execute(args)
+
+    command = captured["command"]
+    assert command[0:6] == [
+        "java",
+        "-cp",
+        str(tmp_path / "offline.jar"),
+        "com.hotvect.offlineutils.commandline.Main",
+        "ems-snapshot-export",
+        "--root-slot",
+    ]
+    assert command[command.index("--ems-uri") + 1] == "https://ems.example"
+    assert command[command.index("--ems-connect-timeout-seconds") + 1] == "4.5"
+    assert command[command.index("--ems-read-timeout-seconds") + 1] == "17.0"
+    assert command.count("--domain-model-jar") == 2
+    assert "secret-ems-token" not in command
+    assert captured["env"]["HOTVECT_EMS_BEARER_TOKEN"] == "secret-ems-token"
+    assert json.loads(printed["out"])["output"] == str(tmp_path / "ems-snapshot.json")
 
 
 def test_hv_exp_slot_list(monkeypatch):
@@ -215,6 +252,8 @@ def test_hv_exp_experiment_get_resolves_slot(monkeypatch):
             self.name = name
 
     class FakeExperiment:
+        experiment_id = 12
+
         def model_dump(self, *, mode: str):
             assert mode == "json"
             return {"experiment_id": 12}
@@ -223,13 +262,13 @@ def test_hv_exp_experiment_get_resolves_slot(monkeypatch):
         def get_slots(self):
             return [FakeSlot("a"), FakeSlot("b")]
 
-        def get_experiment(self, slot_name: str, experiment_id: int, *, ignore_404: bool = False):
+        def get_experiments(self, slot_name: str):
+            return [FakeExperiment()] if slot_name == "b" else []
+
+        def get_experiment(self, slot_name: str, experiment_id: int):
+            assert slot_name == "b"
             assert experiment_id == 12
-            if slot_name == "b":
-                return FakeExperiment()
-            if ignore_404:
-                return None
-            raise RuntimeError("should not be called without ignore_404 for non-match")
+            return FakeExperiment()
 
     monkeypatch.setattr("hotvect.experiment_management.commands._create_client_from_args", lambda _args: FakeClient())
     printed = _capture_print(monkeypatch)
@@ -255,7 +294,7 @@ def test_hv_exp_experiment_rampup_log_resolves_slot_and_filters(monkeypatch):
             self.name = name
 
     class FakeExperiment:
-        pass
+        experiment_id = 2
 
     class FakeLog:
         def __init__(self, experiment_id: int, log_id: int):
@@ -270,12 +309,14 @@ def test_hv_exp_experiment_rampup_log_resolves_slot_and_filters(monkeypatch):
         def get_slots(self):
             return [FakeSlot("slot1")]
 
-        def get_experiment(self, slot_name: str, experiment_id: int, *, ignore_404: bool = False):
+        def get_experiments(self, slot_name: str):
             assert slot_name == "slot1"
-            assert experiment_id == 2
+            return [FakeExperiment()]
+
+        def get_experiment(self, slot_name: str, experiment_id: int):
             return FakeExperiment()
 
-        def get_experiment_rampup_logs(self, slot_name: str):
+        def get_experiment_ramp_up_logs(self, slot_name: str):
             assert slot_name == "slot1"
             return [FakeLog(2, 1), FakeLog(3, 2)]
 
@@ -418,30 +459,25 @@ def test_hv_exp_algorithm_list_in_use_slot_filter(monkeypatch):
         config_path="",
     )
 
+    class FakeVariant:
+        def __init__(self, slot_name: str, variant_id: int):
+            self.slot_name = slot_name
+            self.variant_id = variant_id
+
     class FakeAlgo:
-        def __init__(self, name: str, version: str):
+        def __init__(self, name: str, version: str, variants):
             self.algorithm_name = name
             self.algorithm_version = version
-
-    class FakeVariant:
-        def __init__(self, variant_id: int, name: str, version: str):
-            self.variant_id = variant_id
-            self.algorithm = FakeAlgo(name, version)
-
-    class FakeExperiment:
-        def __init__(self, experiment_id: int, variants):
-            self.experiment_id = experiment_id
             self.variants = variants
 
-    class FakeActiveInfo:
-        def __init__(self):
-            self.default_variant = FakeVariant(1, "a", "1")
-            self.experiments = [FakeExperiment(11, [FakeVariant(2, "b", "2"), FakeVariant(3, "a", "1")])]
-
     class FakeClient:
-        def get_default_variant_and_active_experiments(self, slot_name: str):
-            assert slot_name == "slot1"
-            return FakeActiveInfo()
+        def get_algorithms_with_active_variants(self):
+            return [
+                FakeAlgo("a", "1", [FakeVariant("slot1", 1), FakeVariant("slot2", 3)]),
+                FakeAlgo("b", "2", [FakeVariant("slot1", 2)]),
+                FakeAlgo("policy", "1", [FakeVariant("slot1", 1)]),
+                FakeAlgo("other", "1", [FakeVariant("slot2", 4)]),
+            ]
 
     monkeypatch.setattr("hotvect.experiment_management.commands._create_client_from_args", lambda _args: FakeClient())
     printed = _capture_print(monkeypatch)
@@ -450,20 +486,74 @@ def test_hv_exp_algorithm_list_in_use_slot_filter(monkeypatch):
 
     assert out["slot_name"] == "slot1"
     by_algo = {(a["algorithm_name"], a["algorithm_version"]): a for a in out["algorithms"]}
-    assert set(by_algo.keys()) == {("a", "1"), ("b", "2")}
+    assert set(by_algo.keys()) == {("a", "1"), ("b", "2"), ("policy", "1")}
 
-    a_usage = by_algo[("a", "1")]["in_use_by"]
-    assert any(u["slot_name"] == "slot1" and u["source"] == "default_variant" and u["variant_id"] == 1 for u in a_usage)
-    assert any(
-        u["slot_name"] == "slot1"
-        and u["source"] == "active_experiment"
-        and u["experiment_id"] == 11
-        and u["variant_id"] == 3
-        for u in a_usage
+    assert by_algo[("a", "1")]["in_use_by"] == [{"slot_name": "slot1", "variant_id": 1}]
+    assert by_algo[("b", "2")]["in_use_by"] == [{"slot_name": "slot1", "variant_id": 2}]
+    assert by_algo[("policy", "1")]["in_use_by"] == [{"slot_name": "slot1", "variant_id": 1}]
+
+
+def test_hv_exp_algorithm_list_in_use_uses_active_variants_endpoint(monkeypatch):
+    args = SimpleNamespace(
+        subcommand="algorithm",
+        algorithm_subcommand="list-in-use",
+        slot_name="slot1",
+        url="http://localhost:9999",
+        token_provider_command="echo tok",
+        token_provider_ttl_ms=1000,
+        config_path="",
     )
+    payload = {
+        "algorithms": [
+            {
+                "algorithmName": "singleton-default",
+                "algorithmVersion": "1.0.0",
+                "latestAlgorithmParameter": {
+                    "algorithm": {
+                        "algorithm_name": "singleton-default",
+                        "algorithm_version": "1.0.0",
+                    }
+                },
+                "variants": [{"variantId": 1, "slotName": "slot1"}],
+            },
+            {
+                "algorithmName": "singleton-experiment",
+                "algorithmVersion": "2.0.0",
+                "variants": [{"variantId": 7, "slotName": "slot1"}],
+            },
+        ]
+    }
 
-    b_usage = by_algo[("b", "2")]["in_use_by"]
-    assert b_usage == [{"slot_name": "slot1", "source": "active_experiment", "experiment_id": 11, "variant_id": 2}]
+    class FakeClient:
+        def __init__(self):
+            self._operations = _GeneratedEmsOperations(self._make_request)
+
+        @staticmethod
+        def _make_request(*, method, endpoint, params=None, body=None):
+            assert method == "GET"
+            assert endpoint == "/algorithms/with-active-variants"
+            assert params is None
+            assert body is None
+            return SimpleNamespace(
+                status_code=200,
+                text="payload",
+                json=lambda: payload,
+                raise_for_status=lambda: None,
+            )
+
+        def get_algorithms_with_active_variants(self):
+            response = self._operations.operation_list_active_with_variants()
+            return response.algorithms
+
+    monkeypatch.setattr("hotvect.experiment_management.commands._create_client_from_args", lambda _args: FakeClient())
+    printed = _capture_print(monkeypatch)
+    ExperimentCommand().execute(args)
+    out = json.loads(printed["out"])
+
+    assert {(entry["algorithm_name"], entry["algorithm_version"]) for entry in out["algorithms"]} == {
+        ("singleton-default", "1.0.0"),
+        ("singleton-experiment", "2.0.0"),
+    }
 
 
 def test_hv_exp_algorithm_list_in_use_all_slots(monkeypatch):
@@ -477,46 +567,24 @@ def test_hv_exp_algorithm_list_in_use_all_slots(monkeypatch):
         config_path="",
     )
 
-    class FakeSlot:
-        def __init__(self, name: str):
-            self.name = name
+    class FakeVariant:
+        def __init__(self, slot_name: str, variant_id: int):
+            self.slot_name = slot_name
+            self.variant_id = variant_id
 
     class FakeAlgo:
-        def __init__(self, name: str, version: str):
+        def __init__(self, name: str, version: str, variants):
             self.algorithm_name = name
             self.algorithm_version = version
-
-    class FakeVariant:
-        def __init__(self, variant_id: int, name: str, version: str):
-            self.variant_id = variant_id
-            self.algorithm = FakeAlgo(name, version)
-
-    class FakeExperiment:
-        def __init__(self, experiment_id: int, variants):
-            self.experiment_id = experiment_id
             self.variants = variants
 
-    class FakeActiveInfo:
-        def __init__(self, default_variant, experiments):
-            self.default_variant = default_variant
-            self.experiments = experiments
-
     class FakeClient:
-        def get_slots(self):
-            return [FakeSlot("slot1"), FakeSlot("slot2")]
-
-        def get_default_variant_and_active_experiments(self, slot_name: str):
-            if slot_name == "slot1":
-                return FakeActiveInfo(
-                    default_variant=FakeVariant(10, "a", "1"),
-                    experiments=[FakeExperiment(100, [FakeVariant(11, "b", "2")])],
-                )
-            if slot_name == "slot2":
-                return FakeActiveInfo(
-                    default_variant=FakeVariant(20, "c", "3"),
-                    experiments=[FakeExperiment(200, [FakeVariant(21, "a", "1")])],
-                )
-            raise AssertionError(f"unexpected slot: {slot_name}")
+        def get_algorithms_with_active_variants(self):
+            return [
+                FakeAlgo("a", "1", [FakeVariant("slot1", 10), FakeVariant("slot2", 21)]),
+                FakeAlgo("b", "2", [FakeVariant("slot1", 11)]),
+                FakeAlgo("c", "3", [FakeVariant("slot2", 20)]),
+            ]
 
     monkeypatch.setattr("hotvect.experiment_management.commands._create_client_from_args", lambda _args: FakeClient())
     printed = _capture_print(monkeypatch)
@@ -528,8 +596,8 @@ def test_hv_exp_algorithm_list_in_use_all_slots(monkeypatch):
     assert set(by_algo.keys()) == {("a", "1"), ("b", "2"), ("c", "3")}
 
     a_usage = by_algo[("a", "1")]["in_use_by"]
-    assert {"slot_name": "slot1", "source": "default_variant", "variant_id": 10} in a_usage
-    assert {"slot_name": "slot2", "source": "active_experiment", "experiment_id": 200, "variant_id": 21} in a_usage
+    assert {"slot_name": "slot1", "variant_id": 10} in a_usage
+    assert {"slot_name": "slot2", "variant_id": 21} in a_usage
 
 
 def test_resolve_online_results_root_from_config_path(tmp_path):
@@ -620,14 +688,16 @@ def test_create_online_results_store_from_args_uses_slot_mapping_from_config(mon
         def __init__(self, name: str):
             self.name = name
 
+    class FakeExperiment:
+        experiment_id = 1304
+
     class FakeClient:
         def get_slots(self):
             return [FakeSlot("slot-a")]
 
-        def get_experiment(self, slot_name, experiment_id, ignore_404=False):
+        def get_experiments(self, slot_name):
             assert slot_name == "slot-a"
-            assert experiment_id == 1304
-            return object()
+            return [FakeExperiment()]
 
     class FakeSession:
         def client(self, service_name):
@@ -682,14 +752,16 @@ def test_create_online_results_store_from_args_rejects_missing_slot_mapping(monk
         def __init__(self, name: str):
             self.name = name
 
+    class FakeExperiment:
+        experiment_id = 1304
+
     class FakeClient:
         def get_slots(self):
             return [FakeSlot("slot-a")]
 
-        def get_experiment(self, slot_name, experiment_id, ignore_404=False):
+        def get_experiments(self, slot_name):
             assert slot_name == "slot-a"
-            assert experiment_id == 1304
-            return object()
+            return [FakeExperiment()]
 
     monkeypatch.setattr(
         "hotvect.experiment_management.commands._load_hotvect_config_from_args",

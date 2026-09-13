@@ -2,8 +2,7 @@ package com.hotvect.algorithmdemo;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.hotvect.algorithmserver.ContractViolationException;
-import com.hotvect.algorithmserver.DecodedOnlineCandidate;
+import com.hotvect.serve.ContractViolationException;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;

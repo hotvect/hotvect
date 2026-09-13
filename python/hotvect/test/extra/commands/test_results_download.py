@@ -1,5 +1,6 @@
 """Tests for hv-ext results download command."""
 
+import argparse
 import io
 import json
 import tarfile
@@ -14,6 +15,35 @@ from hotvect.extra.commands.results import ResultsCommand, ResultsDownloadComman
 
 
 class TestResultsDownloadCommand(unittest.TestCase):
+    def test_download_parser_has_no_legacy_layout_option(self):
+        parser = argparse.ArgumentParser()
+        subparsers = parser.add_subparsers(dest="command")
+        ResultsCommand.register_parser(subparsers)
+
+        args = parser.parse_args(
+            [
+                "results",
+                "download",
+                "s3://bucket/prefix/",
+                "--dest-base-dir",
+                "/tmp/results",
+            ]
+        )
+
+        self.assertFalse(hasattr(args, "layout"))
+        with self.assertRaises(SystemExit):
+            parser.parse_args(
+                [
+                    "results",
+                    "download",
+                    "s3://bucket/prefix/",
+                    "--dest-base-dir",
+                    "/tmp/results",
+                    "--layout",
+                    "latest",
+                ]
+            )
+
     @patch("hotvect.backtest.SageMakerBacktestResultsDownloader")
     def test_download_result_json_only(self, mock_downloader_cls):
         # Arrange: fake S3 downloader + client that writes the dest file.
@@ -25,13 +55,13 @@ class TestResultsDownloadCommand(unittest.TestCase):
         s3_client.download_file.side_effect = _download_file
 
         component = SimpleNamespace(
-            backtest_test_date="2026-02-15",
+            backtest_test_date="2000-02-15",
             algorithm_name="algo",
             algorithm_version="74.4.0",
             hyperparameter="ordered",
             training_job="ml-exp-x",
-            execution_date=datetime(2026, 2, 25, 0, 0, 1, tzinfo=timezone.utc),
-            key="prefix/ml-exp-x-2026-02-15/algo@74.4.0-ordered/result.json",
+            execution_date=datetime(2000, 2, 25, 0, 0, 1, tzinfo=timezone.utc),
+            key="prefix/ml-exp-x-2000-02-15/algo@74.4.0-ordered/result.json",
         )
 
         downloader = MagicMock()
@@ -46,8 +76,8 @@ class TestResultsDownloadCommand(unittest.TestCase):
                 results_command="download",
                 s3_prefix="s3://bucket/prefix/",
                 dest_base_dir=str(dest),
-                from_date="2026-02-15",
-                to_date="2026-02-15",
+                from_date="2000-02-15",
+                to_date="2000-02-15",
                 algorithm_name_regex="algo",
                 algorithm_version_regex=r"74\.4\..*",
                 job_name_regex="ml-exp-.*",
@@ -63,8 +93,24 @@ class TestResultsDownloadCommand(unittest.TestCase):
             payload = json.loads(str(mock_print.call_args_list[0][0][0]))
             self.assertEqual(payload["downloaded"]["result_json"]["count"], 1)
 
-            expected = dest / "meta" / "algo@74.4.0-ordered" / "last_test_date_2026-02-15" / "result.json"
-            self.assertTrue(expected.exists())
+            canonical = (
+                dest
+                / "runs"
+                / "ml-exp-x"
+                / "meta"
+                / "algo@74.4.0-ordered"
+                / "last_test_date_2000-02-15"
+                / "result.json"
+            )
+            self.assertTrue(canonical.exists())
+
+            latest_result = dest / "meta" / "algo@74.4.0-ordered" / "last_test_date_2000-02-15" / "result.json"
+            self.assertTrue(latest_result.is_symlink())
+            self.assertEqual(latest_result.resolve(), canonical.resolve())
+
+            latest_dir = dest / "meta" / "algo@74.4.0-ordered" / "last_test_date_2000-02-15" / "latest"
+            self.assertTrue(latest_dir.is_symlink())
+            self.assertEqual(latest_dir.resolve(), canonical.parent.resolve())
 
     @patch("hotvect.backtest.SageMakerBacktestResultsDownloader")
     def test_skip_existing(self, mock_downloader_cls):
@@ -76,13 +122,13 @@ class TestResultsDownloadCommand(unittest.TestCase):
         s3_client.download_file.side_effect = _download_file
 
         component = SimpleNamespace(
-            backtest_test_date="2026-02-15",
+            backtest_test_date="2000-02-15",
             algorithm_name="algo",
             algorithm_version="74.4.0",
             hyperparameter="ordered",
             training_job="ml-exp-x",
-            execution_date=datetime(2026, 2, 25, 0, 0, 1, tzinfo=timezone.utc),
-            key="prefix/ml-exp-x-2026-02-15/algo@74.4.0-ordered/result.json",
+            execution_date=datetime(2000, 2, 25, 0, 0, 1, tzinfo=timezone.utc),
+            key="prefix/ml-exp-x-2000-02-15/algo@74.4.0-ordered/result.json",
         )
 
         downloader = MagicMock()
@@ -93,7 +139,15 @@ class TestResultsDownloadCommand(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as td:
             dest = Path(td)
-            existing = dest / "meta" / "algo@74.4.0-ordered" / "last_test_date_2026-02-15" / "result.json"
+            existing = (
+                dest
+                / "runs"
+                / "ml-exp-x"
+                / "meta"
+                / "algo@74.4.0-ordered"
+                / "last_test_date_2000-02-15"
+                / "result.json"
+            )
             existing.parent.mkdir(parents=True, exist_ok=True)
             existing.write_text("existing")
 
@@ -101,8 +155,8 @@ class TestResultsDownloadCommand(unittest.TestCase):
                 results_command="download",
                 s3_prefix="s3://bucket/prefix/",
                 dest_base_dir=str(dest),
-                from_date="2026-02-15",
-                to_date="2026-02-15",
+                from_date="2000-02-15",
+                to_date="2000-02-15",
                 algorithm_name_regex="algo",
                 algorithm_version_regex=r"74\.4\..*",
                 job_name_regex="ml-exp-.*",
@@ -118,6 +172,40 @@ class TestResultsDownloadCommand(unittest.TestCase):
             payload = json.loads(str(mock_print.call_args_list[0][0][0]))
             self.assertEqual(payload["downloaded"]["result_json"]["count"], 0)
             self.assertEqual(existing.read_text(), "existing")
+
+            latest_result = dest / "meta" / "algo@74.4.0-ordered" / "last_test_date_2000-02-15" / "result.json"
+            self.assertTrue(latest_result.is_symlink())
+            self.assertEqual(latest_result.resolve(), existing.resolve())
+
+    @patch("hotvect.backtest.SageMakerBacktestResultsDownloader")
+    def test_download_rejects_legacy_destination(self, mock_downloader_cls):
+        downloader = MagicMock()
+        downloader._find_relevant_executions.return_value = {}
+        mock_downloader_cls.return_value = downloader
+
+        with tempfile.TemporaryDirectory() as td:
+            dest = Path(td)
+            legacy_result = dest / "meta" / "algo@74.4.0-ordered" / "last_test_date_2000-02-15" / "result.json"
+            legacy_result.parent.mkdir(parents=True, exist_ok=True)
+            legacy_result.write_text("legacy")
+
+            args = SimpleNamespace(
+                results_command="download",
+                s3_prefix="s3://bucket/prefix/",
+                dest_base_dir=str(dest),
+                from_date="2000-02-15",
+                to_date="2000-02-15",
+                algorithm_name_regex="algo",
+                algorithm_version_regex=r"74\.4\..*",
+                job_name_regex="ml-exp-.*",
+                role_arn="",
+                include_metadata=False,
+                include_output_data=False,
+                no_skip_existing=False,
+            )
+
+            with self.assertRaisesRegex(ValueError, "contains legacy result materialization"):
+                ResultsCommand().execute(args)
 
     @patch("hotvect.backtest.SageMakerBacktestResultsDownloader")
     def test_download_rejects_algorithm_id_path_traversal(self, mock_downloader_cls):

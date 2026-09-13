@@ -233,7 +233,7 @@ JSON
 (cd runtime/parameters && zip -qr ../example-suggestion-topk.parameters.zip .)
 ```
 
-Then follow the `hv serve` flow from
+Then follow the `hv algorithm serve` flow from
 [Load and call the algorithm package](../first-algorithm/index.md#7-load-and-call-the-algorithm-package), substituting:
 
 - `target/example-suggestion-topk-1.0.0.jar`;

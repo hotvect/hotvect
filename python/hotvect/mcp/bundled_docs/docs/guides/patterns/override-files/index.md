@@ -14,12 +14,12 @@ code.
 
 | Inputs | Command | Artifact | Verify |
 | --- | --- | --- | --- |
-| JAR, algorithm name, override JSON | `hv train` or `hv backtest --algorithm-override` | `effective_algorithm_definition.json` under metadata | The effective definition contains only the intended changes |
+| JAR, algorithm name, override JSON | `hv algorithm train` or `hv algorithm backtest --algorithm-override` | `effective_algorithm_definition.json` under metadata | The effective definition contains only the intended changes |
 
 ## Identity rule
 
-An override must not be a full definition. Do **not** include `algorithm_name`; the CLI rejects it before merging.
-Do not try to change `algorithm_version` either—`hv backtest` rejects identity changes. Select a different JAR/ref
+An override must not be a full definition. Do **not** include `algorithm_name` or `algorithm_version`; the CLI rejects
+identity fields before merging. Select a different JAR/ref
 when the algorithm identity must change.
 
 ## Merge rules
@@ -28,7 +28,8 @@ when the algorithm identity must change.
 - Scalar and array values replace the base value.
 - `null` deletes a field.
 - `dependencies` is a child-override map, not a free-form replacement:
-  - each key must name a child already declared by the parent;
+  - each key must be an unversioned dependency name already declared by the parent;
+  - an `@version` suffix belongs to the parent's shared declaration, never to an override key;
   - unknown children fail fast;
   - unspecified children remain unchanged.
 
@@ -56,12 +57,13 @@ when the algorithm identity must change.
 ```
 
 `hyperparameter_version` distinguishes the output namespace for the experiment; for example,
-`my-algorithm@1.0.0-2day-no-perf`. It does not change the algorithm's JAR identity.
+`my-algorithm@1.0.0-2day-no-perf`. It does not change the algorithm's JAR identity and must not be embedded in the
+committed JAR definition.
 
 Apply the fragment:
 
 ```bash
-hv train \
+hv algorithm train \
   --algorithm-name my-algorithm \
   --algorithm-jar algorithm.jar \
   --algorithm-override /path/to/override.json \

@@ -196,16 +196,17 @@ Create `src/main/java/org/example/ranker/CompositeDocumentRankerFactory.java`:
 ```java
 package org.example.ranker;
 
-import static java.util.Objects.requireNonNull;
-
 import com.fasterxml.jackson.databind.JsonNode;
-import com.hotvect.api.algodefinition.AlgorithmInstance;
+import com.hotvect.api.algodefinition.AlgorithmDependencies;
+import com.hotvect.api.algodefinition.storage.LocalStateStorage;
 import com.hotvect.api.algodefinition.ranking.CompositeRankerFactory;
 import com.hotvect.api.algorithms.BulkScorer;
 import com.hotvect.api.algorithms.Ranker;
 import com.hotvect.api.data.ranking.RankingDecision;
 import com.hotvect.api.data.ranking.RankingResponse;
 import com.hotvect.api.data.scoring.ScoringDecision;
+import com.hotvect.api.execution.ExecutionContext;
+import com.google.common.reflect.TypeToken;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -218,16 +219,18 @@ public final class CompositeDocumentRankerFactory
     public static final String SCORER_NAME = "example-title-length-scorer";
 
     @Override
-    @SuppressWarnings({"unchecked", "removal"})
-    public Ranker<QueryContext, Document> apply(
+    public Ranker<QueryContext, Document> create(
+            ExecutionContext executionContext,
+            Optional<LocalStateStorage> localStateStorage,
             Optional<JsonNode> configuration,
             Map<String, InputStream> parameters,
-            Map<String, AlgorithmInstance<?>> dependencies) {
-        var scorerInstance = (AlgorithmInstance<BulkScorer<QueryContext, Document>>)
-                requireNonNull(dependencies.get(SCORER_NAME));
+            AlgorithmDependencies dependencies) {
+        BulkScorer<QueryContext, Document> scorer = dependencies.only(
+                SCORER_NAME,
+                new TypeToken<BulkScorer<QueryContext, Document>>() {});
 
         return request -> {
-            var scores = scorerInstance.algorithm().score(request).decisions();
+            var scores = scorer.score(request).decisions();
             var ranked = new ArrayList<IndexedScore>(scores.size());
             for (int index = 0; index < scores.size(); index++) {
                 ranked.add(new IndexedScore(index, scores.get(index)));
@@ -258,9 +261,10 @@ public final class CompositeDocumentRankerFactory
 }
 ```
 
-The dependency map is keyed by algorithm name. Hotvect resolves the child definition, constructs its transformer and
-scorer, wraps the result in an `AlgorithmInstance`, and supplies that instance to the parent factory. The parent uses
-the score as its primary order and the title as a deterministic tie-break.
+The resolved selection is keyed by algorithm name inside `AlgorithmDependencies`. Hotvect resolves the child
+definition, constructs its transformer and scorer, wraps the result in an `AlgorithmInstance`, and supplies that
+selection to the parent factory. The parent uses the score as its primary order and the title as a deterministic
+tie-break.
 
 ## 4. Declare both algorithms
 
@@ -289,7 +293,7 @@ Create `src/main/resources/example-title-length-scorer-algorithm-definition.json
 }
 ```
 
-The parent declares the logical edge. The child definition declares how to construct the node at the other end. Both
+The parent declares the named dependency. The child definition declares how to construct that dependency. Both
 definition resources must be at the JAR root so the same classloader can resolve them.
 
 ## 5. Test the composition contract
@@ -301,9 +305,14 @@ package org.example.ranker;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
+import com.google.common.reflect.TypeToken;
+import com.hotvect.api.algodefinition.AlgorithmDependencies;
 import com.hotvect.api.algodefinition.AlgorithmInstance;
+import com.hotvect.api.algorithms.BulkScorer;
 import com.hotvect.api.data.AvailableAction;
 import com.hotvect.api.data.ranking.RankingRequest;
+import com.hotvect.api.execution.ExecutionContext;
+import com.hotvect.api.execution.InputSemantic;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -311,19 +320,24 @@ import org.junit.jupiter.api.Test;
 
 final class CompositeDocumentRankerFactoryTest {
     @Test
-    @SuppressWarnings("removal")
     void ranksWithTheNamedChildScorer() {
+        ExecutionContext executionContext = ExecutionContext.realtime(InputSemantic.ONLINE);
         var transformer = new TitleLengthTransformerFactory()
-                .apply(Optional.empty(), Map.of());
+                .create(executionContext, Optional.empty(), Map.of());
         var scorer = new TitleLengthScorerFactory()
-                .apply(transformer, Map.of(), Optional.empty());
+                .create(executionContext, Optional.empty(), transformer, Map.of(), Optional.empty());
         var scorerInstance = AlgorithmInstance.externalAlgorithm(
                 CompositeDocumentRankerFactory.SCORER_NAME,
+                new TypeToken<BulkScorer<QueryContext, Document>>() {},
                 scorer);
-        var ranker = new CompositeDocumentRankerFactory().apply(
+        var ranker = new CompositeDocumentRankerFactory().create(
+                executionContext,
+                Optional.empty(),
                 Optional.empty(),
                 Map.of(),
-                Map.of(CompositeDocumentRankerFactory.SCORER_NAME, scorerInstance));
+                new AlgorithmDependencies(Map.of(
+                        CompositeDocumentRankerFactory.SCORER_NAME,
+                        scorerInstance)));
 
         var request = RankingRequest.ofAvailableActions(
                 "example-001",
@@ -357,8 +371,9 @@ jar tf target/example-document-ranker-1.0.0.jar \
 
 ## 6. Package the graph and call the parent
 
-The current local server expects one parameter ZIP. For a parent with one child, place each algorithm's metadata in a
-folder named after that algorithm:
+The current local server expects one parameter ZIP. This is a constraint of `hv algorithm serve`, not EMS serving;
+EMS can select a parameterless graph with no parameter ID, path, or ZIP. For this local example, place each algorithm's
+metadata in a folder named after that algorithm:
 
 ```text
 example-composite-ranker.parameters.zip
@@ -402,7 +417,7 @@ parent would do the same in the parent folder.
 Start the local debug server:
 
 ```bash
-hv serve \
+hv algorithm serve \
   --algorithm-jar target/example-document-ranker-1.0.0.jar \
   --algorithm-name example-composite-ranker \
   --parameter-path runtime/example-composite-ranker.parameters.zip \
@@ -444,14 +459,13 @@ The abridged response should contain this order and these scores:
 
 - The parent exposes the public `Ranker`; the child exposes the narrower `BulkScorer` capability.
 - `dependencies` records a named graph edge, while the parent factory decides when and how to call the child.
-- The JAR carries the code and both definitions; the ZIP carries parameter metadata and any parameter files for both
-  algorithms.
-- A containing JVM can replace the named child with a host-supplied `AlgorithmInstance`, including a proxy. The current
-  loader still constructs the declared child before overlaying that binding, and the host retains lifecycle ownership
-  of the replacement. Read [Dependencies and bindings](../../concepts/dependencies-and-bindings/index.md) before using
-  overrides.
-- This walkthrough proves a one-level graph. Read [Dependencies and bindings](../../concepts/dependencies-and-bindings/index.md)
-  before extending it; deeper graphs have a current nested-factory parameter boundary.
+- The JAR carries the code and both definitions; this local-server ZIP carries parameter metadata and any parameter
+  files for both algorithms.
+- A containing runtime can replace the named child with a host-supplied `Algorithm`, including a proxy. The binding
+  replaces construction of that dependency, while the host retains lifecycle ownership of the replacement. Read
+  [Dependencies and bindings](../../concepts/dependencies-and-bindings/index.md) before using bindings.
+- This walkthrough proves a one-level graph. The same declaration, parameter-namespace, and binding rules apply
+  recursively; read [Dependencies and bindings](../../concepts/dependencies-and-bindings/index.md) before extending it.
 
 Next, use [Parent and child algorithms](../patterns/parent-child/index.md) for lifecycle targeting and definition
 overrides, or [Develop a Hotvect algorithm](../develop-algorithms/index.md) to add learned parameters.

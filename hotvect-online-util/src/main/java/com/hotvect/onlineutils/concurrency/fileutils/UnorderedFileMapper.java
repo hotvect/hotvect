@@ -9,6 +9,7 @@ import com.google.common.base.Throwables;
 import com.google.common.util.concurrent.MoreExecutors;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.hotvect.onlineutils.concurrency.ConcurrentUtils;
+import com.hotvect.onlineutils.util.Closeables;
 import com.hotvect.utils.VerboseCallable;
 import com.hotvect.utils.VerboseRunnable;
 import org.slf4j.Logger;
@@ -207,7 +208,18 @@ public class UnorderedFileMapper<T> extends VerboseCallable<Map<String, Object>>
         }, 2, 2, TimeUnit.SECONDS);
 
         Map<String, Object> metadata = new HashMap<>();
-        metadata.putAll(reader.awaitTermination());
+        try {
+            metadata.putAll(reader.awaitTermination());
+        } catch (RuntimeException | Error failure) {
+            reader.abort();
+            processor.abort();
+            writer.abort();
+            state.setReadDone();
+            state.setProcessingDone();
+            // Algorithm calls must finish before the caller can close their task-owned runtime.
+            Closeables.closeAfterFailure(failure, processor::awaitTermination);
+            throw failure;
+        }
         metadata.putAll(processor.awaitTermination());
         metadata.putAll(writer.awaitTermination());
         metadata.put("unordered_mapper_computation_threads", this.nComputationThreads);

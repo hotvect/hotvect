@@ -93,16 +93,16 @@ At this point you have validated source, definition, and packaging—even if dat
 
 ## 4. Inspect the offline dependency plan
 
-`hv-ext show-data-dependency` builds the selected reference and resolves its declared data requirements without listing
-or downloading objects from S3.
+`hv data dependencies inspect --remote --format sagemaker` builds the selected reference and resolves its declared
+data requirements without listing or downloading objects from S3.
 
 ```bash
-hv-ext show-data-dependency \
+hv data dependencies inspect --remote --format sagemaker \
   --repo-url /path/to/algorithm-checkout \
   --git-reference <git-reference> \
   --scratch-dir /tmp/hotvect-dependency-plan \
   --last-test-time <test-date> \
-  --output /tmp/hotvect-dependencies.json
+  > /tmp/hotvect-dependencies.json
 ```
 
 `<test-date>` uses `YYYY-MM-DD` format, for example the deliberately synthetic date `2000-01-08`.
@@ -117,10 +117,10 @@ When you are ready to list or download actual data, continue with
 
 | What you want to learn | First operation | Required inputs |
 | --- | --- | --- |
-| Does the source and definition build coherently? | Repository build and `show-data-dependency` | Repository and Hotvect installation |
-| What features does one request produce? | Ordered `hv audit` with a small sample | JAR, parameter ZIP, source rows |
-| Does one built artifact produce predictions? | Bounded `hv predict` | JAR, parameter ZIP, source rows |
-| Does a revision complete its whole offline lifecycle? | One-date local `hv backtest` | Repository, local data, scratch/output directories |
+| Does the source and definition build coherently? | Repository build and `hv data dependencies inspect` | Repository and Hotvect installation |
+| What features does one request produce? | Ordered `hv algorithm audit` with a small sample | JAR, parameter ZIP, source rows |
+| Does one built artifact produce predictions? | Bounded `hv algorithm predict` | JAR, parameter ZIP, source rows |
+| Does a revision complete its whole offline lifecycle? | One-date local `hv algorithm backtest` | Repository, local data, scratch/output directories |
 | How do two revisions compare? | Backtest both fixed git references | Same data contract and explicit comparison criteria |
 
 Do not start with a broad backtest merely because it is the highest-level command. If you are changing feature logic,

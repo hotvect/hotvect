@@ -9,7 +9,7 @@ tags: [design, architecture]
 This section contains implementation decisions, protocol details, and proposals. It is not the stable system
 architecture and it is not a getting-started section.
 
-For workflows, start with [Build and run](../guides/index.md). For the supported component model and runtime
+For task procedures, start with [Build and run](../guides/index.md). For supported component and runtime
 boundaries, start with the [architecture overview](../architecture/index.md).
 
 ## Topics

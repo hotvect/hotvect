@@ -2,20 +2,44 @@
 
 This changelog focuses on user-visible changes. For a complete history, see `git log`.
 
-## Unreleased from the 10.43.1 source line
+## Unreleased from the 10.46.2 source line
 
+- Performance sampling: continue past filtered input sweeps and consider records from the required additional files
+  even after reaching the candidate target, while keeping the retained sample bounded.
+- Composed offline execution: apply CLI overrides before checking effective execution settings across roots.
+- Offline prediction: permit algorithms without a reward factory when examples have no outcomes; labelled examples
+  still require a configured reward function.
+- State generation: allow generator-only definitions in the Python pipeline's `parameters` target without a dummy
+  runtime algorithm factory.
+- Offline prediction: capture active EMS state with `hv exp snapshot export` and replay only its pinned snapshot
+  document (or a synthetic document) with per-record assignment. Prediction no longer reads EMS or requires EMS
+  credentials, and records the snapshot URI in its metadata.
+- Offline prediction: run one fixed composite graph from a strict local composition document, without EMS assignment,
+  salts, shards, or variants.
+- Experiment management: document the standalone EMS control plane, deployment, domain model, and client boundaries in
+  the Hotvect docsite while keeping the server implementation and release lifecycle in the EMS repository.
+- EMS clients: remove the deprecated campaign forced-assignment API and response field. User forced assignments remain
+  supported.
+- Online assignment: avoid Guava APIs unavailable in Spark's runtime so the shared variant assigner remains usable from
+  the EMS Spark UDF.
 - Java API: provide algorithms that own local state with a private local-storage allocator, while keeping runtime paths and namespacing inside Hotvect.
 - Offline pipeline: dependency pipelines now derive their data-dependency target from runtime context instead of always using `parameters`. A dependency is prepared/declared with `evaluate` (so its `test` data is included) when the child enables a downstream stage (`predict`/`evaluate`/`performance-test`) via `hotvect_execution_parameters`, or when the parent runs on a Hotvect 9 training image (which always evaluates child algorithms). This fixes missing child `test` data dependencies on the Hotvect 9 fleet.
 - Ranking transformers: remove the transform-time candidate/action count check so existing chunked ranking scorers keep working while the deprecated request path is still supported.
 - Docs: add a guide for the offline pipeline stages (`generate-state`, `encode`, `train`, `predict`, `evaluate`, `performance-test`).
 - Security: remove `shell=True` usage from dependency inspection tooling and avoid shell execution in build helpers.
 - Algorithm definitions: reject self-dependencies (fail fast with a clear error).
+- Algorithm definitions: validate JAR-embedded definitions against the committed online contract before applying
+  offline overrides; `hyperparameter_version` is accepted only through an explicit offline override.
 - Java API: restore `score(ComputingRankingRequest)` on `ComputingBulkScorer`, including CatBoost feature-store response propagation, so downstream algorithms can use the score-first API again without rebuilding `BulkScoreResponse` manually.
 - CatBoost: standardize model parameter path resolution (and keep the decompression pipeline consistent).
 - Offline CLI: add unordered sharded `audit` output alongside sharded `predict`, and reject meaningless ordered multi-shard combinations.
 - Evaluation: speed up Python `evaluate` and allow one-shot SageMaker evaluation from cached prediction outputs.
 - CLI: rewire `hv serve` onto the unified algorithm server, add `hv serve --ui` for the browser debugger on the same backend, and add `hv worker serve` for worker-only HTTP debugging.
-- CLI: add `hv docs` and `hv prompts` for JSON-only bundled-doc and prompt lookup without MCP setup; default docs search to scan-based and keep SQLite indexing opt-in.
+- CLI: add `hv docs` for JSON-only bundled-doc lookup without MCP setup; default docs search to scan-based and keep SQLite indexing opt-in.
+- CLI: add the canonical `hv algorithm`, `hv qa`, `hv exp`, `hv config`, `hv metrics`, `hv results`, and `hv data`
+  command tree. Existing direct algorithm commands and the `hv-qa` and migrated `hv-ext` commands remain
+  temporarily available and print a warning with the canonical replacement. `hv-ext compare-jsonl` and
+  `hv-ext catboost-convert` remain low-level extension commands.
 - Python packaging: remove the unused Python-hosted full-algorithm LitServe stack and its dependency footprint. The
   worker-only `hv worker serve` debugger remains available.
 - Docs: add a performance benchmarking and optimization guide covering benchmark taxonomy, calibration-first realtime perf testing, optimization ordering, and machine-type guidance.
@@ -49,7 +73,7 @@ This changelog focuses on user-visible changes. For a complete history, see `git
 
 - Version bump to 10.4.4 for both the Java JARs and the Python package.
 - Dependency bumps: Jackson 2.21.0, Logback 1.5.25, Micrometer 1.16.2, AWS SDK S3 2.41.13, JUnit Jupiter 6.0.2.
-- `hv-ext data-dependency`: sanitize git refs when creating per-ref scratch directories (avoids accidental nested paths and temp-dir failures for refs like `feature/foo`).
+- `hv data dependencies list`: sanitize git refs when creating per-ref scratch directories (avoids accidental nested paths and temp-dir failures for refs like `feature/foo`).
 - Build/test: run Mockito with a `-javaagent` during Maven tests (avoids brittle self-attach on newer JDKs).
 - Tests: make the public-S3 downloader test opt-in via `HOTVECT_RUN_NETWORK_TESTS=true` (unit tests run offline by default).
 
@@ -58,7 +82,7 @@ This changelog focuses on user-visible changes. For a complete history, see `git
 - Added TensorFlow support (`hotvect-tensorflow`) including TFRecord encoding utilities.
 - Added unified Python "direct worker" IPC and related CLI/debugging utilities (including `hv serve` for local debugging).
 - Added/expanded CLI features such as `--log-features` (feature auditing during prediction) and improved `hv performance-test`.
-- Added/expanded `hv-ext data-dependency` tooling (safe defaults, JSON output, sampling/resume, better concurrency).
+- Added/expanded `hv data dependencies list` tooling (safe defaults, JSON output, sampling/resume, better concurrency).
 - Added/expanded AWS SageMaker backtest/training configuration support driven by algorithm definitions.
 - Build/tooling updates: JDK 21 baseline and assorted dependency updates across modules.
 
