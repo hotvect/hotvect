@@ -1,7 +1,5 @@
 package com.hotvect.onlineutils.experimentmanagement.variantassignment;
 
-import static com.google.common.base.Preconditions.checkState;
-
 import com.google.common.hash.HashFunction;
 import com.google.common.hash.Hashing;
 import com.hotvect.onlineutils.experimentmanagement.models.Experiment;
@@ -111,10 +109,10 @@ public final class VariantAssigner {
             final int allocationBucket,
             final ExperimentConfiguration experimentConfiguration) {
         final int totalAllocation = totalVariantAllocation(experimentConfiguration);
-        checkState(allocationBucket >= 0 && allocationBucket < totalAllocation,
-                "allocationBucket %s must be within [0, %s)",
-                allocationBucket,
-                totalAllocation);
+        if (allocationBucket < 0 || allocationBucket >= totalAllocation) {
+            throw new IllegalStateException(
+                    "allocationBucket %s must be within [0, %s)".formatted(allocationBucket, totalAllocation));
+        }
         int allocationBoundary = 0;
         for (final VariantConfiguration variantConfiguration : experimentConfiguration.variants()) {
             allocationBoundary += shardAllocationRatio(variantConfiguration);
@@ -152,7 +150,9 @@ public final class VariantAssigner {
     }
 
     static int bucketFromHash(final int hashAsInt, final int numberOfBuckets) {
-        checkState(numberOfBuckets > 0, "numberOfBuckets must be positive");
+        if (numberOfBuckets <= 0) {
+            throw new IllegalStateException("numberOfBuckets must be positive");
+        }
         return Math.abs(hashAsInt) % numberOfBuckets;
     }
 
@@ -162,19 +162,20 @@ public final class VariantAssigner {
         for (final VariantConfiguration variantConfiguration : experimentConfiguration.variants()) {
             totalAllocation += shardAllocationRatio(variantConfiguration);
         }
-        checkState(totalAllocation > 0,
-                "Experiment %s has no allocated traffic",
-                experimentConfiguration.experiment().experimentId());
+        if (totalAllocation <= 0) {
+            throw new IllegalStateException(
+                    "Experiment %s has no allocated traffic".formatted(experimentConfiguration.experiment().experimentId()));
+        }
         return totalAllocation;
     }
 
     private static int shardAllocationRatio(
             final VariantConfiguration variantConfiguration) {
         final Integer shardRatio = variantConfiguration.variant().shardAllocationRatio();
-        checkState(shardRatio != null && shardRatio > 0,
-                "Variant %s has invalid shard allocation ratio %s",
-                variantConfiguration.variant().variantId(),
-                shardRatio);
+        if (shardRatio == null || shardRatio <= 0) {
+            throw new IllegalStateException("Variant %s has invalid shard allocation ratio %s".formatted(
+                    variantConfiguration.variant().variantId(), shardRatio));
+        }
         return shardRatio;
     }
 

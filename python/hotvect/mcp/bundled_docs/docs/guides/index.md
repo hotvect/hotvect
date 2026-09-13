@@ -1,7 +1,10 @@
 # Build and run
 
-Use these guides to go from a working installation to a decision-system change with inspectable outputs and checks. If you are new to
-Hotvect, follow the five steps below before choosing an advanced command.
+Build-and-run workflows connect Hotvect components around an outcome: getting started, implementing an algorithm,
+executing it offline, or releasing a change. For the complete framework boundary, start with the
+[system map](../components/index.md).
+
+If you are new to Hotvect, follow the five steps below before choosing an advanced command.
 
 ## New to Hotvect
 
@@ -88,4 +91,6 @@ Hotvect, follow the five steps below before choosing an advanced command.
 - Need to compare quality or investigate a regression? Go to [Validate and investigate](validate-and-investigate/index.md).
 - Need remote execution? Use the [SageMaker backtest guide](sagemaker-backtests/index.md).
 - Need to move one candidate from source to the Experiment Management Service (EMS) and online evidence? [Take a change to a live experiment](change-to-live-experiment/index.md).
+- Need to connect a serving application to EMS? [Connect an online runtime to EMS](connect-online-runtime-to-ems/index.md).
+- Need to operate an EMS control plane? Use the deployment owner's service documentation alongside the Hotvect EMS client references.
 - Need an exact flag or output path? Use the [CLI reference](../reference/cli/index.md).

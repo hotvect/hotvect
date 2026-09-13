@@ -25,6 +25,7 @@ import com.hotvect.api.data.ranking.RankingRequest;
 import com.hotvect.onlineutils.concurrency.fileutils.UnorderedFileMapper;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import java.io.File;
 import java.io.InputStream;
@@ -34,12 +35,14 @@ import java.net.URLClassLoader;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BiFunction;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -99,8 +102,11 @@ public class EncodeTaskTest {
     }
 
     public static class QueueLengthTransformerFactory implements RankingTransformerFactory<String, String> {
+        private static final AtomicInteger INVOCATION_COUNT = new AtomicInteger();
+
         @Override
         public RankingTransformer<String, String> apply(Optional<JsonNode> hyperparameter, Map<String, InputStream> parameter) {
+            INVOCATION_COUNT.incrementAndGet();
             return null;
         }
     }
@@ -235,6 +241,48 @@ public class EncodeTaskTest {
             assertTrue(invoked[0]);
         } finally {
             tempDir.delete();
+        }
+    }
+
+    @Test
+    void sourceDestMappingsReuseOneInitializedEncoder(@TempDir Path tempDir) throws Exception {
+        File source = Paths.get(
+                Objects.requireNonNull(this.getClass().getResource("multiple")).toURI()
+        ).toFile();
+        Options options = new Options();
+        options.sourceDestMappings = List.of(
+                new SourceDestMapping(List.of(source), tempDir.resolve("day-1").toFile()),
+                new SourceDestMapping(List.of(source), tempDir.resolve("day-2").toFile())
+        );
+        options.maxThreads = 3;
+        options.batchSize = 5;
+        QueueLengthTransformerFactory.INVOCATION_COUNT.set(0);
+
+        try (URLClassLoader classLoader = new URLClassLoader(new URL[0], this.getClass().getClassLoader())) {
+            OfflineTaskContext offlineTaskContext = new OfflineTaskContext(
+                    classLoader,
+                    new SimpleMeterRegistry(),
+                    options,
+                    queueLengthAlgorithmDefinition()
+            );
+            AtomicInteger mapperInvocationCount = new AtomicInteger();
+            EncodeTask<? extends Example<?, ?>> testSubject = new EncodeTask<>(offlineTaskContext) {
+                @Override
+                protected Map<String, Object> callUnorderedFileMapper(UnorderedFileMapper<String> mapper) {
+                    mapperInvocationCount.incrementAndGet();
+                    return new HashMap<>(Map.of("lines_written", 1L));
+                }
+            };
+
+            Map<String, Object> metadata = testSubject.perform();
+
+            assertEquals(1, QueueLengthTransformerFactory.INVOCATION_COUNT.get());
+            assertEquals(2, mapperInvocationCount.get());
+            assertEquals(2, ((List<?>) metadata.get("source_dest_mappings")).size());
+            assertNotNull(metadata.get("example_decoder"));
+            assertNotNull(metadata.get("example_encoder"));
+            assertTrue(Files.isDirectory(tempDir.resolve("day-1")));
+            assertTrue(Files.isDirectory(tempDir.resolve("day-2")));
         }
     }
 

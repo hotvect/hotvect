@@ -1,6 +1,6 @@
 ---
 title: CLI reference
-description: Complete reference for hv, hv-ext, and hv-exp CLI commands
+description: Canonical hv command tree and compatibility command reference
 tags: [cli, reference, commands, usage, tools]
 difficulty: intermediate
 prerequisites:
@@ -8,30 +8,60 @@ prerequisites:
   - Algorithm JAR available (for most commands)
   - Basic understanding of hotvect concepts
 related_docs:
+  - ../../guides/hv-qa-release-validation/index.md
   - ../../guides/feature-audits/index.md
   - ../../guides/debug-feature-engineering/index.md
   - ../../concepts/index.md
 related_commands:
-  - hv audit
-  - hv train
-  - hv predict
-  - hv backtest
+  - hv qa candidate start
+  - hv qa evaluate
+  - hv qa criteria
+  - hv algorithm audit
+  - hv algorithm train
+  - hv algorithm predict
+  - hv algorithm backtest
   - hv-ext compare-jsonl
 next_steps:
   - Run your first audit
   - Train a model
   - Compare algorithm versions
+  - Validate a release with hv qa
 ---
 
 # CLI reference
 
-Hotvect installs three command-line interfaces:
+The human-facing command is `hv`. Its top-level namespaces represent user domains rather than internal Python
+packages:
 
-| CLI | Purpose |
-| --- | --- |
-| `hv` | Run algorithms, pipelines, local debug servers, docs lookup, and prompt lookup |
-| `hv-ext` | Compare artifacts, report metrics, inspect results, and manage data dependencies |
-| `hv-exp` | Read experiment-management state and online evaluation partitions |
+```text
+hv
+├── algorithm audit|encode|predict|evaluate|generate-state|train|backtest|performance-test|serve
+├── worker serve
+├── status sagemaker|backtest
+├── qa
+│   ├── candidate start|resume|status
+│   ├── evaluate
+│   ├── criteria list|describe
+│   └── utils compare-predictions
+├── ems slot|experiment|default-variant|algorithm ...
+├── docs list|search|read
+├── config show|init
+├── metrics compare-quality|compare-system|export|plot
+├── results ls|download
+└── data
+    └── dependencies inspect|download
+```
+
+`hv-mcp` remains a separate MCP-server integration entrypoint. `catboost_train` and `sagemaker-entrypoint` remain
+container/runtime entrypoints.
+
+!!! note "Compatibility commands"
+    Existing scripts continue to work with direct algorithm commands (`hv audit`, `hv train`, and so on) and the
+    `hv-qa`, `hv-exp`, and migrated `hv-ext` commands, but those invocations print a warning with their canonical
+    replacement. New guides and the detailed references below use the canonical forms above. `hv-ext compare-jsonl`
+    and `hv-ext catboost-convert` remain low-level extension commands without a replacement under `hv`.
+    `hv-qa criteria evaluate` remains available only as a legacy diagnostic interface; ordinary QA workflows use
+    `hv qa candidate start --criteria ...` or `hv qa evaluate --criteria ...`.
 
 Use `<cli> --help` and `<cli> <command> --help` as the exact reference for the installed checkout. This page explains
 the contracts and output shapes that help text alone does not capture.
@@ -39,30 +69,55 @@ the contracts and output shapes that help text alone does not capture.
 This is a lookup page, not a first-run tutorial. If Hotvect is new to you, run the
 [example product algorithms](../../guides/first-run/index.md) first. Then return here for one command's exact contract.
 
-## `hv` command map
+## Command map
 
-`hv` supports these operations:
-
-- **docs**: Search and read the bundled Hotvect docs (JSON output only; scan-based by default).
-- **prompts**: List and read the bundled Hotvect prompt templates (JSON output only).
-- **audit**: Generate human-readable audit data showing feature transformations and calculations.
-- **performance-test**: Benchmark algorithm performance and measure throughput/latency.
-- **encode**: Transform input data into ML-ready format for training.
-- **predict**: Generate model predictions on test/validation data.
-- **generate-state**: Generate state files for algorithms that require state generation.
-- **evaluate**: Calculate performance metrics from model predictions.
-- **train**: Train a machine learning model using the hotvect pipeline.
-- **backtest**: Run backtest on git references to compare algorithm performance.
-- **serve**: Serve the full algorithm over HTTP for local debugging. Add `--ui` to enable the browser debugger on the same server.
-- **worker**: Worker-runtime HTTP debugging utilities for LitServe-backed worker endpoints.
+- **`hv algorithm`**: Algorithm development, pipeline execution, backtests, and local serving.
+- **`hv worker`**: Worker-runtime HTTP debugging utilities.
+- **`hv status`**: Monitor remote SageMaker jobs using lifecycle state and structured CloudWatch progress events.
+- **`hv qa`**: Durable release-quality validation and release-evidence decisions.
+- **`hv ems`**: Read-only Experiment Management System inspection and online-result retrieval.
+- **`hv docs`**: Search and read the bundled Hotvect docs as JSON.
+- **`hv config`**: Show or initialize `~/.hotvect/config.json`.
+- **`hv metrics`**: Compare, export, and plot evaluation and system metrics.
+- **`hv results`**: Inventory and download local or S3 `result.json` artifacts.
+- **`hv qa utils compare-predictions`**: Check prediction score and ranking equivalence.
+- **`hv-ext compare-jsonl`**: Low-level generic JSONL structural comparison.
+- **`hv data dependencies inspect|download`**: Inspect declared datasets or materialize them locally.
 
 !!! note "SageMaker support (quick summary)"
     Hotvect supports running on SageMaker in two ways:
 
-    - **Pipelines:** `hv train` and `hv backtest` can execute on SageMaker (submit jobs and return immediately).
-    - **One-shot remote commands:** `hv audit`, `hv predict`, `hv encode`, `hv evaluate`, and `hv performance-test` can also execute on SageMaker via `--sagemaker`.
+    - **Pipelines:** `hv algorithm train` and `hv algorithm backtest` can execute on SageMaker (submit jobs and return immediately).
+      A backtest using `--prewarm` submits all cache-prewarm jobs together and waits for them before it submits normal
+      backtest jobs.
+    - **One-shot remote commands:** `hv algorithm audit`, `hv algorithm predict`, `hv algorithm encode`, `hv algorithm evaluate`, and `hv algorithm performance-test` can also execute on SageMaker via `--sagemaker`.
 
     For flags and required S3 inputs, see [SageMaker one-shot mode](#sagemaker-one-shot-mode-auditpredictevaluateencodeperformance-test).
+
+### Remote execution status
+
+`hv status` combines SageMaker lifecycle state with structured `HOTVECT_STATUS` events emitted to CloudWatch by
+Hotvect offline tasks. It does not parse ordinary application logs and does not poll metadata in S3. The same events
+are archived in `progress.jsonl` with the job metadata when the job finishes; that file is not the live transport.
+
+Monitor one SageMaker training job:
+
+```bash
+hv status sagemaker --job-name ml-exp-example --follow
+```
+
+Monitor every job recorded by a remote backtest submission:
+
+```bash
+hv status backtest \
+  --submission output/meta/_backtest_submissions/<run-id>/backtest_submission_manifest.json \
+  --follow
+```
+
+Both commands accept `--region`, `--assume-role-arn`, `--poll-seconds`, and `--output human|json`. JSON output is a
+single snapshot and therefore cannot be combined with `--follow`. Full unstructured job output remains available
+through the SageMaker console and standard AWS CloudWatch tooling. The selected AWS identity needs
+`sagemaker:DescribeTrainingJob`, `logs:StartQuery`, and `logs:GetQueryResults` access.
 
 ## Choose the algorithm target
 
@@ -89,7 +144,7 @@ See [Parent and child algorithms](../../guides/patterns/parent-child/index.md).
 The general syntax for using the `hv` tool is:
 
 ```bash
-hv <command> [options]
+hv <namespace> <operation> [options]
 ```
 
 To see the list of available commands, run:
@@ -107,22 +162,85 @@ hv --version
 To get help on a specific command, use:
 
 ```bash
-hv <command> -h
+hv <namespace> <operation> -h
 ```
 
 Unknown flags are rejected. Commands that support raw JVM passthrough accept it only after an explicit `--` separator:
 
 ```bash
-hv audit ... --parameter-path params.zip -- -Xmx8g -Dfoo=bar
+hv algorithm audit ... --parameter-path params.zip -- -Xmx8g -Dfoo=bar
 ```
 
-Passthrough is supported for the Java wrapper commands (`audit`, `encode`, `predict`, `generate-state`, `performance-test`) and for `serve`. `train` and `backtest` use `--extra-jvm-args` instead, and commands like `worker serve` reject passthrough args after `--`.
+Passthrough is supported for the Java wrapper commands under `hv algorithm` (`audit`, `encode`, `predict`,
+`generate-state`, `performance-test`) and for `hv algorithm serve`. `train` and `backtest` use `--extra-jvm-args`
+instead, and `hv worker serve` rejects passthrough arguments after `--`.
 
 Choose exactly one heap cap wherever you pass JVM arguments: `-Xmx...` **or** `-XX:MaxRAMPercentage=...`. Hotvect
 rejects duplicates and the combination of both styles. If neither is supplied, pipeline and Java wrapper commands use
 `-XX:MaxRAMPercentage=80`; runtime commands also add `-XX:+ExitOnOutOfMemoryError`.
 
-## `hv` commands
+## `hv qa` release QA
+
+`hv qa` is the automated evaluator in an engineering loop: it derives validation stages from the selected release
+objective, executes them, and emits a machine-readable release-readiness verdict. It does not publish artifacts or
+mutate an experiment-management service. Use the
+[release QA guide](../../guides/hv-qa-release-validation/index.md) for the stage model, statistical interpretation, and
+rollout boundary.
+
+| Command | Contract |
+| --- | --- |
+| `hv qa candidate start` | Create a run for exactly one control source and one or more treatments, then execute requested stages. |
+| `hv qa candidate resume <run-id>` | Reuse the frozen scenario through `--until <stage>` or exactly one `--stage <stage>`. It cannot change refs, dates, or criteria. |
+| `hv qa candidate status <run-id>` | Print machine-readable run state. |
+| `hv qa evaluate` | Judge a pre-existing multi-day proof directory without run state or config lookup. |
+| `hv qa criteria list|describe` | Inspect built-in release criteria. |
+
+Start requires exactly one control source and at least one treatment:
+
+```bash
+hv qa candidate start \
+  --control baseline-ref \
+  --treatment candidate-ref \
+  --repo /path/to/algorithm-repository \
+  --criteria noninferiority \
+  --until multi_day_backtest
+```
+
+| Option group | Flags | Contract |
+| --- | --- | --- |
+| Control | `--control <ref>` or `--prod-default-of-slot-as-control <slot>` | Exactly one. The latter reads and freezes the current production default. |
+| Treatments | Repeat `--treatment <ref>` | One or more, in the order used by every repeated per-treatment flag. |
+| Repositories | `--repo`, `--control-repo`, repeat `--treatment-repo` | `--repo` is the shared default. Without it, specify control plus exactly one treatment repository for every treatment. |
+| Shared parameter/source | `--parameter-source`, `--performance-source-path` | Use only when the resource is truly common. Do not combine with the per-reference form. `exact` rejects manual parameter sources. |
+| Per-reference parameter/source | `--control-parameter-source`, repeat `--treatment-parameter-source`; `--control-performance-source-path`, repeat `--treatment-performance-source-path` | Every repeated value must match treatment order exactly. Per-reference parameters are for `system_performance`. |
+| Offline decision | `--last-test-date`, `--days`, `--criteria` | `--last-test-date` defaults to the latest contiguous control test-data window. `--days` defaults to 7 and can be overridden in `qa.run.defaults`. The default criterion is `noninferiority`. |
+| Execution boundary | `--until`, `--stage`, `--work-dir` | `--until` defaults to `multi_day_backtest`; `--stage` executes exactly one eligible stage. |
+
+Control and treatment may both use the ref name `main` when their repositories differ. `hv qa` isolates their builds
+and output state by role and repository.
+
+`hv qa evaluate` always judges a multi-day proof and requires at least two dates:
+
+```bash
+hv qa evaluate \
+  --criteria noninferiority \
+  --last-test-date 2000-01-08 \
+  --days 2 \
+  --proof-dir /path/to/proof \
+  --output /path/to/judgment.json \
+  --pretty
+```
+
+The proof layout is `<proof-dir>/<date>/control/result.json` and
+`<proof-dir>/<date>/treatment/result.json` for every requested date. It pairs `evaluate.<metric>.value` by date;
+separate result-level confidence intervals are not pooled. See the guide for the `quality_statistical_basis` output
+and superiority's Bonferroni correction.
+
+## `hv algorithm` commands
+
+The commands below use canonical forms such as `hv algorithm audit`. The direct aliases `hv audit`, `hv encode`,
+`hv predict`, `hv generate-state`, `hv evaluate`, `hv train`, `hv backtest`, `hv performance-test`, and `hv serve`
+remain supported for existing scripts.
 
 ### `docs`
 
@@ -156,30 +274,6 @@ hv docs search "sagemaker backtest" --limit 3
 hv docs read guides/docs-mcp/index.md
 ```
 
-### `prompts`
-
-**Description**: List and read the bundled Hotvect prompt templates. Output is always JSON on stdout for automation.
-This mirrors the prompt catalog exposed by `hv-mcp` without requiring MCP setup.
-
-**Usage**:
-
-```bash
-hv prompts list
-hv prompts read setup_config
-```
-
-**Subcommands**:
-
-- `list`: Return all available prompt templates as JSON (`{ "prompts": [...] }`).
-- `read <name>`: Return one prompt template as JSON (`name`, `description`, `text`).
-
-**Examples**:
-
-```bash
-hv prompts list
-hv prompts read ordered_backtest_with_pinned_parameters
-```
-
 ### 1. `audit`
 
 **Description**: Generate human-readable audit data showing feature transformations and calculations. Audit requires the
@@ -190,7 +284,7 @@ predict-parameters ZIP used by the algorithm, then writes readable JSONL for deb
 **Usage**:
 
 ```bash
-hv audit --algorithm-jar <path_to_jar> --algorithm-name <algorithm_name> --parameter-path <predict-parameters.zip> [options]
+hv algorithm audit --algorithm-jar <path_to_jar> --algorithm-name <algorithm_name> --parameter-path <predict-parameters.zip> [options]
 ```
 
 **Options**: Same as the common Java command options (see Common Options section below).
@@ -204,18 +298,18 @@ hv audit --algorithm-jar <path_to_jar> --algorithm-name <algorithm_name> --param
 **Example**:
 
 ```bash
-hv audit --algorithm-jar my_algorithm.jar --algorithm-name example-ranker --parameter-path parameters.zip --source-path input_data.jsonl --dest-path audit_output --ordered
+hv algorithm audit --algorithm-jar my_algorithm.jar --algorithm-name example-ranker --parameter-path parameters.zip --source-path input_data.jsonl --dest-path audit_output --ordered
 ```
 
 ### 2. `performance-test`
 
 **Description**: Benchmark algorithm performance and measure latency percentiles under a controlled request rate.
 
-**Workload mode**: `hv performance-test` defaults to **realtime** workload mode, even though the input rows are offline. This is intentional: performance-test is generally used to measure serving latency and should normally exercise the algorithm's `realtime` runtime config. Use `--workload-mode batch` only when you explicitly want to benchmark the batch path. `hv predict` continues to use batch workload mode.
+**Workload mode**: `hv algorithm performance-test` defaults to **realtime** workload mode, even though the input rows are offline. This is intentional: performance-test is generally used to measure serving latency and should normally exercise the algorithm's `realtime` runtime config. Use `--workload-mode batch` only when you explicitly want to benchmark the batch path. `hv algorithm predict` continues to use batch workload mode.
 
-**Important**: `hv performance-test` runs a warmup first, then (by default) paces the measurement runs at `0.8 × warmup_mean_throughput` to reduce queueing effects and make p99/p999 more stable across runs. This means the reported throughput is **not** “max throughput” by default.
+**Important**: `hv algorithm performance-test` runs a warmup first, then (by default) paces the measurement runs at `0.8 × warmup_mean_throughput` to reduce queueing effects and make p99/p999 more stable across runs. This means the reported throughput is **not** “max throughput” by default.
 
-**Threading default**: if `--max-threads` is omitted, `hv performance-test` defaults to:
+**Threading default**: if `--max-threads` is omitted, `hv algorithm performance-test` defaults to:
 
 - `2` threads on machines with `>=4` physical cores
 - otherwise `1`
@@ -224,15 +318,22 @@ Pass an explicit `--max-threads` to override that heuristic, or `--max-threads 0
 
 **SageMaker**: Supported via one-shot mode (`--sagemaker`). See [SageMaker one-shot mode](#sagemaker-one-shot-mode-auditpredictevaluateencodeperformance-test).
 
+**Local runtime state**: Performance tests make private runtime storage available under the JVM temporary directory.
+Directories are allocated lazily when an algorithm uses `LocalStateStorage`, and are not written to task metadata or
+output directories. Algorithms that depend on this capability must declare `requires_local_state_storage=true`.
+
 **Usage**:
 
 ```bash
-hv performance-test --algorithm-jar <path_to_jar> --algorithm-name <algorithm_name> [options]
+hv algorithm performance-test --algorithm-jar <path_to_jar> --algorithm-name <algorithm_name> [options]
 ```
 
 **Options**: Same as the common Java command options (see Common Options section below).
 
 **Performance-test-only options**:
+- `--sample-pool-size`: Number of decoded requests to keep in the in-memory sample pool before measured repeats. This
+  separates "how many distinct requests are held in RAM" from `--samples`, which controls how many measured requests
+  are executed.
 - `--target-rps`: Fixed target requests/sec (best for comparing versions under identical load). Overrides `--target-throughput-fraction`.
 - `--target-throughput-fraction`: Fraction of warmup mean throughput to use as the target requests/sec when `--target-rps` is not set. Default: `0.8`. Set to `0` to disable pacing.
 - `--workload-mode {realtime,batch}`: Select which algorithm workload mode to benchmark. Default: `realtime`.
@@ -255,10 +356,25 @@ hv performance-test --algorithm-jar <path_to_jar> --algorithm-name <algorithm_na
 **Usage**:
 
 ```bash
-hv encode --algorithm-jar <path_to_jar> --algorithm-name <algorithm_name> [options]
+hv algorithm encode --algorithm-jar <path_to_jar> --algorithm-name <algorithm_name> [options]
 ```
 
 **Options**: Same as the common Java command options, with `--dest-schema-path` being particularly relevant for encoding operations.
+
+For local multi-output encoding, `--source-dest-mappings <json-file>` replaces both `--source-path` and `--dest-path`.
+The file contains an array of mappings, and Hotvect processes them sequentially in one Java process so decoder, encoder,
+and feature-dependency initialization happens once:
+
+```json
+[
+  {"sources": ["data/dt=2000-02-15"], "dest": "encoded/dt=2000-02-15"},
+  {"sources": ["data/dt=2000-02-16"], "dest": "encoded/dt=2000-02-16"}
+]
+```
+
+Each mapping requires a non-empty `sources` array and a unique `dest`. The option is local-only and cannot be combined
+with `--source-path`, `--dest-path`, or `--sagemaker`. `--dest-schema-path` remains one shared schema-description output
+for the encode invocation.
 
 ### 4. `predict`
 
@@ -271,7 +387,7 @@ serving.
 **Usage**:
 
 ```bash
-hv predict --algorithm-jar <path_to_jar> --algorithm-name <algorithm_name> [options]
+hv algorithm predict --algorithm-jar <path_to_jar> --algorithm-name <algorithm_name> [options]
 ```
 
 **Options**: Same as the common Java command options (see Common Options section below).
@@ -281,6 +397,10 @@ hv predict --algorithm-jar <path_to_jar> --algorithm-name <algorithm_name> [opti
 - `--include-feature-store-responses`: Include feature-store responses in output rows under
   `additional_properties.__feature_store_responses`. Use it for a small debug sample, not routine backtests.
 
+Ranking output stays in request-action order and records final position in each result's `rank`; TopK output follows
+the returned decision order. See [Ranking and prediction contracts](../ranking-and-prediction-contracts/index.md) for
+the exact JSON schema, metadata precedence, and adapter rules.
+
 ### 5. `evaluate`
 
 **Description**: Calculate quality metrics from prediction results. The evaluator computes offline metrics and derives
@@ -289,7 +409,7 @@ online dimensions only when that dimension is complete across the scored rows.
 **Usage**:
 
 ```bash
-hv evaluate --source-path <predictions_file> --dest-path <evaluation_output> [options]
+hv algorithm evaluate --source-path <predictions_file> --dest-path <evaluation_output> [options]
 ```
 
 **Options**:
@@ -300,7 +420,7 @@ hv evaluate --source-path <predictions_file> --dest-path <evaluation_output> [op
 **Example**:
 
 ```bash
-hv evaluate --source-path predictions --dest-path evaluation_results.json
+hv algorithm evaluate --source-path predictions --dest-path evaluation_results.json
 ```
 
 ### 6. `train`
@@ -310,7 +430,7 @@ hv evaluate --source-path predictions --dest-path evaluation_results.json
 **Usage**:
 
 ```bash
-hv train --algorithm-name <algorithm_name> --data-base-dir <data_dir> --output-base-dir <output_dir> --algorithm-jar <jar_path> --last-test-time <date> [options]
+hv algorithm train --algorithm-name <algorithm_name> --data-base-dir <data_dir> --output-base-dir <output_dir> --algorithm-jar <jar_path> --last-test-time <date> [options]
 ```
 
 **Required Options**:
@@ -327,7 +447,7 @@ hv train --algorithm-name <algorithm_name> --data-base-dir <data_dir> --output-b
 - `--extra-jvm-args`: Additional JVM arguments for training, comma-separated (for example,
   `"-XX:MaxRAMPercentage=80,-XX:+UseG1GC"`). Choose one heap cap only: `-Xmx...` or
   `-XX:MaxRAMPercentage=...`.
-- `--max-threads`: Max threads for hotvect encode/predict (0 = don't pass; JAR decides). Standalone `hv performance-test` uses a different default when omitted; see [Common Options](#common-options).
+- `--max-threads`: Max threads for hotvect encode/predict (0 = don't pass; JAR decides). Standalone `hv algorithm performance-test` uses a different default when omitted; see [Common Options](#common-options).
 - `--cache`: Enable Hotvect pipeline caching (local path or `s3://...`).
 - `--cache-scope`: Cache key scope across algorithm versions (`major|minor|patch|hyperparam`, default: `hyperparam`).
 - `--cache-refresh`: Ignore cache reads and write fresh run-level cache results. Requires an effective `cache_base_dir` and effective cache mode `run`.
@@ -375,7 +495,7 @@ When `--target predict` is used:
 **Example**:
 
 ```bash
-hv train --algorithm-name example-document-ranker \
+hv algorithm train --algorithm-name example-document-ranker \
          --data-base-dir /path/to/training/data \
          --output-base-dir /path/to/output \
          --algorithm-jar /path/to/algorithm.jar \
@@ -387,7 +507,7 @@ hv train --algorithm-name example-document-ranker \
 **SageMaker Example** (submits and returns):
 
 ```bash
-hv train --algorithm-name example-document-ranker \
+hv algorithm train --algorithm-name example-document-ranker \
          --algorithm-jar /path/to/algorithm.jar \
          --last-test-time 2000-01-15 \
          --sagemaker \
@@ -400,7 +520,7 @@ hv train --algorithm-name example-document-ranker \
 **Explicit Inference Example** (`prediction_spec` required):
 
 ```bash
-hv train --algorithm-name example-document-ranker \
+hv algorithm train --algorithm-name example-document-ranker \
          --data-base-dir /path/to/data \
          --output-base-dir /path/to/output \
          --algorithm-jar /path/to/algorithm.jar \
@@ -439,12 +559,12 @@ Override notes:
 
 ### 7. `backtest`
 
-**Description**: Run backtest on git references to compare algorithm performance across different versions or configurations. For SageMaker execution, returns immediately after job submission without waiting for completion.
+**Description**: Run backtest on git references to compare algorithm performance across different versions or configurations. SageMaker backtests submit normal jobs without waiting for their completion; `--prewarm` submits and waits for all cache-prewarm jobs before normal job submission.
 
 **Usage**:
 
 ```bash
-hv backtest (--git-reference <git_ref> | --backtest-config <config_file>) --algo-repo-url <repo_url> --data-base-dir <data_dir> --output-base-dir <output_dir> --scratch-dir <scratch_dir> --last-test-time <date> [options]
+hv algorithm backtest (--git-reference <git_ref> | --backtest-config <config_file>) --algo-repo-url <repo_url> --data-base-dir <data_dir> --output-base-dir <output_dir> --scratch-dir <scratch_dir> --last-test-time <date> [options]
 ```
 
 **Required Options**:
@@ -459,7 +579,10 @@ hv backtest (--git-reference <git_ref> | --backtest-config <config_file>) --algo
 
 **Optional Options**:
 
-- `--algorithm-override`: Path to JSON file containing algorithm configuration overrides (repeatable). If one override is provided, it applies to all git references. If multiple are provided, they apply to git references in order. Overrides use the same patch semantics as `hv train`.
+- `--algorithm-override`: Path to JSON file containing algorithm configuration overrides (repeatable). If one override is provided, it applies to all git references. If multiple are provided, they apply to git references in order. Overrides use the same patch semantics as `hv algorithm train`.
+- `--algorithm-override-reason`: Human-readable reason recorded for the corresponding `--algorithm-override`
+  (repeatable). Requires `--algorithm-override`; supplying it alone exits with status 2. If one reason accompanies a
+  single override that applies to multiple git references, the same reason is recorded for all of them.
 - `--number-of-runs`: Number of consecutive historical test dates to run per Git reference, ending at
   `--last-test-time` (default: 1).
 - `--extra-jvm-args`: Additional JVM arguments, comma-separated (for example,
@@ -483,6 +606,15 @@ hv backtest (--git-reference <git_ref> | --backtest-config <config_file>) --algo
 - `--cache`: Enable Hotvect pipeline caching (local path or `s3://...`). Use `s3://...` for SageMaker runs.
 - `--cache-scope`: Cache key scope across algorithm versions (`major|minor|patch|hyperparam`, default: `hyperparam`).
 - `--cache-refresh`: Ignore cache reads and write fresh run-level cache results. Requires an effective `cache_base_dir` and effective cache mode `run`.
+- `--prewarm`: Pre-populate the encode partition cache before normal backtest jobs are submitted. This is available only
+  for remote SageMaker backtests. Without an explicit count, Hotvect automatically selects the minimum required
+  compatible encoding-parameter contexts, submits every planned one-instance `encode-cache` job together, then waits
+  before submitting the normal backtest. Requires an `s3://` `--cache`; not supported with `--cache-refresh`.
+- `--prewarm-instance-count <n>`: Number of one-instance prewarm jobs available per git reference. Requires `--prewarm`. A
+  count below the required compatible contexts fails before submission; a larger count may use additional compatible
+  contexts. Hotvect submits every planned job together.
+- `--prewarm-instance-type`: SageMaker instance type for encode partition cache prewarm jobs. Requires `--prewarm`.
+  It replaces any configured prewarm `PreferredInstanceTypes` list; prewarm uses that type only.
 - `--performance-test-samples`: Pin pipeline perf-test sample size for comparability (passes `--samples` to Java perf-test).
 - `--performance-test-sample-pool-size`: Pin the decoded replay pool separately from measured executions. Use it with
   `--performance-test-samples` when system-performance results must be comparable.
@@ -491,7 +623,7 @@ hv backtest (--git-reference <git_ref> | --backtest-config <config_file>) --algo
 
 **SageMaker submission metadata**:
 
-When SageMaker mode is enabled, each `hv backtest` invocation writes local submission metadata under:
+When SageMaker mode is enabled, each `hv algorithm backtest` invocation writes local submission metadata under:
 
 ```text
 <output-base-dir>/meta/_backtest_submissions/<run_id>/
@@ -505,7 +637,7 @@ Each run gets its own `<run_id>`, so repeated backtests do not overwrite prior s
 
 **Basic Local Backtest**:
 ```bash
-hv backtest --git-reference main --git-reference feature-branch \
+hv algorithm backtest --git-reference main --git-reference feature-branch \
            --algo-repo-url https://github.com/example-org/example-algorithm.git \
            --data-base-dir /path/to/data \
            --output-base-dir /path/to/output \
@@ -516,7 +648,7 @@ hv backtest --git-reference main --git-reference feature-branch \
 
 **SageMaker Backtest**:
 ```bash
-hv backtest --git-reference main \
+hv algorithm backtest --git-reference main \
            --algo-repo-url https://github.com/example-org/example-algorithm.git \
            --output-base-dir /path/to/output \
            --scratch-dir /tmp/backtest \
@@ -529,7 +661,7 @@ hv backtest --git-reference main \
 
 **Backtest with S3 Cache (recommended for SageMaker)**:
 ```bash
-hv backtest --git-reference main \
+hv algorithm backtest --git-reference main \
            --algo-repo-url https://github.com/example-org/example-algorithm.git \
            --output-base-dir /path/to/output \
            --scratch-dir /tmp/backtest \
@@ -542,9 +674,23 @@ hv backtest --git-reference main \
            --cache-scope hyperparam
 ```
 
+**SageMaker Backtest with Encode Partition Prewarm**:
+```bash
+hv algorithm backtest --git-reference main \
+           --algo-repo-url https://github.com/example-org/example-algorithm.git \
+           --output-base-dir /path/to/output \
+           --scratch-dir /tmp/backtest \
+           --last-test-time 2000-08-05 \
+           --sagemaker-config sagemaker-config.json \
+           --auto-attach-data-default-s3-base s3://example-bucket/tables/ \
+           --cache s3://example-bucket/hotvect-cache/ \
+           --cache-scope hyperparam \
+           --prewarm
+```
+
 **Backtest with Local Cache (local execution only)**:
 ```bash
-hv backtest --git-reference main \
+hv algorithm backtest --git-reference main \
            --algo-repo-url https://github.com/example-org/example-algorithm.git \
            --data-base-dir /path/to/data \
            --output-base-dir /path/to/output \
@@ -556,7 +702,7 @@ hv backtest --git-reference main \
 
 **Config File Approach**:
 ```bash
-hv backtest --backtest-config backtest-refs.json \
+hv algorithm backtest --backtest-config backtest-refs.json \
            --algo-repo-url https://github.com/example-org/example-algorithm.git \
            --data-base-dir /path/to/data \
            --output-base-dir /path/to/output \
@@ -635,7 +781,7 @@ hv backtest --backtest-config backtest-refs.json \
 **Usage**:
 
 ```bash
-hv generate-state --algorithm-jar <path_to_jar> --algorithm-name <algorithm_name> --source-path <state_input_json> [options]
+hv algorithm generate-state --algorithm-jar <path_to_jar> --algorithm-name <algorithm_name> --source-path <state_input_json> [options]
 ```
 
 **Options**: Same as the common Java command options (see Common Options section below).
@@ -643,7 +789,7 @@ hv generate-state --algorithm-jar <path_to_jar> --algorithm-name <algorithm_name
 **Example**:
 
 ```bash
-hv generate-state --algorithm-jar my_algorithm.jar --algorithm-name example-ranker --source-path '{"training_data":["file1","file2"]}' --dest-path state.output
+hv algorithm generate-state --algorithm-jar my_algorithm.jar --algorithm-name example-ranker --source-path '{"training_data":["file1","file2"]}' --dest-path state.output
 ```
 
 ### `serve`
@@ -656,9 +802,9 @@ the containing application's request adapter or operational behavior. Headless m
 **Usage**:
 
 ```bash
-hv serve --algorithm-jar <path_to_jar> --algorithm-name <algorithm_name> --parameter-path <params_zip> --port <port> [options]
-hv serve --local-runtime-config <local_runtimes.json> --port <port> [options]
-hv serve --ems-url <url> --ems-slot <slot> --port <port> [options]
+hv algorithm serve --algorithm-jar <path_to_jar> --algorithm-name <algorithm_name> --parameter-path <params_zip> --port <port> [options]
+hv algorithm serve --local-runtime-config <local_runtimes.json> --port <port> [options]
+hv algorithm serve --ems-url <url> --ems-slot <slot> --port <port> [options]
 ```
 
 **Required Options**:
@@ -676,7 +822,7 @@ hv serve --ems-url <url> --ems-slot <slot> --port <port> [options]
 
 **Remote metadata mode**:
 
-- `--ems-url` and `--ems-slot` load selected algorithm metadata from an external service instead of a local JAR.
+- `--ems-url` and `--ems-slot` load selected algorithm metadata from a configured EMS endpoint instead of a local JAR.
 - This mode requires both flags and rejects `--algorithm-jar`, `--algorithm-name`, `--parameter-path`,
   `--algorithm-override`, and `--local-runtime-config`.
 - `--ems-assignment-key` controls variant assignment; `--ems-token-env` names the environment variable that carries the
@@ -700,9 +846,9 @@ hv serve --ems-url <url> --ems-slot <slot> --port <port> [options]
   repository's `REALTIME` and `ONLINE` context. Both remain local-debug server modes.
 - Neither current mode configures the optional runtime-local state-storage root required by definitions with
   `requires_local_state_storage: true`.
-- `hv serve` injects `-XX:MaxRAMPercentage=80` when you do not pass an explicit heap cap (`-Xmx...` or `-XX:MaxRAMPercentage=...`).
-- `hv serve` also injects `-XX:+ExitOnOutOfMemoryError` unless that exact flag is already present.
-- Extra JVM args must be passed after an explicit `--` separator (for example `hv serve ... -- -Xmx4g`). Use an explicit heap flag when you want to take control of heap sizing.
+- `hv algorithm serve` injects `-XX:MaxRAMPercentage=80` when you do not pass an explicit heap cap (`-Xmx...` or `-XX:MaxRAMPercentage=...`).
+- `hv algorithm serve` also injects `-XX:+ExitOnOutOfMemoryError` unless that exact flag is already present.
+- Extra JVM args must be passed after an explicit `--` separator (for example `hv algorithm serve ... -- -Xmx4g`). Use an explicit heap flag when you want to take control of heap sizing.
 
 **Endpoints**:
 - `GET /health`
@@ -822,7 +968,7 @@ Most Java-based commands (audit, performance-test, encode, predict, generate-sta
   `worker serve`; optional for `predict` (required only by algorithms that need parameters) and `encode`.
 - `--dest-schema-path`: Path where the feature schema description will be saved (optional, used in encoding operations).
 - `--samples`: Number of samples to process, useful for testing with smaller datasets (optional).
-- `--max-threads`: Max worker threads for Hotvect Java execution. For `hv performance-test`, if omitted, `hv` defaults to `2` threads on machines with `>=4` physical cores (else `1`). Pass an explicit value to override, or `0` to avoid passing `--max-threads` and let the JAR decide.
+- `--max-threads`: Max worker threads for Hotvect Java execution. For `hv algorithm performance-test`, if omitted, `hv` defaults to `2` threads on machines with `>=4` physical cores (else `1`). Pass an explicit value to override, or `0` to avoid passing `--max-threads` and let the JAR decide.
 - `--ordered`, `--unordered`, `--writer-num-shards`: Output controls for `audit`, `predict`, and `encode`.
   `--ordered` preserves input order and writes one part file; `--unordered` permits parallel writing of part files.
   The flags are mutually exclusive, and `--writer-num-shards > 1` cannot be combined with `--ordered`. By default,
@@ -831,12 +977,12 @@ Most Java-based commands (audit, performance-test, encode, predict, generate-sta
   `part-00000.jsonl`.
 - `--target-rps`: Performance-test only. Fixed target requests/sec (optional).
 - `--target-throughput-fraction`: Performance-test only. Fraction of warmup mean throughput to use as target requests/sec (optional; default `0.8`, `0` disables pacing).
-- JVM passthrough: for Java wrapper commands, extra JVM args must follow an explicit `--` separator. Example: `hv predict ... -- -Xmx8g -Dfoo=bar`.
+- JVM passthrough: for Java wrapper commands, extra JVM args must follow an explicit `--` separator. Example: `hv algorithm predict ... -- -Xmx8g -Dfoo=bar`.
 
 Choose exactly one heap cap: `-Xmx...` or `-XX:MaxRAMPercentage=...`. Passing both (or repeating either style)
 fails fast; when neither is set, Hotvect uses `-XX:MaxRAMPercentage=80`.
 
-**Note**: Generally, if the command transforms data, the actual transformed output is stored in the `--dest-path`, while metadata—such as timing information, algorithm version, and other operation details—is stored in `--metadata-path/metadata.json`. For debugging, `--metadata-path/hv.log` contains Python CLI logs, `--metadata-path/hotvect-offline-utils.log` contains Java logs, and `--metadata-path/stdout-stderr.log` contains raw subprocess stdout/stderr.
+**Note**: Generally, if the command transforms data, the actual transformed output is stored in the `--dest-path`, while metadata—such as timing information, algorithm version, and other operation details—is stored in `--metadata-path/metadata.json`. Encode metadata records encoder and decoder implementation class names: named classes use canonical names, while lambda and anonymous implementations use their JVM binary names. For debugging, `--metadata-path/hv.log` contains Python CLI logs, `--metadata-path/hotvect-offline-utils.log` contains Java logs, and `--metadata-path/stdout-stderr.log` contains raw subprocess stdout/stderr.
 
 ### SageMaker one-shot mode (audit/predict/evaluate/encode/performance-test)
 
@@ -864,7 +1010,7 @@ and returns after submission.
 - `--parameter-s3-uri`: S3 URI to a parameters ZIP (typically from `s3_uri_predict_parameters_zip` in a prior
   SageMaker train/backtest run). It is required for `audit` and `performance-test`, optional for `predict` and
   `encode`, and not used by `evaluate`.
-- `hv evaluate --sagemaker`: point `--source-s3-uri` at a cached prediction file or part-file directory prefix. Reusing a prior `predict` output is the easiest way to benchmark `evaluate` without paying the `predict` cost again.
+- `hv algorithm evaluate --sagemaker`: point `--source-s3-uri` at a cached prediction file or part-file directory prefix. Reusing a prior `predict` output is the easiest way to benchmark `evaluate` without paying the `predict` cost again.
 - `--job-parallelism`: Parallelize SageMaker execution across `N` shard jobs. Available only for `audit`, `predict`, and
   `encode`.
 - `--verify`: Verify/finalize a previously submitted parallel run. Available only for `audit`, `predict`, and `encode`;
@@ -890,7 +1036,7 @@ See also: [Parallel SageMaker One-Shot Runs](../../guides/parallel-sagemaker-one
 ### Running an Audit
 
 ```bash
-hv audit --algorithm-jar my_algorithm.jar --algorithm-name example-ranker --parameter-path parameters.zip --source-path data/input.jsonl --dest-path audit_output --ordered
+hv algorithm audit --algorithm-jar my_algorithm.jar --algorithm-name example-ranker --parameter-path parameters.zip --source-path data/input.jsonl --dest-path audit_output --ordered
 ```
 
 This command performs feature transformation on the `input.jsonl` file using `example-ranker`, and saves the human-readable output under `audit_output/`, for example `audit_output/part-00000.jsonl`.
@@ -898,7 +1044,7 @@ This command performs feature transformation on the `input.jsonl` file using `ex
 ### Generating Predictions
 
 ```bash
-hv predict --algorithm-jar my_algorithm.jar --algorithm-name example-ranker --source-path data/input.jsonl --dest-path predictions --parameter-path parameters.zip --ordered
+hv algorithm predict --algorithm-jar my_algorithm.jar --algorithm-name example-ranker --source-path data/input.jsonl --dest-path predictions --parameter-path parameters.zip --ordered
 ```
 
 This command generates predictions for the input data and saves them under `predictions/`, for example `predictions/part-00000.jsonl` in ordered mode.
@@ -906,7 +1052,7 @@ This command generates predictions for the input data and saves them under `pred
 ### Evaluating Predictions
 
 ```bash
-hv evaluate --source-path predictions --dest-path evaluation_results.json
+hv algorithm evaluate --source-path predictions --dest-path evaluation_results.json
 ```
 
 This command evaluates the predictions in `predictions/` (or a single JSONL file) and saves the evaluation metrics to
@@ -916,7 +1062,7 @@ This command evaluates the predictions in `predictions/` (or a single JSONL file
 ### Training a Model
 
 ```bash
-hv train --algorithm-name example-document-ranker \
+hv algorithm train --algorithm-name example-document-ranker \
          --data-base-dir /path/to/training/data \
          --output-base-dir /path/to/output \
          --algorithm-jar my_algorithm.jar \
@@ -931,7 +1077,7 @@ arguments.
 ### Running a Backtest
 
 ```bash
-hv backtest --git-reference main --git-reference feature-improved-ranking \
+hv algorithm backtest --git-reference main --git-reference feature-improved-ranking \
            --algo-repo-url https://github.com/example-org/example-ranking-algorithm.git \
            --data-base-dir /path/to/test/data \
            --output-base-dir /path/to/backtest/results \
@@ -968,41 +1114,41 @@ output-base-dir/
         └── stdout-stderr.log
 ```
 
-## `hv-ext`
+## Utility commands
 
-The `hv-ext` tool provides extended utility commands for data analysis, format conversion, and result management that complement the core `hv` operations. This CLI is designed for auxiliary tasks that are commonly needed but are separate from the main ML pipeline operations.
+Metrics, result management, prediction comparison, and data-dependency commands are canonical `hv` commands.
+Migrated `hv-ext` commands remain available for existing scripts but print a warning with their canonical replacement.
+`hv-ext compare-jsonl` and `hv-ext catboost-convert` remain low-level extension commands.
 
 ### Command map
 
-The `hv-ext` tool supports the following utility operations:
+The `hv` tool supports the following utility operations:
 
 - **metrics**: Metrics utilities (quality + system), export, and plotting
-- **catboost-convert**: Convert CatBoost encoded TSV data to JSONL format
 - **config**: Show or initialize `~/.hotvect/config.json`
-- **compare-jsonl**: Compare two JSONL files and identify differences between them
-- **compare-equivalence**: Verify predict score/rank equivalence between two JSONL outputs
-- **results**: List and download `result.json` runs from local `meta/` dirs or S3 prefixes (latest-only)
-- **data-dependency**: Show or download training data dependencies required for local train/backtest operations
-- **show-data-dependency**: Show data dependencies for SageMaker InputDataConfig construction
+- **hv qa utils compare-predictions**: Verify predict score/rank equivalence between two JSONL outputs
+- **hv-ext compare-jsonl**: Compare two arbitrary JSONL files and identify structural differences
+- **results**: List and download `result.json` runs from local `meta/` dirs or S3 prefixes
+- **data dependencies inspect|download**: Inspect or materialize training data required for local train/backtest operations
 
 ### Usage
 
-The general syntax for using the `hv-ext` tool is:
+The general syntax for using the utility commands is:
 
 ```bash
-hv-ext <command> [options]
+hv <command> [options]
 ```
 
 To see the list of available commands, run:
 
 ```bash
-hv-ext -h
+hv --help
 ```
 
 To get help on a specific command, use:
 
 ```bash
-hv-ext <command> -h
+hv <command> -h
 ```
 
 ### Commands
@@ -1014,7 +1160,7 @@ hv-ext <command> -h
 **Usage**:
 
 ```bash
-hv-ext metrics <metrics-command> [options]
+hv metrics <metrics-command> [options]
 ```
 
 | Subcommand | Use it for | Output contract |
@@ -1024,23 +1170,41 @@ hv-ext metrics <metrics-command> [options]
 | `export` | Machine-readable evaluation table | Preserves structured metric estimates (`value`, optional `ci95_lower`/`ci95_upper`) |
 | `plot` | Human-reviewable PDF and optional table | Requires `--relative-baseline`; includes uncertainty, evaluation/benchmark specification, provenance, and timing/cache information |
 
+Directory discovery for all four subcommands can be narrowed with `--algorithm-name-pattern`,
+`--algorithm-version-pattern`, `--from-test-date`, and `--to-test-date`. `export` additionally accepts `--versions`
+and `plot` additionally accepts `--algorithm-ids`; each filters the records and defines their display order. Use
+`--metrics` to select exact metric names.
+
+For `plot`, `--relative-baseline` accepts either a plotted version or `online:<dimension>`. Optional
+`--baseline-description <text>` and repeatable `--treatment-description VERSION=TEXT` values are rendered in the PDF
+summary; they annotate the report and do not change the input data or calculations.
+
 **Examples**:
 
 ```bash
 # Multi-day quality comparison under meta dir
-hv-ext metrics compare-quality \
+hv metrics compare-quality \
   --output-base-dir ./backtest-results/meta \
   --control my-algorithm@1.0.0 \
   --treatment my-algorithm@1.0.1 \
   --from-test-date 2000-02-01 \
   --to-test-date 2000-02-14 \
   > comparison.json
+
+# Plot exact algorithm_ids against a chosen baseline
+hv metrics plot \
+  --result-glob './backtest-results/meta/**/result.json' \
+  --algorithm-ids control@1.0.0 candidate@1.0.0 \
+  --relative-baseline control@1.0.0 \
+  --treatment-description candidate@1.0.0='Candidate with reranking enabled' \
+  --metrics roc_auc p95 \
+  --out metrics-plots.pdf
 ```
 
 For a reproducible plot, provide explicit result files and a baseline:
 
 ```bash
-hv-ext metrics plot \
+hv metrics plot \
   --result-files baseline/result.json treatment/result.json \
   --relative-baseline <baseline-version> \
   --out comparison.pdf \
@@ -1050,6 +1214,19 @@ hv-ext metrics plot \
 If plotted records have different benchmark specifications, `plot` exits successfully but warns and omits all system
 latency/throughput metrics. The remaining report is valid for quality and pipeline inspection, not a system-performance
 comparison. See [Evaluation metrics and uncertainty](../evaluation-metrics/index.md).
+
+`--assemble-latest-sections` builds a compare dataset from the latest valid quality, system-performance, and pipeline
+sections for each algorithm/day under `--output-base-dir`. It is intended for `hv results download` destinations,
+especially the default `runs-with-links` layout:
+
+```bash
+hv metrics plot \
+  --output-base-dir ./backtest-results \
+  --assemble-latest-sections \
+  --algorithm-ids my-algorithm@1.0.0 my-algorithm@1.0.1 \
+  --relative-baseline my-algorithm@1.0.0 \
+  --out compare.pdf
+```
 
 #### `metrics export`
 
@@ -1062,13 +1239,18 @@ Explicit result files/globs take precedence over `--output-base-dir`. Structured
 than flattened.
 
 ```bash
-hv-ext metrics export \
+hv metrics export \
   --result-files baseline/result.json treatment/result.json \
   --metrics roc_auc ndcg_at_10 \
   --out metrics.json
 ```
 
-### 2. `catboost-convert`
+The report retains the source and override metadata for each selected section. Final validity is conservative across
+all contributing sections: any supplied or missing override provenance, dirty code, or non-exact git tag makes the
+algorithm result non-final. If contributing sections report different code revisions or algorithm parameters, report
+generation fails instead of combining incompatible subjects.
+
+### Low-level `hv-ext catboost-convert`
 
 **Description**: Convert CatBoost encoded TSV data to JSONL format. Useful for inspecting CatBoost model features and transforming training data for analysis.
 
@@ -1090,13 +1272,13 @@ hv-ext catboost-convert --schema-file <schema_file> --encoded-file <tsv_file> --
 hv-ext catboost-convert --schema-file model.schema --encoded-file encoded_data.tsv --output data.jsonl
 ```
 
-### `config`
+### `config` → `hv config`
 
 Show or initialize the local CLI configuration used by commands that accept directory defaults:
 
 ```bash
-hv-ext config show
-hv-ext config init \
+hv config show
+hv config init \
   --data-base-dir /path/to/data \
   --output-base-dir /path/to/output \
   --scratch-dir /path/to/scratch
@@ -1105,22 +1287,25 @@ hv-ext config init \
 `config init` refuses to replace `~/.hotvect/config.json` unless `--force` is present. Inspect and edit an existing file,
 or use `--force` for an intentional replacement. For a new file, provide all three directory flags for a non-interactive
 setup; omit all three to enter values interactively. The initializer also accepts the EMS defaults shown by
-`hv-ext config init --help`.
+`hv config init --help`.
 
-### `compare-equivalence`
+### `hv qa utils compare-predictions`
 
 Compare two prediction JSONL outputs for score and rank equivalence. The command writes JSON to stdout and exits
 nonzero when the equivalence check fails.
 
+Each `result` item must contain a finite `score`, integer `rank`, and an action ID. Use top-level `action_id` for new
+output; the comparator also accepts the older `additional_properties.action_id` shape.
+
 ```bash
-hv-ext compare-equivalence baseline.predict/part-00000.jsonl treatment.predict/part-00000.jsonl \
+hv qa utils compare-predictions baseline.predict/part-00000.jsonl treatment.predict/part-00000.jsonl \
   --score-eps 1e-6
 ```
 
 Use `--allow-non-deterministic-tie-breaking` only when tied scores may legitimately change order. Add `--output <dir>`
 to write `comparison.json` as an artifact.
 
-### 3. `compare-jsonl`
+### `hv-ext compare-jsonl`
 
 **Description**: Compare two JSONL files and identify differences between them. Supports field renaming via configuration file to handle schema changes between algorithm versions.
 
@@ -1166,19 +1351,23 @@ hv-ext compare-jsonl file1.jsonl file2.jsonl -o comparison_output/
 ### 4. `results`
 
 **Description**: Result inventory utilities. Supports:
-- `hv-ext results ls`: list matching `result.json` runs (local `meta/` dir or S3 prefix)
-- `hv-ext results download`: download selected S3 runs into a local layout
+- `hv results ls`: list matching `result.json` runs (local `meta/` dir or S3 prefix)
+- `hv results download`: download selected S3 runs into a local layout
 
-Both subcommands are **latest-only**:
-- for each `(test_date, algorithm_id)`, only the newest run is returned/downloaded.
+`hv results ls` is **latest-only**:
+- for each `(test_date, algorithm_id)`, only the newest run is returned.
 - S3 freshness is based on S3 `LastModified`; local freshness is based on local `result.json` mtime.
+
+`hv results download` is also **latest-only for selection**:
+- for each `(test_date, algorithm_id)`, only the newest matching S3 run is selected.
+- selected runs are materialized in the `runs-with-links` layout.
 
 #### 4.1 `results ls`
 
 **Usage**:
 
 ```bash
-hv-ext results ls <location> [options]
+hv results ls <location> [options]
 ```
 
 - `<location>` can be:
@@ -1189,6 +1378,9 @@ hv-ext results ls <location> [options]
 - `--from-date`, `--to-date` (inclusive; `YYYY-MM-DD`)
 - `--algorithm-name-regex`
 - `--algorithm-version-regex`
+
+Regex filters use search semantics on the parsed field value. Anchors therefore apply to that field alone; for example,
+`^my-algorithm$` matches the exact algorithm name rather than the surrounding S3 result path.
 
 **S3-only options**:
 - `--job-name-regex`
@@ -1203,14 +1395,14 @@ hv-ext results ls <location> [options]
 
 ```bash
 # List local meta runs (latest-only)
-hv-ext results ls ./backtest-results/meta \
+hv results ls ./backtest-results/meta \
   --from-date 2000-02-10 \
   --to-date 2000-02-15 \
   --algorithm-name-regex "^my-algorithm$" \
   --algorithm-version-regex "^1\\.2\\..*$"
 
 # List S3 runs (latest-only) with job-name filter
-hv-ext results ls s3://example-bucket/sagemaker-output/ \
+hv results ls s3://example-bucket/sagemaker-output/ \
   --from-date 2000-02-10 \
   --to-date 2000-02-15 \
   --algorithm-name-regex "^my-algorithm$" \
@@ -1252,7 +1444,7 @@ hv-ext results ls s3://example-bucket/sagemaker-output/ \
 **Usage**:
 
 ```bash
-hv-ext results download <s3_prefix> --dest-base-dir <local_dir> [options]
+hv results download <s3_prefix> --dest-base-dir <local_dir> [options]
 ```
 
 **Required options**:
@@ -1263,10 +1455,15 @@ hv-ext results download <s3_prefix> --dest-base-dir <local_dir> [options]
 - filters: `--from-date`, `--to-date`, `--algorithm-name-regex`, `--algorithm-version-regex`, `--job-name-regex`
 - AWS: `--role-arn`
 - extra artifacts: `--include-metadata`, `--include-output-data`
-- `--no-skip-existing`: re-download even if `meta/<algorithm_id>/last_test_date_<day>/result.json` already exists
+- `--no-skip-existing`: re-download even if the canonical local `result.json` already exists
 
 **Behavior**:
 - Selection uses the same latest-only semantics as `results ls`.
+- `runs-with-links` is the only supported local layout; `--layout` is not accepted.
+- Canonical run data lives under `runs/<job>/...`.
+- `meta/<algorithm_id>/last_test_date_<day>/result.json` points to the newest downloaded local run for that day.
+- `meta/<algorithm_id>/last_test_date_<day>/runs/<job>` points to each downloaded run for that `(algorithm_id, test_date)`.
+- The downloader fails fast when the destination contains the former one-result-per-day materialization.
 - Downloads `result.json` for every selected run.
 - Optionally downloads and extracts:
   - `output/output.tar.gz` (`--include-metadata`)
@@ -1277,7 +1474,7 @@ hv-ext results download <s3_prefix> --dest-base-dir <local_dir> [options]
 
 ```bash
 # Download result.json only
-hv-ext results download s3://example-bucket/sagemaker-output/ \
+hv results download s3://example-bucket/sagemaker-output/ \
   --dest-base-dir ./results \
   --from-date 2000-02-10 \
   --to-date 2000-02-15 \
@@ -1285,7 +1482,7 @@ hv-ext results download s3://example-bucket/sagemaker-output/ \
   --algorithm-version-regex "^1\\.2\\..*$"
 
 # Include metadata and output data artifacts
-hv-ext results download s3://example-bucket/sagemaker-output/ \
+hv results download s3://example-bucket/sagemaker-output/ \
   --dest-base-dir ./results \
   --from-date 2000-02-10 \
   --to-date 2000-02-15 \
@@ -1294,6 +1491,25 @@ hv-ext results download s3://example-bucket/sagemaker-output/ \
   --job-name-regex "^example-job-.*$" \
   --include-metadata \
   --include-output-data
+```
+
+**Materialized layout**:
+
+```text
+./results/
+├── meta/
+│   └── <algorithm>@<version>(-<hyperparameter>)/
+│       └── last_test_date_YYYY-MM-DD/
+│           ├── latest -> ../../../runs/<job>/meta/<algorithm>@<version>(-<hyperparameter>)/last_test_date_YYYY-MM-DD
+│           ├── result.json -> ../../../runs/<job>/meta/<algorithm>@<version>(-<hyperparameter>)/last_test_date_YYYY-MM-DD/result.json
+│           └── runs/
+│               └── <job> -> ../../../../runs/<job>/meta/<algorithm>@<version>(-<hyperparameter>)/last_test_date_YYYY-MM-DD
+└── runs/
+    └── <job>/
+        └── meta/
+            └── <algorithm>@<version>(-<hyperparameter>)/
+                └── last_test_date_YYYY-MM-DD/
+                    └── result.json
 ```
 
 **JSON output schema (`results download`)**:
@@ -1338,13 +1554,13 @@ hv-ext results download s3://example-bucket/sagemaker-output/ \
 
 ```bash
 # 1. Download backtest results for comparison
-hv-ext results download s3://example-bucket/performance-tests/ \
+hv results download s3://example-bucket/performance-tests/ \
   --dest-base-dir "./perf-data" \
   --from-date "2000-02-01" \
   --to-date "2000-02-01"
 
 # 2. Compare performance between two algorithm versions
-hv-ext metrics compare-system \
+hv metrics compare-system \
   ./perf-data/baseline/performance.json \
   ./perf-data/experiment/performance.json \
   > performance_comparison.json
@@ -1375,194 +1591,132 @@ hv-ext compare-jsonl \
   -o audit_comparison_results/
 ```
 
-### 5. `data-dependency`
+### `hv data dependencies inspect|download`
 
-**Description**: Show or download training data dependencies required for local train/backtest operations. Default behavior lists all dependencies as JSON (safe, no download). Use `--download-all` or `--download <name>` to download explicitly. Analyzes algorithm repositories to determine exact data requirements and downloads the necessary data from S3 with intelligent skip logic and sampling support.
+**Description**: Resolve the datasets required by one algorithm revision for a target date. `inspect` is read-only:
+by default it reports the declaration, `--remote` resolves the declared production S3 URI, and `--local-dir` compares
+local files with those remote objects. `download` is the only operation that materializes data locally.
 
-**Usage**:
+Remote locations come from each dependency's production `s3_uri` declaration. For dependencies without that declaration,
+`--s3-base-dir` provides a fallback location by appending the dependency's `data_prefix`. A declared URI always takes
+precedence; if neither is available, the command fails clearly.
 
-```bash
-hv-ext data-dependency --repo-url <git_repo_url> --git-reference <git_ref> --s3-base-dir <s3_prefix> --local-data-dir <local_dir> --scratch-dir <temp_dir> --last-test-time <date> [options]
-```
+**Shared required options**:
 
-**Required Options**:
-- `--repo-url`: Git repository URL for the algorithm (for example, `https://github.com/example-org/example-algorithm.git`)
-- `--git-reference`: Git reference (branch/commit) to analyze for data dependencies (single reference only)
-- `--s3-base-dir`: S3 base directory where training data is stored (e.g., "s3://example-bucket/tables/")
-- `--local-data-dir`: Local directory where data will be downloaded
-- `--scratch-dir`: Directory for temporary JAR builds and git checkouts
-- `--last-test-time`: Last test time in YYYY-MM-DD format (e.g., "2000-01-08")
+- `--repo-url`: Git repository URL for the algorithm.
+- `--git-reference`: One branch, tag, or commit to inspect.
+- `--scratch-dir`: Directory for temporary JAR builds and git checkouts.
+- `--last-test-time`: Last test time in YYYY-MM-DD format.
 
-**Optional Options - Download Control (mutually exclusive)**:
-- `--download-all`: Download all dependencies
-- `--download <name>`: Download specific dependency by data_prefix (repeatable)
+**Inspect options**:
 
-**Optional Options - Other**:
-- `--target {parameters,predict,evaluate}`: Select the dependency target. `evaluate` uses `test_data_spec`
-  (default), `predict` uses `prediction_spec`, and `parameters` includes only the dependencies needed to prepare
-  parameters.
-- `--algorithm-override`: Path to JSON file containing algorithm configuration overrides. Uses the same patch semantics as `hv train` and `hv backtest`.
-- `--role-arn`: AWS role ARN to assume for S3 access
-- `--sample-ratio`: Fraction of files to download per date directory (e.g., 0.1 = 10%, 0.05 = 5%)
-- `--max-parallel-downloads`: Maximum number of concurrent file downloads (default: 8)
+- `--remote`: Resolve each declared production S3 URI. It does not list objects.
+- `--local-dir <path>`: Compare local files to the resolved remote objects. Requires `--remote` and AWS credentials.
+- `--format json|sagemaker`: Emit dependency metadata (default) or a SageMaker `InputDataConfig` object. SageMaker
+  format requires `--remote`.
 
-**Troubleshooting**:
-- If downloads fail with "Too many open files" or "Connection pool is full", reduce `--max-parallel-downloads` and/or use `--sample-ratio` (and optionally narrow scope with `--download <name>`).
+**Download options**:
+
+- `--local-dir <path>`: Destination directory for materialized data.
+- Exactly one of `--all` or repeatable `--name <data-prefix>` selects dependencies to download.
+- `--sample-ratio` and `--max-parallel-downloads` tune downloads only.
+
+`--target`, `--algorithm-override`, `--s3-base-dir`, and `--role-arn` are available on both operations.
 
 **Examples**:
 
 ```bash
-# List dependencies as JSON (default, safe - no download)
-hv-ext data-dependency \
+# Inspect the declared dependency contract; no S3 access or download
+hv data dependencies inspect \
   --repo-url https://github.com/example-org/example-algorithm.git \
   --git-reference v2.0.0 \
-  --s3-base-dir s3://example-bucket/tables \
-  --local-data-dir ./training-data \
   --scratch-dir ./temp-build \
   --last-test-time 2000-01-08
 
-# Download all dependencies
-hv-ext data-dependency --download-all \
+# Resolve the production S3 locations, or emit InputDataConfig-shaped JSON
+hv data dependencies inspect --remote --format sagemaker \
   --repo-url https://github.com/example-org/example-algorithm.git \
   --git-reference v2.0.0 \
-  --s3-base-dir s3://example-bucket/tables \
-  --local-data-dir ./training-data \
   --scratch-dir ./temp-build \
   --last-test-time 2000-01-08
 
-# Download specific dependency with sampling
-hv-ext data-dependency \
-  --download example_training_data \
+# Compare an existing local mirror against remote objects
+hv data dependencies inspect --remote --local-dir ./training-data \
   --repo-url https://github.com/example-org/example-algorithm.git \
   --git-reference v2.0.0 \
-  --s3-base-dir s3://example-bucket/tables \
-  --local-data-dir ./training-data \
-  --scratch-dir ./temp-build \
-  --last-test-time 2000-01-08 \
-  --sample-ratio 0.01
-
-# Inspect dependencies for explicit prediction instead of evaluation
-hv-ext data-dependency \
-  --target predict \
-  --repo-url https://github.com/example-org/example-algorithm.git \
-  --git-reference v2.0.0 \
-  --s3-base-dir s3://example-bucket/tables \
-  --local-data-dir ./prediction-data \
   --scratch-dir ./temp-build \
   --last-test-time 2000-01-08
 
-# Download with AWS role assumption
-hv-ext data-dependency --download-all \
-  --repo-url https://github.com/example-org/example-algorithm.git \
-  --git-reference main \
+# Download all dependencies, or narrow the selection and sample it
+hv data dependencies download --all --local-dir ./training-data \
   --s3-base-dir s3://example-bucket/tables \
-  --local-data-dir ./data \
-  --scratch-dir ./temp \
-  --last-test-time 2000-01-08 \
-  --role-arn arn:aws:iam::123456789012:role/s3-access-role
+  --repo-url https://github.com/example-org/example-algorithm.git \
+  --git-reference v2.0.0 \
+  --scratch-dir ./temp-build \
+  --last-test-time 2000-01-08
 
-```
-
-**Key Features**:
-- **Safe Default**: Lists dependencies as JSON by default (no accidental downloads)
-- **JSON plan**: stdout contains the plan; clone/build progress is written to stderr, so the JSON can be redirected or
-  piped to `jq`.
-- **Selective Downloads**: Download all (`--download-all`) or specific dependencies (`--download <name>`)
-- **Automatic Dependency Analysis**: Clones repositories, builds JARs, and uses hotvect's AlgorithmPipeline to determine exact data requirements
-- **Smart Resume**: Automatically resumes incomplete downloads, skips complete date directories
-- **Sampling Support**: Download subset of files using `--sample-ratio` for testing and development (critical for large datasets)
-- **Parallel Downloads**: Concurrent download of multiple date directories and files within each directory
-- **AWS Integration**: Supports role assumption for secure S3 access
-- **Algorithm Name Extraction**: Automatically extracts algorithm names from pom.xml artifactId following established patterns
-
-### 6. `show-data-dependency`
-
-**Description**: Show algorithm data dependencies as JSON for SageMaker `InputDataConfig` construction.
-
-**Usage**:
-
-```bash
-hv-ext show-data-dependency --repo-url <git_repo_url> --git-reference <git_ref> --scratch-dir <temp_dir> --last-test-time <date> [options]
-```
-
-**Optional Options**:
-- `--git-reference`: Can be specified multiple times for multiple references.
-- `--target {parameters,predict,evaluate}`: Select whether dependency analysis follows parameter preparation,
-  `prediction_spec`, or `test_data_spec` (default: `evaluate`).
-- `--algorithm-override`: Path to JSON file containing algorithm configuration overrides (repeatable).
-- `-o`, `--output`: Output file path (default: stdout).
-
-**Example**:
-
-```bash
-hv-ext show-data-dependency \
+hv data dependencies download --name example_training_data --local-dir ./training-data \
   --repo-url https://github.com/example-org/example-algorithm.git \
   --git-reference v2.0.0 \
   --scratch-dir ./temp-build \
   --last-test-time 2000-01-08 \
-  -o dependencies.json
-
-# Inspect the input required by prediction_spec
-hv-ext show-data-dependency \
-  --target predict \
-  --repo-url https://github.com/example-org/example-algorithm.git \
-  --git-reference v2.0.0 \
-  --scratch-dir ./temp-build \
-  --last-test-time 2000-01-08
+  --sample-ratio 0.01
 ```
 
-## `hv-exp`
+## `hv ems`
 
-`hv-exp` is a small, **read-only** CLI for inspecting an experiment-management service,
+`hv ems` is a small, **read-only** CLI for inspecting an experiment-management service,
 such as slots, experiments, algorithms, algorithm parameters, and online evaluation results.
+
+`hv-exp` remains available for existing scripts and prints a warning to use `hv ems`.
 
 ### Usage
 
 ```bash
-hv-exp <subcommand> [options]
+hv ems <subcommand> [options]
 ```
 
 Examples:
 
 ```bash
-hv-exp slot list
-hv-exp slot get --slot-name my-slot
-hv-exp experiment list --slot-name my-slot
-hv-exp experiment results list --experiment-id 42
-hv-exp experiment results show --experiment-id 42 --analysis-date 2000-01-15
-hv-exp experiment results download --experiment-id 42
-hv-exp algorithm list-active
-hv-exp algorithm list-in-use
-hv-exp algorithm list-in-use --slot-name my-slot
+hv ems slot list
+hv ems slot get --slot-name my-slot
+hv ems experiment list --slot-name my-slot
+hv ems experiment results list --experiment-id 42
+hv ems experiment results show --experiment-id 42 --analysis-date 2000-01-15
+hv ems experiment results download --experiment-id 42
+hv ems algorithm list-active
+hv ems algorithm list-in-use
+hv ems algorithm list-in-use --slot-name my-slot
 ```
 
 ### Command map
 
-All `hv-exp` commands emit JSON. Start with the narrowest query that answers the question; these operations are
+All `hv ems` commands emit JSON. Start with the narrowest query that answers the question; these operations are
 read-only and make no experiment-management changes.
 
 | Need | Command | Required selector |
 | --- | --- | --- |
-| Discover slots | `hv-exp slot list` | — |
-| Inspect one slot’s default variant and active experiments | `hv-exp slot get` | `--slot-name` |
-| List experiments, optionally in one slot | `hv-exp experiment list` | optional `--slot-name` |
-| Inspect one experiment | `hv-exp experiment get` | `--experiment-id` |
-| Read an experiment’s ramp-up history | `hv-exp experiment rampup-log` | `--experiment-id` |
-| List default variants | `hv-exp default-variant list` | optional `--slot-name` |
-| List all or active algorithms | `hv-exp algorithm list` / `list-active` | optional `--slot-name` |
-| Find algorithms actually in use | `hv-exp algorithm list-in-use` | optional `--slot-name` |
-| Read one algorithm definition | `hv-exp algorithm get` | `--algorithm-name`, `--algorithm-version` |
-| List an algorithm’s parameter versions | `hv-exp algorithm parameter list` | `--algorithm-name`, `--algorithm-version` |
-| Read one parameter artifact record | `hv-exp algorithm parameter get` | `--algorithm-parameter-id` |
-| Inspect/download online evaluation partitions | `hv-exp experiment results <list|show|download>` | `--experiment-id` |
+| Discover slots | `hv ems slot list` | — |
+| Inspect one slot’s default variant and active experiments | `hv ems slot get` | `--slot-name` |
+| List experiments, optionally in one slot | `hv ems experiment list` | optional `--slot-name` |
+| Inspect one experiment | `hv ems experiment get` | `--experiment-id` |
+| Read an experiment’s ramp-up history | `hv ems experiment rampup-log` | `--experiment-id` |
+| List default variants | `hv ems default-variant list` | optional `--slot-name` |
+| List all or active algorithms | `hv ems algorithm list` / `list-active` | optional `--slot-name` |
+| Find algorithms actually in use | `hv ems algorithm list-in-use` | optional `--slot-name` |
+| Read one algorithm definition | `hv ems algorithm get` | `--algorithm-name`, `--algorithm-version` |
+| List an algorithm’s parameter versions | `hv ems algorithm parameter list` | `--algorithm-name`, `--algorithm-version` |
+| Read one parameter artifact record | `hv ems algorithm parameter get` | `--algorithm-parameter-id` |
+| Inspect/download online evaluation partitions | `hv ems experiment results <list|show|download>` | `--experiment-id` |
 
 ```bash
 # Inspect an experiment and its current algorithm definition
-hv-exp experiment get --experiment-id 42
-hv-exp algorithm get --algorithm-name my-algorithm --algorithm-version 1.2.3
+hv ems experiment get --experiment-id 42
+hv ems algorithm get --algorithm-name my-algorithm --algorithm-version 1.2.3
 
 # Discover parameter records for that algorithm
-hv-exp algorithm parameter list \
+hv ems algorithm parameter list \
   --algorithm-name my-algorithm \
   --algorithm-version 1.2.3
 ```
@@ -1578,10 +1732,10 @@ Usage:
 
 ```bash
 # all slots
-hv-exp algorithm list-in-use
+hv ems algorithm list-in-use
 
 # a single slot
-hv-exp algorithm list-in-use --slot-name my-slot
+hv ems algorithm list-in-use --slot-name my-slot
 ```
 
 Output is JSON and includes per-algorithm `in_use_by` entries with source details
@@ -1599,16 +1753,16 @@ Usage:
 
 ```bash
 # list available analysis dates
-hv-exp experiment results list --experiment-id 42
+hv ems experiment results list --experiment-id 42
 
 # stream one analysis date to stdout (decompressed JSONL)
-hv-exp experiment results show --experiment-id 42 --analysis-date 2000-01-15
+hv ems experiment results show --experiment-id 42 --analysis-date 2000-01-15
 
 # download one analysis date
-hv-exp experiment results download --experiment-id 42 --analysis-date 2000-01-15
+hv ems experiment results download --experiment-id 42 --analysis-date 2000-01-15
 
 # download all available analysis dates for the experiment
-hv-exp experiment results download --experiment-id 42
+hv ems experiment results download --experiment-id 42
 ```
 
 `list` returns JSON with available `analysis_date` values and part counts. `show` writes the selected partition to
@@ -1625,13 +1779,15 @@ The S3 base prefix must come either from `--s3-base-prefix` or from
 
 ### Authentication and configuration
 
-By default, `hv-exp` reads experiment-management settings from `~/.hotvect/config.json` under the
-`experiment_management` section (see the config reference).
+By default, `hv ems` reads experiment-management settings from `~/.hotvect/config.json` under the
+`experiment_management` section (see the config reference). Pass `--config-path <file>` before the subcommand to use a
+different complete Hotvect config for that invocation.
 
 You can also override the URL, token provider, and request timeouts on the command line:
 
 ```bash
-hv-exp \
+hv ems \
+  --config-path ./hotvect-config.json \
   --url https://experiments.example.com \
   --token-provider-command "printenv EXAMPLE_TOKEN" \
   --token-provider-ttl-ms 3600000 \
@@ -1640,7 +1796,7 @@ hv-exp \
   slot list
 ```
 
-If no timeout overrides are provided, `hv-exp` uses the values from `~/.hotvect/config.json` when present, and
+If no timeout overrides are provided, `hv ems` uses the values from `~/.hotvect/config.json` when present, and
 otherwise uses a 5 second connect timeout and a 15 second read timeout.
 
 ## Output and ordering notes
@@ -1652,4 +1808,4 @@ otherwise uses a 5 second connect timeout and a 15 second read timeout.
     - **Transformed Data**: For commands that transform data (for example `audit`, `encode`, `predict`), output is
       saved under `--dest-path`, which is a directory containing `part-*` files.
     - **Metadata**: Operation metadata, including timing information, algorithm version, and other details, is saved to `--metadata-path/metadata.json` (logs: `hv.log`, `hotvect-offline-utils.log`, `stdout-stderr.log`).
-- **Extended Utilities**: The `hv-ext` tool complements `hv` by providing data analysis and management utilities that are commonly needed but separate from core ML pipeline operations.
+- **Utility commands**: `hv` includes data analysis and management commands alongside core ML pipeline operations.

@@ -25,7 +25,7 @@ to determine which framework modules it was compiled and packaged with.
 
 | Component | Usually supplied by |
 | --- | --- |
-| `hv`, `hv-ext`, `hv-exp`, pipeline orchestration | Installed `hotvect` Python package |
+| `hv` (plus `hv-ext` and `hv-exp` compatibility executables), pipeline orchestration | Installed `hotvect` Python package |
 | Offline, serve, and demo JARs | Bundled with that Python package |
 | `hotvect-api` and runner utilities | Runtime or application |
 | `hotvect-core` and backend implementations | Algorithm JAR |
@@ -55,7 +55,7 @@ Run the smallest command that crosses the boundary you care about:
 
 ```bash
 hv --version
-hv predict --algorithm-jar /path/to/algorithm.jar --algorithm-name <name> ...
+hv algorithm predict --algorithm-jar /path/to/algorithm.jar --algorithm-name <name> ...
 ```
 
 For feature-only validation, use a bounded ordered audit. For training compatibility, a predict smoke test is not

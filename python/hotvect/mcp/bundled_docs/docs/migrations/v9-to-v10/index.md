@@ -13,7 +13,7 @@ This guide covers the breaking changes and behavioral changes when upgrading fro
 - Hotvect v10 requires **Java 21** (runtime + build).
 - `--metadata-path` is now a **directory** everywhere (v9 used a single `metadata.json` file path in several places).
 - Java runner flag is renamed: `--meta-data` → `--metadata-path` (and `--meta-data` is removed).
-- `hv encode` output is now **directory-based and sharded**: `--dest-path` is a directory, and outputs are written as `part-00000<ext>`, `part-00001<ext>`, ...
+- `hv algorithm encode` output is now **directory-based and sharded**: `--dest-path` is a directory, and outputs are written as `part-00000<ext>`, `part-00001<ext>`, ...
 - Current v10 encoders should provide a file extension via `ExampleEncoder.encodedFileExtension()`. A narrow v9
   string-encoder bridge can still write extensionless part files with a warning; do not rely on that legacy layout.
 - Transformer construction now fails fast on **non-canonical namespaces** (you may need to register namespace enums during wiring).
@@ -147,7 +147,7 @@ In v10:
 - Encoded outputs are written as **shards inside that directory**:
   - `<dest>/part-00000<ext>`, `<dest>/part-00001<ext>`, ...
   - The file extension `<ext>` comes from the encoder (`ExampleEncoder.encodedFileExtension()`).
-- For `hv encode`, this means `--dest-path` is a **directory**, not a file.
+- For `hv algorithm encode`, this means `--dest-path` is a **directory**, not a file.
 
 #### What you need to update
 
@@ -240,10 +240,10 @@ If you want v9-style behavior, pass explicit JVM args:
 
 ```bash
 # Java-backed one-shot commands: JVM args are passed through as extra args
-hv predict ... -- -Xmx32g -XX:+ExitOnOutOfMemoryError
+hv algorithm predict ... -- -Xmx32g -XX:+ExitOnOutOfMemoryError
 
 # Pipelines/backtests: use --extra-jvm-args (comma-separated)
-hv backtest ... --extra-jvm-args "-Xmx32g,-XX:+ExitOnOutOfMemoryError"
+hv algorithm backtest ... --extra-jvm-args "-Xmx32g,-XX:+ExitOnOutOfMemoryError"
 ```
 
 ## Logging and Output Artifacts (What’s New)
@@ -271,14 +271,14 @@ myrun.metadata/
 
 ### Pipelines/backtests (`AlgorithmPipeline`)
 
-For each algorithm run, `hv backtest` writes these under `meta/<algorithm>@<version>/last_test_date_YYYY-MM-DD/`:
+For each algorithm run, `hv algorithm backtest` writes these under `meta/<algorithm>@<version>/last_test_date_YYYY-MM-DD/`:
 
 - `hv.log` (Python orchestration logs)
 - `result.json` (comprehensive pipeline output)
 - `<stage>/hotvect-offline-utils.log` (Java logs)
 - `<stage>/stdout-stderr.log` (raw stage subprocess output)
 
-Direct `hv train` uses the same per-run contents under
+Direct `hv algorithm train` uses the same per-run contents under
 `metadata/<algorithm>@<version>/last_test_date_YYYY-MM-DD/` instead.
 
 Example layout (parent algorithm; child is analogous):
@@ -326,7 +326,7 @@ If you ingest logs or parse artifacts, add support for:
 
 After upgrading:
 
-1. Run `hv predict ...` once and confirm `--metadata-path/` contains:
+1. Run `hv algorithm predict ...` once and confirm `--metadata-path/` contains:
    - `metadata.json`, `hv.log`, `hotvect-offline-utils.log`, `stdout-stderr.log`
 2. Run a local backtest and confirm each algorithm run contains:
    - `meta/.../hv.log`

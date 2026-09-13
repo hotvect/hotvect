@@ -9,32 +9,36 @@ import sys
 from hotvect.experiment_management.commands import ExperimentCommand
 
 
-def main() -> None:
+def main(argv: list[str] | None = None, *, prog: str = "hv-exp", warn_legacy: bool = True) -> int:
     logging.basicConfig(level=logging.INFO, format="%(message)s")
+    if warn_legacy:
+        print("Warning: 'hv-exp' is deprecated; use 'hv ems'.", file=sys.stderr)
 
     parser = argparse.ArgumentParser(
-        prog="hv-exp",
+        prog=prog,
         description="Experiment-management (EMS) utilities for hotvect",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
+        epilog=f"""
 Examples:
-  hv-exp slot list
-  hv-exp slot get --slot-name my-slot
-  hv-exp experiment list --slot-name my-slot
-  hv-exp algorithm list-active
-  hv-exp algorithm list-in-use
+  {prog} slot list
+  {prog} slot get --slot-name my-slot
+  {prog} experiment list --slot-name my-slot
+  {prog} algorithm list-active
+  {prog} algorithm list-in-use
         """,
     )
 
     ExperimentCommand.register_parser(parser)
 
-    if len(sys.argv) == 1:
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if not argv:
         parser.print_help()
-        sys.exit(0)
+        return 0
 
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     ExperimentCommand().execute(args)
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

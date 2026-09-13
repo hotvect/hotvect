@@ -26,9 +26,9 @@ the realtime runtime configuration.
 | Production request-serving integration | Realtime | Online | Live request with latency-sensitive runtime behavior |
 | Offline prediction | Batch | Offline | Dataset-driven inference optimized for offline throughput |
 | Default performance test | Realtime | Offline | Recorded examples exercise the serving-oriented runtime configuration |
-| Local `hv serve` debugging | Batch | Offline | The current local server decodes recorded/offline examples; it is not production hosting |
+| Local `hv algorithm serve` debugging | Batch | Offline | The current local server decodes recorded/offline examples; it is not production hosting |
 
-Individual commands can expose a workload override. For example, `hv performance-test --workload-mode batch` measures
+Individual commands can expose a workload override. For example, `hv algorithm performance-test --workload-mode batch` measures
 the batch path explicitly; omitting it normally measures realtime behavior over offline rows.
 
 ## What factories should do

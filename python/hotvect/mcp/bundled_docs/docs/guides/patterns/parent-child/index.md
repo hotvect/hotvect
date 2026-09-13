@@ -33,7 +33,7 @@ owns.
 ## Training and artifacts
 
 ```bash
-hv train \
+hv algorithm train \
   --algorithm-name example-ranker \
   --algorithm-jar /path/to/example-ranker.jar \
   --data-base-dir /path/to/data \
@@ -44,13 +44,13 @@ hv train \
 Hotvect recursively prepares dependencies before the parent continues. A dependency may train, generate state, reuse
 pinned parameters, or do no parameter work; read `result.json` instead of assuming every child trained.
 
-For `hv train`, inspect:
+For `hv algorithm train`, inspect:
 
 ```text
 <output-base-dir>/metadata/<algorithm-id>/<parameter-version>/result.json
 ```
 
-For `hv backtest`, the corresponding metadata root is `meta`. Parent and child runs each have their own algorithm and
+For `hv algorithm backtest`, the corresponding metadata root is `meta`. Parent and child runs each have their own algorithm and
 parameter-version directory.
 
 ## Override a child through the parent
@@ -98,7 +98,7 @@ This affects data requirements:
 - parent test data remains separate;
 - each dependency resolves its dates from the shared `last_test_time` and its own lag/window settings.
 
-Use `hv-ext data-dependency` with the same target and override as the planned run. See
+Use `hv data dependencies inspect` with the same target and override as the planned run. See
 [Data dependencies](../data-dependencies/index.md).
 
 ## Multiple children and deeper graphs

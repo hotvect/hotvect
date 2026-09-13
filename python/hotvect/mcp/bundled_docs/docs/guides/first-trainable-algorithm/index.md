@@ -5,7 +5,7 @@ tags: [getting-started, algorithm, training, parameters, ranker]
 difficulty: intermediate
 prerequisites:
   - Completed Build your first algorithm
-  - Hotvect 10.43.1 installed from source
+  - Hotvect installed from source
   - JDK 21 and Maven available
 related_docs:
   - ../first-algorithm/index.md
@@ -23,7 +23,7 @@ loads the resulting parameter.
 The model is intentionally elementary. It fits one coefficient through the origin with least squares and scores a
 candidate as `coefficient × signal`. The point is to make every Hotvect boundary visible, not to recommend this model
 for a real ranking problem. The complete example was compiled, trained, packaged, and used for prediction with
-Hotvect 10.43.1.
+Hotvect 10.44.11.
 
 ```text
 labeled JSONL
@@ -478,7 +478,7 @@ JSONL
 Run the parameter-preparation lifecycle:
 
 ```bash
-hv train \
+hv algorithm train \
   --algorithm-name trainable-document-ranker \
   --algorithm-jar target/trainable-document-ranker-1.0.0.jar \
   --data-base-dir data \
@@ -537,7 +537,7 @@ Use the one-shot offline prediction command. This exercises parameter metadata v
 loading, decoding, vectorization, and ranking without introducing an HTTP server or containing application:
 
 ```bash
-hv predict \
+hv algorithm predict \
   --algorithm-jar target/trainable-document-ranker-1.0.0.jar \
   --algorithm-name trainable-document-ranker \
   --source-path data/prediction-examples/examples.jsonl \

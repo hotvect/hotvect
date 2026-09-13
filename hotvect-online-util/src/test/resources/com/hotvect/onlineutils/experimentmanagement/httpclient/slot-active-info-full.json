@@ -95,8 +95,5 @@
   "user_forced_assignments": [
     { "user_id": "user-1", "variant_id": 8 },
     { "user_id": "user-2", "variant_id": 10 }
-  ],
-  "campaign_forced_assignments": [
-    { "campaign_id": "campaign-1", "variant_id": 8 }
   ]
 }

@@ -115,7 +115,7 @@ public class ThemedTopKResponse<ACTION> extends TopKResponse<ACTION> {
         }
 
         public Builder<ACTION> withActionListMetadata(Map<String, String> actionListMetadata) {
-            this.actionListMetadata = actionListMetadata;
+            this.actionListMetadata = actionListMetadata != null ? actionListMetadata : Collections.emptyMap();
             return this;
         }
 

@@ -11,6 +11,8 @@ def _make_run_all_pipeline(tmp_path: Path):
 
     pipeline = AlgorithmPipeline.__new__(AlgorithmPipeline)
     pipeline.algorithm_definition = {}
+    pipeline.algorithm_definition_override = None
+    pipeline.algorithm_override_metadata = None
     pipeline.algorithm_name = "algo"
     pipeline.algorithm_version = "55.7.0"
     pipeline.hyper_parameter_version = ""
@@ -43,6 +45,7 @@ def _make_run_all_pipeline(tmp_path: Path):
     pipeline.execute_audit = False
     pipeline.dependency_pipelines = {}
     pipeline.run_target = "evaluate"
+    pipeline.encode_partition_dates = None
     pipeline._step_predict = MagicMock(side_effect=lambda result, evaluate: result.update({"predict": {"ok": True}}))
     pipeline._step_evaluate = MagicMock(side_effect=lambda result, evaluate: result.update({"evaluate": {"ok": True}}))
     pipeline._step_performance_test = MagicMock(
@@ -51,6 +54,14 @@ def _make_run_all_pipeline(tmp_path: Path):
     pipeline._step_encode_test_data = MagicMock(side_effect=lambda result: result.update({"encode_test": {"ok": True}}))
     pipeline._step_execute_audit = MagicMock(side_effect=lambda result: result.update({"audit": {"ok": True}}))
     return pipeline
+
+
+def test_run_all_rejects_unsupported_algorithm_override_metadata(tmp_path: Path):
+    pipeline = _make_run_all_pipeline(tmp_path)
+    pipeline.algorithm_override_metadata = {"algorithm_id": "candidate-a"}
+
+    with pytest.raises(ValueError, match="Unsupported algorithm override metadata fields: algorithm_id"):
+        pipeline.run_all(clean=False)
 
 
 def test_run_all_uses_pipeline_run_target_by_default(tmp_path: Path, monkeypatch) -> None:
@@ -174,6 +185,50 @@ def test_dependency_preparation_uses_inferred_dependency_target(tmp_path: Path, 
         clean=False,
         target="evaluate",
         prepare_raw_state_for_parent_packaging=False,
+    )
+
+
+def test_dependency_preparation_uses_encode_cache_target_for_encode_cache_root(tmp_path: Path, monkeypatch) -> None:
+    from hotvect import pyhotvect as pyhotvect_module
+
+    pipeline = _make_run_all_pipeline(tmp_path)
+    pipeline.run_target = "encode-cache"
+    dependency_pipeline = MagicMock()
+    dependency_pipeline.algorithm_is_state = False
+    dependency_pipeline._target_when_used_as_dependency = MagicMock(return_value="parameters")
+    dependency_pipeline.run_all = MagicMock(return_value={"ok": True})
+    pipeline.dependency_pipelines = {"dep": dependency_pipeline}
+
+    monkeypatch.setattr(pyhotvect_module, "clean_dir", MagicMock())
+
+    pipeline.run_all(clean=False)
+
+    dependency_pipeline.run_all.assert_called_once_with(
+        clean=False,
+        target="encode-cache",
+        prepare_raw_state_for_parent_packaging=False,
+    )
+
+
+def test_encode_cache_root_prepares_state_dependency_for_parent_packaging(tmp_path: Path, monkeypatch) -> None:
+    from hotvect import pyhotvect as pyhotvect_module
+
+    pipeline = _make_run_all_pipeline(tmp_path)
+    pipeline.run_target = "encode-cache"
+    dependency_pipeline = MagicMock()
+    dependency_pipeline.algorithm_is_state = "generator_factory_classname"
+    dependency_pipeline._target_when_used_as_dependency = MagicMock(return_value="parameters")
+    dependency_pipeline.run_all = MagicMock(return_value={"ok": True})
+    pipeline.dependency_pipelines = {"state": dependency_pipeline}
+
+    monkeypatch.setattr(pyhotvect_module, "clean_dir", MagicMock())
+
+    pipeline.run_all(clean=False)
+
+    dependency_pipeline.run_all.assert_called_once_with(
+        clean=False,
+        target="parameters",
+        prepare_raw_state_for_parent_packaging=True,
     )
 
 
@@ -305,6 +360,66 @@ def test_prepare_raw_state_for_parent_packaging_requires_state_algorithm(tmp_pat
 
     with pytest.raises(ValueError, match="only supported for state algorithms"):
         pipeline.run_all(clean=False, target="parameters", prepare_raw_state_for_parent_packaging=True)
+
+
+def test_encode_cache_target_does_not_skip_encode_when_predict_parameter_cache_exists(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from hotvect import pyhotvect as pyhotvect_module
+
+    pipeline = _make_run_all_pipeline(tmp_path)
+    pipeline.run_target = "encode-cache"
+    pipeline.should_train = MagicMock(return_value=True)
+    pipeline.available_predict_parameter_cache_path = MagicMock(return_value=str(tmp_path / "params.zip"))
+    pipeline.encode_partition_dates = [datetime(2000, 2, 16, tzinfo=timezone.utc).date()]
+    pipeline._step_encode_parameter = MagicMock(
+        side_effect=lambda result: result.update({"package_encode_params": {"ok": True}})
+    )
+    pipeline._step_encode = MagicMock(side_effect=lambda result: result.update({"encode": {"ok": True}}))
+    pipeline._step_train = MagicMock()
+    pipeline.test_data_paths = MagicMock(side_effect=AssertionError("encode-cache target should not use test data"))
+    pipeline.prediction_data_paths = MagicMock(
+        side_effect=AssertionError("encode-cache target should not use prediction data")
+    )
+
+    monkeypatch.setattr(pyhotvect_module, "clean_dir", MagicMock())
+
+    result = pipeline.run_all(clean=False)
+
+    pipeline._step_encode_parameter.assert_called_once()
+    pipeline._step_encode.assert_called_once()
+    pipeline._step_train.assert_not_called()
+    assert result["encode"] == {"ok": True}
+    assert result["train"] == {"skipped": "Because target was encode-cache"}
+    assert result["package_predict_params"] == {"skipped": "Because target was encode-cache"}
+    assert result["predict"] == {"skipped": "Because target was encode-cache"}
+    assert result["encode_partition_dates"] == ["2000-02-16"]
+
+
+def test_encode_cache_target_skips_unassigned_trainable_pipeline(tmp_path: Path, monkeypatch) -> None:
+    from hotvect import pyhotvect as pyhotvect_module
+
+    pipeline = _make_run_all_pipeline(tmp_path)
+    pipeline.run_target = "encode-cache"
+    pipeline.should_train = MagicMock(return_value=True)
+    pipeline.encode_partition_dates = []
+    pipeline._step_encode_parameter = MagicMock(
+        side_effect=AssertionError("unassigned pipeline must not package encode parameters")
+    )
+    pipeline._step_encode = MagicMock(side_effect=AssertionError("unassigned pipeline must not encode"))
+    pipeline._step_train = MagicMock(side_effect=AssertionError("encode-cache target must not train"))
+
+    monkeypatch.setattr(pyhotvect_module, "clean_dir", MagicMock())
+
+    result = pipeline.run_all(clean=False)
+
+    pipeline._step_encode_parameter.assert_not_called()
+    pipeline._step_encode.assert_not_called()
+    pipeline._step_train.assert_not_called()
+    pipeline.available_predict_parameter_cache_path.assert_not_called()
+    assert result["package_encode_params"] == {"skipped": "Because no encode partition dates were assigned"}
+    assert result["encode"] == {"skipped": "Because no encode partition dates were assigned"}
+    assert result["train"] == {"skipped": "Because no encode partition dates were assigned"}
 
 
 def test_run_all_records_benchmark_contract_for_performance_test(tmp_path: Path, monkeypatch) -> None:

@@ -13,8 +13,8 @@ related_docs:
   - ../feature-logging/index.md
   - ../score-equivalence/index.md
 related_commands:
-  - hv predict
-  - hv audit
+  - hv algorithm predict
+  - hv algorithm audit
   - hv-ext compare-jsonl
 next_steps:
   - Add a diagnostic release with request-level debug properties
@@ -76,18 +76,18 @@ prediction row. A partially populated dimension is omitted rather than evaluated
 dimension as “not comparable,” not as zero performance or evidence that parity is good; inspect the input/logging
 contract first.
 
-## 3. Use `hv audit` and `hv predict` for offline localization
+## 3. Use `hv algorithm audit` and `hv algorithm predict` for offline localization
 
 When replay parity is bad, localize the first mismatch offline:
 
-1. run `hv audit` for the same rows,
+1. run `hv algorithm audit` for the same rows,
 2. compare feature JSONL across versions or against a known-good build,
-3. run `hv predict --log-features` if you need dependency-level features in the prediction output.
+3. run `hv algorithm predict --log-features` if you need dependency-level features in the prediction output.
 
 Recommended pattern:
 
 ```bash
-hv audit \
+hv algorithm audit \
   --algorithm-jar /path/to/algo.jar \
   --algorithm-name <algorithm-name> \
   --parameter-path /path/to/live.parameters.zip \
@@ -96,7 +96,7 @@ hv audit \
   --ordered \
   --samples 100
 
-hv predict --log-features \
+hv algorithm predict --log-features \
   --algorithm-jar /path/to/algo.jar \
   --algorithm-name <algorithm-name> \
   --parameter-path /path/to/live.parameters.zip \

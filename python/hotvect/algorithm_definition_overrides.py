@@ -1,11 +1,14 @@
 import copy
 import json
 import re
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
 _PROTECTED_FIELDS = {"algorithm_name", "algorithm_version"}
 _ALGORITHM_ID_PATTERN = re.compile(r"^([\w\-_]+)(@[\w\-.]+)?$")
+_ALGORITHM_OVERRIDE_METADATA_FIELDS = frozenset({"supplied", "files", "fields", "reasons"})
+_ALGORITHM_OVERRIDE_METADATA_LIST_FIELDS = frozenset({"files", "fields", "reasons"})
 
 
 def _normalize_dependency_name(algorithm_id: str) -> str:
@@ -44,6 +47,84 @@ def merge_algorithm_definition_override_fragments(
         )
     _merge_algorithm_definition_object(merged, extra_override, validate_dependencies_against_base=False)
     return merged
+
+
+def _override_field_paths(value: Any, prefix: str = "") -> list[str]:
+    if not isinstance(value, dict):
+        return [prefix] if prefix else []
+    paths: list[str] = []
+    for key in sorted(value):
+        child_prefix = f"{prefix}.{key}" if prefix else str(key)
+        child = value[key]
+        if isinstance(child, dict) and child:
+            paths.extend(_override_field_paths(child, child_prefix))
+        else:
+            paths.append(child_prefix)
+    return paths
+
+
+def _unique_strings(values: Iterable[str] | None) -> list[str]:
+    if values is None:
+        return []
+    return list(dict.fromkeys(value for value in values if value))
+
+
+def validate_algorithm_override_metadata(metadata: dict[str, Any] | None) -> dict[str, Any]:
+    if metadata is None:
+        return {}
+    if not isinstance(metadata, dict):
+        raise ValueError(f"Algorithm override metadata must be a JSON object, got {type(metadata).__name__}")
+
+    unsupported_fields = sorted(set(metadata) - _ALGORITHM_OVERRIDE_METADATA_FIELDS)
+    if unsupported_fields:
+        raise ValueError(f"Unsupported algorithm override metadata fields: {', '.join(unsupported_fields)}")
+
+    supplied = metadata.get("supplied")
+    if supplied is not None and not isinstance(supplied, bool):
+        raise ValueError("Algorithm override metadata field 'supplied' must be a boolean")
+
+    validated_metadata = dict(metadata)
+    for field_name in _ALGORITHM_OVERRIDE_METADATA_LIST_FIELDS:
+        values = metadata.get(field_name)
+        if values is None:
+            continue
+        if isinstance(values, (str, bytes)) or not isinstance(values, Iterable):
+            raise ValueError(f"Algorithm override metadata field '{field_name}' must be a list of strings")
+        values = list(values)
+        if any(not isinstance(value, str) for value in values):
+            raise ValueError(f"Algorithm override metadata field '{field_name}' must be a list of strings")
+        validated_metadata[field_name] = values
+
+    return validated_metadata
+
+
+def build_algorithm_override_metadata(
+    override: dict[str, Any] | None,
+    *,
+    supplied: bool | None = None,
+    files: Iterable[str] | None = None,
+    fields: Iterable[str] | None = None,
+    reasons: Iterable[str] | None = None,
+) -> dict[str, Any]:
+    supplied_value = override is not None if supplied is None else supplied
+    metadata: dict[str, Any] = {"supplied": supplied_value}
+    field_values = _unique_strings(
+        [
+            *_override_field_paths(override or {}),
+            *_unique_strings(fields),
+        ]
+    )
+    if field_values:
+        metadata["fields"] = field_values
+    file_values = _unique_strings(files)
+    if file_values:
+        metadata["files"] = file_values
+    reason_values = _unique_strings(reasons)
+    if reason_values:
+        metadata["reasons"] = reason_values
+    elif supplied_value:
+        metadata["reasons"] = ["Algorithm definition override fragment was supplied."]
+    return metadata
 
 
 def _merge_algorithm_definition_object(

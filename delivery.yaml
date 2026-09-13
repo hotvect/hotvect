@@ -22,7 +22,7 @@ shared_vars: &SHARED_ENV
   UV_PUBLISH_URL: "https://example.com/pypi/internal/"
   UV_PUBLISH_USERNAME: "root"
   UV_PUBLISH_PASSWORD: ""
-  HOTVECT_VERSION: "10.43.2"
+  HOTVECT_VERSION: "10.50.1"
   IMAGE_NAME: &IMAGE_NAME "#{CDP_ZAPPR_TEAM}/hotvect"
 
 pipeline:

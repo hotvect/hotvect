@@ -1,4 +1,4 @@
-"""Tests for compare-equivalence command."""
+"""Tests for QA prediction comparison."""
 
 import argparse
 import json
@@ -7,31 +7,36 @@ import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
 
-from hotvect.extra.commands.compare_equivalence import (
-    CompareEquivalenceCommand,
-    EquivalenceInputError,
+from hotvect.qa.commands.compare_predictions import (
+    ComparePredictionsCommand,
+    PredictionComparisonInputError,
     compare_predict_jsonl,
 )
 
 
-class TestCompareEquivalenceCommand(unittest.TestCase):
+class TestComparePredictionsCommand(unittest.TestCase):
     def setUp(self):
-        self.command = CompareEquivalenceCommand()
+        self.command = ComparePredictionsCommand()
 
     def _write_jsonl(self, rows):
         tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False)
         for row in rows:
+            row = self._with_default_ranks(row)
             tmp.write(json.dumps(row) + "\n")
         tmp.close()
         return tmp.name
 
-    def test_register_parser(self):
-        parser = argparse.ArgumentParser()
-        subparsers = parser.add_subparsers(dest="command")
-        CompareEquivalenceCommand.register_parser(subparsers)
+    def _with_default_ranks(self, row):
+        row = json.loads(json.dumps(row))
+        for item_index, item in enumerate(row.get("result", [])):
+            item.setdefault("rank", item_index)
+        return row
 
-        args = parser.parse_args(["compare-equivalence", "a.jsonl", "b.jsonl"])
-        self.assertEqual(args.command, "compare-equivalence")
+    def test_add_arguments(self):
+        parser = argparse.ArgumentParser()
+        ComparePredictionsCommand.add_arguments(parser)
+
+        args = parser.parse_args(["a.jsonl", "b.jsonl"])
         self.assertEqual(args.baseline_file, "a.jsonl")
         self.assertEqual(args.treatment_file, "b.jsonl")
         self.assertAlmostEqual(args.score_eps, 1e-6)
@@ -43,7 +48,7 @@ class TestCompareEquivalenceCommand(unittest.TestCase):
             {
                 "example_id": "e-1",
                 "result": [
-                    {"score": 0.9, "additional_properties": {"action_id": "a"}},
+                    {"score": 0.9, "action_id": "a"},
                     {"score": 0.8, "action_id": "b"},
                 ],
             }
@@ -52,7 +57,7 @@ class TestCompareEquivalenceCommand(unittest.TestCase):
             {
                 "example_id": "e-1",
                 "result": [
-                    {"score": 0.9, "additional_properties": {"action_id": "a"}},
+                    {"score": 0.9, "action_id": "a"},
                     {"score": 0.8, "action_id": "b"},
                 ],
             }
@@ -109,6 +114,71 @@ class TestCompareEquivalenceCommand(unittest.TestCase):
             self.assertFalse(result["rank"]["passed"])
             self.assertEqual(result["rank"]["mismatch_count"], 1)
             self.assertEqual(result["mismatches"][0]["type"], "rank_order_mismatch")
+        finally:
+            os.unlink(baseline_path)
+            os.unlink(treatment_path)
+
+    def test_compare_uses_rank_field_not_json_array_order(self):
+        baseline = [
+            {
+                "example_id": "e-1",
+                "result": [
+                    {"rank": 1, "score": 0.8, "action_id": "b"},
+                    {"rank": 0, "score": 0.9, "action_id": "a"},
+                ],
+            }
+        ]
+        treatment = [
+            {
+                "example_id": "e-1",
+                "result": [
+                    {"rank": 0, "score": 0.9, "action_id": "a"},
+                    {"rank": 1, "score": 0.8, "action_id": "b"},
+                ],
+            }
+        ]
+
+        baseline_path = self._write_jsonl(baseline)
+        treatment_path = self._write_jsonl(treatment)
+        try:
+            result = compare_predict_jsonl(
+                baseline_path, treatment_path, score_eps=1e-6, allow_non_deterministic_tie_breaking=False
+            )
+            self.assertEqual(result["status"], "passed")
+            self.assertTrue(result["rank"]["passed"])
+        finally:
+            os.unlink(baseline_path)
+            os.unlink(treatment_path)
+
+    def test_compare_detects_rank_field_mismatch_with_same_json_array_order(self):
+        baseline = [
+            {
+                "example_id": "e-1",
+                "result": [
+                    {"rank": 0, "score": 0.9, "action_id": "a"},
+                    {"rank": 1, "score": 0.8, "action_id": "b"},
+                ],
+            }
+        ]
+        treatment = [
+            {
+                "example_id": "e-1",
+                "result": [
+                    {"rank": 1, "score": 0.9, "action_id": "a"},
+                    {"rank": 0, "score": 0.8, "action_id": "b"},
+                ],
+            }
+        ]
+
+        baseline_path = self._write_jsonl(baseline)
+        treatment_path = self._write_jsonl(treatment)
+        try:
+            result = compare_predict_jsonl(
+                baseline_path, treatment_path, score_eps=1e-6, allow_non_deterministic_tie_breaking=False
+            )
+            self.assertEqual(result["status"], "failed")
+            self.assertFalse(result["rank"]["passed"])
+            self.assertEqual(result["rank"]["mismatch_count"], 1)
         finally:
             os.unlink(baseline_path)
             os.unlink(treatment_path)
@@ -225,13 +295,54 @@ class TestCompareEquivalenceCommand(unittest.TestCase):
         baseline_path = self._write_jsonl(baseline)
         treatment_path = self._write_jsonl(treatment)
         try:
-            with self.assertRaises(EquivalenceInputError):
+            with self.assertRaises(PredictionComparisonInputError):
                 compare_predict_jsonl(
                     baseline_path,
                     treatment_path,
                     score_eps=1e-6,
                     allow_non_deterministic_tie_breaking=False,
                 )
+        finally:
+            os.unlink(baseline_path)
+            os.unlink(treatment_path)
+
+    def test_compare_rejects_non_finite_scores(self):
+        baseline = [{"example_id": "e-1", "result": [{"score": float("nan"), "action_id": "a"}]}]
+        treatment = [{"example_id": "e-1", "result": [{"score": 1.0, "action_id": "a"}]}]
+
+        baseline_path = self._write_jsonl(baseline)
+        treatment_path = self._write_jsonl(treatment)
+        try:
+            with self.assertRaisesRegex(PredictionComparisonInputError, "finite number"):
+                compare_predict_jsonl(
+                    baseline_path,
+                    treatment_path,
+                    score_eps=1e-6,
+                    allow_non_deterministic_tie_breaking=False,
+                )
+        finally:
+            os.unlink(baseline_path)
+            os.unlink(treatment_path)
+
+    def test_compare_accepts_legacy_nested_action_id(self):
+        baseline = [
+            {
+                "example_id": "e-1",
+                "result": [{"score": 1.0, "rank": 0, "additional_properties": {"action_id": "a"}}],
+            }
+        ]
+        treatment = [{"example_id": "e-1", "result": [{"score": 1.0, "rank": 0, "action_id": "a"}]}]
+
+        baseline_path = self._write_jsonl(baseline)
+        treatment_path = self._write_jsonl(treatment)
+        try:
+            result = compare_predict_jsonl(
+                baseline_path,
+                treatment_path,
+                score_eps=1e-6,
+                allow_non_deterministic_tie_breaking=False,
+            )
+            self.assertEqual(result["status"], "passed")
         finally:
             os.unlink(baseline_path)
             os.unlink(treatment_path)
@@ -285,6 +396,20 @@ class TestCompareEquivalenceCommand(unittest.TestCase):
         self.assertEqual(result["status"], "error")
         self.assertEqual(result["error_code"], "invalid_input")
         mock_exit.assert_called_once_with(2)
+
+    @patch("hotvect.qa.commands.compare_predictions.compare_predict_jsonl")
+    def test_execute_does_not_hide_unexpected_failures(self, mock_compare):
+        mock_compare.side_effect = RuntimeError("unexpected comparison failure")
+        args = MagicMock(
+            baseline_file=__file__,
+            treatment_file=__file__,
+            score_eps=1e-6,
+            allow_non_deterministic_tie_breaking=False,
+            output=None,
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "unexpected comparison failure"):
+            self.command.execute(args)
 
     @patch("builtins.print")
     @patch("sys.exit")

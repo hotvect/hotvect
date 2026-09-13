@@ -14,7 +14,7 @@ related_docs:
 
 # Debug an algorithm in the browser
 
-`hv serve --ui` loads a complete algorithm artifact, decodes recorded offline examples, and lets you inspect or edit
+`hv algorithm serve --ui` loads a complete algorithm artifact, decodes recorded offline examples, and lets you inspect or edit
 those examples in a local browser. It is a bounded debugging tool, not a production server.
 
 This walkthrough continues from [Build your first algorithm](../first-algorithm/index.md). It uses that tutorial's JAR,
@@ -53,7 +53,7 @@ return exactly one example for it.
 ## 2. Start the browser debugger
 
 ```bash
-hv serve \
+hv algorithm serve \
   --ui \
   --algorithm-jar target/example-document-ranker-1.0.0.jar \
   --algorithm-name example-document-ranker \
@@ -93,7 +93,7 @@ The default host is `127.0.0.1`. Bind another interface only when a local contai
 debugger:
 
 ```bash
-hv serve ... --host 0.0.0.0 --port 12004
+hv algorithm serve ... --host 0.0.0.0 --port 12004
 ```
 
 That exposes an unauthenticated debugging API, including algorithm metadata and request execution, on every interface.
@@ -123,7 +123,7 @@ Paths are resolved relative to the configuration file, and unknown fields fail l
 ```
 
 ```bash
-hv serve \
+hv algorithm serve \
   --ui \
   --local-runtime-config runtime/local-runtimes.json \
   --source-path runtime/examples \

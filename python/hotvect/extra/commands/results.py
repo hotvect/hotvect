@@ -1,8 +1,9 @@
-"""Results inventory utilities for hv-ext CLI."""
+"""Results inventory utilities shared by ``hv`` and the legacy ``hv-ext`` entrypoint."""
 
 from __future__ import annotations
 
 import json
+import os
 import re
 import tarfile
 import tempfile
@@ -43,6 +44,18 @@ def _parse_algorithm_id(algorithm_id: str) -> tuple[str | None, str | None, str 
     return algorithm_name, rest, None
 
 
+RUN_METADATA_FILENAME = ".hvext-run.json"
+
+
+def _validate_path_component(value: str, *, field_name: str) -> str:
+    if not value or value in {".", ".."}:
+        raise ValueError(f"Unsafe {field_name}: {value!r}")
+    candidate = Path(value)
+    if candidate.is_absolute() or len(candidate.parts) != 1:
+        raise ValueError(f"Unsafe {field_name}: {value!r}")
+    return value
+
+
 class ResultsCommand(BaseCommand):
     """Top-level results command wrapper."""
 
@@ -52,10 +65,14 @@ class ResultsCommand(BaseCommand):
             "results",
             help="Results inventory utilities (JSON output only)",
         )
+        cls.add_arguments(parser)
+        return parser
+
+    @staticmethod
+    def add_arguments(parser):
         results_subparsers = parser.add_subparsers(dest="results_command", metavar="<results-command>")
         ResultsLsCommand.register_parser(results_subparsers)
         ResultsDownloadCommand.register_parser(results_subparsers)
-        return parser
 
     def execute(self, args):
         if args.results_command == "ls":
@@ -63,7 +80,7 @@ class ResultsCommand(BaseCommand):
         elif args.results_command == "download":
             ResultsDownloadCommand().execute(args)
         else:
-            raise SystemExit("Missing results subcommand. Use `hv-ext results -h`.")
+            raise SystemExit("Missing results subcommand. Use `hv results -h`.")
 
 
 class ResultsLsCommand(BaseCommand):
@@ -261,7 +278,7 @@ class ResultsDownloadCommand(BaseCommand):
     def register_parser(cls, subparsers):
         parser = subparsers.add_parser(
             "download",
-            help="Download result artifacts from an s3:// prefix into a local dir (latest-only; JSON output only)",
+            help="Download latest-selected S3 result artifacts into a local dir (JSON output only)",
         )
         parser.add_argument("s3_prefix", help="S3 base prefix where backtest results are stored (s3://...)")
         parser.add_argument("--dest-base-dir", required=True, help="Local destination directory for downloaded results")
@@ -274,7 +291,6 @@ class ResultsDownloadCommand(BaseCommand):
         )
         parser.add_argument("--job-name-regex", default="", help="Regex to filter job name (optional)")
         parser.add_argument("--role-arn", default="", help="AWS role ARN to assume for S3 access (optional)")
-
         parser.add_argument(
             "--include-metadata", action="store_true", help="Download/extract metadata tar (output/output.tar.gz)"
         )
@@ -297,11 +313,12 @@ class ResultsDownloadCommand(BaseCommand):
 
         dest_base_dir = Path(args.dest_base_dir)
         dest_base_dir.mkdir(parents=True, exist_ok=True)
-
         from_date = _parse_day(args.from_date or None)
         to_date = _parse_day(args.to_date or None)
         if from_date and to_date and from_date > to_date:
             raise ValueError("--from-date must be <= --to-date")
+
+        self._reject_legacy_materialization(dest_base_dir)
 
         algorithm_name_re = re.compile(args.algorithm_name_regex) if args.algorithm_name_regex else None
         algorithm_version_re = re.compile(args.algorithm_version_regex) if args.algorithm_version_regex else None
@@ -351,13 +368,10 @@ class ResultsDownloadCommand(BaseCommand):
 
         matches.sort(key=lambda r: (r["test_date"], r["algorithm_id"], r.get("job_name") or ""))
 
-        # Decide which ones we actually download (skip-existing is per (date, algorithm_id) local result.json).
+        # Decide which ones we actually download (skip-existing is per canonical local result.json).
         download_these = []
         for m in matches:
-            local_result = resolve_path_within_base(
-                dest_base_dir,
-                Path("meta") / m["algorithm_id"] / f"last_test_date_{m['test_date']}" / "result.json",
-            )
+            local_result = self._local_result_path(dest_base_dir=dest_base_dir, match=m)
             m["_local_result_json"] = str(local_result)
             if (not args.no_skip_existing) and local_result.exists():
                 m["skipped_existing"] = True
@@ -369,14 +383,17 @@ class ResultsDownloadCommand(BaseCommand):
         downloaded_output_roots = 0
         downloaded_result_json = 0
 
-        roots_needed = {self._job_root_prefix(m["_key"]) for m in download_these}
-        for root_prefix in sorted(roots_needed):
+        roots_needed = {
+            self._job_root_prefix(m["_key"]): self._job_dest_dir(dest_base_dir=dest_base_dir, match=m)
+            for m in download_these
+        }
+        for root_prefix, root_dest_dir in sorted(roots_needed.items()):
             if args.include_metadata:
                 self._download_and_extract_tar(
                     s3_client=downloader._s3_client,
                     bucket=downloader._s3_source_bucket,
                     key=f"{root_prefix}/output/output.tar.gz",
-                    dest_dir=dest_base_dir,
+                    dest_dir=root_dest_dir,
                 )
                 downloaded_metadata_roots += 1
             if args.include_output_data:
@@ -384,7 +401,7 @@ class ResultsDownloadCommand(BaseCommand):
                     s3_client=downloader._s3_client,
                     bucket=downloader._s3_source_bucket,
                     key=f"{root_prefix}/output/model.tar.gz",
-                    dest_dir=dest_base_dir / "output",
+                    dest_dir=root_dest_dir / "output",
                 )
                 downloaded_output_roots += 1
 
@@ -400,6 +417,8 @@ class ResultsDownloadCommand(BaseCommand):
             expected = Path(m["_local_result_json"])
             if not expected.exists():
                 raise FileNotFoundError(f"Missing local result.json after download: {expected}")
+            self._write_run_metadata(run_dir=expected.parent, match=m)
+            self._refresh_symlink_view(dest_base_dir=dest_base_dir, match=m)
 
         for m in matches:
             m.pop("_key", None)
@@ -431,6 +450,93 @@ class ResultsDownloadCommand(BaseCommand):
         if len(parts) < 3:
             raise ValueError(f"Unexpected result.json key: {result_json_key}")
         return "/".join(parts[:-2])
+
+    @staticmethod
+    def _reject_legacy_materialization(dest_base_dir: Path) -> None:
+        meta_dir = dest_base_dir / "meta"
+        if any(not result_json.is_symlink() for result_json in meta_dir.glob("*/last_test_date_*/result.json")):
+            raise ValueError(
+                f"Destination contains legacy result materialization: {dest_base_dir}. Use a clean destination."
+            )
+
+    @classmethod
+    def _local_result_path(cls, *, dest_base_dir: Path, match: dict[str, Any]) -> Path:
+        algorithm_id = _validate_path_component(str(match["algorithm_id"]), field_name="algorithm_id")
+        test_date = _validate_path_component(f"last_test_date_{match['test_date']}", field_name="test_date")
+        job_name = _validate_path_component(str(match["job_name"]), field_name="job_name")
+        relative = Path("runs") / job_name / "meta" / algorithm_id / test_date / "result.json"
+        return resolve_path_within_base(dest_base_dir, relative)
+
+    @classmethod
+    def _job_dest_dir(cls, *, dest_base_dir: Path, match: dict[str, Any]) -> Path:
+        job_name = _validate_path_component(str(match["job_name"]), field_name="job_name")
+        return resolve_path_within_base(dest_base_dir, Path("runs") / job_name)
+
+    @classmethod
+    def _write_run_metadata(cls, *, run_dir: Path, match: dict[str, Any]) -> None:
+        metadata_path = run_dir / RUN_METADATA_FILENAME
+        payload = {
+            "algorithm_id": match["algorithm_id"],
+            "test_date": match["test_date"],
+            "job_name": match["job_name"],
+            "result_json": match["result_json"],
+        }
+        metadata_path.write_text(json.dumps(payload, indent=2))
+
+    @classmethod
+    def _refresh_symlink_view(cls, *, dest_base_dir: Path, match: dict[str, Any]) -> None:
+        meta_run_dir = resolve_path_within_base(
+            dest_base_dir,
+            Path("meta") / match["algorithm_id"] / f"last_test_date_{match['test_date']}",
+        )
+        meta_run_dir.mkdir(parents=True, exist_ok=True)
+
+        canonical_run_dir = cls._local_result_path(
+            dest_base_dir=dest_base_dir,
+            match=match,
+        ).parent
+
+        runs_dir = meta_run_dir / "runs"
+        runs_dir.mkdir(parents=True, exist_ok=True)
+        cls._replace_symlink(
+            runs_dir / match["job_name"],
+            canonical_run_dir,
+        )
+
+        latest_target = cls._latest_local_run_dir(meta_run_dir)
+        cls._replace_symlink(meta_run_dir / "latest", latest_target)
+        cls._replace_symlink(meta_run_dir / "result.json", latest_target / "result.json")
+
+    @staticmethod
+    def _latest_local_run_dir(meta_run_dir: Path) -> Path:
+        candidates = []
+        runs_dir = meta_run_dir / "runs"
+        for candidate in sorted(runs_dir.iterdir()):
+            if not candidate.is_symlink():
+                continue
+            resolved = candidate.resolve(strict=True)
+            metadata_path = resolved / RUN_METADATA_FILENAME
+            last_modified = ""
+            job_name = candidate.name
+            if metadata_path.exists():
+                metadata = json.loads(metadata_path.read_text())
+                last_modified = str(metadata.get("result_json", {}).get("last_modified") or "")
+                job_name = str(metadata.get("job_name") or job_name)
+            candidates.append((last_modified, job_name, resolved))
+        if not candidates:
+            raise FileNotFoundError(f"No run candidates found under {runs_dir}")
+        candidates.sort(key=lambda item: (item[0], item[1]))
+        return candidates[-1][2]
+
+    @staticmethod
+    def _replace_symlink(link_path: Path, target_path: Path) -> None:
+        link_path.parent.mkdir(parents=True, exist_ok=True)
+        if link_path.exists() or link_path.is_symlink():
+            if link_path.is_dir() and not link_path.is_symlink():
+                raise ValueError(f"Refusing to replace non-symlink directory with symlink: {link_path}")
+            link_path.unlink()
+        relative_target = os.path.relpath(target_path, start=link_path.parent)
+        link_path.symlink_to(relative_target)
 
     @staticmethod
     def _download_and_extract_tar(*, s3_client, bucket: str, key: str, dest_dir: Path) -> None:

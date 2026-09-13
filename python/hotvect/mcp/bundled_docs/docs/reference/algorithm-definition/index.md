@@ -163,12 +163,18 @@ The value must be a JSON boolean. Missing or `false` means the algorithm does no
 reject that missing capability itself. Calling `allocateDirectory()` returns an existing, empty, private, absolute
 directory. The runtime owns its name and layout, so algorithm code must treat the path as opaque.
 
+The declaration is local to the definition that contains it; Hotvect does not recursively aggregate this field from
+dependency definitions. If any transitive dependency in a downloadable algorithm bundle requires local-state storage,
+the outer downloadable definition must also set `requires_local_state_storage` to `true`. This lets a repository host
+admit the complete bundle and select its parameter-download storage before constructing or loading its dependencies. A
+child declaration alone does not advertise the outer bundle's requirement.
+
 The allocated directory is runtime state, not generated offline state and not part of the parameter package. Ownership
 transfers to the factory or constructed algorithm: remove it if construction fails, or remove it from
 `Algorithm.close()` after successful construction. A runtime may delay cleanup until an old instance is no longer
 reachable so in-flight requests can finish.
 
-The current `hv serve` implementations do not configure a local-state root. Use a containing application integration
+The current `hv algorithm serve` implementations do not configure a local-state root. Use a containing application integration
 that supplies one when testing or running a definition with this requirement.
 
 ## Dependencies
@@ -266,7 +272,7 @@ See [Generated transformer backends](../generated-transformer-backends/index.md)
 
 ## `prediction_spec`
 
-Use `prediction_spec` when `hv train --target predict` should run inference on a dataset other than the historical test
+Use `prediction_spec` when `hv algorithm train --target predict` should run inference on a dataset other than the historical test
 slice.
 
 ```json
@@ -447,7 +453,7 @@ The performance-test block can pin the request count, decoded sample pool, and w
 
 - `samples` is the number of requests in each measured repeat.
 - `sample_pool_size` is the number of decoded requests retained for reuse.
-- `workload_mode` defaults to `realtime` for `hv performance-test`; `batch` explicitly benchmarks the batch path.
+- `workload_mode` defaults to `realtime` for `hv algorithm performance-test`; `batch` explicitly benchmarks the batch path.
 - A CLI `--workload-mode` value takes precedence.
 
 ## `algorithm_parameters` for Python workers

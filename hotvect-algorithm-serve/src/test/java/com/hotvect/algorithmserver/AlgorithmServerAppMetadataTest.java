@@ -17,6 +17,7 @@ import com.hotvect.api.data.ranking.RankingDecision;
 import com.hotvect.api.data.ranking.RankingRequest;
 import com.hotvect.api.data.ranking.RankingResponse;
 import com.hotvect.api.data.topk.OfflineTopKRequest;
+import com.hotvect.api.data.topk.ThemedTopKResponse;
 import com.hotvect.api.data.topk.TopKDecision;
 import com.hotvect.api.data.topk.TopKExample;
 import com.hotvect.api.data.topk.TopKRequest;
@@ -226,6 +227,17 @@ class AlgorithmServerAppMetadataTest {
         }
     }
 
+    @Test
+    void runThemedTopKWithNullMetadataWritesAnEmptyObject() throws Exception {
+        try (AlgorithmRuntime runtime = testRuntime(new TestThemedTopKAlgorithm(), TestTopKDecoderFactory.class)) {
+            JsonNode root = runtime.runRawExampleJson(JsonNodeFactory.instance.objectNode(), ActionMetadataLookup.empty());
+
+            assertEquals("themed_topk", root.get("type").asText());
+            assertTrue(root.get("action_list_metadata").isObject());
+            assertEquals(0, root.get("action_list_metadata").size());
+        }
+    }
+
     private static AlgorithmRuntime testRuntime() throws Exception {
         return testRuntime(new TestAlgorithm(), TestDecoderFactory.class);
     }
@@ -390,6 +402,23 @@ class AlgorithmServerAppMetadataTest {
                             .withAdditionalProperties(Map.of("semantic_rank", 1))
                             .build()),
                     Map.of());
+        }
+    }
+
+    public static final class TestThemedTopKAlgorithm implements Algorithm,
+            TopK<String, com.hotvect.api.data.topk.AvailableAction<String>> {
+        @Override
+        public TopKResponse<com.hotvect.api.data.topk.AvailableAction<String>> apply(TopKRequest<String> request) {
+            com.hotvect.api.data.topk.AvailableAction<String> action =
+                    new com.hotvect.api.data.topk.AvailableAction<>(
+                            "topk-1",
+                            Computing.builder("raw-topk-action").build(),
+                            Map.of());
+            return ThemedTopKResponse.<com.hotvect.api.data.topk.AvailableAction<String>>builder(
+                            "featured",
+                            List.of(TopKDecision.builder("topk-1", action).build()))
+                    .withActionListMetadata(null)
+                    .build();
         }
     }
 }

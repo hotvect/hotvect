@@ -61,7 +61,7 @@ Stop at the first material divergence. Later stages can only show its downstream
 
 Two encoded datasets can contain the same rows but differ in order or sharding. Verify separately:
 
-- feature values with `hv audit` and `hv-ext compare-jsonl`;
+- feature values with `hv algorithm audit` and `hv-ext compare-jsonl`;
 - encoded row count and multiset;
 - row order;
 - number of `part-*` files and whether the consumer reads all of them.

@@ -247,6 +247,106 @@ body {
   background: var(--hv-accent);
 }
 
+/* Phase tabs expose the framework components used during that phase. */
+.md-tabs,
+.md-tabs > .md-grid,
+.md-tabs__list {
+  overflow: visible;
+}
+
+.md-tabs__list {
+  contain: none;
+}
+
+.hv-tabs__item {
+  position: relative;
+}
+
+.hv-tabs__trigger {
+  gap: 0.42rem;
+}
+
+.hv-tabs__chevron {
+  border-bottom: 1.5px solid currentColor;
+  border-right: 1.5px solid currentColor;
+  display: inline-block;
+  height: 0.42rem;
+  margin-top: -0.2rem;
+  transform: rotate(45deg);
+  transition: transform 0.16s ease;
+  width: 0.42rem;
+}
+
+.hv-tabs__menu {
+  background: var(--hv-surface);
+  border: 1px solid var(--hv-border);
+  border-radius: 0 0 var(--hv-radius) var(--hv-radius);
+  box-shadow: var(--hv-shadow);
+  display: grid;
+  gap: 0.2rem;
+  left: 0;
+  min-width: 32rem;
+  opacity: 0;
+  padding: 0.65rem;
+  pointer-events: none;
+  position: absolute;
+  top: calc(100% - 1px);
+  transform: translateY(-0.35rem);
+  transition: opacity 0.14s ease, transform 0.14s ease, visibility 0.14s;
+  visibility: hidden;
+  white-space: normal;
+  z-index: 20;
+}
+
+.hv-tabs__item:hover .hv-tabs__menu,
+.hv-tabs__item:focus-within .hv-tabs__menu {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+  visibility: visible;
+}
+
+.hv-tabs__item:hover .hv-tabs__chevron,
+.hv-tabs__item:focus-within .hv-tabs__chevron {
+  transform: translateY(0.18rem) rotate(225deg);
+}
+
+.hv-tabs__menu-item {
+  border-radius: var(--hv-radius-sm);
+  color: var(--hv-ink) !important;
+  display: grid;
+  gap: 0.15rem;
+  padding: 0.7rem 0.8rem;
+  text-decoration: none !important;
+}
+
+.hv-tabs__menu-item:hover,
+.hv-tabs__menu-item:focus-visible {
+  background: var(--hv-surface-2);
+  outline: none;
+}
+
+.hv-tabs__menu-item strong {
+  font-size: 0.94rem;
+  font-weight: 730;
+  letter-spacing: -0.015em;
+}
+
+.hv-tabs__menu-item span {
+  color: var(--hv-muted);
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+
+.hv-tabs__menu-item code {
+  background: var(--hv-code-bg);
+  border-radius: 0.3rem;
+  color: var(--md-code-fg-color);
+  font-family: var(--hv-font-mono);
+  font-size: 0.9em;
+  padding: 0.04rem 0.2rem;
+}
+
 .md-main__inner {
   margin-top: 0;
 }

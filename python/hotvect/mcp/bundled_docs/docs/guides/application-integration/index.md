@@ -284,8 +284,12 @@ that client closes it during application shutdown.
 ## Optional path 3: select a runtime through EMS
 
 Use the Experiment Management Service (EMS) client only when the application needs slot-based variant assignment.
-Direct loading and `AlgorithmRepository` do not require EMS. The current Java integration reads an external EMS; it
-does not publish artifacts, create variants, or mutate experiments.
+Direct loading and `AlgorithmRepository` do not require EMS. The current Java integration reads a separately deployed
+configured EMS server; it does not publish artifacts, create variants, or mutate experiments.
+
+This section shows the smallest API path. Use
+[Connect an online runtime to EMS](../connect-online-runtime-to-ems/index.md) for dependency placement, application-owned
+bindings, startup readiness, refresh health, verification, and shutdown.
 
 Build the repository as above, then create one client and manager for the application's configured slots:
 
@@ -382,7 +386,7 @@ and host-provided dependencies intended for the rollout. Verify:
 4. concurrency and resource behavior under the application's execution model;
 5. parity against a bounded offline input where that claim matters.
 
-Use [`hv serve`](../local-algorithm-debugging/index.md) to inspect an artifact locally, but keep that check separate
+Use [`hv algorithm serve`](../local-algorithm-debugging/index.md) to inspect an artifact locally, but keep that check separate
 from the application integration test: local artifact mode uses a batch/offline execution context and the offline
 decoder, while EMS mode uses the online repository context. Neither current server mode configures runtime-local state
 storage.

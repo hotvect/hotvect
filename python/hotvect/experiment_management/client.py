@@ -14,7 +14,6 @@ from .models import (
     AlgorithmStateLog,
     AlgorithmWithActiveVariantsResponse,
     AlgorithmWithLatestParameter,
-    CampaignForcedAssignment,
     Experiment,
     ExperimentRampUpLog,
     ExperimentSpec,
@@ -317,31 +316,6 @@ class ExperimentManagementClient:
             body={"algorithm_name": new_algorithm_name, "algorithm_version": new_algorithm_version},
         )
         return Variant.model_validate(updated_variant_json) if updated_variant_json else None
-
-    def get_campaign_forced_assignments(self, slot_name: str) -> list[CampaignForcedAssignment] | None:
-        campaign_forced_assignments_json = self._request(Method.GET, f"/slots/{slot_name}/campaignForcedAssignments")
-        if not campaign_forced_assignments_json:
-            return None
-        return TypeAdapter(list[CampaignForcedAssignment]).validate_python(
-            campaign_forced_assignments_json["campaign_forced_assignments"]
-        )
-
-    def get_campaign_forced_assignment(self, slot_name: str, campaign_id: str) -> CampaignForcedAssignment | None:
-        endpoint = f"/slots/{slot_name}/campaignForcedAssignments/{campaign_id}"
-        campaign_forced_assignment_json = self._request(Method.GET, endpoint)
-        return (
-            CampaignForcedAssignment.model_validate(campaign_forced_assignment_json)
-            if campaign_forced_assignment_json
-            else None
-        )
-
-    def upsert_campaign_forced_assignment(self, slot_name: str, campaign_id: str, variant_id: int) -> None:
-        endpoint = f"/slots/{slot_name}/campaignForcedAssignments/{campaign_id}"
-        self._request(Method.PUT, endpoint, body={"variant_id": variant_id})
-
-    def delete_campaign_forced_assignment(self, slot_name: str, campaign_id: str) -> None:
-        endpoint = f"/slots/{slot_name}/campaignForcedAssignments/{campaign_id}"
-        self._request(Method.DELETE, endpoint)
 
     def get_experiment_rampup_logs(self, slot_name: str) -> list[ExperimentRampUpLog] | None:
         # Note: endpoint name is `experimentRampUpLog` in the OpenAPI spec. Some older clients used

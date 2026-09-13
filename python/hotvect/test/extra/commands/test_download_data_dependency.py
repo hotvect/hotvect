@@ -1,8 +1,11 @@
 """Tests for download-data-dependency command."""
 
 import argparse
+import io
+import json
 import sys
 import unittest
+from contextlib import redirect_stdout
 from datetime import date
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -14,6 +17,7 @@ from hotvect.extra.commands.download_data_dependency import (
     DataDependencyCommand,
     _deterministic_sample,
 )
+from hotvect.pyhotvect import DataDependency
 
 
 class TestDeterministicSample(unittest.TestCase):
@@ -249,7 +253,7 @@ class TestDataDependencyCommandTarget(unittest.TestCase):
 
         with TemporaryDirectory() as scratch_dir:
             result = self.command._get_data_dependencies(
-                repo_url="https://github.com/company/example-algorithm.git",
+                repo_url="https://github.com/example-org/example-algorithm.git",
                 git_reference="v77.0.0",
                 scratch_dir=scratch_dir,
                 last_test_time=date(2026, 1, 3),
@@ -260,6 +264,274 @@ class TestDataDependencyCommandTarget(unittest.TestCase):
         self.assertEqual(result, ("algo", "1.2.3", dependencies))
         mock_pipeline.data_dependencies.assert_called_once_with(target="predict")
         self.assertIs(mock_clone.call_args.kwargs["progress_stream"], sys.stderr)
+
+    def test_list_does_not_create_local_data_dir(self):
+        with TemporaryDirectory() as tmpdir:
+            local_data_dir = Path(tmpdir) / "local-data"
+            args = SimpleNamespace(
+                last_test_time="2000-01-03",
+                sample_ratio=None,
+                local_data_dir=str(local_data_dir),
+                scratch_dir=str(Path(tmpdir) / "scratch"),
+                repo_url="https://github.com/example-org/example-algorithm.git",
+                git_reference="v77.0.0",
+                target="evaluate",
+                algorithm_override=None,
+                role_arn=None,
+                s3_base_dir="s3://bucket/tables",
+                max_parallel_downloads=8,
+                download_all=False,
+                download_dependencies=None,
+            )
+
+            with (
+                patch.object(self.command, "_get_data_dependencies", return_value=("algo", "1.2.3", [])),
+                patch.object(self.command, "_output_dependency_info_json") as output,
+                patch("hotvect.extra.commands.download_data_dependency.boto3.Session"),
+            ):
+                self.command.execute(args)
+
+            self.assertFalse(local_data_dir.exists())
+            output.assert_called_once()
+
+
+class TestCanonicalDataDependencyCommand(unittest.TestCase):
+    def setUp(self):
+        self.command = DataDependencyCommand()
+        self.dependency = DataDependency(
+            algorithm_name="algo",
+            algorithm_version="1.2.3",
+            data_prefix="example_data",
+            data_dates={date(2000, 1, 2)},
+            data_type="test",
+            additional_properties={"s3_uri": {"production": "s3://example-bucket/example_data/"}},
+        )
+
+    def _inspect_args(self, **overrides):
+        values = {
+            "dependency_command": "inspect",
+            "last_test_time": "2000-01-03",
+            "repo_url": "https://github.com/example-org/example-algorithm.git",
+            "git_reference": "v77.0.0",
+            "scratch_dir": "./scratch",
+            "target": "evaluate",
+            "algorithm_override": None,
+            "remote": False,
+            "local_dir": None,
+            "output_format": "json",
+            "s3_base_dir": None,
+            "role_arn": None,
+        }
+        values.update(overrides)
+        return SimpleNamespace(**values)
+
+    def _download_args(self, local_dir: Path, **overrides):
+        values = {
+            "download_all": False,
+            "download_dependencies": ["example_data"],
+            "local_dir": str(local_dir),
+            "s3_base_dir": None,
+            "role_arn": None,
+            "sample_ratio": None,
+            "max_parallel_downloads": 1,
+            "scratch_dir": "./scratch",
+        }
+        values.update(overrides)
+        return SimpleNamespace(**values)
+
+    def test_inspect_without_remote_emits_declared_dependency_only(self):
+        args = self._inspect_args()
+        output = io.StringIO()
+
+        with (
+            patch.object(self.command, "_get_data_dependencies", return_value=("algo", "1.2.3", [self.dependency])),
+            redirect_stdout(output),
+        ):
+            self.command.execute_canonical(args)
+
+        payload = json.loads(output.getvalue())
+        dependency = payload["dependencies"][0]
+        self.assertEqual(dependency["data_prefix"], "example_data")
+        self.assertNotIn("s3_uri", dependency)
+
+    def test_inspect_sagemaker_emits_input_data_config(self):
+        args = self._inspect_args(remote=True, output_format="sagemaker")
+        output = io.StringIO()
+
+        with (
+            patch.object(self.command, "_get_data_dependencies", return_value=("algo", "1.2.3", [self.dependency])),
+            redirect_stdout(output),
+        ):
+            self.command.execute_canonical(args)
+
+        payload = json.loads(output.getvalue())
+        channel = payload["InputDataConfig"][0]
+        self.assertEqual(channel["ChannelName"], "example_data")
+        self.assertEqual(channel["DataSource"]["S3DataSource"]["S3Uri"], "s3://example-bucket/example_data/")
+        self.assertEqual(channel["InputMode"], "FastFile")
+
+    def test_inspect_sagemaker_uses_s3_base_dir_fallback(self):
+        dependency_without_uri = DataDependency(
+            algorithm_name="algo",
+            algorithm_version="1.2.3",
+            data_prefix="example_data",
+            data_dates={date(2000, 1, 2)},
+            data_type="test",
+            additional_properties={},
+        )
+        args = self._inspect_args(
+            remote=True,
+            output_format="sagemaker",
+            s3_base_dir="s3://fallback-bucket/tables",
+        )
+        output = io.StringIO()
+
+        with (
+            patch.object(
+                self.command,
+                "_get_data_dependencies",
+                return_value=("algo", "1.2.3", [dependency_without_uri]),
+            ),
+            redirect_stdout(output),
+        ):
+            self.command.execute_canonical(args)
+
+        channel = json.loads(output.getvalue())["InputDataConfig"][0]
+        self.assertEqual(
+            channel["DataSource"]["S3DataSource"]["S3Uri"],
+            "s3://fallback-bucket/tables/example_data/",
+        )
+
+    def test_inspect_local_requires_remote(self):
+        args = self._inspect_args(local_dir="./data")
+
+        with patch.object(self.command, "_get_data_dependencies") as get:
+            with self.assertRaisesRegex(ValueError, "--local-dir requires --remote"):
+                self.command.execute_canonical(args)
+        get.assert_not_called()
+
+    def test_download_rejects_invalid_sample_ratio_before_dependency_discovery(self):
+        with TemporaryDirectory() as tmpdir:
+            args = self._download_args(Path(tmpdir) / "local", sample_ratio=0)
+            args.dependency_command = "download"
+            args.last_test_time = "2000-01-03"
+            args.repo_url = "https://github.com/example-org/example-algorithm.git"
+            args.git_reference = "v77.0.0"
+            args.target = "evaluate"
+            args.algorithm_override = None
+
+            with patch.object(self.command, "_get_data_dependencies") as get:
+                with self.assertRaisesRegex(ValueError, "--sample-ratio must be between 0 and 1"):
+                    self.command.execute_canonical(args)
+            get.assert_not_called()
+
+    def test_remote_resolution_requires_declared_uri_or_fallback(self):
+        dependency_without_uri = DataDependency(
+            algorithm_name="algo",
+            algorithm_version="1.2.3",
+            data_prefix="example_data",
+            data_dates={date(2000, 1, 2)},
+            data_type="test",
+            additional_properties={},
+        )
+        with self.assertRaisesRegex(ValueError, "no production s3_uri"):
+            self.command._production_s3_location(dependency_without_uri)
+
+    def test_remote_resolution_falls_back_to_s3_base_dir(self):
+        dependency_without_uri = DataDependency(
+            algorithm_name="algo",
+            algorithm_version="1.2.3",
+            data_prefix="example_data",
+            data_dates={date(2000, 1, 2)},
+            data_type="test",
+            additional_properties={},
+        )
+
+        location = self.command._production_s3_location(
+            dependency_without_uri,
+            "s3://fallback-bucket/tables",
+        )
+
+        self.assertEqual(
+            location,
+            (
+                "s3://fallback-bucket/tables/example_data/",
+                "fallback-bucket",
+                "tables/example_data",
+            ),
+        )
+
+    def test_declared_production_uri_takes_precedence_over_s3_base_dir(self):
+        location = self.command._production_s3_location(
+            self.dependency,
+            "s3://fallback-bucket/tables",
+        )
+
+        self.assertEqual(
+            location,
+            (
+                "s3://example-bucket/example_data/",
+                "example-bucket",
+                "example_data",
+            ),
+        )
+
+    def test_download_rejects_any_unknown_selected_dependency_before_creating_local_dir(self):
+        with TemporaryDirectory() as tmpdir:
+            local_dir = Path(tmpdir) / "local"
+            args = self._download_args(local_dir, download_dependencies=["example_data", "unknown_data"])
+
+            with self.assertRaisesRegex(ValueError, "Unknown dependency names: unknown_data"):
+                self.command._execute_canonical_download(args, [self.dependency])
+
+            self.assertFalse(local_dir.exists())
+
+    def test_download_validates_remote_contract_before_creating_local_dir(self):
+        dependency_without_uri = DataDependency(
+            algorithm_name="algo",
+            algorithm_version="1.2.3",
+            data_prefix="example_data",
+            data_dates={date(2000, 1, 2)},
+            data_type="test",
+            additional_properties={},
+        )
+        with TemporaryDirectory() as tmpdir:
+            local_dir = Path(tmpdir) / "local"
+            args = self._download_args(local_dir, download_all=True, download_dependencies=None)
+
+            with self.assertRaisesRegex(ValueError, "no production s3_uri"):
+                self.command._execute_canonical_download(args, [dependency_without_uri])
+
+            self.assertFalse(local_dir.exists())
+
+    def test_rejects_non_s3_production_uri(self):
+        dependency_with_https_uri = DataDependency(
+            algorithm_name="algo",
+            algorithm_version="1.2.3",
+            data_prefix="example_data",
+            data_dates={date(2026, 1, 2)},
+            data_type="test",
+            additional_properties={"s3_uri": {"production": "https://example.invalid/example_data/"}},
+        )
+
+        with self.assertRaisesRegex(ValueError, "invalid S3 URI"):
+            self.command._production_s3_location(dependency_with_https_uri)
+
+    def test_rejects_non_s3_fallback_uri(self):
+        dependency_without_uri = DataDependency(
+            algorithm_name="algo",
+            algorithm_version="1.2.3",
+            data_prefix="example_data",
+            data_dates={date(2026, 1, 2)},
+            data_type="test",
+            additional_properties={},
+        )
+
+        with self.assertRaisesRegex(ValueError, "invalid S3 URI"):
+            self.command._production_s3_location(
+                dependency_without_uri,
+                "https://example.invalid/tables",
+            )
 
 
 class _FlakyDownloadS3Client:

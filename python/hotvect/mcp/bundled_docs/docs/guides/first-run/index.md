@@ -36,9 +36,15 @@ source python/.venv/bin/activate
 
 PROJECT_VERSION="$(mvn -q -f examples/product-search-and-ranking/product-ranker/pom.xml \
   help:evaluate -Dexpression=project.version -DforceStdout)"
+ALGORITHM_VERSION="$(mvn -q -f examples/product-search-and-ranking/product-ranker/pom.xml \
+  help:evaluate -Dexpression=algorithm.version -DforceStdout)"
 ALGORITHM_JAR="examples/product-search-and-ranking/product-ranker/target/hotvect-example-product-ranker-${PROJECT_VERSION}-shaded.jar"
 test -f "$ALGORITHM_JAR"
 ```
+
+The two versions are independent. `PROJECT_VERSION` is the Hotvect framework version that built the JAR file;
+`ALGORITHM_VERSION` is the `algorithm.version` property that the embedded definitions use as their
+`algorithm_version`. Artifact paths below are keyed by the algorithm version.
 
 The shaded JAR is the current algorithm-package format. It contains the implementation and four embedded definitions:
 
@@ -57,7 +63,7 @@ generates and prepares its children recursively:
 ```bash
 OUTPUT=output/example-product-first-run
 
-hv train \
+hv algorithm train \
   --algorithm-name example-product-search-topk \
   --algorithm-jar "$ALGORITHM_JAR" \
   --data-base-dir examples/product-search-and-ranking/example-data \
@@ -69,8 +75,9 @@ hv train \
 Select the resulting TopK parameter package by its exact algorithm and parameter identities:
 
 ```bash
-PARAMETERS="$OUTPUT/example-product-search-topk@$PROJECT_VERSION/last_test_date_2000-01-03/example-product-search-topk@$PROJECT_VERSION@last_test_date_2000-01-03.parameters.zip"
+PARAMETERS="$OUTPUT/example-product-search-topk@$ALGORITHM_VERSION/last_test_date_2000-01-03/example-product-search-topk@$ALGORITHM_VERSION@last_test_date_2000-01-03.parameters.zip"
 test -f "$PARAMETERS"
+test -f "$OUTPUT/metadata/example-product-search-topk@$ALGORITHM_VERSION/last_test_date_2000-01-03/result.json"
 ```
 
 The run writes generated search-index files plus scorer, Ranker, and TopK parameter packages, predictions, evaluation
@@ -88,7 +95,7 @@ rebuilding the implementation.
 Start the local debugger with the search TopK package and its recorded test examples:
 
 ```bash
-hv serve \
+hv algorithm serve \
   --ui \
   --algorithm-name example-product-search-topk \
   --algorithm-jar "$ALGORITHM_JAR" \
@@ -113,19 +120,20 @@ Stop the server with Ctrl+C when finished.
 The UI loads the outer TopK algorithm, so its algorithm identity begins:
 
 ```text
-example-product-search-topk@<project-version>
+example-product-search-topk@<algorithm-version>
 ```
 
 The complete runtime identity adds the selected parameter ID:
 
 ```text
-example-product-search-topk@<project-version>@<parameter-id>
+example-product-search-topk@<algorithm-version>@<parameter-id>
 ```
 
 The search index, Ranker, and scorer are children of that outer runtime. Their identities begin
-`example-product-search-index@<project-version>`, `example-product-ranker@<project-version>`, and
-`example-product-scorer@<project-version>`. The definitions take their version from the Maven project. Run
-`hv --version` to see the version of the built checkout; after a release bump, all four example identities change with it.
+`example-product-search-index@<algorithm-version>`, `example-product-ranker@<algorithm-version>`, and
+`example-product-scorer@<algorithm-version>`. The definitions take their version from the `algorithm.version` Maven
+property in the product-ranker POM, not from the Hotvect framework version. `hv --version` reports the framework
+version of the built checkout, which is a different number; a Hotvect release bump does not change these identities.
 
 Because this example is trained, its runtime identity includes the selected parameter ID rather than `@NA`.
 

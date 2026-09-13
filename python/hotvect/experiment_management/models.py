@@ -204,30 +204,17 @@ class SlotActiveInfoUserForcedAssignmentResponse(BaseModel):
     variant_id: int
 
 
-class SlotActiveInfoCampaignForcedAssignmentResponse(BaseModel):
-    campaign_id: str
-    variant_id: int
-
-
 class SlotActiveInfo(BaseModel):
     slot_salt: str
     total_number_of_shards: int
     default_variant: SlotActiveInfoVariantResponse
     experiments: list[SlotActiveInfoExperimentResponse]
     user_forced_assignments: list[SlotActiveInfoUserForcedAssignmentResponse]
-    campaign_forced_assignments: list[SlotActiveInfoCampaignForcedAssignmentResponse]
 
 
 class UserForcedAssignment(BaseModel):
     user_forced_assignment_id: int
     user_id: str
-    variant: Variant
-    created_at: datetime
-
-
-class CampaignForcedAssignment(BaseModel):
-    campaign_forced_assignment_id: int
-    campaign_id: str
     variant: Variant
     created_at: datetime
 

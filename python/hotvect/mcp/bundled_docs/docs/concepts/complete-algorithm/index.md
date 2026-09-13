@@ -64,7 +64,7 @@ Vowpal Wabbit support was removed in Hotvect 10 and is not a current backend.
 
 An API shape does not imply that every Hotvect command or local server dispatches it directly.
 
-| Shape | Offline `predict` and performance test | Local `hv serve` | Typical role |
+| Shape | Offline `predict` and performance test | Local `hv algorithm serve` | Typical role |
 | --- | --- | --- | --- |
 | Ranker | Supported | Supported | Public ordering decision |
 | Bulk scorer | Supported | Not dispatched | Batch-aligned candidate scores |

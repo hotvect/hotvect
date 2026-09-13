@@ -63,13 +63,13 @@ Java runtime embedded by an application.
     </div>
     <div class="hv-system-map__down">↕</div>
     <div class="hv-system-map__node hv-system-map__node--accent">
-      <span class="hv-system-map__badge">EXTERNAL TODAY</span>
+      <span class="hv-system-map__badge">DEPLOY SEPARATELY</span>
       <strong>Experiment Management Service (EMS)</strong>
       <small>slots · variants · experiments · package metadata</small>
     </div>
     <div class="hv-system-map__down">↓</div>
     <div class="hv-system-map__node">
-      <strong><code>hv-exp</code> inspection</strong>
+      <strong><code>hv ems</code> inspection</strong>
       <small>read-only configuration and online results</small>
     </div>
     <div class="hv-system-map__output">
@@ -106,12 +106,13 @@ Java runtime embedded by an application.
   </section>
 </div>
 
-The offline plane produces packages and evidence but does not serve requests. An organization may publish packages
-through its own path and keep selection metadata in an external EMS; `hv-exp` only reads that state. The online plane
-is always the containing application. It can load already selected local artifacts directly, or resolve an EMS
-assignment through the repository, then construct an `AlgorithmInstance`. It may invoke explicit Python or native
-integrations behind that instance. When EMS is used, EMS and the artifact store are not in the per-request scoring path
-after the serving snapshot is loaded.
+The offline plane produces packages and evidence but does not serve requests. An organization publishes packages
+through its own path and may run a separately deployed EMS server to keep selection metadata; `hv ems` only reads that
+state. The
+online plane is always the containing application. It can load already selected local artifacts directly, or resolve
+an EMS assignment through the repository, then construct an `AlgorithmInstance`. It may invoke explicit Python or
+native integrations behind that instance. When EMS is used, EMS and the artifact store are not in the per-request
+scoring path after the serving snapshot is loaded.
 
 ## One algorithm, from source to decision
 
@@ -234,8 +235,9 @@ instance does not generically close every child or external binding.
 | --- | --- | --- |
 | Public contracts | `hotvect-api` | Algorithm shapes, request and decision types, factories, execution context, identity |
 | Algorithm implementation | `hotvect-core`, `hotvect-processor` | Runtime feature transformation and compile-time generated transformers |
-| Algorithm backends | `hotvect-catboost`, `hotvect-tensorflow`, Java `hotvect-python` | Backend-specific encoding, scoring, and managed Python workers |
+| Algorithm backends | `hotvect-catboost`, `hotvect-tensorflow`, Java `hotvect-python` | CatBoost encoding/scoring, TensorFlow feature/schema/TFRecord support, and managed Python-worker infrastructure |
 | Runtime assembly | `hotvect-online-util` | Dynamic loading, parameter resolution, dependency binding, EMS selection, instance repository |
+| External experiment control plane | Standalone EMS service | Spring Boot EMS persistence and REST API, built and deployed from its own repository with PostgreSQL and OAuth integration |
 | Offline execution | `hotvect-offline-util` | Audit, encode, predict, performance test, and state-generation JVM tasks |
 | Offline orchestration | Python package `hotvect` | Train and backtest planning, dependency preparation, caching, remote submission, result bookkeeping |
 | Local debugging | `hotvect-algorithm-serve`, `hotvect-algorithm-demo` | Local HTTP and browser surfaces for exercising an algorithm |
@@ -246,6 +248,13 @@ Java `hotvect-python` is a runtime backend module. It is distinct from the Pytho
 ## Continue by concern
 
 <div class="grid cards" markdown>
+
+-   **System map**
+
+    Distinguish algorithm artifacts, offline workflows, embedded runtimes, EMS, stores, and local tools by deployment
+    and ownership boundary.
+
+    [Open the system map](../components/index.md){ .hv-btn }
 
 -   **Application integration**
 
@@ -276,6 +285,7 @@ Java `hotvect-python` is a runtime backend module. It is distinct from the Pytho
     Connect effective definitions and parameter releases to EMS slots, variants, assignment, and inspection.
 
     [Read configuration and experimentation](../concepts/configuration-and-experimentation/index.md){ .hv-btn }
+    [Understand the EMS control plane](../components/experiment-management-service/index.md){ .hv-btn }
 
 -   **Current boundaries**
 

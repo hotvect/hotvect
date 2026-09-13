@@ -8,7 +8,7 @@ related_docs:
   - ../../../reference/version-compatibility/index.md
 related_commands:
   - git worktree add
-  - hv backtest
+  - hv algorithm backtest
 ---
 
 # Branching and versioning algorithm repositories

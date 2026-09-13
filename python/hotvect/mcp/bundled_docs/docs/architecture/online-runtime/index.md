@@ -1,16 +1,17 @@
 ---
-title: Online runtime and application embedding
-description: How a containing application resolves, loads, binds, caches, executes, and closes Hotvect algorithm instances
-tags: [architecture, online, runtime, embedding, loading]
+title: Online runtime integration
+description: Embed Hotvect in a serving application to resolve, load, bind, cache, select, and execute algorithms
+tags: [components, architecture, online, runtime, embedding, loading]
 ---
 
-# Online runtime and application embedding
+# Online runtime integration
 
-Production use of Hotvect is an application integration. The containing service owns HTTP or event handling,
+Online runtime integration is a set of Java libraries embedded by a containing application. In production,
+the containing service owns HTTP or event handling,
 authentication, traffic management, and observability; Hotvect supplies the loaded decision algorithm executed inside
 that service.
 
-The `hv serve` command is a local debugging surface, not the production hosting model.
+The `hv algorithm serve` command is a local debugging surface, not the production hosting model.
 
 ## Resolution and loading flow
 
@@ -65,8 +66,8 @@ See [Dependencies and bindings](../../concepts/dependencies-and-bindings/index.m
 
 ## Experiment selection
 
-The online utility module includes an Experiment Management Service (EMS) read client, slot and experiment state types, deterministic variant
-assignment, periodic state refresh, and conversion of selected metadata into loaded algorithm instances. For each
+The online utility module includes an Experiment Management Service (EMS) read client, slot and experiment state types,
+deterministic variant assignment, periodic state refresh, and conversion of selected metadata into loaded algorithm instances. For each
 configured slot, startup fetches the default variant and active experiments before serving. Later refreshes resolve all
 referenced algorithms and atomically replace the immutable serving snapshot.
 
@@ -75,16 +76,20 @@ traffic. Hotvect applies forced assignments first, then the configured shard, ex
 ramp-up rules. The result selects an exact algorithm and parameter identity; it does not change the loading contract
 described above.
 
-The EMS server remains external to Hotvect in the current release. `hv-exp` is the read-only inspection CLI, while
-`hv serve --ems-url ... --ems-slot ...` exercises the client path locally. Read
-[Configuration and experimentation](../../concepts/configuration-and-experimentation/index.md) for the complete model
-and current product boundary.
+The configured EMS endpoint is deployed from the standalone EMS repository. A serving application depends on
+`hotvect-online-util`, not the server implementation. `hv ems` is the read-only inspection CLI, while
+`hv algorithm serve --ems-url ... --ems-slot ...` exercises the client path locally.
+
+Read [EMS runtime client, refresh, and assignment](../../components/ems-runtime-client/index.md) for this component,
+[EMS control plane](../../components/experiment-management-service/index.md) for the server boundary, or
+[Connect an online runtime to EMS](../../guides/connect-online-runtime-to-ems/index.md) for implementation.
 
 ## Local debugging
 
-Use `hv serve` to load the complete algorithm locally and expose `GET /health`, `GET /api/health`, `GET /api/metadata`,
+Use `hv algorithm serve` to load the complete algorithm locally and expose `GET /health`, `GET /api/health`, `GET /api/metadata`,
 `GET /api/config`, `POST /predict`, and optional browser UI routes. Local artifact mode intentionally uses a batch/offline
 execution context and an offline example decoder. EMS mode uses the repository's realtime/online context, but the HTTP
 surface remains a local debugger. Neither mode currently configures runtime-local state storage.
 
-Continue with [Serve and integrate](../../guides/serve-and-integrate/index.md) for the available debugging surfaces.
+Continue with [Local algorithm server and debugger](../../components/local-algorithm-server/index.md) for the component
+boundary or [Serve and integrate](../../guides/serve-and-integrate/index.md) for the available workflows.

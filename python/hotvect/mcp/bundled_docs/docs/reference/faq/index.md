@@ -22,17 +22,18 @@ required path.
 
 ### What is the difference between `hv`, `hv-ext`, and `hv-exp`?
 
-- `hv` runs core algorithm and pipeline operations such as audit, encode, predict, train, and backtest.
-- `hv-ext` provides result, metrics, comparison, configuration, and data-dependency utilities.
-- `hv-exp` reads experiment-management state and online evaluation result partitions.
+- `hv` is the canonical human CLI: use `hv algorithm ...`, `hv qa ...`, `hv ems ...`, `hv docs ...`, `hv config ...`, and its metrics, results, comparison, conversion, and data-dependency commands.
+- `hv-ext compare-jsonl` and `hv-ext catboost-convert` are retained low-level extension commands. Other `hv-ext`
+  commands remain available temporarily but print a warning with their canonical `hv` replacement.
+- `hv-exp` remains available temporarily and prints a warning to use the read-only `hv ems ...` surface.
 
-All three are installed with the Hotvect Python package. Use `--help` on the installed checkout for the exact command
-surface.
+All are installed with the Hotvect Python package. Use `hv --help` on the installed checkout for the canonical command
+tree.
 
-### Does `hv backtest` need `~/.hotvect/config.json` when I pass every directory flag?
+### Does `hv algorithm backtest` need `~/.hotvect/config.json` when I pass every directory flag?
 
 No. The current command reads the config only when at least one of `--data-base-dir`, `--output-base-dir`, or
-`--scratch-dir` is missing. If a config is needed, `hv-ext config init` creates it and refuses to replace an existing
+`--scratch-dir` is missing. If a config is needed, `hv config init` creates it and refuses to replace an existing
 file unless `--force` is present.
 
 See [Configuration reference](../config/index.md).
@@ -41,9 +42,9 @@ See [Configuration reference](../config/index.md).
 
 ### How do I find the data a run needs?
 
-Use `hv-ext data-dependency` or `hv-ext show-data-dependency` against the same git reference, override, target, and test
-date as the intended run. The default `data-dependency` mode lists rather than downloads; add `--download-all` or a
-specific `--download <data-prefix>` only after reviewing the plan.
+Use `hv data dependencies inspect` against the same git reference, override, target, and test
+date as the intended run. Add `--remote` to resolve the declared production S3 locations. After reviewing the plan, use `hv data dependencies download --all` or
+`hv data dependencies download --name <data-prefix>` to materialize the data.
 
 The command reserves stdout for its JSON plan and sends clone/build progress to stderr, so the result can be redirected
 or piped to `jq`.
@@ -70,17 +71,17 @@ claims.
 
 ### Which path is a file and which is a directory?
 
-- `hv audit`, `hv predict`, and `hv encode` write a destination directory containing `part-*` files.
+- `hv algorithm audit`, `hv algorithm predict`, and `hv algorithm encode` write a destination directory containing `part-*` files.
 - `--metadata-path` is a directory containing `metadata.json` and logs.
 - a predict-parameters artifact is a ZIP file.
-- `hv evaluate --dest-path` writes one JSON file.
+- `hv algorithm evaluate --dest-path` writes one JSON file.
 
 ### How do I inspect wrong feature values?
 
 Run a small ordered audit with the exact JAR, source rows, and parameters ZIP used by the failing path:
 
 ```bash
-hv audit \
+hv algorithm audit \
   --algorithm-jar /path/to/algorithm.jar \
   --algorithm-name <algorithm-name> \
   --parameter-path /path/to/predict.parameters.zip \
@@ -92,10 +93,10 @@ hv audit \
 
 Compare two ordered outputs with `hv-ext compare-jsonl`. See [Feature audits](../../guides/feature-audits/index.md).
 
-### When should I use `hv predict --log-features` instead of `hv audit`?
+### When should I use `hv algorithm predict --log-features` instead of `hv algorithm audit`?
 
-Use `hv audit` to inspect the transformer owned by one algorithm. The current audit task rejects vectorizer-only
-definitions. Use `hv predict --log-features` when
+Use `hv algorithm audit` to inspect the transformer owned by one algorithm. The current audit task rejects vectorizer-only
+definitions. Use `hv algorithm predict --log-features` when
 you need the full outer-algorithm decode and scoring path with dependency feature values attached to each result item.
 
 See [Predict with feature logging](../../guides/feature-logging/index.md).

@@ -14,9 +14,9 @@ related_docs:
   - ../feature-audits/index.md
   - ../../reference/cli/index.md
 related_commands:
-  - hv audit
-  - hv encode
-  - hv predict
+  - hv algorithm audit
+  - hv algorithm encode
+  - hv algorithm predict
 next_steps:
   - Run feature audits to verify fixes
   - Compare algorithm versions

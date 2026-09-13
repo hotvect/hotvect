@@ -30,7 +30,12 @@ from hotvect.algorithm_definition_overrides import (
 from hotvect.build_utils import clone_and_build_algorithm_jar
 from hotvect.jvm_args import normalize_pipeline_jvm_options
 from hotvect.pyhotvect import AlgorithmPipeline, AlgorithmPipelineContext, DataDependency
-from hotvect.sagemaker_job_name import build_backtest_training_job_name
+from hotvect.sagemaker_config import (
+    HOTVECT_PREFERRED_INSTANCE_TYPES_KEY,
+    HOTVECT_SUBMISSION_OPTIONS_KEY,
+    validate_training_job_name_length,
+)
+from hotvect.sagemaker_job_name import build_backtest_training_job_name, generate_runid
 from hotvect.utils import (
     AlgorithmSpec,
     ConcurrencySetting,
@@ -168,8 +173,15 @@ class BacktestIterationResult(NamedTuple):
 class BacktestResult(NamedTuple):
     algo_git_reference: str
     algorithm_definition_override: dict[str, Any] | None = None
+    algorithm_definition_override_metadata: dict[str, Any] | None = None
     backtest_iteration_results: list[BacktestIterationResult] | None = None
     error: str | None = None
+
+
+@dataclass(frozen=True)
+class EncodeCachePrewarmJob:
+    representative_last_test_day: date
+    encode_partition_dates_by_algorithm: dict[str, tuple[date, ...]]
 
 
 def apply_sagemaker_job_overrides(job_definition: dict[str, Any], overrides: dict[str, Any] | None) -> None:
@@ -183,15 +195,6 @@ def apply_sagemaker_job_overrides(job_definition: dict[str, Any], overrides: dic
     if not overrides:
         return
     recursive_dict_update(job_definition, copy.deepcopy(overrides))
-
-
-def _has_nested_key(d: dict[str, Any] | None, *path: str) -> bool:
-    current: Any = d
-    for key in path:
-        if not isinstance(current, dict) or key not in current:
-            return False
-        current = current[key]
-    return True
 
 
 def legacy_sagemaker_params_to_overrides(params: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -265,6 +268,77 @@ def apply_algorithm_sagemaker_job_configuration(
         apply_sagemaker_job_overrides(job_definition, legacy_params_override)
 
 
+def _apply_algorithm_pipeline_sagemaker_job_configuration(
+    job_definition: dict[str, Any],
+    algorithm_pipeline: AlgorithmPipeline,
+) -> None:
+    job_definition.setdefault("AlgorithmSpecification", {}).setdefault("TrainingInputMode", "FastFile")
+
+    if algorithm_pipeline.algorithm_definition_override is None:
+        algorithm_definition_layers = [("algorithm definition", algorithm_pipeline.algorithm_definition)]
+    else:
+        assert algorithm_pipeline.committed_algorithm_definition is not None
+        algorithm_definition_layers = [
+            ("algorithm definition", algorithm_pipeline.committed_algorithm_definition),
+            ("algorithm definition override", algorithm_pipeline.algorithm_definition_override),
+        ]
+
+    for layer_name, algorithm_definition_layer in algorithm_definition_layers:
+        if algorithm_definition_layer.get("sagemaker_training_job_definition"):
+            logger.info("Applying %s SageMaker job overrides", layer_name)
+        if algorithm_definition_layer.get("sagemaker_execution_parameters"):
+            logger.warning(
+                "Algorithm %s %s uses deprecated sagemaker_execution_parameters. "
+                "Please move these settings into sagemaker_training_job_definition.ResourceConfig/StoppingCondition.",
+                algorithm_pipeline.algorithm_name,
+                layer_name,
+            )
+        apply_algorithm_sagemaker_job_configuration(job_definition, algorithm_definition_layer)
+
+
+def _validate_prewarm_activation(
+    *,
+    prewarm_encode_cache: bool,
+    prewarm_instance_count: int | None,
+    prewarm_instance_type: str | None,
+    sagemaker_training_job_definition: dict[str, Any] | None,
+) -> None:
+    if prewarm_instance_count is not None:
+        if prewarm_instance_count <= 0:
+            raise ValueError("prewarm_instance_count must be a positive integer")
+        if not prewarm_encode_cache:
+            raise ValueError("prewarm_instance_count requires prewarm_encode_cache")
+    if prewarm_instance_type and not prewarm_encode_cache:
+        raise ValueError("prewarm_instance_type requires prewarm_encode_cache")
+    if prewarm_encode_cache and not sagemaker_training_job_definition:
+        raise ValueError("prewarm_encode_cache requires SageMaker execution")
+
+
+def _validate_prewarm_options(
+    *,
+    prewarm_encode_cache: bool,
+    prewarm_instance_count: int | None,
+    prewarm_instance_type: str | None,
+    sagemaker_training_job_definition: dict[str, Any] | None,
+    cache_base_dir: str | None,
+    cache_refresh: bool,
+) -> None:
+    _validate_prewarm_activation(
+        prewarm_encode_cache=prewarm_encode_cache,
+        prewarm_instance_count=prewarm_instance_count,
+        prewarm_instance_type=prewarm_instance_type,
+        sagemaker_training_job_definition=sagemaker_training_job_definition,
+    )
+    if not prewarm_encode_cache:
+        return
+    if not cache_base_dir:
+        raise ValueError("prewarm_encode_cache requires cache_base_dir")
+    if not cache_base_dir.startswith("s3://"):
+        raise ValueError("prewarm_encode_cache requires an s3:// cache_base_dir")
+    if cache_refresh:
+        raise ValueError("prewarm_encode_cache is not supported with cache_refresh")
+
+
 class BacktestPipeline:
     def __init__(
         self,
@@ -278,10 +352,14 @@ class BacktestPipeline:
         number_of_runs: int,
         additional_jars: list[Path] = None,
         algorithm_definition_override: dict[str, Any] = None,
+        algorithm_definition_override_metadata: dict[str, Any] | None = None,
         auto_attach_data_default_s3_base: str | None = None,
         auto_attach_data_environment: str = "production",
         encode_test_data: bool = False,
         execute_audit: bool = False,
+        prewarm_encode_cache: bool = False,
+        prewarm_instance_count: int | None = None,
+        prewarm_instance_type: str | None = None,
     ):
         self.algo_repo_url = algo_repo_url
         self.algo_git_reference = algo_git_reference
@@ -299,10 +377,14 @@ class BacktestPipeline:
         self.last_test_time = last_test_time
         self.number_of_runs = number_of_runs
         self.algorithm_definition_override = algorithm_definition_override
+        self.algorithm_definition_override_metadata = copy.deepcopy(algorithm_definition_override_metadata)
         self.auto_attach_data_environment = (auto_attach_data_environment or "production").lower()
         self.auto_attach_data_default_s3_base = auto_attach_data_default_s3_base
         self.encode_test_data = encode_test_data
         self.execute_audit = execute_audit
+        self.prewarm_encode_cache = prewarm_encode_cache
+        self.prewarm_instance_count = prewarm_instance_count
+        self.prewarm_instance_type = prewarm_instance_type
 
         logger.info(f"Initialized BacktestPipeline with {self.__dict__}")
 
@@ -392,12 +474,20 @@ class BacktestPipeline:
         sagemaker_cli_job_overrides: dict[str, Any] | None = None,
         role_arn_to_assume: str | None = None,
     ) -> BacktestResult:
+        _validate_prewarm_activation(
+            prewarm_encode_cache=self.prewarm_encode_cache,
+            prewarm_instance_count=self.prewarm_instance_count,
+            prewarm_instance_type=self.prewarm_instance_type,
+            sagemaker_training_job_definition=sagemaker_training_job_definition,
+        )
+
         laptime = time.time()
         algorithm_spec = self._prepare_algorithm_jar(self.algo_git_reference)
         logger.info(f"Prepared algorithm jar {algorithm_spec} in {(time.time() - laptime): .1f}")
 
+        effective_algorithm_definition_override = self.algorithm_definition_override
         algorithm_definition_path = self._prepare_algorithm_definition(
-            algorithm_spec, self.algorithm_definition_override
+            algorithm_spec, effective_algorithm_definition_override
         )
         effective_algorithm_definition = read_json(algorithm_definition_path)
         logger.info(f"Prepared algorithm definition: {effective_algorithm_definition}")
@@ -428,7 +518,8 @@ class BacktestPipeline:
             queue_length = self.recommended_queue_length(max_threads)
             return self._execute_on_local(
                 algorithm_spec=algorithm_spec,
-                algorithm_definition_override=self.algorithm_definition_override,
+                algorithm_definition_override=effective_algorithm_definition_override,
+                algorithm_definition_override_metadata=self.algorithm_definition_override_metadata,
                 last_test_time=self.last_test_time,
                 number_of_runs=self.number_of_runs,
                 system_performance_test=system_performance_test,
@@ -444,11 +535,13 @@ class BacktestPipeline:
                 sagemaker_cli_job_overrides=sagemaker_cli_job_overrides,
                 role_arn_to_assume=role_arn_to_assume,
                 algorithm_spec=algorithm_spec,
-                algorithm_definition_override=self.algorithm_definition_override,
+                algorithm_definition_override=effective_algorithm_definition_override,
+                algorithm_definition_override_metadata=self.algorithm_definition_override_metadata,
                 last_test_time=self.last_test_time,
                 number_of_runs=self.number_of_runs,
                 system_performance_test=system_performance_test,
                 jvm_options=jvm_options,
+                max_threads_per_process=max_threads_per_process,
                 clean=clean,
             )
 
@@ -461,12 +554,16 @@ class BacktestPipeline:
         system_performance_test: bool,
         jvm_options: list[str],
         clean: bool,
+        max_threads_per_process: int = -1,
+        algorithm_definition_override_metadata: dict[str, Any] | None = None,
         sagemaker_training_job_definition: dict[str, Any] = None,
         sagemaker_cli_job_overrides: dict[str, Any] | None = None,
         role_arn_to_assume: str | None = None,
     ) -> BacktestResult:
         last_test_days = [last_test_time - timedelta(days=i) for i in range(number_of_runs)]
         additional_jar_files = self.additional_jars
+        max_threads = max_threads_per_process if max_threads_per_process > 0 else None
+        queue_length = self.recommended_queue_length(max_threads)
         context = AlgorithmPipelineContext(
             algorithm_jar_path=algorithm_spec.algorithm_jar_path,
             state_source_base_path=Path(os.path.join(self.data_base_dir, "states")),
@@ -474,8 +571,8 @@ class BacktestPipeline:
             metadata_base_path=Path(os.path.join(self.output_data_dir, "meta")),
             output_base_path=Path(os.path.join(self.output_data_dir, "out")),
             jvm_options=normalize_pipeline_jvm_options(jvm_options),
-            max_threads=None,
-            queue_length=None,
+            max_threads=max_threads,
+            queue_length=queue_length,
             batch_size=None,
             additional_jar_files=additional_jar_files,
         )
@@ -493,53 +590,42 @@ class BacktestPipeline:
         # still needs access to the original override for upload/metadata paths.
         algorithm_definition_arg = (algorithm_spec.algorithm_name, algorithm_definition_override)
 
+        if self.prewarm_encode_cache:
+            self._prewarm_encode_partition_cache_on_sagemaker(
+                algorithm_spec=algorithm_spec,
+                algorithm_definition_arg=algorithm_definition_arg,
+                context=context,
+                last_test_days=last_test_days,
+                sagemaker_training_job_definition=sagemaker_training_job_definition,
+                sagemaker_cli_job_overrides=sagemaker_cli_job_overrides,
+                role_arn_to_assume=role_arn_to_assume,
+                sagemaker_executor_cls=SagemakerTrainingExecutor,
+            )
+
         for last_test_day in last_test_days:
             parameter_version = f"last_test_date_{last_test_day}"
-            algorithm_pipeline = AlgorithmPipeline(
-                algorithm_pipeline_context=context,
-                algorithm_definition=algorithm_definition_arg,
-                last_test_time=last_test_day,
-                evaluation_func=self.evaluation_function,
-                parameter_version=parameter_version,
-                execute_performance_test=system_performance_test,
-                encode_test_data=self.encode_test_data,
-                execute_audit=self.execute_audit,
-            )
+            algorithm_pipeline_kwargs = {
+                "algorithm_pipeline_context": context,
+                "algorithm_definition": algorithm_definition_arg,
+                "last_test_time": last_test_day,
+                "evaluation_func": self.evaluation_function,
+                "parameter_version": parameter_version,
+                "execute_performance_test": system_performance_test,
+                "encode_test_data": self.encode_test_data,
+                "execute_audit": self.execute_audit,
+            }
+            if algorithm_definition_override_metadata is not None:
+                algorithm_pipeline_kwargs["algorithm_override_metadata"] = algorithm_definition_override_metadata
+            algorithm_pipeline = AlgorithmPipeline(**algorithm_pipeline_kwargs)
 
             if sagemaker_training_job_definition is None:
                 raise ValueError("SageMaker training job definition must be provided when executing on SageMaker.")
             this_iteration_sagemaker_training_job_definition = copy.deepcopy(sagemaker_training_job_definition)
 
-            # Default InputMode behavior is controlled by AlgorithmSpecification.TrainingInputMode.
-            # Default to FastFile only when not specified (template/algo/CLI overrides win).
-            algo_spec_block = this_iteration_sagemaker_training_job_definition.setdefault("AlgorithmSpecification", {})
-            if "TrainingInputMode" not in algo_spec_block:
-                algo_spec_block["TrainingInputMode"] = "FastFile"
-
-            committed_algorithm_definition = getattr(algorithm_pipeline, "committed_algorithm_definition", None)
-            explicit_algorithm_override = getattr(algorithm_pipeline, "algorithm_definition_override", None)
-            if committed_algorithm_definition is not None and explicit_algorithm_override is not None:
-                algorithm_definition_layers = [
-                    ("algorithm definition", committed_algorithm_definition),
-                    ("algorithm definition override", explicit_algorithm_override),
-                ]
-            else:
-                algorithm_definition_layers = [("algorithm definition", algorithm_pipeline.algorithm_definition)]
-
-            for layer_name, algorithm_definition_layer in algorithm_definition_layers:
-                if algorithm_definition_layer.get("sagemaker_training_job_definition"):
-                    logger.info("Applying %s SageMaker job overrides", layer_name)
-                if algorithm_definition_layer.get("sagemaker_execution_parameters"):
-                    logger.warning(
-                        "Algorithm %s %s uses deprecated sagemaker_execution_parameters. "
-                        "Please move these settings into sagemaker_training_job_definition.ResourceConfig/StoppingCondition.",
-                        algorithm_spec.algorithm_name,
-                        layer_name,
-                    )
-                apply_algorithm_sagemaker_job_configuration(
-                    this_iteration_sagemaker_training_job_definition,
-                    algorithm_definition_layer,
-                )
+            _apply_algorithm_pipeline_sagemaker_job_configuration(
+                this_iteration_sagemaker_training_job_definition,
+                algorithm_pipeline,
+            )
 
             apply_sagemaker_job_overrides(this_iteration_sagemaker_training_job_definition, sagemaker_cli_job_overrides)
 
@@ -573,10 +659,366 @@ class BacktestPipeline:
         error = None
         backtest_result = BacktestResult(
             algo_git_reference=self.algo_git_reference,
+            algorithm_definition_override=self.algorithm_definition_override,
+            algorithm_definition_override_metadata=algorithm_definition_override_metadata,
             backtest_iteration_results=backtest_iteration_results,
             error=error,
         )
         return backtest_result
+
+    @staticmethod
+    def _validate_encode_cache_prewarm_graph(algorithm_pipeline: AlgorithmPipeline) -> None:
+        def validate(pipeline: AlgorithmPipeline, cache_owner: AlgorithmPipeline | None) -> None:
+            if pipeline._uses_prebuilt_parameters():
+                return
+            if cache_owner is not None and pipeline.should_train():
+                raise ValueError(
+                    f"Encode cache prewarm cannot encode {cache_owner.algorithm_name}: its trainable dependency "
+                    f"{pipeline.algorithm_name} requires a trained model in the encoding-parameter archive. "
+                    "Pin that dependency with hotvect_execution_parameters.with_parameter, disable partition caching "
+                    f"for {cache_owner.algorithm_name}, or run without prewarming."
+                )
+
+            next_cache_owner = pipeline if pipeline._uses_encode_partition_cache() else cache_owner
+            for dependency_pipeline in pipeline.dependency_pipelines.values():
+                validate(dependency_pipeline, next_cache_owner)
+
+        validate(algorithm_pipeline, None)
+
+    def _build_encode_cache_prewarm_jobs(
+        self,
+        *,
+        algorithm_pipeline: AlgorithmPipeline,
+        last_test_days: list[date],
+        maximum_contexts: int | None = None,
+    ) -> list[EncodeCachePrewarmJob]:
+        if not last_test_days:
+            return []
+
+        partition_dates_by_pipeline_and_last_test_day = self._encode_partition_dates_by_pipeline_and_last_test_day(
+            algorithm_pipeline=algorithm_pipeline,
+            last_test_days=last_test_days,
+        )
+        assignment_candidates: list[tuple[str, date, tuple[date, ...]]] = []
+        for algorithm_name, partition_dates_by_last_test_day in sorted(
+            partition_dates_by_pipeline_and_last_test_day.items()
+        ):
+            algorithm_partition_dates = sorted(
+                {
+                    partition_date
+                    for partition_dates in partition_dates_by_last_test_day.values()
+                    for partition_date in partition_dates
+                },
+                reverse=True,
+            )
+            for partition_date in algorithm_partition_dates:
+                valid_last_test_days = tuple(
+                    last_test_day
+                    for last_test_day in last_test_days
+                    if partition_date in partition_dates_by_last_test_day[last_test_day]
+                )
+                assignment_candidates.append((algorithm_name, partition_date, valid_last_test_days))
+
+        if not assignment_candidates:
+            return []
+
+        context_order = {last_test_day: index for index, last_test_day in enumerate(last_test_days)}
+        selected_contexts: set[date] = set()
+        # A partition's compatible backtest contexts form an interval: each consecutive backtest day shifts the
+        # training window by one day. Pick the newest context of the oldest uncovered interval; this produces the
+        # minimum number of compatible parameter contexts.
+        for _, _, valid_last_test_days in sorted(
+            assignment_candidates,
+            key=lambda candidate: (
+                -context_order[candidate[2][0]],
+                candidate[0],
+                -candidate[1].toordinal(),
+            ),
+        ):
+            if not selected_contexts.intersection(valid_last_test_days):
+                selected_contexts.add(valid_last_test_days[0])
+
+        if maximum_contexts is not None:
+            if maximum_contexts < len(selected_contexts):
+                raise ValueError(
+                    f"--prewarm-instance-count={maximum_contexts} is too low: this backtest needs "
+                    f"{len(selected_contexts)} one-instance prewarm jobs. They are submitted together, so set "
+                    f"--prewarm-instance-count to at least {len(selected_contexts)}."
+                )
+            available_contexts = [
+                last_test_day
+                for last_test_day in last_test_days
+                if last_test_day not in selected_contexts
+                and any(last_test_day in valid_last_test_days for _, _, valid_last_test_days in assignment_candidates)
+            ]
+            while len(selected_contexts) < maximum_contexts and available_contexts:
+                next_context = max(
+                    available_contexts,
+                    key=lambda last_test_day: (
+                        sum(
+                            last_test_day in valid_last_test_days
+                            for _, _, valid_last_test_days in assignment_candidates
+                        ),
+                        -context_order[last_test_day],
+                    ),
+                )
+                selected_contexts.add(next_context)
+                available_contexts.remove(next_context)
+
+        context_load = {last_test_day: 0 for last_test_day in selected_contexts}
+        assignments_by_last_test_day: dict[date, dict[str, list[date]]] = {}
+        # Place constrained partitions first, then use the least-loaded context that can encode each partition.
+        assignment_candidates.sort(
+            key=lambda candidate: (
+                sum(last_test_day in selected_contexts for last_test_day in candidate[2]),
+                candidate[0],
+                -candidate[1].toordinal(),
+            )
+        )
+        for algorithm_name, partition_date, valid_last_test_days in assignment_candidates:
+            valid_selected_contexts = [
+                last_test_day for last_test_day in valid_last_test_days if last_test_day in selected_contexts
+            ]
+            representative_last_test_day = min(
+                valid_selected_contexts,
+                key=lambda last_test_day: (context_load[last_test_day], context_order[last_test_day]),
+            )
+            assignments_by_last_test_day.setdefault(representative_last_test_day, {}).setdefault(
+                algorithm_name, []
+            ).append(partition_date)
+            context_load[representative_last_test_day] += 1
+
+        jobs = []
+        for representative_last_test_day in last_test_days:
+            assignments = assignments_by_last_test_day.get(representative_last_test_day)
+            if not assignments:
+                continue
+            encode_partition_dates_by_algorithm = {
+                algorithm_name: tuple(sorted(partition_dates, reverse=True))
+                for algorithm_name, partition_dates in assignments.items()
+            }
+            jobs.append(
+                EncodeCachePrewarmJob(
+                    representative_last_test_day=representative_last_test_day,
+                    encode_partition_dates_by_algorithm=encode_partition_dates_by_algorithm,
+                )
+            )
+        return jobs
+
+    def _encode_partition_dates_by_pipeline_and_last_test_day(
+        self,
+        *,
+        algorithm_pipeline: AlgorithmPipeline,
+        last_test_days: list[date],
+    ) -> dict[str, dict[date, tuple[date, ...]]]:
+        partition_dates_by_pipeline_and_last_test_day = {}
+
+        def collect(pipeline: AlgorithmPipeline) -> None:
+            if pipeline._uses_prebuilt_parameters():
+                return
+            if pipeline._uses_encode_partition_cache():
+                partition_dates_by_last_test_day = {}
+                for last_test_day in last_test_days:
+                    partition_dates_by_last_test_day[last_test_day] = tuple(
+                        sorted(pipeline._training_dates_for_last_test_time(last_test_day), reverse=True)
+                    )
+                partition_dates_by_pipeline_and_last_test_day[
+                    pipeline.algorithm_name
+                ] = partition_dates_by_last_test_day
+            for dependency_pipeline in pipeline.dependency_pipelines.values():
+                collect(dependency_pipeline)
+
+        collect(algorithm_pipeline)
+        return partition_dates_by_pipeline_and_last_test_day
+
+    def _prewarm_job_name(
+        self,
+        *,
+        base_prefix: str,
+        algorithm_spec: AlgorithmSpec,
+        algorithm_pipeline: AlgorithmPipeline,
+        last_test_day: date,
+    ) -> str:
+        prewarm_prefix = f"{base_prefix}-prewarm"
+        name = build_backtest_training_job_name(
+            prefix=prewarm_prefix,
+            git_commit_hash=algorithm_spec.git_commit_hash,
+            hyperparameter_version=getattr(algorithm_pipeline, "hyper_parameter_version", None) or "",
+            last_test_day=last_test_day,
+        )
+        name = f"{name}-{generate_runid()}"
+        validate_training_job_name_length(name)
+        return name
+
+    def _prewarm_training_job_definition(
+        self,
+        *,
+        base_training_job_definition: dict[str, Any],
+        sagemaker_cli_job_overrides: dict[str, Any] | None,
+        algorithm_pipeline: AlgorithmPipeline,
+        training_job_name: str,
+    ) -> dict[str, Any]:
+        job_definition = copy.deepcopy(base_training_job_definition)
+        job_definition["TrainingJobName"] = training_job_name
+        _apply_algorithm_pipeline_sagemaker_job_configuration(job_definition, algorithm_pipeline)
+
+        apply_sagemaker_job_overrides(job_definition, sagemaker_cli_job_overrides)
+        resource_config = job_definition.setdefault("ResourceConfig", {})
+        if self.prewarm_instance_type:
+            resource_config["InstanceType"] = self.prewarm_instance_type
+            submission_options = job_definition.get(HOTVECT_SUBMISSION_OPTIONS_KEY)
+            if submission_options is not None:
+                if not isinstance(submission_options, dict):
+                    raise ValueError(f"{HOTVECT_SUBMISSION_OPTIONS_KEY} must be an object/dict")
+                submission_options[HOTVECT_PREFERRED_INSTANCE_TYPES_KEY] = [self.prewarm_instance_type]
+        resource_config["InstanceCount"] = 1
+        return job_definition
+
+    @staticmethod
+    def _blocked_prewarm_partitions(result: dict[str, Any]) -> list[str]:
+        blocked_partitions: list[str] = []
+
+        def collect(value: Any, algorithm_id: str = "unknown algorithm") -> None:
+            if isinstance(value, dict):
+                current_algorithm_id = str(value.get("algorithm_id", algorithm_id))
+                blocked = value.get("partition_cache_blocked")
+                if blocked:
+                    blocked_entries = [
+                        str(partition.get("cache_path") or f"dt={partition.get('dt')}")
+                        for partition in value.get("partitions", [])
+                        if isinstance(partition, dict) and partition.get("cache") == "blocked"
+                    ]
+                    blocked_partitions.append(
+                        f"{current_algorithm_id}: {', '.join(blocked_entries) if blocked_entries else blocked}"
+                    )
+                for child in value.values():
+                    collect(child, current_algorithm_id)
+            elif isinstance(value, list):
+                for child in value:
+                    collect(child, algorithm_id)
+
+        collect(result)
+        return blocked_partitions
+
+    def _prewarm_encode_partition_cache_on_sagemaker(
+        self,
+        *,
+        algorithm_spec: AlgorithmSpec,
+        algorithm_definition_arg: tuple[str, dict[str, Any] | None],
+        context: AlgorithmPipelineContext,
+        last_test_days: list[date],
+        sagemaker_training_job_definition: dict[str, Any],
+        sagemaker_cli_job_overrides: dict[str, Any] | None,
+        role_arn_to_assume: str | None,
+        sagemaker_executor_cls,
+    ) -> None:
+        if not sagemaker_training_job_definition:
+            raise ValueError("Backtest cache prewarm requires SageMaker execution.")
+        if not self.prewarm_encode_cache:
+            raise ValueError("prewarm_encode_cache must be enabled before prewarming")
+
+        planning_pipeline = AlgorithmPipeline(
+            algorithm_pipeline_context=context,
+            algorithm_definition=algorithm_definition_arg,
+            last_test_time=last_test_days[0],
+            evaluation_func=self.evaluation_function,
+            parameter_version=f"last_test_date_{last_test_days[0]}",
+            execute_performance_test=False,
+            encode_test_data=False,
+            execute_audit=False,
+            run_target="encode-cache",
+        )
+        self._validate_encode_cache_prewarm_graph(planning_pipeline)
+        jobs = self._build_encode_cache_prewarm_jobs(
+            algorithm_pipeline=planning_pipeline,
+            last_test_days=last_test_days,
+            maximum_contexts=self.prewarm_instance_count,
+        )
+        if not jobs:
+            logger.info("No encode cache prewarm jobs were planned.")
+            return
+        logger.info(
+            "Prewarming %d encode partition date assignment(s) for %d backtest day(s) with %d SageMaker "
+            "encode-cache job(s).",
+            sum(
+                len(partition_dates)
+                for job in jobs
+                for partition_dates in job.encode_partition_dates_by_algorithm.values()
+            ),
+            len(last_test_days),
+            len(jobs),
+        )
+
+        def build_pipeline(job: EncodeCachePrewarmJob):
+            representative_last_test_day = job.representative_last_test_day
+            return AlgorithmPipeline(
+                algorithm_pipeline_context=context,
+                algorithm_definition=algorithm_definition_arg,
+                last_test_time=representative_last_test_day,
+                evaluation_func=self.evaluation_function,
+                parameter_version=f"last_test_date_{representative_last_test_day}",
+                execute_performance_test=False,
+                encode_test_data=False,
+                execute_audit=False,
+                run_target="encode-cache",
+                encode_partition_dates_by_algorithm={
+                    algorithm_name: list(partition_dates)
+                    for algorithm_name, partition_dates in job.encode_partition_dates_by_algorithm.items()
+                },
+            )
+
+        executors = []
+        for job in jobs:
+            algorithm_pipeline = build_pipeline(job)
+            training_job_name = self._prewarm_job_name(
+                base_prefix=sagemaker_training_job_definition["TrainingJobName"],
+                algorithm_spec=algorithm_spec,
+                algorithm_pipeline=algorithm_pipeline,
+                last_test_day=job.representative_last_test_day,
+            )
+            prewarm_job_definition = self._prewarm_training_job_definition(
+                base_training_job_definition=sagemaker_training_job_definition,
+                sagemaker_cli_job_overrides=sagemaker_cli_job_overrides,
+                algorithm_pipeline=algorithm_pipeline,
+                training_job_name=training_job_name,
+            )
+            self._attach_input_data_config(
+                algorithm_pipeline=algorithm_pipeline,
+                training_job_definition=prewarm_job_definition,
+            )
+            executors.append(
+                sagemaker_executor_cls(
+                    algorithm_pipeline=algorithm_pipeline,
+                    training_job_definition=prewarm_job_definition,
+                    role_arn_to_assume=role_arn_to_assume,
+                )
+            )
+        for executor in executors:
+            executor.run()
+
+        failed_jobs = []
+        completed_executors = []
+        for executor in executors:
+            job_description = executor.wait_for_sagemaker_job_completion()
+            if job_description["TrainingJobStatus"] != "Completed":
+                failure_reason = job_description.get("FailureReason", job_description["TrainingJobStatus"])
+                failed_jobs.append(f"{executor.training_job_name}: {failure_reason}")
+            else:
+                completed_executors.append(executor)
+        if failed_jobs:
+            raise RuntimeError(f"Encode partition cache prewarm failed: {'; '.join(failed_jobs)}")
+
+        blocked_jobs = []
+        for executor in completed_executors:
+            result = executor._download_hotvect_result()
+            blocked_partitions = self._blocked_prewarm_partitions(result)
+            if blocked_partitions:
+                blocked_jobs.append(f"{executor.training_job_name}: {'; '.join(blocked_partitions)}")
+        if blocked_jobs:
+            raise RuntimeError(
+                f"Encode partition cache prewarm could not publish all assigned partitions: "
+                f"{'; '.join(blocked_jobs)}. Remove or repair the incomplete cache prefixes before retrying."
+            )
 
     def _attach_input_data_config(
         self,
@@ -602,6 +1044,7 @@ class BacktestPipeline:
         max_thread_per_process: int,
         queue_length: int,
         clean: bool = False,
+        algorithm_definition_override_metadata: dict[str, Any] | None = None,
     ) -> BacktestResult:
         last_test_days = [last_test_time - timedelta(days=i) for i in range(number_of_runs)]
         additional_jars = list(self.additional_jars) if self.additional_jars else []
@@ -638,6 +1081,7 @@ class BacktestPipeline:
                     kwargs={
                         "context": context,
                         "algorithm_definition": algorithm_definition_arg,
+                        "algorithm_override_metadata": algorithm_definition_override_metadata,
                         "parameter_version": parameter_version,
                         "last_test_time": last_test_day,
                         "evaluation_function": self.evaluation_function,
@@ -672,6 +1116,8 @@ class BacktestPipeline:
 
         return BacktestResult(
             algo_git_reference=self.algo_git_reference,
+            algorithm_definition_override=self.algorithm_definition_override,
+            algorithm_definition_override_metadata=algorithm_definition_override_metadata,
             backtest_iteration_results=ret,
             error=last_error,
         )
@@ -700,17 +1146,21 @@ def run_one_cycle_locally(
     system_performance_test: bool,
     encode_test_data: bool = False,
     execute_audit: bool = False,
+    algorithm_override_metadata: dict[str, Any] | None = None,
 ) -> BacktestIterationResult:
-    pipeline = AlgorithmPipeline(
-        algorithm_pipeline_context=context,
-        algorithm_definition=algorithm_definition,
-        last_test_time=last_test_time,
-        parameter_version=parameter_version,
-        evaluation_func=evaluation_function,
-        execute_performance_test=system_performance_test,
-        encode_test_data=encode_test_data,
-        execute_audit=execute_audit,
-    )
+    algorithm_pipeline_kwargs = {
+        "algorithm_pipeline_context": context,
+        "algorithm_definition": algorithm_definition,
+        "last_test_time": last_test_time,
+        "parameter_version": parameter_version,
+        "evaluation_func": evaluation_function,
+        "execute_performance_test": system_performance_test,
+        "encode_test_data": encode_test_data,
+        "execute_audit": execute_audit,
+    }
+    if algorithm_override_metadata is not None:
+        algorithm_pipeline_kwargs["algorithm_override_metadata"] = algorithm_override_metadata
+    pipeline = AlgorithmPipeline(**algorithm_pipeline_kwargs)
     result = pipeline.run_all(
         clean=clean,
     )
@@ -732,6 +1182,7 @@ def run_backtest_on_git_reference(
     last_test_time: date,
     number_of_runs: int,
     algorithm_definition_override: dict[str, Any] = None,
+    algorithm_definition_override_metadata: dict[str, Any] | None = None,
     jvm_options: list[str] = None,
     additional_jars: list[Path] = None,
     n_process: int = 1,
@@ -749,7 +1200,19 @@ def run_backtest_on_git_reference(
     cache_base_dir: str | None = None,
     cache_scope: str = "hyperparam",
     cache_refresh: bool = False,
+    prewarm_encode_cache: bool = False,
+    prewarm_instance_count: int | None = None,
+    prewarm_instance_type: str | None = None,
 ) -> BacktestResult:
+    _validate_prewarm_options(
+        prewarm_encode_cache=prewarm_encode_cache,
+        prewarm_instance_count=prewarm_instance_count,
+        prewarm_instance_type=prewarm_instance_type,
+        sagemaker_training_job_definition=sagemaker_training_job_definition,
+        cache_base_dir=cache_base_dir,
+        cache_refresh=cache_refresh,
+    )
+
     def updated_sagemaker_training_job_definition():
         if not sagemaker_training_job_definition:
             return None
@@ -761,15 +1224,30 @@ def run_backtest_on_git_reference(
     this_gitref_sagemaker_training_job_definition = updated_sagemaker_training_job_definition()
 
     effective_algorithm_definition_override = algorithm_definition_override
+    effective_algorithm_definition_override_metadata = (
+        copy.deepcopy(algorithm_definition_override_metadata) if algorithm_definition_override_metadata else {}
+    )
     cache_overrides = {"hotvect_execution_parameters": {}}
     if cache_base_dir:
         cache_overrides["hotvect_execution_parameters"]["cache_base_dir"] = cache_base_dir
         cache_overrides["hotvect_execution_parameters"]["cache_scope"] = cache_scope
+    if prewarm_encode_cache:
+        cache_overrides["hotvect_execution_parameters"]["encode"] = {"cache": "partition"}
     if cache_refresh:
         cache_overrides["hotvect_execution_parameters"]["cache_refresh"] = True
     if cache_overrides["hotvect_execution_parameters"]:
         effective_algorithm_definition_override = merge_algorithm_definition_override_fragments(
             effective_algorithm_definition_override, cache_overrides
+        )
+        effective_algorithm_definition_override_metadata.setdefault("reasons", []).append(
+            "CLI cache options generated a Hotvect execution-parameter override."
+        )
+        effective_algorithm_definition_override_metadata.setdefault("fields", []).extend(
+            [
+                "hotvect_execution_parameters.cache_base_dir",
+                "hotvect_execution_parameters.cache_scope",
+                *(["hotvect_execution_parameters.cache_refresh"] if cache_refresh else []),
+            ]
         )
 
     pipeline = BacktestPipeline(
@@ -782,11 +1260,15 @@ def run_backtest_on_git_reference(
         last_test_time=last_test_time,
         number_of_runs=number_of_runs,
         algorithm_definition_override=effective_algorithm_definition_override,
+        algorithm_definition_override_metadata=effective_algorithm_definition_override_metadata or None,
         additional_jars=additional_jars,
         auto_attach_data_default_s3_base=auto_attach_data_default_s3_base,
         auto_attach_data_environment=auto_attach_data_environment,
         encode_test_data=encode_test_data,
         execute_audit=execute_audit,
+        prewarm_encode_cache=prewarm_encode_cache,
+        prewarm_instance_count=prewarm_instance_count,
+        prewarm_instance_type=prewarm_instance_type,
     )
     return pipeline.run_all(
         clean=clean,
@@ -802,7 +1284,9 @@ def run_backtest_on_git_reference(
 
 def run_backtest_on_git_references(
     algo_repo_url: str,
-    algo_git_references: list[str] | list[tuple[str, dict[str, Any]]],
+    algo_git_references: list[
+        str | tuple[str, dict[str, Any] | None] | tuple[str, dict[str, Any] | None, dict[str, Any] | None]
+    ],
     data_base_dir: str,
     output_base_dir: str,
     hyperparameter_base_dir: str,
@@ -827,7 +1311,30 @@ def run_backtest_on_git_references(
     cache_base_dir: str | None = None,
     cache_scope: str = "hyperparam",
     cache_refresh: bool = False,
+    prewarm_encode_cache: bool = False,
+    prewarm_instance_count: int | None = None,
+    prewarm_instance_type: str | None = None,
 ) -> list[BacktestResult]:
+    def _unpack_reference(entry: Any) -> tuple[str, dict[str, Any] | None, dict[str, Any] | None]:
+        if isinstance(entry, str):
+            return entry, None, None
+        if len(entry) == 2:
+            git_ref, override = entry
+            return git_ref, override, None
+        if len(entry) == 3:
+            git_ref, override, metadata = entry
+            return git_ref, override, metadata
+        raise ValueError(f"Unexpected git reference entry: {entry!r}")
+
+    _validate_prewarm_options(
+        prewarm_encode_cache=prewarm_encode_cache,
+        prewarm_instance_count=prewarm_instance_count,
+        prewarm_instance_type=prewarm_instance_type,
+        sagemaker_training_job_definition=sagemaker_training_job_definition,
+        cache_base_dir=cache_base_dir,
+        cache_refresh=cache_refresh,
+    )
+
     if not concurrency_setting:
         concurrency_setting = utils.recommend_concurrency(
             num_git_ref=len(algo_git_references),
@@ -841,7 +1348,7 @@ def run_backtest_on_git_references(
 
     if isinstance(algo_git_references[0], str):
         # No algorithm definition override defined
-        algo_git_references = [(e, None) for e in algo_git_references]
+        algo_git_references = [(e, None, None) for e in algo_git_references]
         logger.info(f"Starting backtest on git references: {[x[0] for x in algo_git_references]}")
     else:
         logger.info(f"Starting backtest on git references with algorithm definition overrides: {algo_git_references}")
@@ -881,10 +1388,12 @@ def run_backtest_on_git_references(
         else:
             exec_pool = pool
 
-        for (
-            algo_git_reference,
-            algorithm_definition_override,
-        ) in algo_git_references:
+        for entry in algo_git_references:
+            (
+                algo_git_reference,
+                algorithm_definition_override,
+                algorithm_definition_override_metadata,
+            ) = _unpack_reference(entry)
             if algorithm_definition_override is not None:
                 logger.info(f"Starting backtest on {algo_git_reference} with override: {algorithm_definition_override}")
             else:
@@ -902,6 +1411,7 @@ def run_backtest_on_git_references(
                     "last_test_time": last_test_time,
                     "number_of_runs": number_of_runs,
                     "algorithm_definition_override": algorithm_definition_override,
+                    "algorithm_definition_override_metadata": algorithm_definition_override_metadata,
                     "jvm_options": jvm_options,
                     "n_process": concurrency_setting.nproc_per_backtest_pipeline,
                     "max_threads_per_process": concurrency_setting.threads_per_backtest_process,
@@ -918,6 +1428,9 @@ def run_backtest_on_git_references(
                     "cache_base_dir": cache_base_dir,
                     "cache_scope": cache_scope,
                     "cache_refresh": cache_refresh,
+                    "prewarm_encode_cache": prewarm_encode_cache,
+                    "prewarm_instance_count": prewarm_instance_count,
+                    "prewarm_instance_type": prewarm_instance_type,
                 },
             )
             futures.append(
@@ -925,6 +1438,7 @@ def run_backtest_on_git_references(
                     BacktestResult(
                         algo_git_reference=algo_git_reference,
                         algorithm_definition_override=algorithm_definition_override,
+                        algorithm_definition_override_metadata=algorithm_definition_override_metadata,
                     ),
                     future,
                 )
@@ -1111,11 +1625,13 @@ class SageMakerBacktestResultsDownloader:
         session = get_boto_session_after_assuming_role(role_arn_to_assume) if role_arn_to_assume else boto3.Session()
         self._s3_client: S3Client = session.client("s3")
 
-        self._match_regex = (
-            rf"{self._s3_source_prefix}/({self._training_job_id_pattern})-(\d\d\d\d-\d\d-\d\d)/"
-            rf"({self._algorithm_name_pattern})@({self._algorithm_version_pattern})(-([^/]+))?/result.json$"
-        )
-        logger.debug(f"Regex used to find successful SageMaker runs {self._match_regex}")
+        self._training_job_id_filter = re.compile(self._training_job_id_pattern)
+        self._algorithm_name_filter = re.compile(self._algorithm_name_pattern)
+        self._algorithm_version_filter = re.compile(self._algorithm_version_pattern)
+        escaped_prefix = re.escape(self._s3_source_prefix)
+        prefix_pattern = f"{escaped_prefix}/" if escaped_prefix else ""
+        self._match_regex = rf"^{prefix_pattern}(.+?)-(\d\d\d\d-\d\d-\d\d)/" r"(.+?)@(.+?)(-([^/]+))?/result\.json$"
+        logger.debug(f"Regex used to parse successful SageMaker runs {self._match_regex}")
 
     def download(self):
         relevant_executions = self._find_relevant_executions()
@@ -1147,6 +1663,12 @@ class SageMakerBacktestResultsDownloader:
             hyperparameter = _require_safe_result_path_component(hyperparameter, "hyperparameter")
         except ValueError:
             # Ignore non-canonical nested result.json keys that can exist under metadata/deps.
+            return
+        if not self._training_job_id_filter.search(training_job):
+            return
+        if not self._algorithm_name_filter.search(algorithm_name):
+            return
+        if not self._algorithm_version_filter.search(algorithm_version):
             return
         if not self._is_date_in_range(backtest_test_date):
             return

@@ -31,7 +31,7 @@ also makes its public shape and offline example contract visible:
 
 ```json
 {
-  "hotvect_version": "10.43.1",
+  "hotvect_version": "10.44.11",
   "algorithm_name": "example-ranker",
   "algorithm_version": "1.0.0",
   "dependencies": {

@@ -15,7 +15,7 @@ complete example.
 - Object fields merge recursively.
 - Scalar and array values replace the base value.
 - `null` deletes a field from the effective definition.
-- Overrides are fragments, not full definitions: `algorithm_name` is rejected before merge, and `hv backtest` also
+- Overrides are fragments, not full definitions: `algorithm_name` is rejected before merge, and `hv algorithm backtest` also
   rejects `algorithm_version`.
 - `dependencies` is a child-override map, not a generic JSON merge:
   - keys must match already-declared child algorithms
@@ -85,8 +85,8 @@ Hotvect writes run artifacts under `output_base_dir` (local), and under a job-sp
 
 High-signal files (local):
 
-- `hv backtest`: `output_base_dir/meta/<algo@version>/<parameter_version>/hv.log`, `hv.all.log`, and `result.json`.
-- `hv train`: `output_base_dir/metadata/<algo@version>/<parameter_version>/hv.log`, `hv.all.log`, and `result.json`.
+- `hv algorithm backtest`: `output_base_dir/meta/<algo@version>/<parameter_version>/hv.log`, `hv.all.log`, and `result.json`.
+- `hv algorithm train`: `output_base_dir/metadata/<algo@version>/<parameter_version>/hv.log`, `hv.all.log`, and `result.json`.
 
 High-signal files (SageMaker):
 
@@ -96,10 +96,10 @@ High-signal files (SageMaker):
 
 ## SageMaker execution (scope)
 
-- `hv train` supports SageMaker execution via `--sagemaker` **or** `--sagemaker-config` (submits a single training job for an algorithm JAR).
-- `hv backtest` supports SageMaker execution via `--sagemaker` **or** `--sagemaker-config` (submits jobs per git reference × day).
+- `hv algorithm train` supports SageMaker execution via `--sagemaker` **or** `--sagemaker-config` (submits a single training job for an algorithm JAR).
+- `hv algorithm backtest` supports SageMaker execution via `--sagemaker` **or** `--sagemaker-config` (submits jobs per git reference × day).
 - Both accept `--sagemaker-config <json>` and look for a default template in `~/.hotvect/config.json` under `sagemaker.sagemaker_config_template` when no explicit template is supplied.
 - Both require `--sagemaker-job-prefix` and build the final `TrainingJobName` from it (must satisfy AWS naming rules; final name must be ≤ 63 characters).
-- `hv backtest` always auto-attaches `InputDataConfig` channels in SageMaker mode. `hv train` only auto-attaches channels when `--auto-attach-data` is set (otherwise your template must define `InputDataConfig`).
+- `hv algorithm backtest` always auto-attaches `InputDataConfig` channels in SageMaker mode. `hv algorithm train` only auto-attaches channels when `--auto-attach-data` is set (otherwise your template must define `InputDataConfig`).
 - Some AWS accounts enforce IAM conditions on training job names. If job submission fails, ensure your
   `--sagemaker-job-prefix` is allowed (for example `exp-...`).

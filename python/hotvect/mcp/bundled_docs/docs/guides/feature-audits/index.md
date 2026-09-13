@@ -14,7 +14,7 @@ related_docs:
   - ../develop-algorithms/index.md
   - ../../reference/cli/index.md
 related_commands:
-  - hv audit
+  - hv algorithm audit
   - hv-ext compare-jsonl
 next_steps:
   - Debug specific feature differences
@@ -31,7 +31,7 @@ human-readable JSONL for the same transformation path that encoding uses.
 
 | Inputs | Command | Artifacts | Verify |
 | --- | --- | --- | --- |
-| One algorithm JAR/name, predict-parameters ZIP, and source rows | `hv audit` | A destination directory containing `part-*.jsonl` and a metadata directory | Compare the matching part files with `hv-ext compare-jsonl` |
+| One algorithm JAR/name, predict-parameters ZIP, and source rows | `hv algorithm audit` | A destination directory containing `part-*.jsonl` and a metadata directory | Compare the matching part files with `hv-ext compare-jsonl` |
 
 Audit output is a **directory**, never a single `.jsonl` file. For a deterministic, row-for-row comparison, pass
 `--ordered` and compare `part-00000.jsonl` from each run.
@@ -86,7 +86,7 @@ The corresponding audit record is structured by example and action:
 ## Run an audit
 
 ```bash
-hv audit \
+hv algorithm audit \
   --algorithm-jar /path/to/algorithm-1.2.3.jar \
   --algorithm-name <algorithm-name> \
   --parameter-path /path/to/predict.parameters.zip \
@@ -102,7 +102,7 @@ reproducibility, keep `--source-path`, `--samples`, and ordering fixed when comp
 
 Artifacts are written under `--metadata-path/` (including `metadata.json` and `hotvect-offline-utils.log`). If you run audits via the `hv` CLI wrapper, hotvect also writes `hv.log` (Python logs) and `stdout-stderr.log` (raw subprocess output) there.
 
-`hv audit` always requires a predict-parameters ZIP. Pass it with `--parameter-path`; Hotvect forwards it to Java as
+`hv algorithm audit` always requires a predict-parameters ZIP. Pass it with `--parameter-path`; Hotvect forwards it to Java as
 `--parameters`.
 
 

@@ -32,7 +32,7 @@ This leverages information already available inside the backtest pipeline and av
 | `--auto-attach-data-default-s3-base <uri>` | Optional fallback such as `s3://example-bucket/tables/` when definitions do not specify `s3_uri`. |
 | `--auto-attach-data-environment <env>` | Preferred environment key when `s3_uri` is a dictionary (default: `production`). Keys are matched case-insensitively with fallbacks (`production`, `prod`, `test`, `staging`, then first map entry). |
 
-These options are documented in `hv backtest --help`, `hv train --help`, and in the CLI docs under `reference/cli/index.md`.
+These options are documented in `hv algorithm backtest --help`, `hv algorithm train --help`, and in the CLI docs under `reference/cli/index.md`.
 
 ### Flow In BacktestPipeline
 
@@ -45,7 +45,7 @@ These options are documented in `hv backtest --help`, `hv train --help`, and in 
 
 ### `target=predict` note
 
-When `hv train --target predict` is used:
+When `hv algorithm train --target predict` is used:
 
 - `AlgorithmPipeline.data_dependencies()` reports the `prediction_spec` input dependency instead of the normal test
   dependency
@@ -73,7 +73,7 @@ When `hv train --target predict` is used:
    If none of the above produce a URI, we raise a `ValueError` so the user can either add `s3_uri` to the algorithm definition or provide the default base option. There is no silent fallback to `~/.hotvect/config.json`—the value must come from the CLI or the algorithm metadata.
 
 !!! note "Diagnostics vs. backtest behavior"
-    `hv-ext show-data-dependency` uses a stricter resolver for display (`hotvect.utils.resolve_data_dependency_s3_uri`), which is case-sensitive and errors if the requested environment is missing. Auto-attach during `hv backtest` follows the (more forgiving) rules described above.
+    `hv data dependencies inspect --remote` uses a stricter resolver for display (`hotvect.utils.resolve_data_dependency_s3_uri`), which is case-sensitive and errors if the requested environment is missing. Auto-attach during `hv algorithm backtest` follows the (more forgiving) rules described above.
 
 ### Logging
 
@@ -87,15 +87,15 @@ If a dependency’s channel is already present in the template, we skip it witho
 
 ## Optional: Inspecting Dependencies
 
-The `hv-ext show-data-dependency` command remains available as an **optional diagnostic tool**:
+Use `hv data dependencies inspect --remote --format sagemaker` as an **optional diagnostic tool**:
 
 ```bash
-hv-ext show-data-dependency \
+hv data dependencies inspect --remote --format sagemaker \
   --repo-url https://github.com/example-org/example-algorithm.git \
   --git-reference v2.0.0 \
   --scratch-dir ./temp \
   --last-test-time 2000-01-08 \
-  -o deps.json
+  > deps.json
 ```
 
 This can be useful for auditing the discovered dependencies or sharing them in reviews, but it is no longer a required step in the backtest workflow.
@@ -103,10 +103,10 @@ This can be useful for auditing the discovered dependencies or sharing them in r
 ## Updated Workflow
 
 1. Copy the SageMaker template to the scratch directory (configuration protection policy still applies).
-2. Invoke `hv backtest` with `--sagemaker`, a valid `--sagemaker-job-prefix`, and `--sagemaker-config <copied-file>`. Example:
+2. Invoke `hv algorithm backtest` with `--sagemaker`, a valid `--sagemaker-job-prefix`, and `--sagemaker-config <copied-file>`. Example:
 
 ```bash
-hv backtest \
+hv algorithm backtest \
   --git-reference v2.0.0 \
   --git-reference v1.0.0 \
   --algo-repo-url ${repo_url} \

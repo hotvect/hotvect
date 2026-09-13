@@ -70,6 +70,25 @@ class TopKResultFormatterTest {
     }
 
     @Test
+    void themed_formatter_handles_null_metadata_from_builder() {
+        var formatter = new ThemedTopKResultFormatter<Void, String, Double>()
+                .apply(x -> x, themedTopKResponseWithNullMetadata());
+
+        var actual = formatter.apply(
+                new TopKExample<>(
+                        "example_1",
+                        OfflineTopKRequest.newOfflineTopKRequest("example_1", null, null, 2),
+                        List.of()
+                )
+        );
+
+        assertEquals(
+                "{\"example_id\":\"example_1\",\"action_list_id\":\"theme_1\",\"action_list_metadata\":{},\"result\":[{\"action_id\":\"a\",\"rank\":0,\"score\":0.9},{\"action_id\":\"b\",\"rank\":1,\"score\":0.8}]}\n",
+                new String(actual.array(), StandardCharsets.UTF_8)
+        );
+    }
+
+    @Test
     void given_null_outcome_omits_reward() {
         var formatter = new TopKResultFormatter<Void, String, Double>()
                 .apply(x -> {
@@ -112,5 +131,16 @@ class TopKResultFormatterTest {
                 ),
                 Map.of("slot", "hero")
         );
+    }
+
+    private static TopK<Void, String> themedTopKResponseWithNullMetadata() {
+        return request -> ThemedTopKResponse.<String>builder(
+                        "theme_1",
+                        List.of(
+                                TopKDecision.builder("a", "A").withScore(0.9).build(),
+                                TopKDecision.builder("b", "B").withScore(0.8).build()
+                        ))
+                .withActionListMetadata(null)
+                .build();
     }
 }

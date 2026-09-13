@@ -2,8 +2,10 @@ import pytest
 
 from hotvect.algorithm_definition_overrides import (
     apply_algorithm_definition_override,
+    build_algorithm_override_metadata,
     load_algorithm_definition_override_fragment,
     merge_algorithm_definition_override_fragments,
+    validate_algorithm_override_metadata,
 )
 
 
@@ -139,3 +141,46 @@ def test_apply_override_rejects_null_child_dependency_patch():
 
     with pytest.raises(ValueError, match="dependency child-a"):
         apply_algorithm_definition_override(base, {"dependencies": {"child-a": None}})
+
+
+def test_build_algorithm_override_metadata_records_fields_files_and_reasons():
+    metadata = build_algorithm_override_metadata(
+        {
+            "training_lag_days": 7,
+            "hotvect_execution_parameters": {
+                "with_parameter": "s3://bucket/params.zip",
+                "performance-test": {"enabled": False},
+            },
+        },
+        files=["/tmp/override.json"],
+        reasons=["Use date-aligned production parameters"],
+    )
+
+    assert metadata == {
+        "supplied": True,
+        "fields": [
+            "hotvect_execution_parameters.performance-test.enabled",
+            "hotvect_execution_parameters.with_parameter",
+            "training_lag_days",
+        ],
+        "files": ["/tmp/override.json"],
+        "reasons": ["Use date-aligned production parameters"],
+    }
+
+
+def test_build_algorithm_override_metadata_records_clean_no_override_status():
+    assert build_algorithm_override_metadata(None) == {"supplied": False}
+
+
+def test_validate_algorithm_override_metadata_rejects_unsupported_fields():
+    with pytest.raises(ValueError, match="Unsupported algorithm override metadata fields: algorithm_id"):
+        validate_algorithm_override_metadata({"algorithm_id": "candidate-a"})
+
+    with pytest.raises(ValueError, match="Unsupported algorithm override metadata fields: reason"):
+        validate_algorithm_override_metadata({"reason": "use production parameters"})
+
+
+def test_validate_algorithm_override_metadata_normalizes_iterables():
+    assert validate_algorithm_override_metadata({"files": ("candidate.override.json",)}) == {
+        "files": ["candidate.override.json"]
+    }

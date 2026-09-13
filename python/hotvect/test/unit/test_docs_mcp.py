@@ -157,4 +157,14 @@ class TestDocsMcpServer(unittest.TestCase):
 
             setup = anyio.run(server.get_prompt, "setup_config", None)
             text = setup.messages[0].content.text
-            self.assertIn("hv-ext config init", text)
+            self.assertIn("hv config init", text)
+            self.assertEqual(text.count("command -v hv"), 1)
+            self.assertEqual(text.count("hv --help"), 1)
+
+            quality = anyio.run(server.get_prompt, "quality_regression_backtest", None)
+            self.assertIn("hv results ls", quality.messages[0].content.text)
+            self.assertNotIn("list-available-results", quality.messages[0].content.text)
+
+            sagemaker = anyio.run(server.get_prompt, "sagemaker_backtest_runbook", None)
+            self.assertIn("hv results download", sagemaker.messages[0].content.text)
+            self.assertNotIn("download-results", sagemaker.messages[0].content.text)

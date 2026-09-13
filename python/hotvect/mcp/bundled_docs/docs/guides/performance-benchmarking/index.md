@@ -14,9 +14,9 @@ related_docs:
   - ../sagemaker-backtests/index.md
   - ../../design/script-mode-standardization/index.md
 related_commands:
-  - hv performance-test
-  - hv-ext metrics compare-system
-  - hv-ext results download
+  - hv algorithm performance-test
+  - hv metrics compare-system
+  - hv results download
 next_steps:
   - Profile the slower variant with JFR after you confirm the regression is real
   - Add the benchmark checklist to your release workflow
@@ -26,7 +26,7 @@ next_steps:
 
 This guide is about a common failure mode:
 
-- a single `hv performance-test` run appears to show a latency regression,
+- a single `hv algorithm performance-test` run appears to show a latency regression,
 - especially at `p99` or `p999`,
 - but the result does **not** survive a stricter rerun.
 
@@ -90,21 +90,42 @@ For version-to-version latency comparisons, prefer:
 
 - `--target-rps <fixed value>`
 - `--samples <fixed value>`
+- `--sample-pool-size <fixed value>` when each request is large and you need to cap how many decoded requests are kept in RAM
 
 Example:
 
 ```bash
-hv performance-test \
+hv algorithm performance-test \
   --algorithm-jar /path/to/treatment.jar \
   --algorithm-name example-ranker \
   --parameter-path /path/to/parameters.zip \
   --source-path /path/to/input.jsonl.gz \
   --metadata-path ./treatment.perf.metadata \
   --target-rps 1500 \
-  --samples 1000000
+  --samples 1000000 \
+  --sample-pool-size 64
 ```
 
-If you let each run pace itself from warmup (`--target-throughput-fraction`), then the offered load changes with the candidate. That is useful for capacity exploration, but it is a poor setup for A/B tail-latency claims.
+If you let each run pace itself from warmup (`--target-throughput-fraction`), then the offered load changes with the treatment. That is useful for capacity exploration, but it is a poor setup for A/B tail-latency claims.
+
+For a release QA benchmark, commit the matching `hotvect_execution_parameters.performance-test` specification to
+every compared algorithm definition. That specification owns the measured samples, replay pool, load target, and
+workload mode. Put only execution mechanics such as runner, trials, and thread limits in `qa.run`.
+Then run the public QA command with the release shape:
+
+```bash
+hv qa candidate start \
+  --control v1.2.3 \
+  --treatment v1.2.4 \
+  --criteria noninferiority \
+  --stage system_performance \
+  --repo /path/to/algorithm-repository
+```
+
+`hv-qa` rejects a missing, disabled, or mismatched committed specification. Do not set
+`qa.run.backtest.no_performance_test` for a normal noninferiority or multi-day QA run, and do not use config to
+override load/sample fields. See [Release QA validation with hv-qa](../hv-qa-release-validation/index.md) for the
+full workflow and criteria model.
 
 ## 5. Verify intermediate artifact equivalence when comparing training
 
@@ -112,8 +133,8 @@ If two variants are supposed to produce the same encoded training data, prove th
 
 Recommended workflow:
 
-- persist the encoded output for each candidate
-- keep encoded writer shard count fixed across candidates
+- persist the encoded output for each ref
+- keep encoded writer shard count fixed across refs
 - compare schema files directly
 - fingerprint encoded content in an order-insensitive way if row order is allowed to differ
 - if needed, cross-train each runtime on the other runtime's encoded output
@@ -147,11 +168,11 @@ Do not rely on a single job.
 
 Recommended minimum:
 
-- `3` to `5` independent jobs per candidate
+- `3` to `5` independent jobs per treatment
 
 Independent here means separate job submissions, not just multiple files inside one run.
 
-Also note that Hotvect itself repeats the measurement loop several times inside one `hv performance-test`
+Also note that Hotvect itself repeats the measurement loop several times inside one `hv algorithm performance-test`
 job. Those repeats are useful for diagnostics, but they still come from the same submitted job, process,
 and sampled workload. Treat the **job** as the primary independent unit for statistical inference.
 
@@ -178,10 +199,10 @@ Then collect all metadata files and compare the replicated results, not just one
 
 ## 8. Start with summary diffs, then do statistics
 
-Use `hv-ext metrics compare-system` for a quick metric diff:
+Use `hv metrics compare-system` for a quick metric diff:
 
 ```bash
-hv-ext metrics compare-system \
+hv metrics compare-system \
   ./baseline.perf.metadata/metadata.json \
   ./treatment.perf.metadata/metadata.json
 ```
@@ -227,7 +248,7 @@ Otherwise you can create a hybrid benchmark where Python comes from one version 
 A useful benchmark note includes:
 
 - date
-- exact candidate names
+- exact ref names
 - runtime version
 - instance type
 - volume size
@@ -314,7 +335,7 @@ Before you publish a performance conclusion, make sure the answer to all of thes
 - Did I use fixed `target_rps` for same-load latency comparisons?
 - Did I pin `samples`?
 - If this was a train-time comparison, did I verify encoded artifacts were equivalent?
-- Did I run multiple independent jobs per candidate?
+- Did I run multiple independent jobs per treatment?
 - Did I interleave or randomize replicated jobs?
 - Did I avoid over-interpreting a single `p999` number from a short run?
 - Did I run at least one statistical test?
