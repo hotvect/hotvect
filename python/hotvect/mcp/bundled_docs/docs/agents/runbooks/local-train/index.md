@@ -1,10 +1,10 @@
 ---
 title: Runbook - Local train
-description: Copy/paste runbook for `hv train` with overrides and caching
+description: Copy/paste runbook for `hv algorithm train` with overrides and caching
 tags: [agents, runbook, train, local, caching]
 ---
 
-# Runbook: Local train (`hv train`)
+# Runbook: Local train (`hv algorithm train`)
 
 Train one algorithm locally and leave a reusable parameters artifact plus a run summary.
 
@@ -12,9 +12,9 @@ Train one algorithm locally and leave a reusable parameters artifact plus a run 
 
 | Inputs | Command | Artifacts | Verify |
 | --- | --- | --- | --- |
-| Algorithm JAR/name, local data, output directory, test date | `hv train` | predict-parameters ZIP, `result.json`, `hv.log` | Exit code `0`; `result.json` records the stages that ran or were skipped |
+| Algorithm JAR/name, local data, output directory, test date | `hv algorithm train` | predict-parameters ZIP, `result.json`, `hv.log` | Exit code `0`; `result.json` records the stages that ran or were skipped |
 
-Use this to train one local algorithm. Use [`hv backtest`](../local-backtest/index.md) when you need to compare git
+Use this to train one local algorithm. Use [`hv algorithm backtest`](../local-backtest/index.md) when you need to compare git
 references or multiple historical dates.
 
 ## Inputs (fill these in)
@@ -29,7 +29,7 @@ references or multiple historical dates.
 ## Command template
 
 ```bash
-hv train \
+hv algorithm train \
   --algorithm-name "$ALGORITHM_NAME" \
   --algorithm-jar "$ALGO_JAR" \
   --data-base-dir "$DATA_BASE_DIR" \
@@ -40,7 +40,7 @@ hv train \
 ## Optional: add a deterministic override
 
 ```bash
-hv train ... --algorithm-override "$OVERRIDE_JSON"
+hv algorithm train ... --algorithm-override "$OVERRIDE_JSON"
 ```
 
 An override is a recursive patch over the JAR definition. Keep dependency changes under
@@ -51,14 +51,14 @@ An override is a recursive patch over the JAR definition. Keep dependency change
 Local cache path:
 
 ```bash
-hv train ... --cache /tmp/hotvect-cache --cache-scope hyperparam
+hv algorithm train ... --cache /tmp/hotvect-cache --cache-scope hyperparam
 ```
 
 Force recompute (ignore reads, still write fresh run-level cache artifacts) with an algorithm definition/override that
 sets `hotvect_execution_parameters.cache="run"`:
 
 ```bash
-hv train ... --cache /tmp/hotvect-cache --cache-refresh
+hv algorithm train ... --cache /tmp/hotvect-cache --cache-refresh
 ```
 
 Notes:

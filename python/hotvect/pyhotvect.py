@@ -1,12 +1,10 @@
 import copy
-import getpass
 import glob
 import json
 import logging
 import os
 import re
 import shutil
-import socket
 import sys
 import time
 import zipfile
@@ -26,7 +24,9 @@ from jinja2 import Template
 import hotvect.hotvectjar
 from hotvect.algorithm_definition_overrides import (
     apply_algorithm_definition_override,
+    build_algorithm_override_metadata,
     merge_algorithm_definition_override_fragments,
+    validate_algorithm_override_metadata,
 )
 from hotvect.benchmark_contract import BENCHMARK_CONTRACT_KEY, build_benchmark_contract
 from hotvect.jvm_args import normalize_runtime_jvm_args
@@ -57,6 +57,8 @@ _HV_LOG_FORMAT = "%(asctime)s:%(levelname)s:%(name)s:%(funcName)s:%(message)s"
 _HV_LOG_HANDLER_KIND_ATTR = "_hotvect_log_kind"
 _HV_LOG_HANDLER_KIND_PIPELINE = "pipeline"
 _HV_LOG_HANDLER_KIND_COMBINED = "combined"
+_ALGORITHM_DEPENDENCY_REFERENCE = re.compile(r"^([\w-]+)(?:@([\w.-]+))?$")
+_EMS_SLOT_NAME = re.compile(r"^[a-z0-9-]+$")
 
 
 def _standard_evaluation(*args, **kwargs):
@@ -76,7 +78,7 @@ EVALUATION_FUNCTIONS = {
     "real_numbers_reward_evaluation": _real_numbers_reward_evaluation,
 }
 
-VALID_RUN_TARGETS = ("parameters", "predict", "evaluate")
+VALID_RUN_TARGETS = ("parameters", "predict", "evaluate", "encode-cache")
 
 
 def _parse_major_version(version: Any) -> int | None:
@@ -122,12 +124,8 @@ class SimpleUTC(tzinfo):
         return timedelta(0)
 
 
-PARTITION_CACHE_CHANNEL_NAME = "hotvect_partition_cache"
 ENCODE_PARTITION_STARTED_MARKER = "_STARTED"
 ENCODE_PARTITION_SUCCESS_MARKER = "_SUCCESS"
-ENCODE_PARTITION_SUCCESS_MARKER_VERSION = 1
-ENCODE_PARTITION_SUCCESS_MARKER_TYPE = "hotvect_encode_partition_cache"
-ENCODE_PARTITION_STARTED_MARKER_TYPE = "hotvect_encode_partition_cache_write"
 
 
 class AlgorithmPipelineContext(NamedTuple):
@@ -153,7 +151,6 @@ class AlgorithmPipelineContext(NamedTuple):
     additional_jar_files: list[Path] | None = None
     benchmark_contract: dict[str, Any] | None = None
     partition_cache_base_paths: dict[str, Path] | None = None
-    sagemaker_training_job_name: str | None = None
 
 
 @dataclass(frozen=True)
@@ -182,6 +179,8 @@ class AlgorithmPipeline:
         run_target: str = "evaluate",
         data_environment: str = "production",
         ran_at: str | None = None,
+        algorithm_override_metadata: dict[str, Any] | None = None,
+        encode_partition_dates_by_algorithm: dict[str, list[date]] | None = None,
     ):
         self.clean_output_after_run = clean_output_after_run
         self.encode_test_data = encode_test_data
@@ -189,6 +188,15 @@ class AlgorithmPipeline:
         self.execute_performance_test = execute_performance_test
         self.run_target = _normalize_run_target(run_target)
         self.data_environment = str(data_environment or "production")
+        self.algorithm_override_metadata = copy.deepcopy(algorithm_override_metadata)
+        self.encode_partition_dates_by_algorithm = (
+            {
+                algorithm_name: list(partition_dates)
+                for algorithm_name, partition_dates in encode_partition_dates_by_algorithm.items()
+            }
+            if encode_partition_dates_by_algorithm is not None
+            else None
+        )
 
         # Context
         self.algorithm_pipeline_context = algorithm_pipeline_context
@@ -252,7 +260,11 @@ class AlgorithmPipeline:
                 )
             self.algorithm_version = verify_algorithm_version(self.algorithm_definition["algorithm_version"])
             self.committed_algorithm_definition = copy.deepcopy(algo_def)
-            self.algorithm_definition = apply_algorithm_definition_override(algo_def, algorithm_definition_override)
+            self.algorithm_definition = apply_algorithm_definition_override(
+                algo_def,
+                algorithm_definition_override,
+                offline=True,
+            )
             if hyperparameter_version and "hyperparameter_version" in self.algorithm_definition.keys():
                 self.hyper_parameter_version = (
                     f"{self.algorithm_definition['hyperparameter_version']}-{hyperparameter_version}"
@@ -262,11 +274,18 @@ class AlgorithmPipeline:
                     "hyperparameter_version", hyperparameter_version
                 )
 
+        self.encode_partition_dates = (
+            None
+            if self.encode_partition_dates_by_algorithm is None
+            else list(self.encode_partition_dates_by_algorithm.get(self.algorithm_name, []))
+        )
+
         self.algorithm_is_state = self.algorithm_definition.get("generator_factory_classname", False)
-        if "algorithm_factory_classname" not in self.algorithm_definition:
+        if not self.algorithm_definition.get("algorithm_factory_classname") and not self.algorithm_is_state:
             raise ValueError(
-                f"Algorithm {self.algorithm_name} does not have an algorithm_factory_classname defined. All algorithms must have one."
+                f"Algorithm {self.algorithm_name} must declare algorithm_factory_classname or generator_factory_classname."
             )
+        self._validate_runtime_target(self.run_target)
         if self.algorithm_is_state:
             # If an algorithm is a state, it cannot have any of these
             prohibited = {
@@ -297,7 +316,7 @@ class AlgorithmPipeline:
         # Parameter version and runtime
         nowtime = datetime.utcnow().replace(tzinfo=SimpleUTC())
         self.ran_at: str = ran_at or nowtime.isoformat()
-        # If no parameter version was specified, we use ran_at
+        # Default parameter identity follows the run's logical data date.
         if parameter_version:
             self.parameter_version = parameter_version
         else:
@@ -358,69 +377,134 @@ class AlgorithmPipeline:
             cache_inherited_parameters.setdefault("encode", {})["cache"] = encode_parameters["cache"]
 
         self.dependency_pipelines: dict[str, AlgorithmPipeline] = {}
-        if self.algorithm_definition.get("dependencies"):
-            dependencies = self.algorithm_definition["dependencies"]
 
+        def dependency_pipeline(
+            algorithm_name: str, algorithm_definition_override: dict[str, Any]
+        ) -> AlgorithmPipeline:
+            if cache_inherited_parameters:
+                inherited_def = {"hotvect_execution_parameters": cache_inherited_parameters}
+                algorithm_definition_override = merge_algorithm_definition_override_fragments(
+                    inherited_def,
+                    algorithm_definition_override,
+                    offline=True,
+                )
+            return AlgorithmPipeline(
+                algorithm_pipeline_context=self.algorithm_pipeline_context,
+                algorithm_definition=(algorithm_name, algorithm_definition_override),
+                last_test_time=self.last_test_time,
+                hyperparameter_version=self.hyper_parameter_version,
+                parameter_version=self.parameter_version,
+                evaluation_func=self.evaluation_function,
+                encode_test_data=encode_test_data,
+                execute_audit=execute_audit,
+                run_target="parameters",
+                data_environment=self.data_environment,
+                encode_partition_dates_by_algorithm=self.encode_partition_dates_by_algorithm,
+            )
+
+        dependencies = self.algorithm_definition.get("dependencies")
+        if dependencies is not None:
             if isinstance(dependencies, list):
                 # Dependencies are specified as names, so no algorithm definition overrides
-                for algorithm_name in dependencies:
-                    assert isinstance(algorithm_name, str)
+                declared_dependency_names = set()
+                normalized_dependency_names = []
+                for algorithm_reference in dependencies:
+                    if not isinstance(algorithm_reference, str):
+                        raise ValueError(f"Dependency entries must be strings but found {algorithm_reference!r}")
+                    match = _ALGORITHM_DEPENDENCY_REFERENCE.fullmatch(algorithm_reference)
+                    if match is None:
+                        raise ValueError(
+                            f"Dependency {algorithm_reference} must match " f"{_ALGORITHM_DEPENDENCY_REFERENCE.pattern}"
+                        )
+                    algorithm_name, algorithm_version = match.groups()
+                    verify_algorithm_name(algorithm_name)
+                    if algorithm_version is not None:
+                        verify_algorithm_version(algorithm_version)
+                    if algorithm_name in declared_dependency_names:
+                        raise ValueError(f"Dependency {algorithm_name} is declared more than once")
+                    declared_dependency_names.add(algorithm_name)
                     if algorithm_name == self.algorithm_name:
                         raise ValueError(
-                            f"Invalid algorithm definition: '{self.algorithm_name}' cannot list itself in 'dependencies'."
+                            f"Invalid algorithm definition: '{self.algorithm_name}' cannot list itself in "
+                            "'dependencies'."
                         )
-                    algo_def_override = {}
-                    if cache_inherited_parameters:
-                        inherited_def = {"hotvect_execution_parameters": cache_inherited_parameters}
-                        algo_def_override = merge_algorithm_definition_override_fragments(
-                            inherited_def, algo_def_override
-                        )
-                    pipeline = AlgorithmPipeline(
-                        algorithm_pipeline_context=self.algorithm_pipeline_context,
-                        algorithm_definition=(algorithm_name, algo_def_override),
-                        last_test_time=self.last_test_time,
-                        hyperparameter_version=self.hyper_parameter_version,
-                        parameter_version=self.parameter_version,
-                        evaluation_func=self.evaluation_function,
-                        encode_test_data=encode_test_data,
-                        execute_audit=execute_audit,
-                        run_target="parameters",
-                        data_environment=self.data_environment,
-                    )
-                    self.dependency_pipelines[algorithm_name] = pipeline
+                    normalized_dependency_names.append(algorithm_name)
+                for algorithm_name in normalized_dependency_names:
+                    self.dependency_pipelines[algorithm_name] = dependency_pipeline(algorithm_name, {})
             elif isinstance(dependencies, dict):
-                if self.algorithm_name in dependencies:
-                    raise ValueError(
-                        f"Invalid algorithm definition/override: 'dependencies' contains '{self.algorithm_name}'. "
-                        "Self-dependency overrides are not supported. "
-                        "Move those fields to the top-level override, or apply the override file to the parent "
-                        "algorithm (where this algorithm is a true dependency)."
-                    )
-                # Dependencies are specified as dict, so there are algorithm definition overrides
-                for algorithm_name, algo_def_override in dependencies.items():
-                    assert isinstance(algorithm_name, str)
-                    verify_algorithm_name(algorithm_name)
-                    assert isinstance(algo_def_override, dict)
-                    if cache_inherited_parameters:
-                        inherited_def = {"hotvect_execution_parameters": cache_inherited_parameters}
-                        algo_def_override = merge_algorithm_definition_override_fragments(
-                            inherited_def, algo_def_override
+                parsed_dependencies = []
+                dependency_references_by_name = {}
+                for algorithm_reference, algo_def_override in dependencies.items():
+                    if not isinstance(algorithm_reference, str):
+                        raise ValueError(f"Dependency references must be strings but found {algorithm_reference!r}")
+                    if not isinstance(algo_def_override, dict):
+                        raise ValueError(f"Dependency declaration for {algorithm_reference} must be a JSON object")
+                    match = _ALGORITHM_DEPENDENCY_REFERENCE.fullmatch(algorithm_reference)
+                    if match is None:
+                        raise ValueError(
+                            f"Dependency {algorithm_reference} must match " f"{_ALGORITHM_DEPENDENCY_REFERENCE.pattern}"
                         )
-                    pipeline = AlgorithmPipeline(
-                        algorithm_pipeline_context=self.algorithm_pipeline_context,
-                        algorithm_definition=(algorithm_name, algo_def_override),
-                        last_test_time=self.last_test_time,
-                        hyperparameter_version=self.hyper_parameter_version,
-                        parameter_version=self.parameter_version,
-                        evaluation_func=self.evaluation_function,
-                        encode_test_data=encode_test_data,
-                        execute_audit=execute_audit,
-                        run_target="parameters",
-                        data_environment=self.data_environment,
+                    algorithm_name, algorithm_version = match.groups()
+                    verify_algorithm_name(algorithm_name)
+                    if algorithm_version is not None:
+                        verify_algorithm_version(algorithm_version)
+                    if algorithm_name == self.algorithm_name:
+                        raise ValueError(
+                            f"Invalid algorithm definition/override: 'dependencies' contains '{self.algorithm_name}'. "
+                            "Self-dependency overrides are not supported. "
+                            "Move those fields to the top-level override, or apply the override file to the parent "
+                            "algorithm (where this algorithm is a true dependency)."
+                        )
+
+                    previous_reference = dependency_references_by_name.get(algorithm_name)
+                    if previous_reference is not None:
+                        raise ValueError(
+                            f"Dependencies {previous_reference} and {algorithm_reference} resolve to the same "
+                            f"logical dependency name {algorithm_name}"
+                        )
+                    dependency_references_by_name[algorithm_name] = algorithm_reference
+                    parsed_dependencies.append(
+                        (algorithm_reference, algo_def_override, algorithm_name, algorithm_version)
                     )
-                    self.dependency_pipelines[algorithm_name] = pipeline
+
+                for algorithm_reference, algo_def_override, algorithm_name, algorithm_version in parsed_dependencies:
+                    if "scope" not in algo_def_override:
+                        self.dependency_pipelines[algorithm_name] = dependency_pipeline(
+                            algorithm_name, algo_def_override
+                        )
+                        continue
+
+                    scope = algo_def_override["scope"]
+                    if not isinstance(scope, str):
+                        raise ValueError(f"Dependency {algorithm_name} scope must be the string shared or slot")
+                    if scope == "private":
+                        raise ValueError(
+                            f"Dependency {algorithm_name} must not declare scope: private; private is the default"
+                        )
+                    if scope == "slot":
+                        if len(algo_def_override) != 1:
+                            raise ValueError(f"Slot-backed dependency {algorithm_name} must contain only scope: slot")
+                        if algorithm_version is not None:
+                            raise ValueError(
+                                f"Slot-backed dependency {algorithm_name} must not declare an algorithm version"
+                            )
+                        if _EMS_SLOT_NAME.fullmatch(algorithm_name) is None:
+                            raise ValueError(
+                                f"Slot-backed dependency {algorithm_name} must match {_EMS_SLOT_NAME.pattern}"
+                            )
+                        continue
+                    if scope != "shared":
+                        raise ValueError(
+                            f"Dependency {algorithm_name} scope must be shared or slot with no other fields"
+                        )
+                    private_override = copy.deepcopy(algo_def_override)
+                    private_override.pop("scope")
+                    self.dependency_pipelines[algorithm_name] = dependency_pipeline(
+                        algorithm_name,
+                        private_override,
+                    )
             else:
-                raise ValueError(f"Dependency object has unexpected type: {dependencies}")
+                raise ValueError(f"dependencies must be an array or object but found {type(dependencies).__name__}")
         logger.info(f"Initialized: {self.__dict__}")
         self.available_parameter_cache_path = None
 
@@ -493,10 +577,13 @@ class AlgorithmPipeline:
         return base
 
     def _cache_algorithm_root(self) -> str | None:
-        cache_base_dir = _recursive_get(self.algorithm_definition, ["hotvect_execution_parameters", "cache_base_dir"])
+        cache_base_dir = self._effective_cache_base_dir()
         if not cache_base_dir:
             return None
         return os.path.join(cache_base_dir, self._cache_algorithm_key())
+
+    def _effective_cache_base_dir(self) -> str | None:
+        return _recursive_get(self.algorithm_definition, ["hotvect_execution_parameters", "cache_base_dir"])
 
     def _root_cache_override(self) -> bool | str | None:
         cache_override = _recursive_get(self.algorithm_definition, ["hotvect_execution_parameters", "cache"])
@@ -516,11 +603,11 @@ class AlgorithmPipeline:
 
     def _encode_cache_modes(self) -> set[str]:
         cache_override, _ = self._task_cache_override(["encode"])
-        cache_base_dir = _recursive_get(self.algorithm_definition, ["hotvect_execution_parameters", "cache_base_dir"])
+        cache_base_dir = self._effective_cache_base_dir()
         if cache_override is False:
             return set()
         if cache_override is True:
-            return {"run", "partition"}
+            return {"run"}
         if cache_override == "run":
             return {"run"}
         if cache_override == "partition":
@@ -530,21 +617,32 @@ class AlgorithmPipeline:
         if cache_override is None:
             if not cache_base_dir:
                 return set()
-            return {"run", "partition"}
+            return {"run"}
         return {"run"}
 
     def _encode_partition_cache_enabled(self) -> bool:
         return "partition" in self._encode_cache_modes()
 
+    def _uses_prebuilt_parameters(self) -> bool:
+        return bool(
+            _recursive_get(
+                self.algorithm_definition,
+                ["hotvect_execution_parameters", "with_parameter"],
+            )
+        )
+
     def _uses_encode_partition_cache(self) -> bool:
         return (
             self._encode_partition_cache_enabled()
+            and not self._uses_prebuilt_parameters()
             and self.should_train()
             and bool(self.algorithm_definition.get("number_of_training_days", 0))
         )
 
     def _should_encode_with_partition_cache(self) -> bool:
         if not self._encode_partition_cache_enabled():
+            return False
+        if self._uses_prebuilt_parameters():
             return False
         if not self.should_train():
             return False
@@ -564,9 +662,17 @@ class AlgorithmPipeline:
     def algorithm_jar_path(self) -> Path:
         return self.algorithm_pipeline_context.algorithm_jar_path
 
-    def _training_dates(self):
+    def _training_dates_for_last_test_time(self, last_test_time: date) -> list[date]:
         num_of_training_days = self.algorithm_definition.get("number_of_training_days", 0)
-        return [self.last_test_time - self.training_lag - timedelta(days=x) for x in range(num_of_training_days)]
+        return [last_test_time - self.training_lag - timedelta(days=x) for x in range(num_of_training_days)]
+
+    def _training_dates(self):
+        return self._training_dates_for_last_test_time(self.last_test_time)
+
+    def _encode_partition_dates(self) -> list[date]:
+        if self.encode_partition_dates is not None:
+            return sorted(self.encode_partition_dates)
+        return sorted(self._training_dates())
 
     def _get_train_data_prefix(self):
         data_prefix = self.algorithm_definition.get("train_data_spec", {}).get("data_prefix")
@@ -712,6 +818,12 @@ class AlgorithmPipeline:
     def data_dependencies(self, *, target: str | None = None) -> list[DataDependency]:
         ret = []
         effective_target = self._resolve_run_target(evaluate=True, target=target)
+        uses_prebuilt_parameters = self._uses_prebuilt_parameters()
+        no_encode_cache_assignment = (
+            effective_target == "encode-cache"
+            and self.encode_partition_dates is not None
+            and not self.encode_partition_dates
+        )
 
         def extract_additional_properties(data_spec):
             if not data_spec:
@@ -721,7 +833,7 @@ class AlgorithmPipeline:
 
         # Add train data dependency if present
         train_data_prefix = self._get_train_data_prefix()
-        if train_data_prefix:
+        if train_data_prefix and not no_encode_cache_assignment and not uses_prebuilt_parameters:
             ret.append(
                 DataDependency(
                     algorithm_name=self.algorithm_name,
@@ -767,10 +879,7 @@ class AlgorithmPipeline:
 
         # When a prebuilt parameter package is pinned, state generation is skipped and raw source_data
         # channels should not be auto-attached for SageMaker submission.
-        uses_prebuilt_parameters = bool(
-            self.algorithm_definition.get("hotvect_execution_parameters", {}).get("with_parameter")
-        )
-        if not uses_prebuilt_parameters:
+        if not uses_prebuilt_parameters and not no_encode_cache_assignment:
             # Add state data dependencies
             source_data = self.algorithm_definition.get("source_data", {})
             for source_prefix_name, per_source_config in source_data.items():
@@ -805,8 +914,10 @@ class AlgorithmPipeline:
                 )
 
         # Include dependencies from dependency pipelines
-        for dependency in self.dependency_pipelines.values():
-            ret.extend(dependency.data_dependencies(target=self._target_for_dependency(dependency)))
+        if not uses_prebuilt_parameters:
+            for dependency in self.dependency_pipelines.values():
+                dependency_target = self._target_for_dependency(dependency, parent_target=effective_target)
+                ret.extend(dependency.data_dependencies(target=dependency_target))
         return ret
 
     def state_source_path(self, source_config: dict[str, Any]):
@@ -1025,6 +1136,7 @@ class AlgorithmPipeline:
 
             def _display(chunk: str) -> None:
                 sys.stdout.write(chunk)
+                sys.stdout.flush()
                 fp.write(chunk)
                 fp.flush()
 
@@ -1041,10 +1153,13 @@ class AlgorithmPipeline:
     ) -> dict[str, Any]:
         start_time = time.time()
         execution_target = self._resolve_run_target(evaluate=evaluate, target=target)
+        self._validate_runtime_target(execution_target)
         if prepare_raw_state_for_parent_packaging and execution_target != "parameters":
             raise ValueError("prepare_raw_state_for_parent_packaging=True requires target='parameters'")
         if prepare_raw_state_for_parent_packaging and not self.algorithm_is_state:
             raise ValueError("prepare_raw_state_for_parent_packaging=True is only supported for state algorithms")
+        algorithm_override_metadata = validate_algorithm_override_metadata(self.algorithm_override_metadata)
+        self.run_target = execution_target
         result: dict[str, Any] = {
             "algorithm_id": self.hyperparameter_slug(),
             "parameter_version": self.parameter_version,
@@ -1052,6 +1167,10 @@ class AlgorithmPipeline:
             "ran_at": self.ran_at,
             "run_target": execution_target,
             "algorithm_definition": self.algorithm_definition,
+            "algorithm_override": build_algorithm_override_metadata(
+                self.algorithm_definition_override,
+                **algorithm_override_metadata,
+            ),
             "timing_info_sec": {},
         }
         if execution_target == "predict":
@@ -1059,6 +1178,8 @@ class AlgorithmPipeline:
             result["prediction_spec"] = prediction_spec
             result["prediction_data_dates"] = [x.isoformat() for x in self._prediction_dates()]
             result["prediction_output_uri"] = self.prediction_output_uri()
+        if execution_target == "encode-cache" and self.encode_partition_dates:
+            result["encode_partition_dates"] = [x.isoformat() for x in self._encode_partition_dates()]
 
         self.clean_output_after_run = clean
 
@@ -1088,7 +1209,7 @@ class AlgorithmPipeline:
                 logger.info(f"Preparing dependencies for: {self.algorithm_name}")
                 for algorithm_name, pipeline in self.dependency_pipelines.items():
                     logger.info(f"Preparing dependency: {algorithm_name} for {self.algorithm_name}")
-                    dependency_target = self._target_for_dependency(pipeline)
+                    dependency_target = self._target_for_dependency(pipeline, parent_target=execution_target)
                     dependency_result = pipeline.run_all(
                         clean=self.clean_output_after_run,
                         target=dependency_target,
@@ -1100,10 +1221,25 @@ class AlgorithmPipeline:
                 logger.info(f"Prepared all dependencies: {self.dependency_pipelines.keys()} for {self.algorithm_name}")
             result["timing_info_sec"]["prepare_dependencies"] = time.time() - deps_time
 
-            available_predict_parameter_cache_path = self.available_predict_parameter_cache_path()
+            no_encode_cache_assignment = (
+                execution_target == "encode-cache"
+                and self.encode_partition_dates is not None
+                and not self.encode_partition_dates
+            )
+            available_predict_parameter_cache_path = (
+                None if no_encode_cache_assignment else self.available_predict_parameter_cache_path()
+            )
 
-            if not available_predict_parameter_cache_path:
-                if self.algorithm_is_state:
+            if execution_target == "encode-cache" or not available_predict_parameter_cache_path:
+                if no_encode_cache_assignment:
+                    reason = "Because no encode partition dates were assigned"
+                    result["package_encode_params"] = {"skipped": reason}
+                    result["encode"] = {"skipped": reason}
+                    result["train"] = {"skipped": reason}
+                    result["timing_info_sec"]["encode_parameter"] = 0.0
+                    result["timing_info_sec"]["encode"] = 0.0
+                    result["timing_info_sec"]["train"] = 0.0
+                elif self.algorithm_is_state:
                     # State algorithms: generate state but skip encode parameter packaging
                     logger.info(f"Algorithm {self.algorithm_name} is a state. Generating it")
                     encode_parameter_times = time.time()
@@ -1111,10 +1247,14 @@ class AlgorithmPipeline:
                     result["package_encode_params"] = {"skipped": "State algorithms don't need encode parameters"}
                     result["timing_info_sec"]["encode_parameter"] = time.time() - encode_parameter_times
                 elif self.should_train():
-                    # Algorithms with training: full pipeline
+                    # Algorithms with training: full pipeline, or encode-cache prewarm target.
                     self._step_encode_parameter(result)
                     self._step_encode(result)
-                    self._step_train(result)
+                    if execution_target == "encode-cache":
+                        result["train"] = {"skipped": "Because target was encode-cache"}
+                        result["timing_info_sec"]["train"] = 0.0
+                    else:
+                        self._step_train(result)
                 else:
                     # Algorithms without training and not state: skip encode parameters
                     logger.info(f"Algorithm {self.algorithm_name} does not have a training step")
@@ -1133,6 +1273,24 @@ class AlgorithmPipeline:
                         available_predict_parameter_cache_path,
                         include_dependencies=True,
                     )
+
+            if execution_target == "encode-cache":
+                result["package_predict_params"] = {"skipped": "Because target was encode-cache"}
+                result["timing_info_sec"]["predict_parameter"] = 0.0
+                self._skip_stages(
+                    result,
+                    ["predict", "evaluate", "performance_test", "encode_test", "audit"],
+                    "Because target was encode-cache",
+                )
+                if clean:
+                    logger.info(f"Cleaning output dir for {self.algorithm_name}")
+                    self.clean_output()
+                    logger.info(f"Cleaned output dir for {self.algorithm_name}")
+
+                result["timing_info_sec"]["total_time"] = time.time() - start_time
+                self._write_data(result, os.path.join(self.metadata_path(), "result.json"))
+                logger.info(f"Completed {self.algorithm_name}: {self.__dict__}")
+                return result
 
             if prepare_raw_state_for_parent_packaging:
                 logger.info(
@@ -1232,7 +1390,14 @@ class AlgorithmPipeline:
                 return "evaluate"
         return "parameters"
 
-    def _target_for_dependency(self, dependency: "AlgorithmPipeline") -> str:
+    def _target_for_dependency(
+        self,
+        dependency: "AlgorithmPipeline",
+        *,
+        parent_target: str | None = None,
+    ) -> str:
+        if (parent_target or self.run_target) == "encode-cache" and not dependency.algorithm_is_state:
+            return "encode-cache"
         training_image_major_version = _training_container_hotvect_major(
             self.algorithm_definition.get("training_container")
         )
@@ -1245,7 +1410,14 @@ class AlgorithmPipeline:
             return _normalize_run_target(target)
         if not evaluate:
             return "parameters"
-        return _normalize_run_target(getattr(self, "run_target", "evaluate"))
+        return _normalize_run_target(self.run_target)
+
+    def _validate_runtime_target(self, target: str) -> None:
+        if target != "parameters" and not self.algorithm_definition.get("algorithm_factory_classname"):
+            raise ValueError(
+                f"Algorithm {self.algorithm_name} requires algorithm_factory_classname for target {target!r}. "
+                "Use target 'parameters' for a generator-only definition."
+            )
 
     @staticmethod
     def _skip_stages(result: dict[str, Any], stages: list[str], reason: str) -> None:
@@ -1455,7 +1627,7 @@ class AlgorithmPipeline:
         """
         # Retrieve the stage cache override, falling back to the root cache policy.
         cache_override, is_task_override = self._task_cache_override(task_paths)
-        cache_base_dir = _recursive_get(self.algorithm_definition, ["hotvect_execution_parameters", "cache_base_dir"])
+        cache_base_dir = self._effective_cache_base_dir()
         if cache_override is not None and not isinstance(cache_override, (bool, str)):
             raise ValueError(f"Invalid {'.'.join(task_paths)}.cache value. Use true, false, or an explicit path.")
 
@@ -1513,16 +1685,24 @@ class AlgorithmPipeline:
     def generate_states(self) -> dict:
         """Generate state files with directory-based caching"""
         output_path = self.state_output_path()
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
         state_dir_name = os.path.basename(output_path)
         state_cache_path = self._resolve_cache_path(["generate-state"], state_dir_name)
+
+        def materialize_cached_state(available_cache_path: str) -> None:
+            trydelete(output_path)
+            if os.path.isdir(available_cache_path):
+                shutil.copytree(available_cache_path, output_path)
+            else:
+                shutil.copy2(available_cache_path, output_path)
 
         # Handle S3 cache separately from local cache
         if state_cache_path and state_cache_path.startswith("s3://") and not self._cache_refresh_enabled():
             # S3 cache: download directly to output_path (no symlink needed)
             logger.info(f"Skipping state generation for {self.algorithm_name}, using S3 cache at {state_cache_path}")
-            trydelete(output_path)
             available_cache_path = as_locally_available_content(state_cache_path, os.path.dirname(output_path))
             if available_cache_path:
+                materialize_cached_state(available_cache_path)
                 return {
                     "source": state_cache_path,
                     "skipped": f"Used cache at: {state_cache_path}",
@@ -1534,8 +1714,7 @@ class AlgorithmPipeline:
                 logger.info(
                     f"Skipping state generation for {self.algorithm_name}, using local cache at {state_cache_path}"
                 )
-                trydelete(output_path)
-                copy_or_link(available_cache_path, output_path)
+                materialize_cached_state(available_cache_path)
                 return {
                     "source": state_cache_path,
                     "skipped": f"Used cache at: {state_cache_path}",
@@ -1761,12 +1940,26 @@ class AlgorithmPipeline:
                                 )
                             )
                     else:
-                        to_package_acc.append(
-                            (
-                                parameter_file,
-                                to_arc_name(algorithm_name, os.path.basename(parameter_file)),
+                        legacy_parameter_file = os.path.join(pipeline.output_path(), "model.parameter")
+                        if os.path.isfile(parameter_file):
+                            to_package_acc.append(
+                                (
+                                    parameter_file,
+                                    to_arc_name(algorithm_name, os.path.basename(parameter_file)),
+                                )
                             )
-                        )
+                        elif os.path.isfile(legacy_parameter_file):
+                            to_package_acc.append(
+                                (
+                                    legacy_parameter_file,
+                                    to_arc_name(algorithm_name, os.path.basename(legacy_parameter_file)),
+                                )
+                            )
+                        else:
+                            raise FileNotFoundError(
+                                f"No parameter artifacts found for {algorithm_name}. Expected {parameter_file} "
+                                f"or {legacy_parameter_file}."
+                            )
 
                     # Bundle encoding schema + algorithm definition for strict inference.
                     # (Only if present; older/non-TF pipelines may not emit these artifacts.)
@@ -1842,8 +2035,8 @@ class AlgorithmPipeline:
                                 copied_info.external_attr = source_info.external_attr
                                 copied_info.comment = source_info.comment
                                 with (
-                                    source_zip.open(source_info, "r") as source,
-                                    parameter_package_zip.open(copied_info, "w") as target,
+                                    source_zip.open(source_info, "r", force_zip64=True) as source,
+                                    parameter_package_zip.open(copied_info, "w", force_zip64=True) as target,
                                 ):
                                     shutil.copyfileobj(source, target)
                                 existing_entries.add(source_info.filename)
@@ -1874,60 +2067,24 @@ class AlgorithmPipeline:
         cache_base_path = cache_base_paths.get(cache_root)
         if cache_base_path is None:
             return None
-        partition_path = Path(cache_base_path) / "encode" / f"dt={partition_date.isoformat()}"
+        partition_path = Path(cache_base_path) / f"dt={partition_date.isoformat()}"
         return str(partition_path)
 
     @staticmethod
-    def _write_encode_partition_success_marker(success_marker_path: str, partition_date: date) -> None:
-        marker = {
-            "version": ENCODE_PARTITION_SUCCESS_MARKER_VERSION,
-            "type": ENCODE_PARTITION_SUCCESS_MARKER_TYPE,
-            "dt": partition_date.isoformat(),
-            "encoded_path": "encoded",
-            "schema_path": "encoded-schema-description",
-            "created_at_utc": datetime.utcnow().replace(microsecond=0).isoformat() + "Z",
-        }
-        Path(success_marker_path).write_text(json.dumps(marker, sort_keys=True) + "\n", encoding="utf-8")
-
-    def _encode_partition_started_marker_data(self, partition_date: date) -> dict[str, Any]:
-        return {
-            "version": ENCODE_PARTITION_SUCCESS_MARKER_VERSION,
-            "type": ENCODE_PARTITION_STARTED_MARKER_TYPE,
-            "dt": partition_date.isoformat(),
-            "algorithm_name": self.algorithm_name,
-            "algorithm_version": self.algorithm_version,
-            "parameter_version": self.parameter_version,
-            "started_at_utc": datetime.utcnow().replace(microsecond=0).isoformat() + "Z",
-            "host": socket.gethostname(),
-            "pid": os.getpid(),
-            "user": getpass.getuser(),
-            "sagemaker_training_job_name": self.algorithm_pipeline_context.sagemaker_training_job_name,
-        }
-
-    @staticmethod
-    def _read_encode_partition_success_marker(success_marker_path: str, partition_date: date) -> bool:
-        if not os.path.isfile(success_marker_path):
-            return False
-        try:
-            marker = json.loads(Path(success_marker_path).read_text(encoding="utf-8"))
-        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
-            return False
-        return (
-            marker.get("version") == ENCODE_PARTITION_SUCCESS_MARKER_VERSION
-            and marker.get("type") == ENCODE_PARTITION_SUCCESS_MARKER_TYPE
-            and marker.get("dt") == partition_date.isoformat()
-            and marker.get("encoded_path") == "encoded"
-            and marker.get("schema_path") == "encoded-schema-description"
-        )
+    def _has_encode_partition_success_marker(success_marker_path: str) -> bool:
+        return os.path.isfile(success_marker_path)
 
     @staticmethod
     def _local_path_has_content(path: str) -> bool:
-        if os.path.isfile(path) or os.path.islink(path):
-            return True
+        if os.path.isfile(path):
+            return os.path.getsize(path) > 0
         if not os.path.isdir(path):
             return False
-        with os.scandir(path) as entries:
-            return next(entries, None) is not None
+        return any(
+            os.path.getsize(os.path.join(root, filename)) > 0
+            for root, _, filenames in os.walk(path)
+            for filename in filenames
+        )
 
     @staticmethod
     def _is_s3_not_found(error: ClientError) -> bool:
@@ -1938,42 +2095,22 @@ class AlgorithmPipeline:
         return error.response.get("Error", {}).get("Code") == "PreconditionFailed"
 
     @staticmethod
-    def _list_s3_files(s3_prefix_uri: str, s3_client: Any) -> list[str]:
-        bucket, prefix = require_s3_uri(s3_prefix_uri)
-        prefix = prefix if prefix.endswith("/") else prefix + "/"
-        paginator = s3_client.get_paginator("list_objects_v2")
-        files = []
-        for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
-            for obj in page.get("Contents", []):
-                key = obj["Key"]
-                if not key.endswith("/"):
-                    files.append(f"s3://{bucket}/{key}")
-        return sorted(files)
-
-    @staticmethod
     def _s3_prefix_has_files(s3_prefix_uri: str, s3_client: Any) -> bool:
         bucket, prefix = require_s3_uri(s3_prefix_uri)
         prefix = prefix if prefix.endswith("/") else prefix + "/"
         response = s3_client.list_objects_v2(Bucket=bucket, Prefix=prefix, MaxKeys=1)
         return bool(response.get("Contents"))
 
-    def _encode_partition_cache_has_content(self, partition_cache_path: str, s3_client: Any | None = None) -> bool:
-        if partition_cache_path.startswith("s3://"):
-            return self._s3_prefix_has_files(partition_cache_path, s3_client or boto3.client("s3"))
-        return self._local_path_has_content(partition_cache_path)
-
-    def _claim_encode_partition_cache_write(self, partition_cache_path: str, partition_date: date) -> bool:
+    def _claim_encode_partition_cache_write(self, partition_cache_path: str) -> bool:
         started_cache_path = os.path.join(partition_cache_path, ENCODE_PARTITION_STARTED_MARKER)
-        marker = json.dumps(self._encode_partition_started_marker_data(partition_date), sort_keys=True) + "\n"
         if partition_cache_path.startswith("s3://"):
             bucket, key = require_s3_uri(started_cache_path)
             try:
                 boto3.client("s3").put_object(
                     Bucket=bucket,
                     Key=key,
-                    Body=marker.encode("utf-8"),
+                    Body=b"",
                     IfNoneMatch="*",
-                    ContentType="application/json",
                 )
             except ClientError as error:
                 if self._is_s3_precondition_failed(error):
@@ -1983,8 +2120,8 @@ class AlgorithmPipeline:
 
         os.makedirs(partition_cache_path, exist_ok=True)
         try:
-            with open(started_cache_path, "x", encoding="utf-8") as marker_file:
-                marker_file.write(marker)
+            with open(started_cache_path, "x", encoding="utf-8"):
+                pass
         except FileExistsError:
             return False
         return True
@@ -2017,18 +2154,14 @@ class AlgorithmPipeline:
                 return None, False
             raise
 
-        if not self._read_encode_partition_success_marker(success_local_path, partition_date):
-            logger.warning(
-                "Ignoring incomplete S3 encode partition cache for %s at %s; invalid success marker. "
-                "This partition cache will not be overwritten.",
-                partition_date,
-                partition_cache_path,
-            )
-            return None, True
-
         encoded_cache_path = os.path.join(partition_cache_path, "encoded")
         schema_cache_path = os.path.join(partition_cache_path, "encoded-schema-description")
-        encoded_s3_files = self._list_s3_files(encoded_cache_path, s3_client)
+        encoded_local_path = as_locally_available_content(f"{encoded_cache_path.rstrip('/')}/", local_cache_dir)
+        if encoded_local_path is None:
+            raise FileNotFoundError(
+                f"Published encode partition is missing its encoded directory: dt={partition_date.isoformat()}, "
+                f"path={encoded_cache_path}"
+            )
 
         schema_local_path = os.path.join(local_cache_dir, "encoded-schema-description")
         os.makedirs(os.path.dirname(schema_local_path), exist_ok=True)
@@ -2037,10 +2170,9 @@ class AlgorithmPipeline:
         return {
             "dt": partition_date.isoformat(),
             "cache": "hit",
-            "encoded_s3_files": encoded_s3_files,
+            "encoded_path": encoded_local_path,
             "schema_path": schema_local_path,
             "source_paths": source_paths,
-            "source": "s3-cache",
         }, False
 
     def _do_encode(
@@ -2083,6 +2215,26 @@ class AlgorithmPipeline:
         )
         return read_json(self._stage_metadata_file(stage))
 
+    def _do_encode_source_dest_mappings(
+        self,
+        mappings: list[dict[str, Any]],
+        schema_description_location: str,
+        stage: str,
+    ) -> dict[str, Any]:
+        metadata_dir = self._stage_metadata_dir(stage)
+        clean_dir(metadata_dir)
+        trydelete(schema_description_location)
+        mappings_path = os.path.join(metadata_dir, "source-dest-mappings.json")
+        Path(mappings_path).write_text(json.dumps(mappings, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+        cmd = self._base_command("encode", metadata_dir)
+        cmd.extend(["--source-dest-mappings", mappings_path])
+        cmd.extend(["--dest-schema-description", schema_description_location])
+        cmd.extend(["--parameters", self.encode_parameter_file_path()])
+        logger.info("Encoding %s training-data partition(s) in one process", len(mappings))
+        self._stream_output_to_stage_log(stage=stage, cmd=cmd)
+        return read_json(self._stage_metadata_file(stage))
+
     def _load_or_create_encode_partition(
         self,
         partition_date: date,
@@ -2092,29 +2244,38 @@ class AlgorithmPipeline:
         local_cache_dir = self._encode_partition_local_cache_dir(partition_date)
         encoded_cache_path = os.path.join(partition_cache_path, "encoded")
         schema_cache_path = os.path.join(partition_cache_path, "encoded-schema-description")
+        started_cache_path = os.path.join(partition_cache_path, ENCODE_PARTITION_STARTED_MARKER)
         success_cache_path = os.path.join(partition_cache_path, ENCODE_PARTITION_SUCCESS_MARKER)
 
         should_publish_partition_cache = True
+        publish_blocked_reason = None
 
         mounted_partition_path = self._mounted_encode_partition_cache_path(partition_date)
         if mounted_partition_path:
             mounted_encoded_path = os.path.join(mounted_partition_path, "encoded")
             mounted_schema_path = os.path.join(mounted_partition_path, "encoded-schema-description")
             mounted_success_path = os.path.join(mounted_partition_path, ENCODE_PARTITION_SUCCESS_MARKER)
-            if self._read_encode_partition_success_marker(mounted_success_path, partition_date):
-                return {
-                    "dt": partition_date.isoformat(),
-                    "cache": "hit",
-                    "encoded_path": mounted_encoded_path,
-                    "schema_path": mounted_schema_path,
-                    "source_paths": source_paths,
-                    "source": "mounted-sagemaker-cache",
-                }
-            logger.info(
-                "Ignoring mounted encode partition cache for %s at %s; missing or invalid success marker",
-                partition_date,
-                mounted_partition_path,
-            )
+            if self._has_encode_partition_success_marker(mounted_success_path):
+                if os.path.isdir(mounted_encoded_path) and os.path.isfile(mounted_schema_path):
+                    return {
+                        "dt": partition_date.isoformat(),
+                        "cache": "hit",
+                        "encoded_path": mounted_encoded_path,
+                        "schema_path": mounted_schema_path,
+                        "source_paths": source_paths,
+                    }
+                logger.info(
+                    "Mounted encode partition cache for %s at %s is missing materialized content; "
+                    "loading the published S3 partition instead",
+                    partition_date,
+                    mounted_partition_path,
+                )
+            else:
+                logger.info(
+                    "Ignoring mounted encode partition cache for %s at %s; missing success marker",
+                    partition_date,
+                    mounted_partition_path,
+                )
 
         if partition_cache_path.startswith("s3://"):
             s3_partition, s3_partition_write_blocked = self._load_s3_encode_partition_cache(
@@ -2127,18 +2288,27 @@ class AlgorithmPipeline:
                 return s3_partition
             if s3_partition_write_blocked:
                 should_publish_partition_cache = False
+                publish_blocked_reason = "S3 partition cache is incomplete"
 
         if not partition_cache_path.startswith("s3://"):
-            if self._read_encode_partition_success_marker(success_cache_path, partition_date):
+            if self._has_encode_partition_success_marker(success_cache_path):
                 return {
                     "dt": partition_date.isoformat(),
                     "cache": "hit",
                     "encoded_path": encoded_cache_path,
                     "schema_path": schema_cache_path,
                     "source_paths": source_paths,
-                    "source": "cache",
                 }
-            if self._encode_partition_cache_has_content(partition_cache_path):
+            if os.path.isfile(started_cache_path):
+                logger.warning(
+                    "Encode partition cache for %s at %s is already claimed and incomplete. "
+                    "This partition cache will not be overwritten.",
+                    partition_date,
+                    partition_cache_path,
+                )
+                should_publish_partition_cache = False
+                publish_blocked_reason = "Another writer already claimed the partition cache"
+            elif self._local_path_has_content(partition_cache_path):
                 logger.warning(
                     "Ignoring incomplete encode partition cache for %s at %s. "
                     "This partition cache will not be overwritten.",
@@ -2146,106 +2316,127 @@ class AlgorithmPipeline:
                     partition_cache_path,
                 )
                 should_publish_partition_cache = False
+                publish_blocked_reason = "Local partition cache is incomplete"
 
-        if should_publish_partition_cache:
-            if self._encode_partition_cache_has_content(partition_cache_path):
-                logger.warning(
-                    "Skipping encode partition cache write for %s at %s because the partition cache path already exists",
-                    partition_date,
-                    partition_cache_path,
-                )
-                should_publish_partition_cache = False
-            else:
-                should_publish_partition_cache = self._claim_encode_partition_cache_write(
-                    partition_cache_path,
-                    partition_date,
-                )
-                if not should_publish_partition_cache:
-                    logger.warning(
-                        "Skipping encode partition cache write for %s at %s because another writer already started it",
-                        partition_date,
-                        partition_cache_path,
-                    )
+        if not should_publish_partition_cache and self.run_target == "encode-cache":
+            return {
+                "dt": partition_date.isoformat(),
+                "cache": "blocked",
+                "cache_path": partition_cache_path,
+                "source_paths": source_paths,
+                "reason": publish_blocked_reason or "Partition cache write is blocked",
+            }
 
         work_dir = self._encode_partition_work_dir(partition_date)
         clean_dir(work_dir)
-        encoded_path = os.path.join(work_dir, "encoded")
-        schema_path = os.path.join(work_dir, "encoded-schema-description")
-        metadata = self._do_encode(
-            is_test=False,
-            source_paths=source_paths,
-            encoded_data_location=encoded_path,
-            schema_description_location=schema_path,
-            stage=f"encode-dt-{partition_date.isoformat()}",
-        )
-        if not os.path.isdir(encoded_path):
-            raise FileNotFoundError(f"Encode partition did not produce encoded directory: {encoded_path}")
-        if not os.path.isfile(schema_path):
-            raise FileNotFoundError(f"Encode partition did not produce schema description: {schema_path}")
-
-        success_marker_path = os.path.join(work_dir, ENCODE_PARTITION_SUCCESS_MARKER)
-        if should_publish_partition_cache:
-            self._write_encode_partition_success_marker(success_marker_path, partition_date)
-            store_file(encoded_path, encoded_cache_path)
-            store_file(schema_path, schema_cache_path)
-            store_file(success_marker_path, success_cache_path)
         return {
             "dt": partition_date.isoformat(),
-            "cache": "miss",
-            "encoded_path": encoded_path,
-            "schema_path": schema_path,
+            "cache": "pending",
+            "cache_path": partition_cache_path,
+            "encoded_cache_path": encoded_cache_path,
+            "schema_cache_path": schema_cache_path,
+            "success_cache_path": success_cache_path,
+            "encoded_path": os.path.join(work_dir, "encoded"),
+            "success_marker_path": os.path.join(work_dir, ENCODE_PARTITION_SUCCESS_MARKER),
             "source_paths": source_paths,
-            "metadata": metadata,
+            "should_publish": should_publish_partition_cache,
+            "publish_blocked_reason": publish_blocked_reason,
         }
 
-    def _assemble_encode_partitions(self, partitions: list[dict[str, Any]]) -> None:
+    def _encode_pending_partitions(self, partitions: list[dict[str, Any]]) -> None:
+        pending = [partition for partition in partitions if partition["cache"] == "pending"]
+        if not pending:
+            return
+
+        schema_path = os.path.join(self.cache_path(), "partition-work", "encode", "encoded-schema-description")
+        mappings = [
+            {
+                "sources": partition["source_paths"],
+                "dest": partition["encoded_path"],
+            }
+            for partition in pending
+        ]
+        self._do_encode_source_dest_mappings(
+            mappings=mappings,
+            schema_description_location=schema_path,
+            stage="encode-partitions",
+        )
+        if not self._local_path_has_content(schema_path):
+            raise FileNotFoundError(f"Partition encode did not produce a non-empty schema description: {schema_path}")
+
+        for partition in pending:
+            encoded_path = partition["encoded_path"]
+            if not self._local_path_has_content(encoded_path):
+                raise FileNotFoundError(f"Encode partition did not produce non-empty encoded data: {encoded_path}")
+
+        for partition in pending:
+            encoded_path = partition["encoded_path"]
+            should_publish = partition["should_publish"]
+            if should_publish:
+                should_publish = self._claim_encode_partition_cache_write(partition["cache_path"])
+                if not should_publish:
+                    partition["publish_blocked_reason"] = "Another writer already claimed the partition cache"
+                    logger.warning(
+                        "Skipping encode partition cache write for %s at %s because another writer already started it",
+                        partition["dt"],
+                        partition["cache_path"],
+                    )
+
+            if should_publish:
+                Path(partition["success_marker_path"]).touch()
+                store_file(encoded_path, partition["encoded_cache_path"])
+                store_file(schema_path, partition["schema_cache_path"])
+                store_file(partition["success_marker_path"], partition["success_cache_path"])
+            elif self.run_target == "encode-cache":
+                partition["cache"] = "blocked"
+                partition["reason"] = partition["publish_blocked_reason"] or "Partition cache write is blocked"
+                continue
+
+            partition["cache"] = "miss"
+            partition["schema_path"] = schema_path
+
+    def _build_encode_partition_view(self, partitions: list[dict[str, Any]]) -> None:
         encoded_output_path = self.encoded_data_file_path()
         schema_output_path = self.encoded_schema_description_file_path()
         trydelete(encoded_output_path)
         os.makedirs(encoded_output_path, exist_ok=True)
 
-        schema_output_written = False
-        global_part_index = 0
-        s3_client = None
+        canonical_schema = None
+        logger.info("Building encoded dataset view for %s partition(s) under %s", len(partitions), encoded_output_path)
         for partition in partitions:
-            schema_path = partition["schema_path"]
-            if not schema_output_written:
+            schema_path = Path(partition["schema_path"])
+            schema = schema_path.read_bytes()
+            if canonical_schema is None:
                 trydelete(schema_output_path)
                 os.makedirs(os.path.dirname(schema_output_path), exist_ok=True)
-                shutil.copy(schema_path, schema_output_path)
-                schema_output_written = True
-            elif Path(schema_path).read_bytes() != Path(schema_output_path).read_bytes():
+                copy_or_link(str(schema_path), schema_output_path)
+                canonical_schema = schema
+            elif schema != canonical_schema:
                 raise ValueError(
                     f"Encoded schema mismatch for dt={partition['dt']}. "
                     f"Expected schema matching {schema_output_path}, got {schema_path}"
                 )
 
-            if "encoded_s3_files" in partition:
-                if s3_client is None:
-                    s3_client = boto3.client("s3")
-                encoded_files = partition["encoded_s3_files"]
-                if not encoded_files:
-                    raise FileNotFoundError(f"Encode partition has no encoded files: dt={partition['dt']}")
+            encoded_path = Path(partition["encoded_path"])
+            if not encoded_path.is_dir():
+                raise FileNotFoundError(f"Encode partition directory does not exist: {encoded_path}")
+            partition_view_path = Path(encoded_output_path) / f"dt={partition['dt']}"
+            copy_or_link(str(encoded_path), str(partition_view_path))
 
-                for encoded_file in encoded_files:
-                    _, key = require_s3_uri(encoded_file)
-                    dest_name = f"part-{global_part_index:05d}{Path(key).suffix}"
-                    download_s3_file(encoded_file, Path(encoded_output_path) / dest_name, s3_client)
-                    global_part_index += 1
-            else:
-                encoded_path = Path(partition["encoded_path"])
-                encoded_files = sorted(path for path in encoded_path.rglob("*") if path.is_file())
-                if not encoded_files:
-                    raise FileNotFoundError(f"Encode partition has no encoded files: {encoded_path}")
-
-                for encoded_file in encoded_files:
-                    dest_name = f"part-{global_part_index:05d}{encoded_file.suffix}"
-                    copy_or_link(str(encoded_file), os.path.join(encoded_output_path, dest_name))
-                    global_part_index += 1
+        logger.info("Built encoded dataset view with %s date partition(s)", len(partitions))
 
     def _encode_with_partition_cache(self) -> dict[str, Any]:
-        training_dates = sorted(self._training_dates())
+        training_dates = self._encode_partition_dates()
         if not training_dates:
+            if self.run_target == "encode-cache" and self.encode_partition_dates is not None:
+                return {
+                    "partition_cache": True,
+                    "partition_cache_hits": 0,
+                    "partition_cache_misses": 0,
+                    "partition_cache_blocked": 0,
+                    "partitions": [],
+                    "skipped": "No encode partition dates assigned",
+                }
             raise ValueError("Encode partition cache requires at least one training date")
 
         train_data_prefix = self._get_train_data_prefix() or "train"
@@ -2263,16 +2454,21 @@ class AlgorithmPipeline:
                 )
             )
 
-        self._assemble_encode_partitions(partitions)
+        self._encode_pending_partitions(partitions)
+        if self.run_target != "encode-cache":
+            self._build_encode_partition_view(partitions)
         return {
             "partition_cache": True,
             "partition_cache_hits": sum(1 for partition in partitions if partition["cache"] == "hit"),
             "partition_cache_misses": sum(1 for partition in partitions if partition["cache"] == "miss"),
+            "partition_cache_blocked": sum(1 for partition in partitions if partition["cache"] == "blocked"),
             "partitions": [
                 {
                     "dt": partition["dt"],
                     "cache": partition["cache"],
                     "source_paths": partition["source_paths"],
+                    **({"cache_path": partition["cache_path"]} if "cache_path" in partition else {}),
+                    **({"reason": partition["reason"]} if "reason" in partition else {}),
                 }
                 for partition in partitions
             ],
@@ -2281,14 +2477,15 @@ class AlgorithmPipeline:
     def should_train(self) -> bool:
         return "training_command" in self.algorithm_definition
 
-    def encode(self) -> dict:
+    def encode(self) -> dict[str, Any]:
+        encode_cache_target = self.run_target == "encode-cache"
         encoded_filename = os.path.basename(self.encoded_data_file_path())
         encoded_schema_description_filename = os.path.basename(self.encoded_schema_description_file_path())
         encoded_cache_path = self._resolve_cache_path(["encode"], encoded_filename)
         encoded_schema_description_cache_path = self._resolve_cache_path(
             ["encode"], encoded_schema_description_filename
         )
-        if not self._encode_run_cache_enabled() or self._cache_refresh_enabled():
+        if encode_cache_target or not self._encode_run_cache_enabled() or self._cache_refresh_enabled():
             available_encoded_cache_path = None
             available_encoded_schema_description_cache_path = None
         else:
@@ -2313,7 +2510,12 @@ class AlgorithmPipeline:
             metadata = self._encode_with_partition_cache()
         else:
             metadata = self._do_encode(is_test=False)
-        if encoded_cache_path and encoded_schema_description_cache_path and "skipped" not in metadata.keys():
+        if (
+            not encode_cache_target
+            and encoded_cache_path
+            and encoded_schema_description_cache_path
+            and "skipped" not in metadata.keys()
+        ):
             # Cache was not available, but there is a cache dir specified so we have to store our results there
             # Note that we only do this if we did encode, if we skipped encoding we don't have a result to store
             store_file(self.encoded_data_file_path(), encoded_cache_path)
@@ -2380,7 +2582,7 @@ class AlgorithmPipeline:
             copy_or_link(available_parameter_cache_path, self.predict_parameter_file_path())
             self._hydrate_predict_parameter_archive(
                 available_parameter_cache_path,
-                include_dependencies=False,
+                include_dependencies=bool(getattr(self, "dependency_pipelines", {})),
             )
             logger.info(
                 f"Using cached predict parameters for {self.algorithm_name} at {available_parameter_cache_path}"
@@ -2424,11 +2626,11 @@ class AlgorithmPipeline:
                     continue
 
                 os.makedirs(target_path.parent, exist_ok=True)
-                with zip_ref.open(zip_info) as source, open(target_path, "wb") as target:
+                with zip_ref.open(zip_info, force_zip64=True) as source, open(target_path, "wb") as target:
                     shutil.copyfileobj(source, target)
 
     def _collect_dependency_pipelines_by_name(self, pipelines_by_name: dict[str, "AlgorithmPipeline"]) -> None:
-        for algorithm_name, dependency_pipeline in self.dependency_pipelines.items():
+        for algorithm_name, dependency_pipeline in getattr(self, "dependency_pipelines", {}).items():
             pipelines_by_name[algorithm_name] = dependency_pipeline
             dependency_pipeline._collect_dependency_pipelines_by_name(pipelines_by_name)
 

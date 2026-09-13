@@ -64,7 +64,7 @@ Vowpal Wabbit support was removed in Hotvect 10 and is not a current backend.
 
 An API shape does not imply that every Hotvect command or local server dispatches it directly.
 
-| Shape | Offline `predict` and performance test | Local `hv serve` | Typical role |
+| Shape | Offline `predict` and performance test | Local `hv algorithm serve` | Typical role |
 | --- | --- | --- | --- |
 | Ranker | Supported | Supported | Public ordering decision |
 | Bulk scorer | Supported | Not dispatched | Batch-aligned candidate scores |
@@ -89,13 +89,15 @@ uses each child.
 
 ## An instantiated algorithm
 
-At runtime, Hotvect represents a loaded algorithm as an `AlgorithmInstance`. It keeps together:
+At runtime, one `AlgorithmInstance` represents a constructed node value. It keeps together:
 
-- the effective `AlgorithmDefinition`; composite instances include their resolved child definitions;
+- the effective `AlgorithmDefinition`;
 - parameter metadata, when parameters exist;
-- the instantiated `Algorithm` object.
+- the instantiated `Algorithm` object;
+- the complete declared `TypeToken` contract.
 
-The instance is `AutoCloseable`, allowing model runtimes and other resources to be released with the algorithm.
+An `AlgorithmGraph` owns the complete resolved topology, recursive runtime identity, classloaders, and cleanup of every
+constructed node. `AlgorithmInstance` itself is a value and is not a graph or lifecycle owner.
 
 ## What “complete” does not mean
 

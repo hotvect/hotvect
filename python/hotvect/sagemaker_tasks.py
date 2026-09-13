@@ -7,18 +7,21 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
 
 import boto3
 from mypy_boto3_s3 import S3Client
 
 import hotvect.hotvectjar
-from hotvect.algorithm_definition_overrides import parse_effective_algorithm_definition_payload
 from hotvect.benchmark_contract import BENCHMARK_CONTRACT_KEY, build_benchmark_contract
-from hotvect.offline_task import OfflineTaskSpec, build_offline_task_main_args
+from hotvect.offline_source_files import is_parallel_source_path
+from hotvect.offline_source_manifest import materialize_offline_algorithm_source
+from hotvect.offline_task import (
+    DirectAlgorithmSource,
+    OfflineAlgorithmSource,
+    OfflineTaskSpec,
+    build_offline_task_main_args,
+)
 from hotvect.parallel_oneshot import stable_shard_index
-from hotvect.s3_utils import download_json_from_s3 as _shared_download_json_from_s3
-from hotvect.s3_utils import download_s3_file as _download_s3_file
 from hotvect.s3_utils import join_s3_uri
 from hotvect.s3_utils import upload_directory_to_s3 as _shared_upload_directory_to_s3
 from hotvect.s3_utils import upload_file_to_s3 as _shared_upload_file_to_s3
@@ -29,14 +32,13 @@ from hotvect.sagemaker_contracts import (
     resolve_evaluate_source_path,
     task_text_output_paths,
 )
-from hotvect.utils import runshell
+from hotvect.utils import capture_output, runshell
 
 logger = logging.getLogger(__name__)
 
 # Keep these names stable for tests that monkeypatch the module-level helpers.
 _upload_file_to_s3 = _shared_upload_file_to_s3
 _upload_directory_to_s3 = _shared_upload_directory_to_s3
-_download_json_from_s3 = _shared_download_json_from_s3
 
 
 @dataclass(frozen=True)
@@ -49,7 +51,7 @@ class OneShotTaskRequest:
     samples: int | None
     target_rps: float | None
     target_throughput_fraction: float | None
-    algorithm_definition: dict[str, Any]
+    algorithm_source: OfflineAlgorithmSource | None
     workload_mode: str | None = None
     ordered: bool = False
     unordered: bool = False
@@ -61,11 +63,40 @@ class OneShotTaskRequest:
     parallel_worker_count: int | None = None
     parallel_worker_index: int | None = None
     compression: str = "none"
+    jfr_enabled: bool = False
 
 
 def _write_json(path: Path, data: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, indent=2, sort_keys=True))
+
+
+def _parse_bool_hyperparameter(hyperparameters: dict[str, Any], key: str) -> bool:
+    value = hyperparameters.get(key)
+    if value is None:
+        return False
+    normalized = str(value).strip().lower()
+    if normalized == "true":
+        return True
+    if normalized == "false":
+        return False
+    raise ValueError(f"{key} must be true or false, got: {value!r}")
+
+
+def _configure_jfr(metadata_dir: Path, env: dict[str, str]) -> Path:
+    jfr_dir = metadata_dir / "jfr"
+    jfr_dir.mkdir(parents=True, exist_ok=True)
+    recording_path = jfr_dir / "performance-test.jfr"
+    jfr_flag = (
+        "-XX:StartFlightRecording="
+        f"name=hotvect-sagemaker,"
+        f"settings=profile,"
+        f"filename={recording_path},"
+        "dumponexit=true"
+    )
+    existing = env.get("JAVA_TOOL_OPTIONS", "").strip()
+    env["JAVA_TOOL_OPTIONS"] = f"{jfr_flag} {existing}".strip()
+    return recording_path
 
 
 def _gzip_file(source: Path) -> Path:
@@ -88,18 +119,14 @@ def _upload_text_outputs_to_s3(local_outputs: list[Path], s3_target_prefix: str,
 
 
 def _iter_parallel_source_files(source_dir: Path) -> list[Path]:
-    """List shardable source files for parallel execution.
-
-    We skip underscore-prefixed path segments to mirror the S3-side planner, which
-    ignores control files such as `_SUCCESS` and `_temporary/...`.
-    """
+    """List files accepted by both parallel planning and Java input processing."""
 
     files: list[Path] = []
     for path in sorted(source_dir.rglob("*")):
         if not path.is_file():
             continue
         rel_parts = path.relative_to(source_dir).parts
-        if any(part.startswith("_") for part in rel_parts):
+        if not is_parallel_source_path(rel_parts):
             continue
         files.append(path)
     return files
@@ -222,12 +249,7 @@ def _upload_single_public_output(req: OneShotTaskRequest, s3_client: S3Client) -
     raise ValueError(f"Single-job public output upload is not supported for task {req.task}")
 
 
-def _run_task(
-    req: OneShotTaskRequest, *, local_algorithm_jar: Path, local_parameter_zip: Path | None
-) -> dict[str, Any]:
-    algo_def_path = req.metadata_dir / "algorithm_definition.json"
-    _write_json(algo_def_path, req.algorithm_definition)
-
+def _run_task(req: OneShotTaskRequest) -> dict[str, Any]:
     task = req.task
     if task not in {"audit", "predict", "encode", "performance-test", "evaluate"}:
         raise ValueError(f"Unsupported hotvect_task: {task}")
@@ -252,6 +274,9 @@ def _run_task(
         _write_json(stage_metadata_dir / "metadata.json", task_metadata)
         return task_metadata
 
+    if req.algorithm_source is None:
+        raise ValueError(f"Task {task} requires an offline algorithm source")
+
     active_source_dir, assigned_rel_paths = _prepare_parallel_source_subset(req, stage_metadata_dir)
     if req.parallel_worker_count is not None and req.parallel_worker_index is not None and not assigned_rel_paths:
         task_metadata = {
@@ -271,26 +296,23 @@ def _run_task(
     elif task == "predict":
         dest_path = output_base / "prediction"
     elif task == "audit":
-        if not local_parameter_zip:
-            raise ValueError("audit requires s3_uri_parameter_zip")
+        if not isinstance(req.algorithm_source, DirectAlgorithmSource) or req.algorithm_source.parameter_path is None:
+            raise ValueError("audit requires a parameterized direct algorithm source")
         dest_path = output_base / "audit"
-    elif task == "performance-test" and not local_parameter_zip:
-        raise ValueError("performance-test requires s3_uri_parameter_zip")
 
     spec = OfflineTaskSpec(
         task=task,
-        algorithm_jar_path=local_algorithm_jar,
-        algorithm_definition_arg=str(algo_def_path),
         metadata_path=stage_metadata_dir,
+        algorithm_source=req.algorithm_source,
         source_path=active_source_dir,
         dest_path=dest_path,
-        parameter_path=local_parameter_zip,
         dest_schema_description_path=dest_schema_path,
         samples=req.samples,
         sample_pool_size=req.sample_pool_size,
         max_threads=req.max_threads,
         ordered=req.ordered,
         unordered=req.unordered,
+        require_unordered_output=req.parallel_worker_count is not None and task == "predict",
         writer_num_shards=req.writer_num_shards,
         include_feature_store_responses=req.include_feature_store_responses,
         target_rps=req.target_rps,
@@ -306,7 +328,15 @@ def _run_task(
     ]
 
     logger.info("Running one-shot task: %s", " ".join(cmd))
-    runshell(cmd)
+    if req.jfr_enabled:
+        java_env = os.environ.copy()
+        recording_path = _configure_jfr(req.metadata_dir, java_env)
+        capture_output(cmd, env=java_env)
+        if not recording_path.is_file():
+            raise FileNotFoundError(f"JFR was enabled, but no recording was found at {recording_path}")
+        logger.info("JFR recording is available in metadata directory: %s", recording_path)
+    else:
+        runshell(cmd)
 
     metadata_file = stage_metadata_dir / "metadata.json"
     if metadata_file.exists():
@@ -334,10 +364,8 @@ def run_one_shot_from_sagemaker_env() -> None:
     request_hp = OneShotSagemakerHyperparameters.from_hyperparameters(hp)
 
     task = request_hp.task
-    s3_uri_algorithm_jar = request_hp.algorithm_jar_s3_uri
     s3_uri_metadata = request_hp.metadata_s3_uri
     s3_uri_result_file = request_hp.result_file_s3_uri
-    s3_uri_parameter_zip = request_hp.parameter_zip_s3_uri
     task_output_s3_uri = request_hp.task_output.s3_uri
     compression = request_hp.task_output.compression
     parallel_worker_count = (
@@ -345,10 +373,6 @@ def run_one_shot_from_sagemaker_env() -> None:
     )
     parallel_worker_index = (
         request_hp.parallel_execution.worker_index if request_hp.parallel_execution is not None else None
-    )
-
-    algorithm_definition = parse_effective_algorithm_definition_payload(
-        _download_json_from_s3(request_hp.algorithm_definition_s3_uri, s3_client)
     )
 
     source_channel = request_hp.source_channel
@@ -361,13 +385,13 @@ def run_one_shot_from_sagemaker_env() -> None:
 
     with tempfile.TemporaryDirectory() as tmpd:
         tmp = Path(tmpd)
-        local_algorithm_jar = tmp / Path(urlparse(s3_uri_algorithm_jar).path).name
-        _download_s3_file(s3_uri_algorithm_jar, local_algorithm_jar, s3_client)
-
-        local_parameter_zip = None
-        if s3_uri_parameter_zip:
-            local_parameter_zip = tmp / Path(urlparse(s3_uri_parameter_zip).path).name
-            _download_s3_file(s3_uri_parameter_zip, local_parameter_zip, s3_client)
+        algorithm_source = None
+        if task != "evaluate":
+            algorithm_source = materialize_offline_algorithm_source(
+                request_hp.offline_source_manifest_s3_uri,
+                scratch=tmp / "offline-source",
+                s3_client=s3_client,
+            )
 
         req = OneShotTaskRequest(
             task=task,
@@ -380,7 +404,7 @@ def run_one_shot_from_sagemaker_env() -> None:
             target_rps=request_hp.target_rps,
             target_throughput_fraction=request_hp.target_throughput_fraction,
             workload_mode=request_hp.workload_mode,
-            algorithm_definition=algorithm_definition,
+            algorithm_source=algorithm_source,
             ordered=request_hp.ordered,
             unordered=request_hp.unordered,
             writer_num_shards=request_hp.writer_num_shards,
@@ -390,12 +414,11 @@ def run_one_shot_from_sagemaker_env() -> None:
             parallel_worker_count=parallel_worker_count,
             parallel_worker_index=parallel_worker_index,
             compression=compression,
+            jfr_enabled=_parse_bool_hyperparameter(hp, "jfr_enabled"),
         )
 
         try:
-            task_metadata = _run_task(
-                req, local_algorithm_jar=local_algorithm_jar, local_parameter_zip=local_parameter_zip
-            )
+            task_metadata = _run_task(req)
 
             _upload_directory_to_s3(str(metadata_dir), s3_uri_metadata, s3_client, fail_fast=True)
 

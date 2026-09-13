@@ -12,16 +12,14 @@ import os
 from os import path
 
 import s3fs
+from sagemaker_training.environment import Environment
+
 from hotvect.experiment_management import (
-    AlgorithmName,
-    AlgorithmParameterSpec,
+    AlgorithmParameter,
     ExperimentManagementClient,
-    ExperimentManagementConnection,
     SecretsManagerAuth,
 )
-from hotvect.experiment_management.hotvect_config import (
-    create_client_from_hotvect_config,
-)
+from hotvect.experiment_management.hotvect_config import create_client_from_hotvect_config
 from hotvect.pyhotvect import AlgorithmPipeline
 from hotvect.sagemaker import (
     WRITE_METADATA_ENV_VARIABLE,
@@ -30,14 +28,13 @@ from hotvect.sagemaker import (
 )
 from hotvect.sagemaker_exp import SageMakerScriptExecutor
 from hotvect.sagemaker_tasks import run_one_shot_from_sagemaker_env
-from sagemaker_training.environment import Environment
 
 logger = logging.getLogger(__name__)
 
 SHOULD_UPDATE_EMS_PARAMETER_VAR = "should_update_ems_parameter"
 EMS_S3_OUTPUT_PREFIX_VAR = "ems_s3_output_prefix"
 EMS_URI_VAR = "ems_uri"
-ZALANDO_TOKEN_SECRET_ID_VAR = "zalando_token_secret_id"
+EMS_TOKEN_SECRET_ID_VAR = "ems_token_secret_id"
 REQUIRED_PARAMS_FOR_EMS_UPDATE = [EMS_S3_OUTPUT_PREFIX_VAR, EMS_URI_VAR]
 
 
@@ -61,7 +58,7 @@ def train():
     if should_update_ems_parameter:
         ems_uri = hyperparameters.get(EMS_URI_VAR)
         ems_s3_output_prefix = hyperparameters.get(EMS_S3_OUTPUT_PREFIX_VAR)
-        secret_id = hyperparameters.get(ZALANDO_TOKEN_SECRET_ID_VAR)
+        secret_id = hyperparameters.get(EMS_TOKEN_SECRET_ID_VAR)
         training_result_updater = ExperimentManagementUpdaterAgent(
             algorithm_pipeline=hotvect_rebuilder.algorithm_pipeline,
             output_s3_path=ems_s3_output_prefix,
@@ -126,12 +123,10 @@ class ExperimentManagementUpdaterAgent:
         self._output_s3_path: str = output_s3_path
         if secret_id:
             if not ems_uri:
-                raise ValueError("ems_uri is required when using zalando_token_secret_id")
+                raise ValueError("ems_uri is required when using ems_token_secret_id")
             self._experiment_management_client: ExperimentManagementClient = ExperimentManagementClient(
-                ExperimentManagementConnection(
-                    environment=str(ems_uri),
-                    bearer_auth=SecretsManagerAuth(secret_id),
-                )
+                base_url=str(ems_uri),
+                auth=SecretsManagerAuth(secret_id),
             )
         else:
             if not ems_uri:
@@ -151,7 +146,7 @@ class ExperimentManagementUpdaterAgent:
 
         fs = s3fs.S3FileSystem()
         fs.put(
-            os.path.join(str(self._algorithm_pipeline.algorithm_pipeline_context.metadata_base_path), '*'),
+            os.path.join(str(self._algorithm_pipeline.algorithm_pipeline_context.metadata_base_path), "*"),
             metadata_remote_path,
             recursive=True,
         )
@@ -159,20 +154,20 @@ class ExperimentManagementUpdaterAgent:
 
     def _update_parameter_in_ems(self):
         logger.info("Updating experiment-management (EMS) with the training parameters.")
-        algorithm = AlgorithmName(
-            algorithm_name=self._algorithm_pipeline.algorithm_name,
-            algorithm_version=self._algorithm_pipeline.algorithm_version,
+        algorithm = self._experiment_management_client.get_algorithm(
+            self._algorithm_pipeline.algorithm_name,
+            self._algorithm_pipeline.algorithm_version,
         )
         parameter_zip_s3_uri = os.path.join(
             self._output_s3_path, f"{self._algorithm_pipeline.parameter_version}.parameters.zip"
         )
-        algorithm_parameter_spec = AlgorithmParameterSpec(
+        algorithm_parameter = AlgorithmParameter(
             algorithm_parameter_id=self._algorithm_pipeline.parameter_version,
             algorithm=algorithm,
             evaluation_results="",
             absolute_s3_path=parameter_zip_s3_uri,
         )
-        self._experiment_management_client.create_algorithm_parameter(algorithm_parameter_spec)
+        self._experiment_management_client.create_algorithm_parameter(algorithm_parameter)
         logger.info(
             "Algorithm Parameter %s created successfully.",
             self._algorithm_pipeline.parameter_version,

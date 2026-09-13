@@ -41,20 +41,20 @@ def _resolve_encoded_training_input(encoded_data_dir: str, scratch_dir: str | No
         raise ValueError(f"Encoded directory does not exist: {encoded_data_dir}")
 
     encoded_dir = Path(encoded_data_dir)
-    entries = sorted(path for path in encoded_dir.iterdir() if path.is_file())
     encoded_files: list[Path] = []
     gzipped_files: list[Path] = []
-
-    for path in entries:
-        name = path.name
-        if name.endswith(".tsv"):
-            encoded_files.append(path)
-            continue
-        if name.startswith("part-") and "." not in name:
-            encoded_files.append(path)
-            continue
-        if _is_rejected_gzip_candidate(path):
-            gzipped_files.append(path)
+    for root, directories, filenames in os.walk(encoded_dir, followlinks=True):
+        directories.sort()
+        for filename in sorted(filenames):
+            path = Path(root) / filename
+            if filename.endswith(".tsv"):
+                encoded_files.append(path)
+                continue
+            if filename.startswith("part-") and "." not in filename:
+                encoded_files.append(path)
+                continue
+            if _is_rejected_gzip_candidate(path):
+                gzipped_files.append(path)
 
     if gzipped_files:
         gzipped_names = ", ".join(path.name for path in gzipped_files)

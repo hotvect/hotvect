@@ -154,11 +154,39 @@ def test_list_source_objects_normalizes_prefix_and_skips_nested_underscore_prefi
     s3_client.put_object(Bucket="bucket", Key="prefix/_temporary/file-a.json.gz", Body=b"a")
     s3_client.put_object(Bucket="bucket", Key="prefix/nested/_metadata/file-b.json.gz", Body=b"b")
     s3_client.put_object(Bucket="bucket", Key="prefix/nested/file-c.json.gz", Body=b"c")
+    s3_client.put_object(Bucket="bucket", Key="prefix/nested/sidecar.md", Body=b"ignored")
     s3_client.put_object(Bucket="bucket", Key="prefix-other/file-d.json.gz", Body=b"d")
 
     objects = list_source_objects(s3_client, "s3://bucket/prefix")
 
     assert [obj.key for obj in objects] == ["prefix/nested/file-c.json.gz"]
+
+
+def test_list_source_objects_accepts_every_java_input_format():
+    s3_client = _FakeS3Client()
+    supported_names = [
+        "records.txt",
+        "records.json",
+        "records.jsonl",
+        "records.jsons",
+        "records.csv",
+        "records.tsv",
+        "records.txt.gz",
+        "records.json.gz",
+        "records.jsonl.gz",
+        "records.jsons.gz",
+        "records.csv.gz",
+        "records.tsv.gz",
+        "records.avro",
+        "part-00000",
+        "part-custom.gz",
+    ]
+    for name in supported_names:
+        s3_client.put_object(Bucket="bucket", Key=f"prefix/{name}", Body=b"data")
+
+    objects = list_source_objects(s3_client, "s3://bucket/prefix")
+
+    assert [obj.key for obj in objects] == sorted(f"prefix/{name}" for name in supported_names)
 
 
 def test_validate_parallel_dest_path_is_empty_rejects_existing_prefix():

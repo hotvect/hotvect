@@ -10,7 +10,8 @@ public interface StateGenerator extends BiFunction<Map<String, List<File>>, File
      *
      * @param sourceFiles the source data to be used as input
      * @param destFile the destination file to which the generated state should be written to
-     * @return Any metadata (optional)
+     * @return optional generator-specific metadata. This may be {@code null} or immutable; Hotvect copies any
+     *     supplied entries before adding its task metadata.
      */
     @Override
     Map<String, Object> apply(Map<String, List<File>> sourceFiles, File destFile);

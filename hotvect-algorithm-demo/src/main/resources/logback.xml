@@ -6,8 +6,7 @@
         </encoder>
     </appender>
 
-    <logger name="org.eclipse.jetty" level="INFO"/>
-    <logger name="io.javalin" level="INFO"/>
+    <logger name="org.apache.catalina" level="INFO"/>
 
     <root level="INFO">
         <appender-ref ref="STDOUT"/>

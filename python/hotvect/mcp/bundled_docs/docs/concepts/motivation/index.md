@@ -77,7 +77,7 @@ Changing an algorithm is useful only when the result can be explained and compar
 algorithm artifacts to state generation, encoding, training, prediction, evaluation, auditing, performance tests, and
 backtests. This keeps the question “what produced this result?” answerable beyond the source commit alone.
 
-The lifecycle is therefore part of the application model, not Hotvect's product boundary. External systems may still
+The lifecycle is therefore part of the application model, not Hotvect's framework boundary. External systems may still
 schedule work, store artifacts, register releases, run experiments, and monitor production behavior.
 
 ## When this model is a good fit

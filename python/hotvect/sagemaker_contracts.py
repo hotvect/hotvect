@@ -1,14 +1,16 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from hotvect.algorithm_definition_overrides import (
     apply_algorithm_definition_override,
     load_effective_algorithm_definition,
 )
+from hotvect.offline_source_manifest import OFFLINE_SOURCE_MANIFEST_HYPERPARAMETER
 from hotvect.s3_utils import join_s3_uri
 from hotvect.text_data_files import is_text_data_file, list_part_text_data_files, list_text_data_files
 
@@ -40,6 +42,31 @@ HOTVECT_TRAINING_IMAGE_HYPERPARAMETER = "hotvect_training_image"
 HOTVECT_SAGEMAKER_OUTPUT_S3_URI_HYPERPARAMETER = "hotvect_sagemaker_output_s3_uri"
 
 PARALLEL_TEXT_PART_INDEX_WIDTH = 5
+
+MINIMUM_ONE_SHOT_TRAINING_IMAGE_VERSION = (10, 41, 1)
+MINIMUM_OFFLINE_SOURCE_MANIFEST_IMAGE_VERSION = (10, 49, 0)
+OneShotImageProtocol = Literal["legacy-direct", "offline-source-manifest"]
+
+
+def resolve_one_shot_image_protocol(training_image: str | None, *, source_kind: str) -> OneShotImageProtocol:
+    match = re.search(r":(\d+)\.(\d+)(?:\.(\d+))?(?:[._-].*)?$", training_image) if training_image else None
+    if match is None:
+        raise ValueError(
+            f"One-shot SageMaker execution requires a versioned Hotvect training image tag, got {training_image!r}"
+        )
+    version = tuple(int(part or 0) for part in match.groups())
+    if version < MINIMUM_ONE_SHOT_TRAINING_IMAGE_VERSION:
+        raise ValueError(
+            f"One-shot SageMaker execution requires a Hotvect training image >= 10.41.1, got {training_image!r}"
+        )
+    if version < MINIMUM_OFFLINE_SOURCE_MANIFEST_IMAGE_VERSION:
+        if source_kind != "direct":
+            raise ValueError(
+                f"One-shot SageMaker {source_kind} execution requires a Hotvect training image >= 10.49.0 "
+                f"for the offline-source-manifest protocol, got {training_image!r}"
+            )
+        return "legacy-direct"
+    return "offline-source-manifest"
 
 
 def _parse_dict_hyperparameter_value(value: Any, key: str) -> dict[str, Any]:
@@ -141,6 +168,7 @@ class OneShotSagemakerHyperparameters:
     source_s3_uri: str | None = None
     algorithm_jar_s3_uri: str | None = None
     algorithm_definition_s3_uri: str | None = None
+    offline_source_manifest_s3_uri: str | None = None
     metadata_s3_uri: str | None = None
     result_file_s3_uri: str | None = None
     parameter_zip_s3_uri: str | None = None
@@ -161,26 +189,20 @@ class OneShotSagemakerHyperparameters:
     parallel_execution: ParallelExecutionConfig | None = None
 
     @classmethod
-    def required_hyperparameter_keys(cls, *, require_runtime_artifacts: bool) -> list[str]:
-        required = [HOTVECT_TASK_HYPERPARAMETER, HOTVECT_TASK_OUTPUT_HYPERPARAMETER]
-        if require_runtime_artifacts:
-            required.extend(
-                [
-                    S3_URI_ALGORITHM_JAR_HYPERPARAMETER,
-                    ALGO_DEF_S3_URI_HYPERPARAMETER,
-                    S3_URI_METADATA_HYPERPARAMETER,
-                    S3_URI_RESULT_FILE_HYPERPARAMETER,
-                ]
-            )
+    def required_hyperparameter_keys(cls, *, task: str) -> list[str]:
+        required = [
+            HOTVECT_TASK_HYPERPARAMETER,
+            HOTVECT_TASK_OUTPUT_HYPERPARAMETER,
+            S3_URI_METADATA_HYPERPARAMETER,
+            S3_URI_RESULT_FILE_HYPERPARAMETER,
+        ]
+        if task != "evaluate":
+            required.append(OFFLINE_SOURCE_MANIFEST_HYPERPARAMETER)
         return required
 
     @classmethod
-    def missing_hyperparameters(cls, hp: dict[str, Any], *, require_runtime_artifacts: bool) -> list[str]:
-        return [
-            key
-            for key in cls.required_hyperparameter_keys(require_runtime_artifacts=require_runtime_artifacts)
-            if hp.get(key) in (None, "")
-        ]
+    def missing_hyperparameters(cls, hp: dict[str, Any], *, task: str) -> list[str]:
+        return [key for key in cls.required_hyperparameter_keys(task=task) if hp.get(key) in (None, "")]
 
     def to_hyperparameters(self) -> dict[str, str]:
         hp = {
@@ -194,6 +216,8 @@ class OneShotSagemakerHyperparameters:
             hp[S3_URI_ALGORITHM_JAR_HYPERPARAMETER] = self.algorithm_jar_s3_uri
         if self.algorithm_definition_s3_uri:
             hp[ALGO_DEF_S3_URI_HYPERPARAMETER] = self.algorithm_definition_s3_uri
+        if self.offline_source_manifest_s3_uri:
+            hp[OFFLINE_SOURCE_MANIFEST_HYPERPARAMETER] = self.offline_source_manifest_s3_uri
         if self.metadata_s3_uri:
             hp[S3_URI_METADATA_HYPERPARAMETER] = self.metadata_s3_uri
         if self.result_file_s3_uri:
@@ -233,22 +257,22 @@ class OneShotSagemakerHyperparameters:
         return hp
 
     @classmethod
-    def from_hyperparameters(
-        cls, hp: dict[str, Any], *, require_runtime_artifacts: bool = True
-    ) -> OneShotSagemakerHyperparameters:
-        missing = cls.missing_hyperparameters(hp, require_runtime_artifacts=require_runtime_artifacts)
+    def from_hyperparameters(cls, hp: dict[str, Any]) -> OneShotSagemakerHyperparameters:
+        task = str(hp.get(HOTVECT_TASK_HYPERPARAMETER, ""))
+        missing = cls.missing_hyperparameters(hp, task=task)
         if missing:
             raise ValueError(
                 "run_one_shot_from_sagemaker_env must be executed inside a SageMaker training container with the "
                 f"required hyperparameters set. Missing: {', '.join(missing)}"
             )
         return cls(
-            task=str(hp[HOTVECT_TASK_HYPERPARAMETER]),
+            task=task,
             task_output=TaskOutputConfig.from_hyperparameter_value(hp[HOTVECT_TASK_OUTPUT_HYPERPARAMETER]),
             source_channel=str(hp.get(HOTVECT_SOURCE_CHANNEL_HYPERPARAMETER, "source")),
             source_s3_uri=hp.get(HOTVECT_SOURCE_S3_URI_HYPERPARAMETER),
             algorithm_jar_s3_uri=hp.get(S3_URI_ALGORITHM_JAR_HYPERPARAMETER),
             algorithm_definition_s3_uri=hp.get(ALGO_DEF_S3_URI_HYPERPARAMETER),
+            offline_source_manifest_s3_uri=hp.get(OFFLINE_SOURCE_MANIFEST_HYPERPARAMETER),
             metadata_s3_uri=hp.get(S3_URI_METADATA_HYPERPARAMETER),
             result_file_s3_uri=hp.get(S3_URI_RESULT_FILE_HYPERPARAMETER),
             parameter_zip_s3_uri=hp.get(S3_URI_PARAMETER_ZIP_HYPERPARAMETER),
@@ -318,7 +342,12 @@ def build_one_shot_effective_algorithm_definition(
     task: str,
     parameter_s3_uri: str | None,
 ) -> dict[str, Any]:
-    effective_definition = load_effective_algorithm_definition(algorithm_jar, algorithm_name, algorithm_override)
+    effective_definition = load_effective_algorithm_definition(
+        algorithm_jar,
+        algorithm_name,
+        algorithm_override,
+        offline=True,
+    )
     parameter_pin_override = build_parameter_pin_override(
         effective_definition,
         task=task,
@@ -326,7 +355,7 @@ def build_one_shot_effective_algorithm_definition(
     )
     if not parameter_pin_override:
         return effective_definition
-    return apply_algorithm_definition_override(effective_definition, parameter_pin_override)
+    return apply_algorithm_definition_override(effective_definition, parameter_pin_override, offline=True)
 
 
 def parallel_text_output_filename(worker_index: int, local_shard_index: int, compression: str) -> str:

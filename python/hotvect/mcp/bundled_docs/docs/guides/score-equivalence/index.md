@@ -15,9 +15,9 @@ related_docs:
   - ../sagemaker-backtests/index.md
   - ../patterns/override-files/index.md
 related_commands:
-  - hv predict
-  - hv audit
-  - hv-ext compare-equivalence
+  - hv algorithm predict
+  - hv algorithm audit
+  - hv qa utils compare-predictions
   - hv-ext compare-jsonl
 next_steps:
   - Run a multi-day quality backtest when retraining behaviour also matters
@@ -34,7 +34,7 @@ training variance.
 
 | Inputs | Command | Artifacts | Verify |
 | --- | --- | --- | --- |
-| Control/treatment JARs, one predict-parameters ZIP, one source slice | `hv predict --ordered` twice, then `hv-ext compare-equivalence` | Two output directories, metadata, `comparison.json` | `status` is `passed`; score and rank mismatch counts are zero |
+| Control/treatment JARs, one predict-parameters ZIP, one source slice | `hv algorithm predict --ordered` twice, then `hv qa utils compare-predictions` | Two output directories, metadata, `comparison.json` | `status` is `passed`; score and rank mismatch counts are zero |
 
 Use this when a refactor, Hotvect upgrade, or wiring change is intended to preserve inference. Do **not** use it to
 claim backtest or model-quality parity: a normal backtest retrains parameters, so use a multi-day backtest for that
@@ -48,7 +48,7 @@ Keep the source rows and parameter ZIP identical. Ordered output gives both runs
 RUN_DIR=./predict-equivalence-$(date +%Y%m%d-%H%M%S)
 mkdir -p "$RUN_DIR"
 
-hv predict \
+hv algorithm predict \
   --algorithm-jar /path/to/control.jar \
   --algorithm-name <algorithm-name> \
   --parameter-path /path/to/predict.parameters.zip \
@@ -58,7 +58,7 @@ hv predict \
   --ordered \
   --samples 3000
 
-hv predict \
+hv algorithm predict \
   --algorithm-jar /path/to/treatment.jar \
   --algorithm-name <algorithm-name> \
   --parameter-path /path/to/predict.parameters.zip \
@@ -68,19 +68,19 @@ hv predict \
   --ordered \
   --samples 3000
 
-hv-ext compare-equivalence \
+hv qa utils compare-predictions \
   "$RUN_DIR/control.predict/part-00000.jsonl" \
   "$RUN_DIR/treatment.predict/part-00000.jsonl" \
   --score-eps 0 \
   --output "$RUN_DIR/compare"
 ```
 
-`hv predict` writes a **destination directory**. With `--ordered`, the predictable comparison input is
+`hv algorithm predict` writes a **destination directory**. With `--ordered`, the predictable comparison input is
 `part-00000.jsonl`; do not point the comparator at the directory itself.
 
 ## Read the result
 
-`hv-ext compare-equivalence` prints JSON and writes `comparison.json` in the requested output directory. It exits:
+`hv qa utils compare-predictions` prints JSON and writes `comparison.json` in the requested output directory. It exits:
 
 - `0` when `status` is `passed`;
 - `1` when scores, action IDs, rank order, example IDs, or line counts differ;
@@ -113,7 +113,7 @@ different key.
 expected and approved:
 
 ```bash
-hv-ext compare-equivalence \
+hv qa utils compare-predictions \
   "$RUN_DIR/control.predict/part-00000.jsonl" \
   "$RUN_DIR/treatment.predict/part-00000.jsonl" \
   --score-eps 1e-6 \
@@ -129,7 +129,7 @@ Do not use that flag to hide a real ranking change.
 When prediction equivalence fails, first check whether feature transformation already diverged:
 
 ```bash
-hv audit \
+hv algorithm audit \
   --algorithm-jar /path/to/control.jar \
   --algorithm-name <algorithm-name> \
   --parameter-path /path/to/predict.parameters.zip \
@@ -139,7 +139,7 @@ hv audit \
   --ordered \
   --samples 200
 
-hv audit \
+hv algorithm audit \
   --algorithm-jar /path/to/treatment.jar \
   --algorithm-name <algorithm-name> \
   --parameter-path /path/to/predict.parameters.zip \
@@ -161,10 +161,10 @@ logs are the evidence needed for the next comparison.
 
 ## What this check does not prove
 
-`hv predict` equivalence does not prove that two versions train the same model. A backtest typically runs
+`hv algorithm predict` equivalence does not prove that two versions train the same model. A backtest typically runs
 encode/train/package again for each date. To isolate inference in a backtest-style run, reuse the same parameters ZIP
 through `hotvect_execution_parameters.with_parameter` in an override, then compare offline `evaluate.*` results across
 the desired dates.
 
-For raw quality comparisons, use `hv-ext metrics compare-quality`; for system performance, use matching benchmark
+For raw quality comparisons, use `hv metrics compare-quality`; for system performance, use matching benchmark
 specifications and a metrics plot. See [Evaluation metrics and uncertainty](../../reference/evaluation-metrics/index.md).

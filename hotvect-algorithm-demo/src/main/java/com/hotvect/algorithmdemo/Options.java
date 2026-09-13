@@ -1,9 +1,8 @@
 package com.hotvect.algorithmdemo;
 
-import com.hotvect.algorithmserver.ActionMetadataLookup;
-import com.hotvect.algorithmserver.AlgorithmServerApp;
-import com.hotvect.algorithmserver.ServerExtension;
-import com.hotvect.algorithmserver.ServerOptions;
+import com.hotvect.serve.ServeApplication;
+import com.hotvect.serve.ServerExtension;
+import com.hotvect.serve.ServerOptions;
 import picocli.CommandLine;
 
 import java.io.File;
@@ -66,9 +65,10 @@ public class Options extends ServerOptions implements Callable<Integer> {
         ActionMetadataLookup actionMetadata = demoUiExtension == null
                 ? ActionMetadataLookup.empty()
                 : demoUiExtension.actionMetadata();
+        ServerExtension execution = new DemoExecutionExtension(actionMetadata);
         List<ServerExtension> extensions = demoUiExtension == null
-                ? List.of()
-                : List.of(demoUiExtension);
-        return AlgorithmServerApp.runUntilInterrupted(this, actionMetadata, extensions);
+                ? List.of(execution)
+                : List.of(execution, demoUiExtension);
+        return ServeApplication.runUntilInterrupted(this, extensions, ui);
     }
 }

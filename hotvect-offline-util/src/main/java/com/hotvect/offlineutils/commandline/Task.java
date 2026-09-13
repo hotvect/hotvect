@@ -56,7 +56,21 @@ public abstract class Task extends VerboseCallable<Map<String, Object>> {
 
     @Override
     protected Map<String, Object> doCall() throws Exception {
-        LOGGER.info("Running {} from {} to {}", this.getClass().getSimpleName(), offlineTaskContext.options().sourceFiles, offlineTaskContext.options().destinationFile);
+        boolean mappingsMode = !offlineTaskContext.options().sourceDestMappings.isEmpty();
+        if (!mappingsMode) {
+            LOGGER.info(
+                    "Running {} from {} to {}",
+                    this.getClass().getSimpleName(),
+                    offlineTaskContext.options().sourceFiles,
+                    offlineTaskContext.options().destinationFile
+            );
+        } else {
+            LOGGER.info(
+                    "Running {} with {} source/destination mapping(s)",
+                    this.getClass().getSimpleName(),
+                    offlineTaskContext.options().sourceDestMappings.size()
+            );
+        }
 
         MemoryMXBean memBean = ManagementFactory.getMemoryMXBean();
         AtomicLong maxHeapMemoryUsage = new AtomicLong();
@@ -74,18 +88,23 @@ public abstract class Task extends VerboseCallable<Map<String, Object>> {
         try {
 
             Map<String, Object> metadata = perform();
-            metadata.put("algorithm_jar", offlineTaskContext.options().algorithmJar);
             metadata.put("task_type", this.getClass().getSimpleName());
             metadata.put("metadata_location", offlineTaskContext.options().metadataLocation.toString());
             if(offlineTaskContext.options().destinationFile != null){
                 metadata.put("destination_file", offlineTaskContext.options().destinationFile.toString());
             }
-            metadata.put("source_file", offlineTaskContext.options().sourceFiles.toString());
-            metadata.put("algorithm_name", offlineTaskContext.algorithmDefinition().algorithmId().algorithmName());
-            metadata.put("algorithm_version", offlineTaskContext.algorithmDefinition().algorithmId().algorithmVersion());
-            metadata.put("algorithm_definition", offlineTaskContext.algorithmDefinition().toString());
-            if (offlineTaskContext.options().parameters != null) {
-                metadata.put("parameters", offlineTaskContext.options().parameters);
+            if (!mappingsMode) {
+                metadata.put("source_file", offlineTaskContext.options().sourceFiles.toString());
+            }
+            if (offlineTaskContext.source() instanceof OfflineTaskContext.DirectRuntime direct) {
+                OfflineAlgorithmSource.Direct algorithmSource = direct.algorithmSource();
+                metadata.put("algorithm_jar", algorithmSource.algorithmJar());
+                metadata.put("algorithm_name", offlineTaskContext.algorithmDefinition().algorithmId().algorithmName());
+                metadata.put("algorithm_version", offlineTaskContext.algorithmDefinition().algorithmId().algorithmVersion());
+                metadata.put("algorithm_definition", offlineTaskContext.algorithmDefinition().toString());
+                if (algorithmSource.parameters() != null) {
+                    metadata.put("parameters", algorithmSource.parameters());
+                }
             }
             metadata.put("max_memory_usage", maxHeapMemoryUsage.get());
             return metadata;

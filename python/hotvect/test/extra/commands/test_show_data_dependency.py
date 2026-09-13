@@ -1,13 +1,12 @@
 """Tests for show-data-dependency command."""
 
 import argparse
-import sys
 import unittest
-from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from hotvect.extra.commands.download_data_dependency import DataDependencyCommand
 from hotvect.extra.commands.show_data_dependency import ShowDataDependencyCommand
 
 
@@ -44,26 +43,54 @@ class TestShowDataDependencyCommand(unittest.TestCase):
 
         self.assertEqual(args.target, "predict")
 
-    @patch("hotvect.extra.commands.show_data_dependency.AlgorithmPipeline")
-    @patch("hotvect.extra.commands.show_data_dependency.clone_and_build_algorithm_jar")
-    def test_execute_threads_target_to_pipeline(self, mock_clone, mock_pipeline_cls):
-        mock_clone.return_value = SimpleNamespace(
-            algorithm_name="algo",
-            algorithm_version="1.2.3",
-            algorithm_jar_path=Path("/tmp/algo.jar"),
+    def test_execute_rejects_ambiguous_override_count(self):
+        args = self._parse_args(
+            "--git-reference",
+            "v78.0.0",
+            "--algorithm-override",
+            "override.json",
         )
-        mock_pipeline = mock_pipeline_cls.return_value
-        mock_pipeline.data_dependencies.return_value = []
 
+        with self.assertRaisesRegex(ValueError, "once for each --git-reference"):
+            self.command.execute(args)
+
+    def test_execute_threads_target_to_shared_dependency_discovery(self):
         with TemporaryDirectory() as scratch_dir:
             args = self._parse_args("--target", "predict")
             args.scratch_dir = scratch_dir
 
-            with patch("builtins.print"):
+            with (
+                patch.object(
+                    DataDependencyCommand, "_get_data_dependencies", return_value=("algo", "1.2.3", [])
+                ) as get,
+                patch("builtins.print"),
+            ):
                 self.command.execute(args)
 
-        mock_pipeline.data_dependencies.assert_called_once_with(target="predict")
-        self.assertIs(mock_clone.call_args.kwargs["progress_stream"], sys.stderr)
+        self.assertEqual(get.call_args.args[4], "predict")
+
+    @patch("hotvect.extra.commands.show_data_dependency.resolve_data_dependency_s3_uri")
+    def test_execute_fails_when_a_production_s3_uri_cannot_be_resolved(self, mock_resolve_s3_uri):
+        dependencies = [
+            SimpleNamespace(
+                data_prefix="training_data",
+                data_dates=[],
+                data_type="input",
+                additional_properties={},
+            )
+        ]
+        mock_resolve_s3_uri.side_effect = ValueError("production URI is missing")
+
+        with TemporaryDirectory() as scratch_dir, patch.object(
+            DataDependencyCommand,
+            "_get_data_dependencies",
+            return_value=("algo", "1.2.3", dependencies),
+        ):
+            args = self._parse_args()
+            args.scratch_dir = scratch_dir
+
+            with self.assertRaisesRegex(ValueError, "production URI is missing"):
+                self.command.execute(args)
 
 
 if __name__ == "__main__":

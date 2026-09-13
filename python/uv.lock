@@ -805,7 +805,7 @@ name = "gevent"
 version = "25.9.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "cffi", marker = "platform_python_implementation == 'CPython' and sys_platform == 'win32'" },
+    { name = "cffi", marker = "python_version < '0'" },
     { name = "greenlet", marker = "platform_python_implementation == 'CPython'" },
     { name = "zope-event" },
     { name = "zope-interface" },
@@ -997,7 +997,7 @@ wheels = [
 
 [[package]]
 name = "hotvect"
-version = "10.43.2"
+version = "11.0.2"
 source = { editable = "." }
 dependencies = [
     { name = "boto3" },
@@ -3379,7 +3379,7 @@ name = "tensorflow-macos"
 version = "2.16.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "tensorflow", marker = "platform_machine == 'arm64' and sys_platform == 'darwin'" },
+    { name = "tensorflow", marker = "platform_machine == 'arm64'" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/05/c5/47dee312dde75b7f6c04af18287839cbede72418137ad9ed3c1965dad6ae/tensorflow_macos-2.16.2-cp311-cp311-macosx_12_0_arm64.whl", hash = "sha256:13687ed18ad93757b9a8b9b5a55c434cbadb142a354888ea28581b5d278338b7", size = 2135, upload-time = "2024-06-28T19:12:30.774Z" },

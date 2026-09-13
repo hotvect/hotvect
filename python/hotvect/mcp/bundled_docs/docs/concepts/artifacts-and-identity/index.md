@@ -14,17 +14,20 @@ identity. Comparisons and integrations should name the exact combination they ex
 | Artifact | Contains | Primary identity |
 | --- | --- | --- |
 | Algorithm package (JAR today) | Algorithm classes, factories, backend modules, embedded definition, packaged assets | Algorithm name and version |
-| Algorithm definition | Factories, children, configuration, workflow settings, optional hyperparameter version | Algorithm and hyperparameter identity |
+| Algorithm definition | Factories, dependency declarations, configuration, workflow settings, optional offline hyperparameter version | Algorithm and hyperparameter identity |
 | Parameter package (ZIP today) | Model files, generated state, parameter metadata, child artifacts where packaged | Parameter ID |
-| Runtime instance | Resolved definition, parameter metadata, instantiated algorithm | Full algorithm runtime ID |
+| Constructed node (`AlgorithmInstance`) | Declarative definition, optional parameter metadata, instantiated algorithm, declared type contract | Its own parameterized identity inputs |
+| Runtime graph (`AlgorithmGraph`) | Root node, resolved topology, recursive identity, classloaders, and lifecycle ownership | Full algorithm runtime ID |
 
 The definition is normally embedded in the algorithm package and may be patched with an explicit override. An override
 changes the effective configuration used by a run; it does not rewrite the source package.
 
-A parameter package does not activate the definition override that produced it. The runtime reads its effective
+A parameter package does not activate the definition override that produced it. An offline runtime reads its effective
 definition from the algorithm package plus any explicitly supplied override; from `algorithm-parameters.json` it reads
-parameter identity and run metadata. A rollout that depends on an override must therefore carry that override
-explicitly or release an algorithm package whose embedded definition contains the intended configuration.
+parameter identity and run metadata. To promote an accepted configuration online, commit the effective definition,
+publish it under a new algorithm version without `hyperparameter_version`, and produce parameters for that version if
+the algorithm is parameterized. Live EMS serving rejects overrides and hyperparameter versions rather than silently
+changing their identity.
 
 Runtime-local filesystem state is not another artifact. A factory may materialize files below a private directory
 supplied by the containing runtime, but those files belong to that loaded instance and are removed when construction
@@ -33,38 +36,40 @@ storage only for the runtime materialization a library needs.
 
 ## Identity hierarchy
 
-Hotvect distinguishes four values:
+Hotvect distinguishes five values:
 
 | Value | Example form | Meaning |
 | --- | --- | --- |
 | Algorithm name | `example-ranker` | Stable logical name used by commands and dependency keys |
 | Algorithm ID | `example-ranker@1.2.0` | Name plus algorithm version |
-| Hyperparameter ID | `example-ranker@1.2.0-candidate-a` | Algorithm ID plus optional hyperparameter version |
-| Algorithm runtime ID | `example-ranker@1.2.0-candidate-a@param-001` | Hyperparameter ID plus parameter ID |
+| Hyperparameterized algorithm ID | `example-ranker@1.2.0-candidate-a` | Algorithm ID plus optional hyperparameter version |
+| Parameterized algorithm ID | `example-ranker@1.2.0-candidate-a@param-001` | Hyperparameterized algorithm ID plus parameter ID, excluding dependencies |
+| Algorithm runtime ID | `example-ranker@1.2.0-candidate-a@param-001[...]` | Parameterized algorithm ID plus recursively resolved child identities |
 
-Parameterless algorithms use `NA` as the parameter component of `AlgorithmRuntimeIdentity`.
+Parameterless algorithms use `NA` as the parameter component of `ParameterizedAlgorithmId`.
 
-Support for omitting the parameter package depends on the execution surface. Direct `AlgorithmInstanceFactory` use can
-pass no parameter file. The current application `AlgorithmRepository` requires a nonempty parameter ID and downloads
-a ZIP. The Python lifecycle normally packages a predict-parameters ZIP for every non-state pipeline, including a
-parameterless algorithm.
+Direct `AlgorithmInstanceFactory` use and the EMS serving runtime can both load a parameterless algorithm without a
+parameter package. EMS expresses that selection by omitting both the parameter ID and parameter path. The current local
+`hv algorithm serve` command still requires a parameter path. The Python lifecycle normally packages a
+predict-parameters ZIP for every non-state pipeline, including a parameterless algorithm.
 
 Do not confuse the Hotvect framework version with the algorithm version. The framework version identifies the APIs,
 runner, and Python tooling; the algorithm version identifies one algorithm-package line.
 
 ## Identity is an immutability contract
 
-Treat published algorithm IDs and parameter IDs as immutable. `AlgorithmRepository` caches the algorithm-package factory by
-algorithm ID and instances by algorithm ID plus parameter ID. Reusing an existing ID for different bytes does not
-reliably replace the cached runtime and makes logs and comparisons ambiguous.
+Treat published algorithm IDs and any parameter IDs as immutable. The EMS serving runtime reuses graphs by their
+artifact, optional parameter, and effective dependency identities. Reusing an existing ID for different bytes makes
+logs and comparisons ambiguous even when its source URI changes.
 
 Publish new bytes under a new version or parameter ID. Do not use an identity as a mutable pointer.
 
 ## Composite ownership
 
 Each child in a composite graph retains its own definition and parameter identity. The parent parameter package can
-package child artifacts, but the child's ownership does not disappear. Inspect workflow `result.json` and runtime
-metadata rather than assuming every file belongs to the outer algorithm.
+package child artifacts, but the child's identity does not disappear. The `AlgorithmGraph`, rather than any one
+`AlgorithmInstance`, owns the resolved topology and lifetime. Inspect workflow `result.json` and runtime metadata rather
+than assuming every file belongs to the outer algorithm.
 
 ## Lifecycle outputs
 

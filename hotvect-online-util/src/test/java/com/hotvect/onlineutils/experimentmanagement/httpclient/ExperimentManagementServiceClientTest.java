@@ -3,6 +3,10 @@ package com.hotvect.onlineutils.experimentmanagement.httpclient;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import com.hotvect.onlineutils.experimentmanagement.generated.GetDefaultVariantAndActiveExperimentsOperation;
+import com.hotvect.onlineutils.experimentmanagement.generated.SlotActiveInfo;
+import com.hotvect.onlineutils.experimentmanagement.generated.SlotActiveInfoAlgorithmResponse;
+import com.hotvect.onlineutils.experimentmanagement.generated.SlotActiveInfoVariantResponse;
 import com.hotvect.onlineutils.experimentmanagement.models.Slot;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
@@ -12,6 +16,7 @@ import java.net.InetSocketAddress;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Supplier;
@@ -22,6 +27,17 @@ class ExperimentManagementServiceClientTest {
 
     private static final Duration EMS_CLIENT_CONNECT_TIMEOUT = Duration.ofSeconds(2);
     private static final Duration EMS_CLIENT_READ_TIMEOUT = Duration.ofSeconds(2);
+
+    @Test
+    void generatedServingOperationDefinesMethodResponseAndEncodedUri() {
+        assertEquals("GET", GetDefaultVariantAndActiveExperimentsOperation.HTTP_METHOD);
+        assertEquals(SlotActiveInfo.class, GetDefaultVariantAndActiveExperimentsOperation.RESPONSE_TYPE);
+        assertEquals(
+                URI.create("https://ems.example/slots/catalog%20relevance%2Fblue/defaultVariantAndActiveExperiments"),
+                GetDefaultVariantAndActiveExperimentsOperation.resolve(
+                        URI.create("https://ems.example"),
+                        "catalog relevance/blue"));
+    }
 
     @Test
     void fetchesSlotPayloadAndSendsExpectedHeaders() throws Exception {
@@ -36,11 +52,48 @@ class ExperimentManagementServiceClientTest {
 
             assertEquals("salt-1", slot.slotSalt());
             assertEquals(100, slot.totalNumberOfShards());
-            assertEquals("/slots/catalog%20relevance/defaultVariantAndActiveExperiments", server.requestPath());
+            assertEquals(
+                    "/slots/catalog%20relevance/defaultVariantAndActiveExperiments",
+                    server.requestPath());
             assertEquals("GET", server.requestMethod());
             assertEquals("application/json", server.header("Accept"));
             assertEquals("Bearer test-token", server.header("Authorization"));
         }
+    }
+
+    @Test
+    void fetchesCanonicalSlotDocumentForSnapshotExport() throws Exception {
+        try (TestEmsServer server = TestEmsServer.responding(200, slotPayload())) {
+            final ExperimentManagementServiceClient emsClient = new ExperimentManagementServiceClient(
+                    server.baseUri(),
+                    EMS_CLIENT_CONNECT_TIMEOUT,
+                    EMS_CLIENT_READ_TIMEOUT,
+                    () -> "snapshot-token");
+
+            final SlotActiveInfo document = emsClient.getDefaultVariantAndActiveExperimentsDocument("catalog");
+
+            assertEquals("salt-1", document.slotSalt());
+            assertEquals("algo-a", document.defaultVariant().algorithm().algorithmName());
+            assertEquals("Bearer snapshot-token", server.header("Authorization"));
+            assertEquals(server.baseUri(), emsClient.baseUri());
+        }
+    }
+
+    @Test
+    void generatedVariantAcceptsTheRequiredSingletonAlgorithm() {
+        final SlotActiveInfoAlgorithmResponse first = activeAlgorithm("algo-a", "1.0.0");
+
+        final SlotActiveInfoVariantResponse singleton =
+                new SlotActiveInfoVariantResponse(1, first, Instant.EPOCH, true, true, 100);
+
+        assertEquals(first, singleton.algorithm());
+    }
+
+    @Test
+    void generatedVariantRejectsMissingAlgorithm() {
+        assertThrows(
+                NullPointerException.class,
+                () -> new SlotActiveInfoVariantResponse(1, null, Instant.EPOCH, true, true, 100));
     }
 
     @Test
@@ -101,6 +154,15 @@ class ExperimentManagementServiceClientTest {
                   "user_forced_assignments": []
                 }
                 """;
+    }
+
+    private static SlotActiveInfoAlgorithmResponse activeAlgorithm(String name, String version) {
+        return new SlotActiveInfoAlgorithmResponse(
+                name,
+                version,
+                "parameter",
+                "s3://bucket/algorithm.jar",
+                "s3://bucket/parameter.zip");
     }
 
     private static final class TestEmsServer implements AutoCloseable {

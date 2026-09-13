@@ -22,7 +22,7 @@ Primary locations under `<output-base-dir>/meta/<algorithm-id>/<parameter-versio
 
 ## Local train runs
 
-`hv train` writes the same high-signal files under
+`hv algorithm train` writes the same high-signal files under
 `<output-base-dir>/metadata/<algorithm-id>/<parameter-version>/`. The root is `metadata`, not the backtest `meta`
 root.
 

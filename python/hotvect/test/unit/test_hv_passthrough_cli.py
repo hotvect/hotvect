@@ -2,8 +2,11 @@ import importlib.util
 import sys
 from importlib.machinery import SourceFileLoader
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
+
+from hotvect.extra.commands.download_data_dependency import DataDependencyCommand
 
 
 def _load_hv_module():
@@ -19,7 +22,14 @@ def _load_hv_module():
     raise FileNotFoundError("Could not locate bin/hv relative to test file")
 
 
-def test_hv_audit_accepts_explicit_passthrough_after_double_dash(monkeypatch, tmp_path: Path):
+def test_hv_encode_defaults_to_ordered_output():
+    hv = _load_hv_module()
+
+    assert hv.resolve_local_output_ordering("encode", SimpleNamespace(ordered=False, unordered=False)) == (True, False)
+
+
+@pytest.mark.parametrize("command", [("algorithm", "audit"), ("audit",)])
+def test_hv_audit_accepts_explicit_passthrough_after_double_dash(monkeypatch, tmp_path: Path, command: tuple[str, ...]):
     hv = _load_hv_module()
     captured = {}
 
@@ -35,7 +45,7 @@ def test_hv_audit_accepts_explicit_passthrough_after_double_dash(monkeypatch, tm
         "argv",
         [
             "hv",
-            "audit",
+            *command,
             "--algorithm-jar",
             "algo.jar",
             "--algorithm-name",
@@ -56,6 +66,38 @@ def test_hv_audit_accepts_explicit_passthrough_after_double_dash(monkeypatch, tm
 
     assert captured["cmd"][:3] == ["java", "-Xmx2g", "-Dfoo=bar"]
     assert captured["cmd"][captured["cmd"].index("com.hotvect.offlineutils.commandline.Main") + 1] == "audit"
+
+
+def test_hv_data_dependencies_routes_to_canonical_command(monkeypatch):
+    hv = _load_hv_module()
+    captured = {}
+
+    def _capture_execute(self, args):
+        captured["args"] = args
+
+    monkeypatch.setattr(DataDependencyCommand, "execute_canonical", _capture_execute)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "hv",
+            "data",
+            "dependencies",
+            "inspect",
+            "--repo-url",
+            "https://github.com/example/algorithm.git",
+            "--git-reference",
+            "main",
+            "--scratch-dir",
+            "/tmp/scratch",
+            "--last-test-time",
+            "2000-01-07",
+        ],
+    )
+
+    assert hv.main() == 0
+    assert captured["args"].dependency_command == "inspect"
+    assert captured["args"]._jvm_args == []
 
 
 def test_hv_audit_uses_default_runtime_jvm_args_without_passthrough(monkeypatch, tmp_path: Path):

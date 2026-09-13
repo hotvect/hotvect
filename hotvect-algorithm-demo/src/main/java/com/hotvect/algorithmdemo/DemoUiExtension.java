@@ -4,21 +4,22 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import com.hotvect.algorithmserver.ActionMetadataLookup;
-import com.hotvect.algorithmserver.AlgorithmServerApp;
-import com.hotvect.algorithmserver.ContractViolationException;
-import com.hotvect.algorithmserver.JsonFieldSupport;
-import com.hotvect.algorithmserver.JsonInStringSupport;
-import com.hotvect.algorithmserver.RequestBodyTooLargeException;
-import com.hotvect.algorithmserver.ServerExtension;
-import com.hotvect.algorithmserver.ValidationSupport;
-import com.hotvect.utils.JsonUtils;
-import io.javalin.config.JavalinConfig;
-import io.javalin.http.Context;
-import io.javalin.http.HttpStatus;
-import io.javalin.http.staticfiles.Location;
+import com.hotvect.serve.ServeApplication;
+import com.hotvect.serve.ContractViolationException;
+import com.hotvect.serve.JsonFieldSupport;
+import com.hotvect.serve.RequestBodyTooLargeException;
+import com.hotvect.serve.ServerExtension;
+import com.hotvect.serve.ValidationSupport;
+import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -26,9 +27,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 
-import static io.javalin.apibuilder.ApiBuilder.get;
-import static io.javalin.apibuilder.ApiBuilder.post;
-
+@RestController
 final class DemoUiExtension implements ServerExtension {
     private static final Logger log = LoggerFactory.getLogger(DemoUiExtension.class);
     private static final ObjectMapper OM = new ObjectMapper();
@@ -39,6 +38,9 @@ final class DemoUiExtension implements ServerExtension {
     private final ExamplesRepository examples;
     private final ActionMetadataRepository actionMetadata;
     private final Map<DecodedExampleIdCacheKey, String> decodedExampleIdCache = new ConcurrentHashMap<>();
+    private OfflineExampleExecutor offlineExamples;
+    private DemoComparisonService comparisonService;
+    private ServeApplication runtime;
 
     DemoUiExtension(Options opts) throws Exception {
         this.opts = Objects.requireNonNull(opts);
@@ -65,33 +67,10 @@ final class DemoUiExtension implements ServerExtension {
     }
 
     @Override
-    public void configure(JavalinConfig config) {
-        config.staticFiles.add(staticFileConfig -> {
-            staticFileConfig.hostedPath = "/";
-            staticFileConfig.directory = "/public";
-            staticFileConfig.location = Location.CLASSPATH;
-        });
-    }
-
-    @Override
-    public void registerRoutes(AlgorithmServerApp app) {
-        DemoComparisonService comparisonService = new DemoComparisonService(app, actionMetadata);
-
-        // Keep both route families while older compare clients still call the unprefixed endpoints.
-        get("/api/examples", ctx -> handleExamplesList(ctx, app));
-        get("/api/demo/examples", ctx -> handleExamplesList(ctx, app));
-
-        get("/api/examples/{example_index}", ctx -> handleExample(ctx, app, comparisonService));
-        get("/api/demo/examples/{example_index}", ctx -> handleExample(ctx, app, comparisonService));
-
-        get("/api/action-metadata/{action_id}", this::handleActionMetadata);
-        get("/api/demo/action-metadata/{action_id}", this::handleActionMetadata);
-        get("/api/demo/runtime-metadata", ctx -> handleRuntimeMetadata(ctx, app));
-
-        post("/api/run", ctx -> handleRun(ctx, app));
-        post("/api/demo/run", ctx -> handleRun(ctx, app));
-        post("/api/demo/predict", ctx -> handleDemoPredict(ctx, app, comparisonService));
-        post("/api/demo/compare", ctx -> handleDemoCompare(ctx, app, comparisonService));
+    public void initialize(ServeApplication runtime) {
+        this.runtime = Objects.requireNonNull(runtime);
+        offlineExamples = new OfflineExampleExecutor(runtime, actionMetadata);
+        comparisonService = new DemoComparisonService(runtime, actionMetadata, offlineExamples);
     }
 
     @Override
@@ -104,13 +83,9 @@ final class DemoUiExtension implements ServerExtension {
         root.put("demo_sqlite_built_now", sqliteCache.builtNow());
         root.put("examples_count", examples.size());
 
-        ObjectNode actionMetadataNode;
-        JsonNode existingActionMetadataNode = root.get("action_metadata");
-        if (existingActionMetadataNode instanceof ObjectNode existingObjectNode) {
-            actionMetadataNode = existingObjectNode;
-        } else {
-            actionMetadataNode = root.putObject("action_metadata");
-        }
+        ObjectNode actionMetadataNode = root.putObject("action_metadata");
+        actionMetadataNode.put("enabled", actionMetadata.isEnabled());
+        actionMetadataNode.put("count", actionMetadata.size());
         if (opts.actionMetadataPath == null) {
             actionMetadataNode.putNull("path");
         } else {
@@ -131,44 +106,53 @@ final class DemoUiExtension implements ServerExtension {
         sqliteCache.close();
     }
 
-    private void handleExamplesList(Context ctx, AlgorithmServerApp app) {
+    @GetMapping("/api/demo/examples")
+    ResponseEntity<JsonNode> examplesList(
+            @RequestParam(name = "limit", required = false) String rawLimit,
+            @RequestParam(name = "algorithm_runtime_id", required = false) String rawAlgorithmRuntimeId) {
         try {
-            int requestedLimit = parseIntOrDefault(ctx.queryParam("limit"), MAX_EXAMPLES_LISTED);
-            int limit = Math.min(Math.max(requestedLimit, 1), MAX_EXAMPLES_LISTED);
+            int limit = rawLimit == null ? MAX_EXAMPLES_LISTED : parseInt(rawLimit, "limit");
+            if (limit < 1 || limit > MAX_EXAMPLES_LISTED) {
+                throw new ContractViolationException("limit must be between 1 and " + MAX_EXAMPLES_LISTED, rawLimit);
+            }
             int count = Math.min(limit, examples.size());
-            String algorithmRuntimeId = JsonFieldSupport.blankToNull(ctx.queryParam("algorithm_runtime_id"));
+            String algorithmRuntimeId = JsonFieldSupport.blankToNull(rawAlgorithmRuntimeId);
             List<ExamplesRepository.ExampleSummary> shown = new ArrayList<>(count);
             for (int i = 0; i < count; i++) {
                 ExamplesRepository.ExampleRecord record = examples.getById(i);
-                String exampleId = decodedExampleIdOrFallback(app, record, algorithmRuntimeId);
+                String exampleId = decodedExampleIdOrFallback(record, algorithmRuntimeId);
                 shown.add(ExamplesRepository.ExampleSummary.of(record, exampleId));
             }
             ObjectNode node = OM.createObjectNode();
             node.put("count", examples.size());
             node.put("limit", limit);
             node.set("examples", OM.valueToTree(shown));
-            ctx.status(HttpStatus.OK).json(node);
+            return response(HttpStatus.OK, node);
         } catch (ContractViolationException e) {
-            ctx.status(HttpStatus.BAD_REQUEST).json(AlgorithmServerApp.error(e.getMessage(), e.getDetails()));
+            return response(HttpStatus.BAD_REQUEST, ServeApplication.error(e.getMessage(), e.getDetails()));
         } catch (Exception e) {
             log.error("Unhandled error", e);
-            ctx.status(HttpStatus.INTERNAL_SERVER_ERROR).json(AlgorithmServerApp.error("Unhandled error", e.getMessage()));
+            return response(HttpStatus.INTERNAL_SERVER_ERROR, ServeApplication.error("Unhandled error", e.getMessage()));
         }
     }
 
-    private void handleExample(Context ctx, AlgorithmServerApp app, DemoComparisonService comparisonService) {
+    @GetMapping("/api/demo/examples/{example_index}")
+    ResponseEntity<JsonNode> example(
+            @PathVariable("example_index") String rawExampleIndex,
+            @RequestParam(name = "algorithm_runtime_id", required = false) String rawAlgorithmRuntimeId) {
         try {
-            int exampleIndex = parseIntOrDefault(ctx.pathParam("example_index"), -1);
+            int exampleIndex = parseInt(rawExampleIndex, "example_index");
             ExamplesRepository.ExampleRecord record = examples.getById(exampleIndex);
             if (record == null) {
-                ctx.status(HttpStatus.NOT_FOUND).json(AlgorithmServerApp.error("Unknown example_index: " + ctx.pathParam("example_index"), null));
-                return;
+                return response(
+                        HttpStatus.NOT_FOUND,
+                        ServeApplication.error("Unknown example_index: " + rawExampleIndex, null));
             }
-            String algorithmRuntimeId = JsonFieldSupport.blankToNull(ctx.queryParam("algorithm_runtime_id"));
+            String algorithmRuntimeId = JsonFieldSupport.blankToNull(rawAlgorithmRuntimeId);
             ObjectNode node = OM.createObjectNode();
             node.put("example_index", record.id());
             node.put("source", record.source());
-            String exampleId = decodedExampleIdOrFallback(app, record, algorithmRuntimeId);
+            String exampleId = decodedExampleIdOrFallback(record, algorithmRuntimeId);
             JsonFieldSupport.putStringOrNull(node, "example_id", exampleId);
             ObjectNode raw = ExamplesRepository.parseExampleObjectOrThrow(record.source(), record.rawJson()).deepCopy();
             DemoComparisonService.ExampleViewData viewData = comparisonService.exampleViewData(raw);
@@ -178,70 +162,83 @@ final class DemoUiExtension implements ServerExtension {
             ObjectNode json = raw.deepCopy();
             JsonInStringSupport.injectVirtualJsonFields(json);
             node.set("json", json);
-            ctx.status(HttpStatus.OK).json(node);
+            return response(HttpStatus.OK, node);
         } catch (ContractViolationException e) {
-            ctx.status(HttpStatus.BAD_REQUEST).json(AlgorithmServerApp.error(e.getMessage(), e.getDetails()));
+            return response(HttpStatus.BAD_REQUEST, ServeApplication.error(e.getMessage(), e.getDetails()));
         } catch (Exception e) {
             log.error("Unhandled error", e);
-            ctx.status(HttpStatus.INTERNAL_SERVER_ERROR).json(AlgorithmServerApp.error("Unhandled error", e.getMessage()));
+            return response(HttpStatus.INTERNAL_SERVER_ERROR, ServeApplication.error("Unhandled error", e.getMessage()));
         }
     }
 
-    private void handleActionMetadata(Context ctx) {
+    @GetMapping("/api/demo/action-metadata/{action_id}")
+    ResponseEntity<JsonNode> actionMetadata(@PathVariable("action_id") String actionId) {
         if (!actionMetadata.isEnabled()) {
-            ctx.status(HttpStatus.BAD_REQUEST).json(AlgorithmServerApp.error("Action metadata is disabled (start Demo UI with --action-metadata-path)", null));
-            return;
+            return response(
+                    HttpStatus.BAD_REQUEST,
+                    ServeApplication.error(
+                            "Action metadata is disabled (start Demo UI with --action-metadata-path)",
+                            null));
         }
-        String actionId = ctx.pathParam("action_id");
         try {
             JsonNode node = actionMetadata.getJsonOrFallbackIfEnabled(actionId);
-            ctx.status(HttpStatus.OK).json(node);
+            return response(HttpStatus.OK, node);
         } catch (ContractViolationException e) {
-            ctx.status(HttpStatus.NOT_FOUND).json(AlgorithmServerApp.error(e.getMessage(), e.getDetails()));
+            return response(HttpStatus.NOT_FOUND, ServeApplication.error(e.getMessage(), e.getDetails()));
         } catch (Exception e) {
-            ctx.status(HttpStatus.INTERNAL_SERVER_ERROR).json(AlgorithmServerApp.error("Failed to load action metadata", e.getMessage()));
+            return response(
+                    HttpStatus.INTERNAL_SERVER_ERROR,
+                    ServeApplication.error("Failed to load action metadata", e.getMessage()));
         }
     }
 
-    private void handleRuntimeMetadata(Context ctx, AlgorithmServerApp app) {
+    @GetMapping("/api/demo/runtime-metadata")
+    ResponseEntity<JsonNode> runtimeMetadata(
+            @RequestParam(name = "algorithm_runtime_id", required = false) String rawAlgorithmRuntimeId) {
         try {
-            String algorithmRuntimeId = JsonFieldSupport.blankToNull(ctx.queryParam("algorithm_runtime_id"));
-            ctx.status(HttpStatus.OK).json(app.buildRuntimeDetails(algorithmRuntimeId));
+            String algorithmRuntimeId = JsonFieldSupport.blankToNull(rawAlgorithmRuntimeId);
+            return response(HttpStatus.OK, runtime.buildRuntimeDetails(algorithmRuntimeId));
         } catch (ContractViolationException e) {
-            ctx.status(HttpStatus.BAD_REQUEST).json(AlgorithmServerApp.error(e.getMessage(), e.getDetails()));
+            return response(HttpStatus.BAD_REQUEST, ServeApplication.error(e.getMessage(), e.getDetails()));
         } catch (Exception e) {
             log.error("Failed to load runtime metadata", e);
-            ctx.status(HttpStatus.INTERNAL_SERVER_ERROR).json(
-                    AlgorithmServerApp.error("Failed to load runtime metadata", e.getMessage()));
+            return response(
+                    HttpStatus.INTERNAL_SERVER_ERROR,
+                    ServeApplication.error("Failed to load runtime metadata", e.getMessage()));
         }
     }
 
-    private void handleRun(Context ctx, AlgorithmServerApp app) {
+    @PostMapping("/api/demo/run")
+    ResponseEntity<JsonNode> run(HttpServletRequest request) {
         try {
-            RunRequest req = readRunRequest(ctx, app);
+            RunRequest req = readRunRequest(request);
             DemoRunInput input = parseDemoRunInput(req);
             String expectedExampleId = JsonFieldSupport.nonEmptyStringField(input.exampleNode(), "example_id").orElse(null);
-            ObjectNode response = app.runExample(input.exampleNode(), expectedExampleId, input.algorithmRuntimeId());
+            ObjectNode response = offlineExamples.runExample(
+                    input.exampleNode(),
+                    expectedExampleId,
+                    input.algorithmRuntimeId());
             if (input.exampleRecord() != null) {
                 response.put("example_index", input.exampleRecord().id());
                 response.put("example_source", input.exampleRecord().source());
             }
-            ctx.status(HttpStatus.OK).json(response);
+            return response(HttpStatus.OK, response);
         } catch (RequestBodyTooLargeException e) {
-            ctx.status(413).json(AlgorithmServerApp.error(e.getMessage(), e.getDetails()));
+            return response(HttpStatus.PAYLOAD_TOO_LARGE, ServeApplication.error(e.getMessage(), e.getDetails()));
         } catch (ExampleNotFoundException e) {
-            ctx.status(HttpStatus.NOT_FOUND).json(AlgorithmServerApp.error(e.getMessage(), null));
+            return response(HttpStatus.NOT_FOUND, ServeApplication.error(e.getMessage(), null));
         } catch (ContractViolationException e) {
-            ctx.status(HttpStatus.BAD_REQUEST).json(AlgorithmServerApp.error(e.getMessage(), e.getDetails()));
+            return response(HttpStatus.BAD_REQUEST, ServeApplication.error(e.getMessage(), e.getDetails()));
         } catch (Exception e) {
             log.error("Unhandled error", e);
-            ctx.status(HttpStatus.INTERNAL_SERVER_ERROR).json(AlgorithmServerApp.error("Unhandled error", e.getMessage()));
+            return response(HttpStatus.INTERNAL_SERVER_ERROR, ServeApplication.error("Unhandled error", e.getMessage()));
         }
     }
 
-    private void handleDemoPredict(Context ctx, AlgorithmServerApp app, DemoComparisonService comparisonService) {
+    @PostMapping("/api/demo/predict")
+    ResponseEntity<JsonNode> demoPredict(HttpServletRequest request) {
         try {
-            RunRequest req = readRunRequest(ctx, app);
+            RunRequest req = readRunRequest(request);
             DemoRunInput input = parseDemoRunInput(req);
             ObjectNode response;
             if (input.viewIds().isEmpty()) {
@@ -253,40 +250,41 @@ final class DemoUiExtension implements ServerExtension {
                         ? projectedObject.deepCopy()
                         : OM.createObjectNode();
             }
-            ctx.status(HttpStatus.OK).json(response);
+            return response(HttpStatus.OK, response);
         } catch (RequestBodyTooLargeException e) {
-            ctx.status(413).json(AlgorithmServerApp.error(e.getMessage(), e.getDetails()));
+            return response(HttpStatus.PAYLOAD_TOO_LARGE, ServeApplication.error(e.getMessage(), e.getDetails()));
         } catch (ExampleNotFoundException e) {
-            ctx.status(HttpStatus.NOT_FOUND).json(AlgorithmServerApp.error(e.getMessage(), null));
+            return response(HttpStatus.NOT_FOUND, ServeApplication.error(e.getMessage(), null));
         } catch (ContractViolationException e) {
-            ctx.status(HttpStatus.BAD_REQUEST).json(AlgorithmServerApp.error(e.getMessage(), e.getDetails()));
+            return response(HttpStatus.BAD_REQUEST, ServeApplication.error(e.getMessage(), e.getDetails()));
         } catch (Exception e) {
             log.error("Unhandled error", e);
-            ctx.status(HttpStatus.INTERNAL_SERVER_ERROR).json(AlgorithmServerApp.error("Unhandled error", e.getMessage()));
+            return response(HttpStatus.INTERNAL_SERVER_ERROR, ServeApplication.error("Unhandled error", e.getMessage()));
         }
     }
 
-    private void handleDemoCompare(Context ctx, AlgorithmServerApp app, DemoComparisonService comparisonService) {
+    @PostMapping("/api/demo/compare")
+    ResponseEntity<JsonNode> demoCompare(HttpServletRequest request) {
         try {
-            RunRequest req = readRunRequest(ctx, app);
+            RunRequest req = readRunRequest(request);
             DemoRunInput input = parseDemoRunInput(req);
             ObjectNode response = comparisonService.compare(input.exampleNode(), input.exampleRecord(), input.viewIds());
-            ctx.status(HttpStatus.OK).json(response);
+            return response(HttpStatus.OK, response);
         } catch (RequestBodyTooLargeException e) {
-            ctx.status(413).json(AlgorithmServerApp.error(e.getMessage(), e.getDetails()));
+            return response(HttpStatus.PAYLOAD_TOO_LARGE, ServeApplication.error(e.getMessage(), e.getDetails()));
         } catch (ExampleNotFoundException e) {
-            ctx.status(HttpStatus.NOT_FOUND).json(AlgorithmServerApp.error(e.getMessage(), null));
+            return response(HttpStatus.NOT_FOUND, ServeApplication.error(e.getMessage(), null));
         } catch (ContractViolationException e) {
-            ctx.status(HttpStatus.BAD_REQUEST).json(AlgorithmServerApp.error(e.getMessage(), e.getDetails()));
+            return response(HttpStatus.BAD_REQUEST, ServeApplication.error(e.getMessage(), e.getDetails()));
         } catch (Exception e) {
             log.error("Unhandled error", e);
-            ctx.status(HttpStatus.INTERNAL_SERVER_ERROR).json(AlgorithmServerApp.error("Unhandled error", e.getMessage()));
+            return response(HttpStatus.INTERNAL_SERVER_ERROR, ServeApplication.error("Unhandled error", e.getMessage()));
         }
     }
 
-    private RunRequest readRunRequest(Context ctx, AlgorithmServerApp app) throws Exception {
+    private RunRequest readRunRequest(HttpServletRequest request) throws Exception {
         try {
-            return OM.readValue(app.readRequestBodyBytes(ctx), RunRequest.class);
+            return OM.readValue(runtime.readRequestBodyBytes(request), RunRequest.class);
         } catch (RequestBodyTooLargeException e) {
             throw e;
         } catch (JsonProcessingException e) {
@@ -337,8 +335,9 @@ final class DemoUiExtension implements ServerExtension {
                         "override_json must be a JSON object",
                         "got " + overrideNode.getNodeType().name().toLowerCase());
             }
-            JsonUtils.deepMergeJsonNodeWithArrayReplacement(exampleNode, overrideNode);
+            JsonInStringSupport.mergeOverride(exampleNode, (ObjectNode) overrideNode);
         }
+        JsonInStringSupport.collapseVirtualJsonFields(exampleNode);
 
         return new DemoRunInput(
                 exampleNode,
@@ -353,13 +352,19 @@ final class DemoUiExtension implements ServerExtension {
     }
 
     private String decodedExampleIdOrFallback(
-            AlgorithmServerApp app,
             ExamplesRepository.ExampleRecord record,
             String algorithmRuntimeIdOrNull) {
         if (record == null) {
             return null;
         }
-        AlgorithmServerApp.DecodedExampleId decodedExampleId = app.tryDecodeExampleIdOrNull(record.rawJson(), algorithmRuntimeIdOrNull);
+        OfflineExampleExecutor.DecodedExampleId decodedExampleId;
+        try {
+            decodedExampleId = offlineExamples.tryDecodeExampleIdOrNull(
+                    record.rawJson(),
+                    algorithmRuntimeIdOrNull);
+        } catch (Exception error) {
+            throw new ContractViolationException("Failed to create example decoder", error.getMessage());
+        }
         DecodedExampleIdCacheKey cacheKey = new DecodedExampleIdCacheKey(
                 record.id(),
                 decodedExampleId.algorithmRuntimeId());
@@ -391,15 +396,16 @@ final class DemoUiExtension implements ServerExtension {
         }
     }
 
-    private static int parseIntOrDefault(String s, int defaultValue) {
-        if (s == null || s.isBlank()) {
-            return defaultValue;
-        }
+    private static int parseInt(String s, String field) {
         try {
             return Integer.parseInt(s);
         } catch (NumberFormatException e) {
-            return defaultValue;
+            throw new ContractViolationException(field + " must be an integer", s);
         }
+    }
+
+    private static ResponseEntity<JsonNode> response(HttpStatus status, JsonNode body) {
+        return ResponseEntity.status(status).body(body);
     }
 
     private record DecodedExampleIdCacheKey(int exampleIndex, String algorithmRuntimeId) {
@@ -430,9 +436,6 @@ final class DemoUiExtension implements ServerExtension {
         public String algorithmRuntimeId;
         @com.fasterxml.jackson.annotation.JsonProperty("view_ids")
         public List<String> viewIds;
-        // Legacy single-view alias kept for older compare clients that still post {"view_id": "..."}.
-        @com.fasterxml.jackson.annotation.JsonProperty("view_id")
-        public String viewId;
 
         List<String> normalizedViewIds() {
             List<String> out = new ArrayList<>();
@@ -443,9 +446,6 @@ final class DemoUiExtension implements ServerExtension {
                     }
                     out.add(value);
                 }
-            }
-            if (out.isEmpty() && viewId != null && !viewId.isBlank()) {
-                out.add(viewId);
             }
             return List.copyOf(out);
         }

@@ -20,7 +20,7 @@ Both contracts produce one model input per ranking action, but they expose diffe
 
 The definition selects one through `transformer_factory_classname` or `vectorizer_factory_classname`. If both are
 present, the current loader selects the vectorizer, so a new definition should declare only the contract it uses.
-Current `hv audit` supports ranking transformers and rejects vectorizers. Prefer a transformer for new feature-rich
+Current `hv algorithm audit` supports ranking transformers and rejects vectorizers. Prefer a transformer for new feature-rich
 algorithms; use a vectorizer only when the flattened numerical boundary is intentional.
 
 ## Request and candidate values
@@ -45,10 +45,11 @@ backend or used by downstream feature methods.
 ## Two forms of injection
 
 - `@Inject("feature-name")` injects another feature or intermediate computation.
-- `@InjectAlgorithm("dependency-name")` injects a typed algorithm dependency declared in the logical algorithm graph.
+- `@InjectAlgorithm("dependency-name") X` injects the dependency's sole selected algorithm.
 
 The annotation processor validates the reachable feature graph, missing dependencies, dependency direction, and
-backend type compatibility during compilation. It generates the transformer implementation and an inspection report.
+backend type compatibility during compilation. For algorithm injection it also rejects non-concrete algorithm types
+and collection shapes. It generates the transformer implementation and an inspection report.
 
 ## Feature-store values
 
@@ -71,3 +72,5 @@ or TensorFlow, and `transformer_parameters.features` declares the ordered output
 
 See [Simple ranking transformer](../../guides/simple-ranking-transformer/index.md) for implementation and
 [Generated transformer backends](../../reference/generated-transformer-backends/index.md) for exact type grammars.
+When values come from an application-owned service, read
+[Feature-store integration](../feature-store-integration/index.md) for binding and partial-failure semantics.

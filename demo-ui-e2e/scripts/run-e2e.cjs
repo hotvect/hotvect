@@ -128,6 +128,7 @@ function createFixtures(baseDir) {
   writeJson(algoParametersPath, algoParameters);
 
   const zipPath = path.join(paramsDir, 'demo-ranker-params.zip');
+  const secondZipPath = path.join(paramsDir, 'demo-ranker-params-2.zip');
   const zipWorkDir = path.join(paramsDir, 'zipwork');
   ensureDir(path.join(zipWorkDir, 'demo-ranker'));
   fs.copyFileSync(algoParametersPath, path.join(zipWorkDir, 'demo-ranker', 'algorithm-parameters.json'));
@@ -140,7 +141,16 @@ function createFixtures(baseDir) {
   if (fs.existsSync(zipPath)) fs.rmSync(zipPath);
   runOrThrow('zip', ['-qr', zipPath, 'demo-ranker'], { cwd: zipWorkDir });
 
-  return { examplesDir, actionMetadataDir, paramsZip: zipPath };
+  const secondParameters = { ...algoParameters, parameter_id: 'e2e-local-2' };
+  const secondParametersPath = path.join(paramsDir, 'algorithm-parameters-2.json');
+  writeJson(secondParametersPath, secondParameters);
+  const secondZipWorkDir = path.join(paramsDir, 'zipwork-2');
+  ensureDir(path.join(secondZipWorkDir, 'demo-ranker'));
+  fs.copyFileSync(secondParametersPath, path.join(secondZipWorkDir, 'demo-ranker', 'algorithm-parameters.json'));
+  if (fs.existsSync(secondZipPath)) fs.rmSync(secondZipPath);
+  runOrThrow('zip', ['-qr', secondZipPath, 'demo-ranker'], { cwd: secondZipWorkDir });
+
+  return { examplesDir, actionMetadataDir, paramsZip: zipPath, secondParamsZip: secondZipPath };
 }
 
 function findBuiltJar(globDir, prefix) {
@@ -175,7 +185,7 @@ async function main() {
   const e2eDir = path.join(root, 'demo-ui-e2e');
 
   const tmpBase = fs.mkdtempSync(path.join(os.tmpdir(), 'hotvect-demo-ui-e2e-'));
-  const { examplesDir, actionMetadataDir, paramsZip } = createFixtures(tmpBase);
+  const { examplesDir, actionMetadataDir, paramsZip, secondParamsZip } = createFixtures(tmpBase);
   const port = await getFreePort();
   const baseURL = `http://127.0.0.1:${port}`;
 
@@ -190,6 +200,12 @@ async function main() {
   const algoJar = findBuiltPlainJar(path.join(root, 'hotvect-integration-test', 'target'), 'hotvect-integration-test-');
   if (!uiJar) throw new Error('Missing demo UI jar; run with --build to build it first.');
   if (!algoJar) throw new Error('Missing integration-test jar; run with --build to build it first.');
+  writeJson(path.join(tmpBase, 'local-runtimes.json'), {
+    runtimes: [
+      { algorithm_jar: algoJar, algorithm_name: 'demo-ranker', parameter_path: paramsZip },
+      { algorithm_jar: algoJar, algorithm_name: 'demo-ranker', parameter_path: secondParamsZip },
+    ],
+  });
 
   const logFile = path.join(tmpBase, 'demo-ui.log');
   const logFd = fs.openSync(logFile, 'a');
@@ -199,12 +215,8 @@ async function main() {
     [
       '-jar',
       uiJar,
-      '--algorithm-jar',
-      algoJar,
-      '--algorithm-name',
-      'demo-ranker',
-      '--parameter-path',
-      paramsZip,
+      '--local-runtime-config',
+      path.join(tmpBase, 'local-runtimes.json'),
       '--ui',
       '--source-path',
       examplesDir,

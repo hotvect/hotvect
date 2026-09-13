@@ -1,83 +1,162 @@
 ---
-title: Reuse parameters or cached stages
-description: Choose between pinning one exact parameter ZIP and reusing compatible pipeline outputs from a cache
-tags: [parameters, caching, training, pipeline]
+title: How to Reuse Existing Outputs
+description: Reuse trained model parameters and other pipeline outputs for faster iteration and debugging
+tags: [parameters, caching, training, pipeline, optimization]
 difficulty: intermediate
+estimated_time: 15 minutes
+prerequisites:
+  - Understanding of hotvect training pipeline
+  - S3 access configured (if using S3 URIs)
 related_docs:
   - ../caching/index.md
   - ../develop-algorithms/index.md
-  - ../../concepts/artifacts-and-identity/index.md
+  - ../../reference/cli/index.md
+related_commands:
+  - hv algorithm train
+  - hv algorithm predict
+  - hv algorithm backtest
+next_steps:
+  - Run evaluation on different test datasets
+  - Compare cached vs regenerated outputs
+  - Set up automated caching strategy
 ---
 
-# Reuse parameters or cached stages
+# How to: Reuse existing outputs (parameters, encoded data, state)
 
-Hotvect has two mechanisms with different meanings. Choose by the claim you need the run to support:
+Hotvect supports two related mechanisms:
 
-| Mechanism | Contract | Use it when |
-| --- | --- | --- |
-| `with_parameter` | Load this exact existing parameter ZIP or fail | Isolate inference from training, reproduce a deployed artifact, or compare code with fixed parameters |
-| Cache | Reuse a compatible stage output when the cache key matches; otherwise run the stage and populate it | Shorten iterative train/backtest workflows without pinning one model |
+1. **Pin an exact parameter zip** with `hotvect_execution_parameters.with_parameter` (strict: must exist).
+2. **Enable caching** via `cache_base_dir` / `--cache` (best-effort: use if present, otherwise recompute and write).
 
-Do not use a cache hit as a substitute for an explicit parameter pin when exact artifact identity is the point of the
-experiment.
+## Option A (strict): Reuse an exact `predict-parameters.zip` via `with_parameter`
 
-## Pin one exact parameter artifact
+Use this when you want a run to use *exactly* the same model parameters as a previous run (e.g. offline/online debugging).
 
-Set `hotvect_execution_parameters.with_parameter` on the algorithm that owns the artifact. It accepts an S3 URI or a
-local file path:
-
+Example override (recommended on a dependency):
 ```json
 {
   "dependencies": {
-    "example-model": {
+    "my-model": {
       "hotvect_execution_parameters": {
-        "with_parameter": "s3://example-bucket/hotvect-cache/example-model@1.2.3/runs/last_test_date_2000-01-15/train/predict-parameters.zip"
+        "with_parameter": "s3://example-bucket/hotvect-cache/my-model@1.2.3/runs/last_test_date_2000-06-01/train/predict-parameters.zip"
       }
     }
   }
 }
 ```
 
-When the file exists, Hotvect skips state generation, encode, and train for that algorithm and uses the selected ZIP.
-When it does not exist, the run fails. Record the ZIP URI and parameter ID with the result so the inference comparison
-remains reproducible.
+Notes:
+- `with_parameter` accepts `s3://...` or a local file path.
+- If the zip does not exist, the pipeline raises an error.
+- When `with_parameter` is set, Hotvect skips all upstream steps for that algorithm (generate-state / encode / train).
 
-Apply the fragment through `--algorithm-override`; do not copy experiment-only pins into the committed default
-definition.
+## Option B (best-effort): Reuse outputs via caching in the algorithm definition
 
-## Reuse compatible stage outputs
+Hotvect caches a few expensive artifacts (state generation output, encoded data, and packaged model parameters). You can enable caching by setting:
 
-For a backtest or training loop, enable the cache at the command line:
+- `hotvect_execution_parameters.cache_base_dir` (local path or `s3://...`)
+- optionally `hotvect_execution_parameters.cache` (`true|false|"run"|"partition"`)
+- optionally `hotvect_execution_parameters.cache_scope` (`major|minor|patch|hyperparam`, default: `hyperparam`)
+- root-level `cache` is the default cache policy:
+  - omitted or `true`: use run-level caches
+  - `false`: disable caching even when `cache_base_dir` is set
+  - `"run"`: use only run-level caches
+  - `"partition"`: use only encode partition cache; non-encode stages are not cached unless they override it
+- optionally per-step overrides under `generate-state|encode|train`:
+  - `cache: false` disables caching for that step
+  - `cache: true` uses the default location under `cache_base_dir`
+  - `cache: "<explicit path>"` uses a custom location (S3 or local)
+  - omitted `encode.cache` inherits the root-level `cache` policy
+  - `encode.cache=true` uses the run-level encode cache
+  - `encode.cache="run"` or `encode.cache="partition"` selects only one encode cache mode
 
+Example:
+```json
+{
+  "hotvect_execution_parameters": {
+    "cache_base_dir": "s3://example-bucket/hotvect-cache/",
+    "cache": "run",
+    "cache_scope": "hyperparam",
+
+    "generate-state": {"cache": true},
+    "encode": {"cache": "partition"},
+    "train": {"cache": true},
+
+    "performance-test": {"enabled": false}
+  }
+}
+```
+
+## Option C (backtest-only): `hv algorithm backtest --cache`
+
+If you are iterating via `hv algorithm backtest`, the simplest way to reuse outputs is the CLI:
+
+- `--cache <local_path_or_s3_uri>` enables caching
+- `--cache-scope major|minor|patch|hyperparam` controls cache sharing across **algorithm versions**
+- `--cache-refresh` ignores cache reads and writes fresh run-level cache artifacts; requires an effective `cache_base_dir` and effective cache mode `run`
+- `--prewarm` pre-populates the encode partition cache in remote SageMaker mode before normal backtest jobs are submitted
+- `--prewarm-instance-count <n>` makes one-instance prewarm jobs available per git reference
+
+Example (SageMaker):
 ```bash
-hv backtest \
+hv algorithm backtest \
   --git-reference v1.1.0 \
   --algo-repo-url https://github.com/example-org/example-algorithm.git \
-  --output-base-dir /tmp/example-output \
-  --scratch-dir /tmp/example-scratch \
+  --output-base-dir /tmp/out \
+  --scratch-dir /tmp/scratch \
   --last-test-time 2000-01-07 \
+  --sagemaker-config sagemaker-config.json \
+  --auto-attach-data-default-s3-base s3://example-bucket/tables/ \
   --cache s3://example-bucket/hotvect-cache/ \
   --cache-scope hyperparam
 ```
 
-Use an S3 cache for SageMaker because container-local paths do not persist across jobs. Local workflows can use a
-filesystem cache.
+For partition-heavy remote SageMaker backtests, add `--prewarm` and optionally
+`--prewarm-instance-type`. Hotvect assigns each required partition to the newest requested backtest window whose encode
+parameters apply. In automatic mode, it selects the minimum required compatible encoding-parameter contexts and
+submits every planned one-instance `encode-cache` SageMaker job together before waiting and then submitting the normal
+backtest jobs. `--prewarm-instance-count <n>` must be at least that minimum or Hotvect fails before submission; a
+larger count may use additional compatible contexts. Prewarm jobs recurse into dependencies. Existing completed
+partition caches are reused automatically on rerun. It requires an `s3://` cache path.
+Each prewarm invocation creates fresh SageMaker job attempts; `_SUCCESS` markers, rather than SageMaker job names,
+are the durable record of completed cache partitions.
+`--prewarm-instance-type` requires `--prewarm`; when set, it replaces any configured preferred-instance list, so
+prewarm uses that type only.
 
-Depending on the effective cache mode, Hotvect can reuse generated state, encode parameters, encoded data, or packaged
-model parameters. Prediction, evaluation, and performance testing consume those artifacts but are not themselves
-cached.
+If a partition cache prefix contains partial data or a `_STARTED` marker without a `_SUCCESS` marker, Hotvect
+treats that partition as incomplete and will not overwrite it. Prewarm reports the blocked partition and stops before
+submitting normal backtest jobs; clear or repair the partition cache prefix before retrying. A normal backtest without
+prewarm can still encode an incomplete partition locally for that run without publishing it.
 
-Cache keys include the algorithm/configuration scope and parameter version. Date-partition encode caching is the
-separate mechanism that lets adjacent training windows reuse successfully completed overlapping partitions.
+Partition reuse intentionally accepts an encode parameter set that was valid for a relevant backtest window, even when
+another requested window would have produced different parameters.
 
-Read [Caching](../caching/index.md) for cache modes, scope, layout, partition success markers, refresh behavior, and
-how to verify a hit in `result.json`.
+**Important:** for SageMaker runs, set `--cache` to an `s3://...` prefix. Local paths only exist on the container filesystem and will not persist across jobs.
 
-## Verify what happened
+## What outputs can be reused / cached?
 
-After either mechanism:
+When caching is enabled, Hotvect may reuse:
 
-1. inspect `result.json` for `with_parameter`, cache-hit, run, and skipped-stage records;
-2. confirm the effective definition contains the intended pin or cache settings;
-3. record the parameter runtime identity used by prediction;
-4. keep quality and performance claims separate from the artifact-reuse claim.
+- `generate-state`: state output (directory or file, depending on the algorithm definition)
+- `generate-state/encoding-parameters.zip`: packaged encode parameters used by `encode`
+- `encode`: encoded data directory + schema description directory
+- `train/predict-parameters.zip`: packaged model parameters (what `with_parameter` points at)
+
+By design, `predict`, `evaluate`, and `performance-test` are not cached (they consume the parameter zip).
+
+## Key concept: caches are segmented by `parameter_version`
+
+Cache keys always include `parameter_version`. If you do not explicitly set `parameter_version`, Hotvect defaults it to:
+
+```
+last_test_date_YYYY-MM-DD
+```
+
+So a cache built for one `--last-test-time` does not automatically apply to a different `--last-test-time`.
+
+The exception is the encode partition cache: root `cache="partition"` or `encode.cache="partition"` enables reusable
+per-date encoded partitions outside the `parameter_version` run directory so adjacent moving training windows can reuse
+the overlapping dates while still training normally. Backtest prewarm selects this encode mode automatically. A
+partition is reused only when its `_SUCCESS` marker exists.
+
+For a deeper explanation (including cache layout), see [How to Use Hotvect Caching](../caching/index.md).

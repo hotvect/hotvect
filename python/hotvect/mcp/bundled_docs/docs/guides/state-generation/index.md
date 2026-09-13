@@ -63,7 +63,7 @@ Return a non-null, mutable metadata map: the current task adds its standard meta
 
 This synthetic component counts non-blank records. It is intentionally simple, but it exercises source resolution,
 generation, packaging, and the runtime loading contract. The complete example was compiled and run through
-`hv train --target parameters` with this Hotvect version.
+`hv algorithm train --target parameters` with this Hotvect version.
 
 Reuse the `pom.xml` from [Build your first algorithm](../first-algorithm/index.md) and create the source directories:
 
@@ -231,7 +231,7 @@ Build the algorithm package and request only the parameter package:
 ```bash
 mvn package
 
-hv train \
+hv algorithm train \
   --algorithm-name example-record-count-state \
   --algorithm-jar target/record-count-state-1.0.0.jar \
   --data-base-dir data \
@@ -268,10 +268,10 @@ ZIP; parent preparation can still include the child's generated files in the par
 
 ## Run only the generator
 
-Use `hv generate-state` to test generation without source resolution or packaging:
+Use `hv algorithm generate-state` to test generation without source resolution or packaging:
 
 ```bash
-hv generate-state \
+hv algorithm generate-state \
   --algorithm-name example-record-count-state \
   --algorithm-jar target/record-count-state-1.0.0.jar \
   --source-path '{"records":["data/record-source/records-a.txt","data/record-source/records-b.txt"]}' \

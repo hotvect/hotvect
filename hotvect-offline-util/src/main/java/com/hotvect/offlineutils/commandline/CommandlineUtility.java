@@ -22,15 +22,24 @@ public class CommandlineUtility {
                 File file = (File) field.get(optionObject);
 
                 if (file != null) {
-                    String filePath = file.getPath();
-                    if (filePath.startsWith("~" + File.separator)) {
-                        filePath = System.getProperty("user.home") + filePath.substring(1);
-                        File expandedFile = new File(filePath);
+                    File expandedFile = expandTilde(file);
+                    if (expandedFile != file) {
                         field.set(optionObject, expandedFile);
                     }
                 }
             }
         }
+    }
+
+    static File expandTilde(File file) {
+        if (file == null) {
+            return null;
+        }
+        String filePath = file.getPath();
+        if (!filePath.startsWith("~" + File.separator)) {
+            return file;
+        }
+        return new File(System.getProperty("user.home") + filePath.substring(1));
     }
 
     public static Optional<JsonNode> parseStringOrFileToJsonNode(String hyperParameter) {

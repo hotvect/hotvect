@@ -4,8 +4,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.google.common.collect.ImmutableMap;
 import com.hotvect.api.algodefinition.AlgorithmDefinition;
+import com.hotvect.api.algodefinition.AlgorithmDependencies;
 import com.hotvect.api.algodefinition.AlgorithmId;
-import com.hotvect.api.algodefinition.AlgorithmInstance;
 import com.hotvect.api.algodefinition.common.CompositeVectorizerFactory;
 import com.hotvect.api.algodefinition.common.NonCompositeAlgorithmFactory;
 import com.hotvect.api.algodefinition.ranking.RankingTransformer;
@@ -28,6 +28,7 @@ import com.hotvect.api.execution.ExecutionContext;
 import com.hotvect.api.execution.InputSemantic;
 import com.hotvect.api.execution.WorkloadMode;
 import com.hotvect.api.transformation.CompositeTransformerFactory;
+import com.hotvect.onlineutils.hotdeploy.util.MalformedAlgorithmException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -40,6 +41,7 @@ import java.util.Optional;
 import java.util.SortedSet;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class ExecutionContextPropagationTest {
     private static final ExecutionContext ONLINE_CONTEXT = ExecutionContext.realtime(InputSemantic.ONLINE);
@@ -47,111 +49,161 @@ class ExecutionContextPropagationTest {
 
     @Test
     void stateFactoryReceivesExecutionContext() throws Exception {
-        AlgorithmInstance<ContextAwareState> instance = new AlgorithmInstanceFactory(
+        try (AlgorithmGraph<ContextAwareState> graph = new AlgorithmInstanceFactory(
                 Thread.currentThread().getContextClassLoader(),
-                OFFLINE_CONTEXT,
-                true
-        ).load(stateDefinition(), null, ImmutableMap.of());
-
-        assertEquals(OFFLINE_CONTEXT, instance.algorithm().executionContext());
+                new AlgorithmInstanceFactory.Options(OFFLINE_CONTEXT.inputSemantic(), true, false, Optional.empty())
+        ).loadGraph(
+                stateDefinition(),
+                null,
+                AlgorithmDependencies.empty(),
+                OFFLINE_CONTEXT)) {
+            assertEquals(OFFLINE_CONTEXT, graph.algorithm().executionContext());
+        }
     }
 
     @Test
     void stateFactoryCanAllocatePrivateLocalStateDirectory(@TempDir Path stateRoot) throws Exception {
-        AlgorithmInstance<StorageAwareState> instance = new AlgorithmInstanceFactory(
+        try (AlgorithmGraph<StorageAwareState> graph = new AlgorithmInstanceFactory(
                 Thread.currentThread().getContextClassLoader(),
-                ONLINE_CONTEXT,
-                true,
-                Optional.of(stateRoot)
-        ).load(storageAwareStateDefinition(), null, ImmutableMap.of());
+                new AlgorithmInstanceFactory.Options(ONLINE_CONTEXT.inputSemantic(), true, false, Optional.of(stateRoot))
+        ).loadGraph(
+                storageAwareStateDefinition(),
+                null,
+                AlgorithmDependencies.empty(),
+                ONLINE_CONTEXT)) {
+            assertEquals(stateRoot.toAbsolutePath(), graph.algorithm().stateDirectory().getParent());
+        }
+    }
 
-        assertEquals(stateRoot.toAbsolutePath(), instance.algorithm().stateDirectory().getParent());
+    @Test
+    void defaultsLocalStateRootToTheSystemTemporaryDirectory() {
+        assertEquals(
+                Optional.of(Path.of(System.getProperty("java.io.tmpdir"), "algorithm-state").toAbsolutePath()),
+                new AlgorithmInstanceFactory.Options(ONLINE_CONTEXT.inputSemantic(), true, false, Optional.empty()).localStateRoot());
     }
 
     @Test
     void rankingTransformerFactoryReceivesExecutionContext() throws Exception {
-        ContextAwareDependencyAlgorithm algorithm = loadDependencyAlgorithm(
+        try (AlgorithmGraph<ContextAwareDependencyAlgorithm> graph = loadDependencyAlgorithm(
                 ONLINE_CONTEXT,
                 ContextAwareRankingTransformerFactory.class.getName(),
-                null
-        );
+                null)) {
+            assertEquals(ONLINE_CONTEXT, graph.algorithm().dependencyExecutionContext());
+        }
+    }
 
-        assertEquals(ONLINE_CONTEXT, algorithm.dependencyExecutionContext());
+    @Test
+    void rejectsAnExecutionContextThatChangesTheInputSemantic() {
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class,
+                () -> new AlgorithmInstanceFactory(
+                        Thread.currentThread().getContextClassLoader(),
+                        new AlgorithmInstanceFactory.Options(
+                                ONLINE_CONTEXT.inputSemantic(), true, false, Optional.empty()))
+                        .loadGraph(
+                                stateDefinition(),
+                                null,
+                                AlgorithmDependencies.empty(),
+                                OFFLINE_CONTEXT));
+
+        assertEquals(
+                "Execution context must retain input semantic ONLINE but was OFFLINE",
+                error.getMessage());
+    }
+
+    @Test
+    void rejectsLegacyTwoArgumentAlgorithmFactories() {
+        MalformedAlgorithmException error = assertThrows(
+                MalformedAlgorithmException.class,
+                () -> new AlgorithmInstanceFactory(
+                        Thread.currentThread().getContextClassLoader(),
+                        new AlgorithmInstanceFactory.Options(ONLINE_CONTEXT.inputSemantic(), true, false, Optional.empty()))
+                        .loadGraph(
+                                legacyTwoArgumentFactoryDefinition(),
+                                null,
+                                AlgorithmDependencies.empty(),
+                                ONLINE_CONTEXT));
+
+        assertEquals("Legacy two-argument factories are unsupported", error.getCause().getMessage());
     }
 
     @Test
     void compositeTransformerFactoryReceivesExecutionContext() throws Exception {
-        ContextAwareDependencyAlgorithm algorithm = loadDependencyAlgorithm(
+        try (AlgorithmGraph<ContextAwareDependencyAlgorithm> graph = loadDependencyAlgorithm(
                 OFFLINE_CONTEXT,
                 ContextAwareCompositeTransformerFactory.class.getName(),
-                null
-        );
-
-        assertEquals(OFFLINE_CONTEXT, algorithm.dependencyExecutionContext());
+                null)) {
+            assertEquals(OFFLINE_CONTEXT, graph.algorithm().dependencyExecutionContext());
+        }
     }
 
     @Test
     void rankingVectorizerFactoryReceivesExecutionContext() throws Exception {
-        ContextAwareDependencyAlgorithm algorithm = loadDependencyAlgorithm(
+        try (AlgorithmGraph<ContextAwareDependencyAlgorithm> graph = loadDependencyAlgorithm(
                 ONLINE_CONTEXT,
                 null,
-                ContextAwareRankingVectorizerFactory.class.getName()
-        );
-
-        assertEquals(ONLINE_CONTEXT, algorithm.dependencyExecutionContext());
+                ContextAwareRankingVectorizerFactory.class.getName())) {
+            assertEquals(ONLINE_CONTEXT, graph.algorithm().dependencyExecutionContext());
+        }
     }
 
     @Test
     void compositeVectorizerFactoryReceivesExecutionContext() throws Exception {
-        ContextAwareDependencyAlgorithm algorithm = loadDependencyAlgorithm(
+        try (AlgorithmGraph<ContextAwareDependencyAlgorithm> graph = loadDependencyAlgorithm(
                 OFFLINE_CONTEXT,
                 null,
-                ContextAwareCompositeVectorizerFactory.class.getName()
-        );
-
-        assertEquals(OFFLINE_CONTEXT, algorithm.dependencyExecutionContext());
+                ContextAwareCompositeVectorizerFactory.class.getName())) {
+            assertEquals(OFFLINE_CONTEXT, graph.algorithm().dependencyExecutionContext());
+        }
     }
 
     @Test
     void topKFactoryReceivesExecutionContext() throws Exception {
-        AlgorithmInstance<ContextAwareTopK> instance = new AlgorithmInstanceFactory(
+        try (AlgorithmGraph<ContextAwareTopK> graph = new AlgorithmInstanceFactory(
                 Thread.currentThread().getContextClassLoader(),
-                ONLINE_CONTEXT,
-                true
-        ).load(topKDefinition(), null, ImmutableMap.of());
-
-        assertEquals(ONLINE_CONTEXT, instance.algorithm().executionContext());
+                new AlgorithmInstanceFactory.Options(ONLINE_CONTEXT.inputSemantic(), true, false, Optional.empty())
+        ).loadGraph(
+                topKDefinition(),
+                null,
+                AlgorithmDependencies.empty(),
+                ONLINE_CONTEXT)) {
+            assertEquals(ONLINE_CONTEXT, graph.algorithm().executionContext());
+        }
     }
 
     @Test
     void simpleTopKFactoryCanBeLoaded() throws Exception {
-        AlgorithmInstance<SimpleTopKAlgorithm> instance = new AlgorithmInstanceFactory(
+        try (AlgorithmGraph<SimpleTopKAlgorithm> graph = new AlgorithmInstanceFactory(
                 Thread.currentThread().getContextClassLoader(),
-                OFFLINE_CONTEXT,
-                true
-        ).load(simpleTopKDefinition(), null, ImmutableMap.of());
-
-        assertEquals("loaded", instance.algorithm().value());
+                new AlgorithmInstanceFactory.Options(OFFLINE_CONTEXT.inputSemantic(), true, false, Optional.empty())
+        ).loadGraph(
+                simpleTopKDefinition(),
+                null,
+                AlgorithmDependencies.empty(),
+                OFFLINE_CONTEXT)) {
+            assertEquals("loaded", graph.algorithm().value());
+        }
     }
 
-    private static ContextAwareDependencyAlgorithm loadDependencyAlgorithm(
+    private static AlgorithmGraph<ContextAwareDependencyAlgorithm> loadDependencyAlgorithm(
             ExecutionContext executionContext,
             String transformerFactoryName,
             String vectorizerFactoryName
     ) throws Exception {
-        AlgorithmInstance<ContextAwareDependencyAlgorithm> instance = new AlgorithmInstanceFactory(
+        return new AlgorithmInstanceFactory(
                 Thread.currentThread().getContextClassLoader(),
-                executionContext,
-                true
-        ).load(dependencyAlgorithmDefinition(transformerFactoryName, vectorizerFactoryName), null, ImmutableMap.of());
-        return instance.algorithm();
+                new AlgorithmInstanceFactory.Options(executionContext.inputSemantic(), true, false, Optional.empty())
+        ).loadGraph(
+                dependencyAlgorithmDefinition(transformerFactoryName, vectorizerFactoryName),
+                null,
+                AlgorithmDependencies.empty(),
+                executionContext);
     }
 
     private static AlgorithmDefinition stateDefinition() {
         return new AlgorithmDefinition(
                 JsonNodeFactory.instance.objectNode(),
                 new AlgorithmId("context-aware-state", "1.0.0"),
-                ImmutableMap.of(),
                 ImmutableMap.of(),
                 null,
                 null,
@@ -173,8 +225,7 @@ class ExecutionContextPropagationTest {
         return new AlgorithmDefinition(
                 base.rawAlgorithmDefinition(),
                 new AlgorithmId("storage-aware-state", "1.0.0"),
-                base.dependencyAlgorithmOverrides(),
-                base.dependencies(),
+                base.dependencyDeclarations(),
                 base.generateStateFactoryName(),
                 base.decoderFactoryName(),
                 base.transformerFactoryName(),
@@ -197,7 +248,6 @@ class ExecutionContextPropagationTest {
                 JsonNodeFactory.instance.objectNode(),
                 new AlgorithmId("context-aware-dependency", "1.0.0"),
                 ImmutableMap.of(),
-                ImmutableMap.of(),
                 null,
                 null,
                 transformerFactoryName,
@@ -213,11 +263,30 @@ class ExecutionContextPropagationTest {
         );
     }
 
+    private static AlgorithmDefinition legacyTwoArgumentFactoryDefinition() {
+        return new AlgorithmDefinition(
+                JsonNodeFactory.instance.objectNode(),
+                new AlgorithmId("legacy-two-argument-factory", "1.0.0"),
+                ImmutableMap.of(),
+                null,
+                null,
+                ContextAwareRankingTransformerFactory.class.getName(),
+                null,
+                null,
+                null,
+                LegacyTwoArgumentAlgorithmFactory.class.getName(),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty()
+        );
+    }
+
     private static AlgorithmDefinition topKDefinition() {
         return new AlgorithmDefinition(
                 JsonNodeFactory.instance.objectNode(),
                 new AlgorithmId("context-aware-topk", "1.0.0"),
-                ImmutableMap.of(),
                 ImmutableMap.of(),
                 null,
                 null,
@@ -238,7 +307,6 @@ class ExecutionContextPropagationTest {
         return new AlgorithmDefinition(
                 JsonNodeFactory.instance.objectNode(),
                 new AlgorithmId("simple-topk", "1.0.0"),
-                ImmutableMap.of(),
                 ImmutableMap.of(),
                 null,
                 null,
@@ -309,6 +377,22 @@ class ExecutionContextPropagationTest {
                 Optional<JsonNode> hyperparameter
         ) {
             return new ContextAwareDependencyAlgorithm(dependency.executionContext());
+        }
+    }
+
+    public static final class LegacyTwoArgumentAlgorithmFactory
+            implements NonCompositeAlgorithmFactory<ContextCarrier, ContextAwareDependencyAlgorithm> {
+        @Override
+        public ContextAwareDependencyAlgorithm apply(
+                ContextCarrier dependency,
+                Map<String, InputStream> parameters,
+                Optional<JsonNode> hyperparameter
+        ) {
+            throw new UnsupportedOperationException("Legacy two-argument factories are unsupported");
+        }
+
+        public ContextAwareDependencyAlgorithm apply(Object dependency, Object parameters) {
+            return new ContextAwareDependencyAlgorithm(ONLINE_CONTEXT);
         }
     }
 
@@ -390,20 +474,11 @@ class ExecutionContextPropagationTest {
     public static final class ContextAwareCompositeTransformerFactory
             implements CompositeTransformerFactory<RankingTransformer<String, String>> {
         @Override
-        public RankingTransformer<String, String> apply(
-                Optional<JsonNode> hyperparameters,
-                Map<String, InputStream> parameters,
-                Map<String, AlgorithmInstance<?>> algorithmDependencies
-        ) {
-            throw new AssertionError("Legacy composite transformer overload should not be used");
-        }
-
-        @Override
         public RankingTransformer<String, String> create(
                 ExecutionContext executionContext,
                 Optional<JsonNode> hyperparameters,
                 Map<String, InputStream> parameters,
-                Map<String, AlgorithmInstance<?>> algorithmDependencies
+                AlgorithmDependencies algorithmDependencies
         ) {
             return new ContextAwareRankingTransformer(executionContext);
         }
@@ -450,20 +525,11 @@ class ExecutionContextPropagationTest {
     public static final class ContextAwareCompositeVectorizerFactory
             implements CompositeVectorizerFactory<RankingVectorizer<String, String>> {
         @Override
-        public RankingVectorizer<String, String> apply(
-                Optional<JsonNode> hyperparameters,
-                Map<String, InputStream> parameters,
-                Map<String, AlgorithmInstance<?>> algorithmDependencies
-        ) {
-            throw new AssertionError("Legacy composite vectorizer overload should not be used");
-        }
-
-        @Override
         public RankingVectorizer<String, String> create(
                 ExecutionContext executionContext,
                 Optional<JsonNode> hyperparameters,
                 Map<String, InputStream> parameters,
-                Map<String, AlgorithmInstance<?>> algorithmDependencies
+                AlgorithmDependencies algorithmDependencies
         ) {
             return new ContextAwareRankingVectorizer(executionContext);
         }

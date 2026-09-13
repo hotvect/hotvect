@@ -411,6 +411,16 @@ def _run_sagemaker(
     output_data_dir = tmp_path / "sagemaker" / task / ("ordered" if ordered else "unordered") / "output_data"
     output_dir = tmp_path / "sagemaker" / task / ("ordered" if ordered else "unordered") / "output"
     algorithm_definition_resource = _parity_algorithm_definition_resource()
+    offline_source_manifest = {
+        "schema_version": 1,
+        "source": {
+            "kind": "direct",
+            "algorithm_jar_s3_uri": f"s3://fixture-bucket/{algorithm_jar.name}",
+            "algorithm_definition": json.loads(algorithm_definition_resource.read_text()),
+            "domain_model_jar_s3_uris": [],
+            "parameter_s3_uri": f"s3://fixture-bucket/{parameter_zip.name}",
+        },
+    }
     shutil.copytree(source_dir, input_root / "data" / "source", dirs_exist_ok=True)
     output_data_dir.mkdir(parents=True, exist_ok=True)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -418,9 +428,8 @@ def _run_sagemaker(
     hyperparameters = {
         "hotvect_task": task,
         "hotvect_task_output": json.dumps({"s3_uri": "s3://fixture-bucket/task-output", "compression": "none"}),
-        "s3_uri_algorithm_jar": f"s3://fixture-bucket/{algorithm_jar.name}",
+        "hotvect_offline_source_manifest_s3_uri": "s3://fixture-bucket/offline-source/manifest.json",
         "s3_uri_parameter_zip": f"s3://fixture-bucket/{parameter_zip.name}",
-        "s3_uri_algorithm_definition": f"s3://fixture-bucket/{algorithm_definition_resource.name}",
         "s3_uri_metadata": "s3://fixture-bucket/meta",
         "s3_uri_result_file": "s3://fixture-bucket/result.oneshot.json",
         "hotvect_source_channel": "source",
@@ -444,14 +453,14 @@ def _run_sagemaker(
     monkeypatch.setitem(sys.modules, "sagemaker_training.environment", env_module)
 
     def _copy_fixture_artifact(basename: str, dest_path: Path) -> None:
+        if basename == "manifest.json":
+            dest_path.write_text(json.dumps(offline_source_manifest), encoding="utf-8")
+            return
         if basename == algorithm_jar.name:
             shutil.copyfile(algorithm_jar, dest_path)
             return
         if basename == parameter_zip.name:
             shutil.copyfile(parameter_zip, dest_path)
-            return
-        if basename == algorithm_definition_resource.name:
-            shutil.copyfile(algorithm_definition_resource, dest_path)
             return
         raise AssertionError(f"Unexpected download request for {basename}")
 
@@ -469,17 +478,13 @@ def _run_sagemaker(
             if basename == parameter_zip.name:
                 Fileobj.write(parameter_zip.read_bytes())
                 return
-            if basename == algorithm_definition_resource.name:
-                Fileobj.write(algorithm_definition_resource.read_bytes())
+            if basename == "manifest.json":
+                Fileobj.write(json.dumps(offline_source_manifest).encode("utf-8"))
                 return
             raise AssertionError(f"Unexpected download request for {basename}")
 
     monkeypatch.setattr(st.boto3, "client", lambda *_args, **_kwargs: FakeS3Client())
 
-    def _fake_download(s3_uri: str, dest_path: Path, _client) -> None:
-        _copy_fixture_artifact(Path(s3_uri).name, dest_path)
-
-    monkeypatch.setattr(st, "_download_s3_file", _fake_download)
     monkeypatch.setattr(st, "_upload_directory_to_s3", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(st, "_upload_file_to_s3", lambda *_args, **_kwargs: None)
 

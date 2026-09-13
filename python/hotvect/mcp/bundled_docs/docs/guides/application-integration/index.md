@@ -19,15 +19,16 @@ related_docs:
 A containing application loads a Hotvect algorithm as a Java object and calls its public decision interface. Hotvect
 does not create the application's HTTP endpoint, event consumer, authentication, or traffic policy.
 
-This guide shows the two current loading paths:
+This guide shows the two supported integration paths:
 
 | Path | Use it when | What it adds |
 | --- | --- | --- |
-| `AlgorithmInstanceFactory` | The application already has a local JAR and optional parameter ZIP | Definition loading, child resolution, parameter streams, object construction |
-| `AlgorithmRepository` | The application selects versioned JAR and parameter metadata from artifact storage | Download, factory reuse, live-instance reuse, and cleanup registration |
+| `AlgorithmInstanceFactory` | The application already has a local JAR and optional parameter ZIP | Definition loading, child resolution, parameter streams, and an explicitly owned graph |
+| `HotvectServingRuntime` | EMS selects versioned artifacts and variants | Atomic refresh, graph reuse, assignment, invocation, and deterministic cleanup |
 
-Both paths ultimately create an `AlgorithmInstance`. The example calls a `Ranker`; use the same pattern with the
-public shape declared by your algorithm.
+The direct path exposes an explicitly owned graph. The EMS path keeps graph ownership internal and exposes only
+synchronous invocation. The examples call a `Ranker`; use the same pattern with the public shape declared by your
+algorithm.
 
 ## Before you load anything
 
@@ -92,89 +93,109 @@ Add the application's chosen SLF4J implementation as its logging backend. Keep `
 algorithm project normally declares it with `provided` scope and packages its own implementation modules and selected
 backends. See [Algorithm JAR loading](../../concepts/jar-loading/index.md) for the complete dependency boundary.
 
-## Path 1: load local artifacts directly
+## Load local artifacts directly
 
-Use `AlgorithmInstanceFactory` when artifact selection and download happen elsewhere. Create the instance once, reuse
-it for decisions, and close it with the containing component:
+Use `AlgorithmInstanceFactory` when artifact selection and download happen elsewhere. Create one graph, reuse it for
+decisions, and close both the graph and its file-owning factory with the containing component:
 
 ```java
 package org.example.application;
 
-import com.hotvect.api.algodefinition.AlgorithmInstance;
 import com.hotvect.api.algorithms.Ranker;
+import com.hotvect.api.algodefinition.AlgorithmDependencies;
+import com.hotvect.api.algodefinition.AlgorithmInstance;
 import com.hotvect.api.data.AvailableAction;
 import com.hotvect.api.data.ranking.RankingRequest;
 import com.hotvect.api.data.ranking.RankingResponse;
 import com.hotvect.api.execution.ExecutionContext;
 import com.hotvect.api.execution.InputSemantic;
 import com.hotvect.onlineutils.hotdeploy.AlgorithmInstanceFactory;
+import com.hotvect.onlineutils.hotdeploy.AlgorithmGraph;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import org.example.contract.Document;
 import org.example.contract.QueryContext;
 
 public final class DocumentRankingComponent implements AutoCloseable {
-    private final AlgorithmInstance<Ranker<QueryContext, Document>> instance;
+    private final AlgorithmInstanceFactory factory;
+    private final AlgorithmGraph<Ranker<QueryContext, Document>> graph;
 
     public DocumentRankingComponent(Path algorithmJar, Path parameterZip) {
-        var factory = new AlgorithmInstanceFactory(
+        this.factory = new AlgorithmInstanceFactory(
                 algorithmJar.toFile(),
                 DocumentRankingComponent.class.getClassLoader(),
-                ExecutionContext.realtime(InputSemantic.ONLINE),
-                true);
+                new AlgorithmInstanceFactory.Options(
+                        ExecutionContext.realtime(InputSemantic.ONLINE),
+                        true,
+                        false,
+                        Optional.empty()));
 
-        this.instance = factory.load(
-                "example-document-ranker",
+        var definition = factory.readAlgorithmDefinition("example-document-ranker");
+        this.graph = factory.loadGraph(
+                definition,
                 parameterZip.toFile(),
-                Map.of());
+                AlgorithmDependencies.empty());
     }
 
     public RankingResponse<Document> rank(
             String requestId,
             QueryContext context,
-            List<AvailableAction<Document>> candidates) {
+        List<AvailableAction<Document>> candidates) {
         var request = RankingRequest.ofAvailableActions(requestId, context, candidates);
-        return instance.algorithm().rank(request);
+        return graph.algorithm().rank(request);
     }
 
     @Override
     public void close() throws Exception {
-        instance.close();
+        try {
+            graph.close();
+        } finally {
+            factory.close();
+        }
     }
 }
 ```
 
 The constructor arguments have specific meanings:
 
-- `ExecutionContext.realtime(InputSemantic.ONLINE)` tells factories that this is a latency-sensitive call over online
+- The options' `ExecutionContext.realtime(InputSemantic.ONLINE)` tells factories that this is a latency-sensitive call over online
   input. It does not make an implementation thread-safe or impose a timeout.
-- `true` enables strict algorithm-version checking between the embedded definition and parameter metadata.
-- `Map.of()` means there are no application-provided dependency bindings. A composite host passes bindings by the
-  dependency names in its definition.
+- `strictAlgorithmVersionCheck = true` checks the embedded definition against parameter metadata.
+- `enableFeatureLogging = false` leaves feature logging disabled, and `Optional.empty()` supplies no local-state root.
+- `AlgorithmDependencies.empty()` means there are no application-provided dependency bindings. A composite host passes
+  bindings by the dependency names in its definition. EMS slot bindings are runtime infrastructure and are not a public
+  argument of direct loading.
 
-For a genuinely parameterless algorithm, the direct `load` method accepts `null` instead of a parameter file. Do this
+For a genuinely parameterless algorithm, the direct `loadGraph` method accepts `null` instead of a parameter file. Do this
 only when the selected factories do not require parameter streams:
 
 ```java
-this.instance = factory.load("example-document-ranker", null, Map.of());
+this.graph = factory.loadGraph(
+        factory.readAlgorithmDefinition("example-document-ranker"),
+        null,
+        AlgorithmDependencies.empty());
 ```
 
-### Supply runtime-local storage when required
+### Set an application state root
 
-If the definition declares `requires_local_state_storage: true`, use the constructor that supplies a local-state root:
+Hotvect always supplies a lazy `LocalStateStorage` allocator. Set an explicit root when application operations require
+it to be on a particular volume:
 
 ```java
 var factory = new AlgorithmInstanceFactory(
         algorithmJar.toFile(),
         DocumentRankingComponent.class.getClassLoader(),
-        ExecutionContext.realtime(InputSemantic.ONLINE),
-        true,
-        java.util.Optional.of(localStateRoot));
+        new AlgorithmInstanceFactory.Options(
+                ExecutionContext.realtime(InputSemantic.ONLINE),
+                true,
+                false,
+                Optional.of(localStateRoot)));
 ```
 
-This makes a storage allocator available to constructed factories. A factory should allocate only when it needs
-runtime-local files and must reject `Optional.empty()` when its definition says the capability is required.
+Factories should allocate a directory only when they need runtime-local files. Omitting the explicit root uses the
+system temporary directory's `algorithm-state` directory.
 
 The code calls `rank` directly. The containing application is responsible for translating its transport input into
 `QueryContext` and `AvailableAction<Document>` values, then translating `RankingResponse` into its own output.
@@ -182,184 +203,113 @@ Offline example decoders are not part of this request path.
 
 ### Direct-path lifecycle
 
-Do not load a new JAR and construct a new algorithm for every request. Keep the `AlgorithmInstance` for the intended
-application lifetime or rollout lifetime, subject to the algorithm backend's concurrency contract. Closing the
-instance calls `close()` on its contained outer algorithm. Child and application-provided resource ownership must be
-defined by the composite implementation and host; closing the outer instance does not generically traverse every
-dependency.
+Do not load a new JAR and construct a new graph for every request. Keep the `AlgorithmGraph` for the intended
+application lifetime or rollout lifetime, subject to the algorithm backend's concurrency contract. Closing the graph
+closes constructed nodes from dependent to dependency, and then releases its artifact classloader lease.
+Factories must return newly owned algorithm instances, not a dependency instance. To forward to a dependency,
+return a new wrapper that delegates invocation but does not close the dependency. The graph owns dependency cleanup;
+application-provided bindings are borrowed and never closed by the graph.
 
-## Path 2: resolve versioned artifacts with `AlgorithmRepository`
+## Invoke through EMS
 
-`AlgorithmRepository` is useful when the application receives immutable algorithm metadata and needs to download and
-reuse the corresponding artifacts. The repository retains factories by algorithm ID and keeps weak references to
-instances by algorithm ID plus parameter ID.
+Use `HotvectServingRuntime` when the application needs EMS-backed variant assignment and algorithm loading. Direct
+loading does not require EMS. The runtime reads a separately deployed EMS server; it does not
+publish artifacts, create variants, mutate experiments, or define the application's public routing.
 
-The online utility module includes an S3 download client. Inject an application-managed `S3AsyncClient`, keep it alive
-for as long as the repository may load new artifacts, and provide a writable scratch directory:
+This section shows the smallest API path. Use
+[Connect an online runtime to EMS](../connect-online-runtime-to-ems/index.md) for dependency placement, application-owned
+bindings, startup readiness, refresh health, verification, and shutdown.
+
+Build one lifecycle-owned runtime for the application's deployment-approved, globally named EMS slots.
 
 ```java
-package org.example.application;
-
-import com.hotvect.api.algodefinition.AlgorithmInstance;
+import com.google.common.reflect.TypeToken;
 import com.hotvect.api.algorithms.Ranker;
-import com.hotvect.onlineutils.experimentmanagement.algodownload.AlgorithmDownloader;
-import com.hotvect.onlineutils.experimentmanagement.algodownload.AlgorithmRepository;
-import com.hotvect.onlineutils.experimentmanagement.algodownload.S3AlgorithmDownloadClient;
-import com.hotvect.onlineutils.experimentmanagement.models.AlgorithmMetadata;
-import java.nio.file.Path;
-import org.example.contract.Document;
-import org.example.contract.QueryContext;
-import software.amazon.awssdk.services.s3.S3AsyncClient;
-
-public final class VersionedAlgorithms {
-    private final AlgorithmRepository repository;
-
-    public VersionedAlgorithms(
-            S3AsyncClient s3Client,
-            Path scratchDirectory,
-            Path localStateRoot) {
-        var downloads = new S3AlgorithmDownloadClient(s3Client);
-        var downloader = new AlgorithmDownloader(
-                downloads,
-                scratchDirectory,
-                java.util.Optional.of(localStateRoot),
-                VersionedAlgorithms.class.getClassLoader(),
-                true);
-        this.repository = new AlgorithmRepository(downloader);
-    }
-
-    @SuppressWarnings("unchecked")
-    public AlgorithmInstance<Ranker<QueryContext, Document>> loadDocumentRanker(
-            AlgorithmMetadata metadata) {
-        return (AlgorithmInstance<Ranker<QueryContext, Document>>)
-                repository.getAlgorithmInstance(metadata);
-    }
-}
-```
-
-The selection layer supplies exact artifact metadata:
-
-```java
-var metadata = new AlgorithmMetadata(
-        "example-document-ranker",
-        "1.0.0",
-        "parameters-001",
-        "s3://example-bucket-artifacts/algorithms/example-document-ranker-1.0.0.jar",
-        "s3://example-bucket-artifacts/parameters/example-document-ranker-parameters-001.zip");
-
-AlgorithmInstance<Ranker<QueryContext, Document>> loaded =
-        algorithms.loadDocumentRanker(metadata);
-Ranker<QueryContext, Document> ranker = loaded.algorithm();
-```
-
-The URIs above are illustrative. For another artifact store, implement the two methods on `AlgorithmDownloadClient`
-instead of using `S3AlgorithmDownloadClient`.
-
-Keep `scratchDirectory` and `localStateRoot` conceptually separate. Scratch holds transient artifact downloads for
-ordinary algorithms. For a definition requiring local state, the repository stages its parameter download under the
-local-state root and passes a private state allocator to its factory. If that definition is selected without a
-configured local-state root, repository loading fails before construction rather than silently using scratch storage.
-The factory or constructed algorithm owns each allocated private state directory and must delete it on failure or
-close; the repository owns cleanup timing for live algorithm instances.
-
-The unchecked cast is where application-owned selection metadata meets the Java generic contract. Hotvect validates
-the algorithm and parameter identities, but erased generic arguments cannot prove that a selected artifact uses the
-application's expected `QueryContext` and `Document` types. Treat the algorithm name and version as part of that typed
-integration contract and test the exact artifact in the containing application.
-
-### Repository lifecycle and identity
-
-Create one repository per application and share it across request threads. Keep a strong reference to the returned
-`AlgorithmInstance` while its algorithm is in use; retaining only `instance.algorithm()` does not keep the wrapper
-alive for repository cleanup. Do not close a repository-returned instance per request: the repository may return that
-live instance again. When the wrapper becomes unreachable, repository cleanup closes its outer algorithm.
-
-The current repository path requires a nonempty parameter ID and downloads a parameter ZIP. Use the direct path for an
-algorithm that truly has no parameter artifact. Treat algorithm IDs and parameter IDs as immutable: publishing
-different bytes under an existing ID can leave a cached factory or instance serving the earlier artifact.
-
-`S3AlgorithmDownloadClient` does not close an `S3AsyncClient` supplied to its constructor. The application that created
-that client closes it during application shutdown.
-
-## Optional path 3: select a runtime through EMS
-
-Use the Experiment Management Service (EMS) client only when the application needs slot-based variant assignment.
-Direct loading and `AlgorithmRepository` do not require EMS. The current Java integration reads an external EMS; it
-does not publish artifacts, create variants, or mutate experiments.
-
-Build the repository as above, then create one client and manager for the application's configured slots:
-
-```java
-import com.hotvect.onlineutils.experimentmanagement.experimentation.DefaultExperimentationManager;
-import com.hotvect.onlineutils.experimentmanagement.httpclient.ExperimentManagementServiceClient;
-import com.hotvect.onlineutils.experimentmanagement.models.VariantConfiguration;
+import com.hotvect.api.data.ranking.RankingResponse;
+import com.hotvect.onlineutils.serving.AlgorithmExecution;
+import com.hotvect.onlineutils.serving.AlgorithmSelection;
+import com.hotvect.onlineutils.serving.HotvectServingRuntime;
+import com.hotvect.onlineutils.serving.ServingSlot;
 import java.net.URI;
 import java.time.Duration;
 import java.util.Set;
 
-var emsClient = new ExperimentManagementServiceClient(
-        URI.create("https://experiments.example.com"),
-        Duration.ofSeconds(2),
-        Duration.ofSeconds(5),
-        () -> System.getenv("EMS_TOKEN"));
-
-var experimentation = new DefaultExperimentationManager(
-        repository,
-        Duration.ofSeconds(30),
-        emsClient,
-        Set.of("example-slot"));
-
-experimentation.startAsync().awaitRunning();
+var runtime = HotvectServingRuntime.builder()
+        .ems(URI.create("https://experiments.example.com"))
+        .slot(ServingSlot.builder(
+                        "catalog",
+                        new TypeToken<Ranker<CatalogShared, Article>>() {})
+                .touchpoints(Set.of("catalog"))
+                .build())
+        .slot(ServingSlot.builder(
+                        "pdp",
+                        new TypeToken<Ranker<PdpShared, Article>>() {})
+                .touchpoints(Set.of("pdp"))
+                .build())
+        .refreshPeriod(Duration.ofSeconds(30))
+        .tokenSupplier(() -> System.getenv("EMS_TOKEN"))
+        .build();
 ```
 
-Startup performs the first read and resolves all algorithm packages referenced by the current snapshot before the
-manager reaches `RUNNING`. For each application request, supply the stable domain identifier chosen by the containing
-application as the assignment key:
+`build()` performs the initial slot reads and resolves all referenced algorithm packages. Invoke a configured
+application touchpoint directly:
 
 ```java
-VariantConfiguration selected =
-        experimentation.assignVariant("example-slot", assignmentKey);
+AlgorithmExecution<RankingResponse<Article>> execution = runtime.invoke(
+        "catalog",
+        assignmentKey,
+        request);
 
-int variantId = selected.variant().variantId();
-AlgorithmInstance<?> instance = selected.algorithmInstance();
+RankingResponse<Article> response = execution.result();
+AlgorithmSelection selection = execution.selection();
 ```
 
-The assignment uses the latest immutable in-memory snapshot; EMS and artifact storage are not called in this request
-path. Background refresh replaces a slot's snapshot after it has read and resolved the complete new state. Keep a
-strong reference to the selected `AlgorithmInstance` for as long as its algorithm is in use.
+`invoke(...)` overloads on `RankingRequest` and `TopKRequest`. The `TopKRequest` overload serves both `TopK` and
+`ThemedTopK` slots through their common `TopKResponse` type. Because a `TopKRequest` does not contain the output action
+type, assign its `AlgorithmExecution<TopKResponse<ACTION>>` result to the intended action type explicitly.
+Call `invokeThemedTopK(...)` when the touchpoint is known to serve `ThemedTopK` and the caller needs a statically typed
+`ThemedTopKResponse`; it rejects a plain `TopK` slot. Callers using the general overload can instead pattern-match the
+returned `TopKResponse`.
 
-On application shutdown, stop the manager first, then close `ExperimentManagementServiceClient`, the download client,
-and the application-owned `S3AsyncClient`. The manager owns its per-slot refreshers, but it does not own those clients.
-Choose and document application behavior for initial-read and refresh failures; Hotvect does not define the host's
-traffic fallback policy.
+Assignment uses the latest immutable in-memory slot snapshots, so EMS and artifact storage are not called in this
+request path. The runtime owns selection, invocation, and graph lifetime. The application owns typed decoding,
+response mapping, and logging. Close the runtime during application shutdown.
 
 ## Bind application-owned dependencies
 
-Both loaders can pass named `AlgorithmInstance` values to a composite factory. In the direct path they are the third
-argument to `load`; in the repository path they are supplied to an `AlgorithmRepository` constructor.
+Both integration paths can pass named application-owned values to a composite factory. In the direct path they are the
+third argument to `loadGraph`; in the EMS path register the implementation with `HotvectServingRuntime.Builder.dependency`.
 
 A binding can wrap an application service client behind the algorithm interface expected by the parent. The
-application still owns its network protocol, credentials, latency controls, failure behavior, and shutdown. Current
-loading constructs the declared child before overlaying a binding with the same name, so a binding should not be
-described as avoiding declared-child loading. Read [Dependencies and bindings](../../concepts/dependencies-and-bindings/index.md)
-before using this path.
+application still owns its network protocol, credentials, latency controls, failure behavior, and shutdown. A matching
+host binding satisfies the declared edge directly, so the bound child artifact is not constructed. Read
+[Dependencies and bindings](../../concepts/dependencies-and-bindings/index.md) before using this path.
+
+Bindings registered on `HotvectServingRuntime.Builder` are available to every configured root and canonical shared
+dependency. Each resolved graph uses only matching declared names, so one global registration may be irrelevant to
+some roots without causing validation failure.
 
 Wrap an application-owned implementation with a synthetic identity, then bind it under the exact dependency name:
 
 ```java
 ExternalCandidateScorer client = new ExternalCandidateScorer(httpClient);
 AlgorithmInstance<ExternalCandidateScorer> binding =
-        AlgorithmInstance.externalAlgorithm("candidate-scorer", client);
+        AlgorithmInstance.externalAlgorithm(
+                "candidate-scorer",
+                ExternalCandidateScorer.class,
+                client);
 
-AlgorithmInstance<?> parent = factory.load(
-        "example-document-ranker",
+try (AlgorithmGraph<?> parent = factory.loadGraph(
+        factory.readAlgorithmDefinition("example-document-ranker"),
         parameterZip.toFile(),
-        Map.of("candidate-scorer", binding));
+        new AlgorithmDependencies(Map.of("candidate-scorer", binding)))) {
+    // Use parent.algorithm() while the graph remains open.
+}
 ```
 
 Here `ExternalCandidateScorer` is application code that implements the algorithm interface the parent expects. Its
-transport and lifecycle remain application-owned. The parent definition must still declare `candidate-scorer`; current
-loading constructs that declared child before replacing the value passed to the parent factory.
+transport and lifecycle remain application-owned. The parent definition must still declare `candidate-scorer`.
+It does not need to package a `candidate-scorer` algorithm definition when the application supplies that binding.
 
 ## Establish the trust boundary
 
@@ -382,7 +332,6 @@ and host-provided dependencies intended for the rollout. Verify:
 4. concurrency and resource behavior under the application's execution model;
 5. parity against a bounded offline input where that claim matters.
 
-Use [`hv serve`](../local-algorithm-debugging/index.md) to inspect an artifact locally, but keep that check separate
-from the application integration test: local artifact mode uses a batch/offline execution context and the offline
-decoder, while EMS mode uses the online repository context. Neither current server mode configures runtime-local state
-storage.
+Use [`hv algorithm serve`](../local-algorithm-debugging/index.md) to inspect an artifact locally, but keep that check separate
+from the application integration test: the debugger uses a batch/offline execution context and the offline decoder.
+The project-specific serving application uses the online repository context.

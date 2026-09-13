@@ -1,3 +1,4 @@
+import copy
 import json
 from types import SimpleNamespace
 from unittest.mock import MagicMock
@@ -5,6 +6,7 @@ from unittest.mock import MagicMock
 import pytest
 from botocore.exceptions import ClientError
 
+from hotvect.offline_source_manifest import OFFLINE_SOURCE_MANIFEST_HYPERPARAMETER
 from hotvect.sagemaker import (
     ALGO_DEF_S3_URI_HYPERPARAMETER,
     ALGORITHM_DEFINITION_S3_URI_HYPERPARAMETER,
@@ -12,120 +14,163 @@ from hotvect.sagemaker import (
     HOTVECT_SUBMISSION_OPTIONS_KEY,
     SAGEMAKER_TAR_INCLUDE_METADATA_ENV_VARIABLE,
     SAGEMAKER_TAR_INCLUDE_OUTPUT_ENV_VARIABLE,
+    OneShotSagemakerExecutor,
     SagemakerAlgorithmPipelineRebuilder,
     SagemakerTrainingExecutor,
-    _parse_key,
-    _ParsedKey,
-    flatten_dict,
-    unflatten_dict,
 )
-
-
-def _try_to_parse_as_json(value):
-    """Imitates the process done on SageMaker when the hyperparameters are read.
-
-    Useful to test that the operations are inverses after the transformations of SageMaker.
-    """
-    try:
-        return json.loads(value)
-    except (ValueError, TypeError):
-        return value
+from hotvect.sagemaker_contracts import HOTVECT_INSTANCE_TYPE_HYPERPARAMETER, OneShotSagemakerHyperparameters
 
 
 def test_algorithm_definition_s3_uri_hyperparameter_backcompat_alias():
     assert ALGORITHM_DEFINITION_S3_URI_HYPERPARAMETER == ALGO_DEF_S3_URI_HYPERPARAMETER
 
 
-def test_flatten_dict():
-    input_dict = {
-        "key_1": "value_1",
-        "key_2": {
-            "sub_key_1": "sub_value_1",
-            "sub_key_2": ["sub_value_list_1", "sub_value_list_2", "sub_value_list_3"],
-            "sub_key_3": [1, 2, 3],
-        },
+def _one_shot_executor(create_training_job, *, instance_type_fallbacks, include_benchmark_provenance=True):
+    executor = OneShotSagemakerExecutor.__new__(OneShotSagemakerExecutor)
+    hyperparameters = {
+        "hotvect_task": "performance-test",
+        "hotvect_task_output": json.dumps({"s3_uri": "s3://bucket/task-output", "compression": "none"}),
+        "s3_uri_metadata": "s3://bucket/job/performance-test/metadata",
+        "s3_uri_result_file": "s3://bucket/job/performance-test/result.json",
+        OFFLINE_SOURCE_MANIFEST_HYPERPARAMETER: "s3://bucket/job/performance-test/offline-source/manifest.json",
     }
-    expected_dict = {
-        "prefix_key_1": '"value_1"',
-        "prefix_key_2.sub_key_1": '"sub_value_1"',
-        "prefix_key_2.sub_key_2[0]": '"sub_value_list_1"',
-        "prefix_key_2.sub_key_2[1]": '"sub_value_list_2"',
-        "prefix_key_2.sub_key_2[2]": '"sub_value_list_3"',
-        "prefix_key_2.sub_key_3[0]": "1",
-        "prefix_key_2.sub_key_3[1]": "2",
-        "prefix_key_2.sub_key_3[2]": "3",
+    if include_benchmark_provenance:
+        hyperparameters[HOTVECT_INSTANCE_TYPE_HYPERPARAMETER] = "ml.m5.12xlarge"
+    executor.training_job_definition = {
+        "TrainingJobName": "job-name",
+        "ResourceConfig": {"InstanceType": "ml.m5.12xlarge"},
+        "HyperParameters": hyperparameters,
     }
-    assert flatten_dict(input_dict, prefix="prefix_") == expected_dict
+    executor._instance_type_fallbacks = instance_type_fallbacks
+    executor._s3_client = SimpleNamespace()
+    executor._sagemaker_client = SimpleNamespace(create_training_job=create_training_job)
+    return executor
 
 
-def test_unflatten_dict():
-    input_dict = {
-        "string_key": "value_1",
-        "nested_object.sub_key_1": "sub_value_1",
-        "nested_object.sub_key_2": "sub_value_2",
-        "simple_array[1]": "second_element",
-        "simple_array[0]": "first_element",
-        "complex_array[1].sub_key_1": "second_element_sub_value_1",
-        "complex_array[1].sub_key_2": "second_element_sub_value_2",
-        "complex_array[0].sub_key_1": "first_element_sub_value_1",
-        "complex_array[0].sub_key_2": "first_element_sub_value_2",
-        "very_nested_array.sub_key_1.sub_key_2.sub_key_3": "very_nested_value",
-        "nested_array[0][0]": "nested_array_value",
-    }
-    expected = {
-        "string_key": "value_1",
-        "nested_object": {"sub_key_1": "sub_value_1", "sub_key_2": "sub_value_2"},
-        "simple_array": ["first_element", "second_element"],
-        "complex_array": [
-            {"sub_key_1": "first_element_sub_value_1", "sub_key_2": "first_element_sub_value_2"},
-            {"sub_key_1": "second_element_sub_value_1", "sub_key_2": "second_element_sub_value_2"},
-        ],
-        "very_nested_array": {"sub_key_1": {"sub_key_2": {"sub_key_3": "very_nested_value"}}},
-        "nested_array": [["nested_array_value"]],
-    }
-    assert unflatten_dict(input_dict, prefix="") == expected
+def _capture_effective_training_job_definition_uploads(monkeypatch, events=None):
+    uploads = []
+
+    def _capture(payload, s3_target_uri, s3_client, **kwargs):
+        uploads.append((copy.deepcopy(payload), s3_target_uri, s3_client, kwargs))
+        if events is not None:
+            events.append(("upload", payload["ResourceConfig"]["InstanceType"]))
+
+    monkeypatch.setattr("hotvect.sagemaker._upload_json_to_s3", _capture)
+    return uploads
 
 
-def test_flatten_and_unflatten_should_be_inverses():
-    dictionary = {
-        "simple_key": "simple_value",
-        "object_key": {
-            "inner_key_1": "inner_value_1",
-            "inner_key_2": "inner_value_2",
-        },
-        "nested_object": {
-            "inner_object": {
-                "key_1": "value_1",
-                "key_2": "value_2",
-            }
-        },
-        "simple_list": ["1", "2", "3"],
-        "simple_list_of_numbers": [1, 2, 3],
-        "list_of_lists": [["sublist_1", "sublist_2"], ["sublist_3", "sublist_4"]],
-        "list_of_objects": [
-            {"list_object_1": "list_object_value_1"},
-            {"list_object_2": "list_object_value_2"},
-        ],
-    }
-    flattened = flatten_dict(dictionary, prefix="")
-    flattened_parsed_as_sagemaker = {k: _try_to_parse_as_json(v) for k, v in flattened.items()}
-    assert unflatten_dict(flattened_parsed_as_sagemaker, prefix="") == dictionary
+def test_one_shot_sagemaker_executor_retries_with_effective_definition_and_benchmark_provenance(monkeypatch):
+    events = []
+    uploads = _capture_effective_training_job_definition_uploads(monkeypatch, events)
+    submissions = []
+
+    def _create_training_job(**job_definition):
+        submissions.append(copy.deepcopy(job_definition))
+        events.append(("submit", job_definition["ResourceConfig"]["InstanceType"]))
+        if len(submissions) == 1:
+            raise ClientError(
+                {"Error": {"Code": "ResourceLimitExceeded", "Message": "quota full"}}, "CreateTrainingJob"
+            )
+        return {"TrainingJobArn": "arn:aws:sagemaker:eu-central-1:123:training-job/job-name"}
+
+    executor = _one_shot_executor(_create_training_job, instance_type_fallbacks=["ml.r7i.8xlarge"])
+
+    result = executor.run()
+
+    assert result["TrainingJobArn"].endswith("/job-name")
+    assert [submission["ResourceConfig"]["InstanceType"] for submission in submissions] == [
+        "ml.m5.12xlarge",
+        "ml.r7i.8xlarge",
+    ]
+    assert [submission["HyperParameters"][HOTVECT_INSTANCE_TYPE_HYPERPARAMETER] for submission in submissions] == [
+        "ml.m5.12xlarge",
+        "ml.r7i.8xlarge",
+    ]
+    assert [upload[1] for upload in uploads] == [
+        "s3://bucket/job/performance-test/metadata/effective_training_job_definition.json",
+        "s3://bucket/job/performance-test/metadata/effective_training_job_definition.json",
+    ]
+    assert [upload[0]["ResourceConfig"]["InstanceType"] for upload in uploads] == [
+        "ml.m5.12xlarge",
+        "ml.r7i.8xlarge",
+    ]
+    assert events == [
+        ("upload", "ml.m5.12xlarge"),
+        ("submit", "ml.m5.12xlarge"),
+        ("upload", "ml.r7i.8xlarge"),
+        ("submit", "ml.r7i.8xlarge"),
+    ]
+    assert all(upload[2] is executor._s3_client for upload in uploads)
+    assert all(upload[3] == {"fail_fast": True, "default": str} for upload in uploads)
+    assert executor.training_job_definition["ResourceConfig"]["InstanceType"] == "ml.r7i.8xlarge"
+    assert executor.hyperparameters[HOTVECT_INSTANCE_TYPE_HYPERPARAMETER] == "ml.r7i.8xlarge"
+
+    from hotvect.sagemaker_tasks import _build_one_shot_benchmark_contract
+
+    request_hp = OneShotSagemakerHyperparameters.from_hyperparameters(executor.hyperparameters)
+    benchmark_contract = _build_one_shot_benchmark_contract(
+        request_hp=request_hp,
+        task_metadata={},
+        s3_uri_metadata=executor.hyperparameters["s3_uri_metadata"],
+        s3_uri_result_file=executor.hyperparameters["s3_uri_result_file"],
+        task_output_s3_uri="s3://bucket/task-output",
+    )
+    assert benchmark_contract["instance_type"] == "ml.r7i.8xlarge"
 
 
-@pytest.mark.parametrize(
-    "input_key,expected",
-    [
-        ("[0][0]", _ParsedKey("0", "[0]", "list")),
-        ("key[0]", _ParsedKey("key", "[0]", "list")),
-        ("key[0].sub_key", _ParsedKey("key", "[0].sub_key", "list")),
-        ("key", _ParsedKey("key", "", "string")),
-        ("key.sub_key", _ParsedKey("key", "sub_key", "object")),
-        ("[0]", _ParsedKey("0", "", "string")),
-        ("[0].sub_key", _ParsedKey("0", "sub_key", "object")),
-    ],
-)
-def test_parse_key(input_key, expected):
-    assert _parse_key(input_key, object_separator_char=".") == expected
+def test_one_shot_sagemaker_executor_preserves_final_capacity_error(monkeypatch):
+    uploads = _capture_effective_training_job_definition_uploads(monkeypatch)
+    submissions = []
+    errors = [
+        ClientError({"Error": {"Code": "ResourceLimitExceeded", "Message": instance_type}}, "CreateTrainingJob")
+        for instance_type in ["ml.m5.12xlarge", "ml.r7i.8xlarge", "ml.c7i.8xlarge"]
+    ]
+
+    def _create_training_job(**job_definition):
+        submissions.append(copy.deepcopy(job_definition))
+        raise errors[len(submissions) - 1]
+
+    executor = _one_shot_executor(
+        _create_training_job,
+        instance_type_fallbacks=["ml.r7i.8xlarge", "ml.c7i.8xlarge"],
+    )
+
+    with pytest.raises(ClientError) as raised:
+        executor.run()
+
+    assert raised.value is errors[-1]
+    assert [submission["ResourceConfig"]["InstanceType"] for submission in submissions] == [
+        "ml.m5.12xlarge",
+        "ml.r7i.8xlarge",
+        "ml.c7i.8xlarge",
+    ]
+    assert len(uploads) == 3
+
+
+def test_one_shot_sagemaker_executor_does_not_retry_non_capacity_errors(monkeypatch):
+    uploads = _capture_effective_training_job_definition_uploads(monkeypatch)
+    submissions = []
+    validation_error = ClientError(
+        {"Error": {"Code": "ValidationException", "Message": "bad request"}}, "CreateTrainingJob"
+    )
+
+    def _create_training_job(**job_definition):
+        submissions.append(copy.deepcopy(job_definition))
+        raise validation_error
+
+    executor = _one_shot_executor(
+        _create_training_job,
+        instance_type_fallbacks=["ml.r7i.8xlarge"],
+        include_benchmark_provenance=False,
+    )
+
+    with pytest.raises(ClientError) as raised:
+        executor.run()
+
+    assert raised.value is validation_error
+    assert [submission["ResourceConfig"]["InstanceType"] for submission in submissions] == ["ml.m5.12xlarge"]
+    assert HOTVECT_INSTANCE_TYPE_HYPERPARAMETER not in executor.hyperparameters
+    assert len(uploads) == 1
 
 
 def test_sagemaker_training_executor_retries_with_fallback_instance_types(monkeypatch):

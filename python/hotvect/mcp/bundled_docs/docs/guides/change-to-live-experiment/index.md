@@ -1,13 +1,13 @@
 ---
 title: Take a change to a live experiment
-description: Follow one decision-system change from definition or override through training, backtesting, EMS inspection, local serving, and online results
+description: Follow one algorithm change from definition or override through training, backtesting, EMS inspection, local serving, and online results
 tags: [workflow, train, backtest, experimentation, ems, serving]
 ---
 
 # Take a change to a live experiment
 
 This guide follows one candidate continuously from a source change to an Experiment Management Service (EMS)-selected
-runtime and its online results. EMS is the external control plane that maps a slot and assignment key to a variant
+runtime and its online results. EMS is the separately deployed control plane that maps a slot and assignment key to a variant
 referencing exact algorithm and parameter packages.
 The goal is not merely to run every command. It is to preserve enough identity and evidence to answer:
 
@@ -17,8 +17,9 @@ The goal is not merely to run every command. It is to preserve enough identity a
 - which runtime handled a local or online decision;
 - which online result belongs to that variant.
 
-Hotvect supplies the local workflow, package contracts, EMS client integration, and read-only inspection CLI. Artifact
-publication and EMS mutation are external control-plane operations today. Those boundaries are marked explicitly below.
+Hotvect supplies the local workflow, package contracts, EMS client integration, and read-only inspection CLI. The
+standalone EMS service supplies the server; artifact publication and EMS mutations remain authorized remote operations.
+Those boundaries are marked explicitly below.
 
 ## The continuous path
 
@@ -104,7 +105,7 @@ Do not use a moving branch name for the final evidence. Record the commit SHA.
 Train from the release-candidate package, not from an earlier exploratory JAR:
 
 ```bash
-hv train \
+hv algorithm train \
   --algorithm-name "$ALGORITHM_NAME" \
   --algorithm-jar "$ALGORITHM_JAR" \
   --data-base-dir "$DATA_DIR" \
@@ -133,7 +134,7 @@ output as its replacement.
 Run both commits against the same data, test date, and evaluation contract:
 
 ```bash
-hv backtest \
+hv algorithm backtest \
   --git-reference "$BASELINE_REF" \
   --git-reference "$CANDIDATE_REF" \
   --algo-repo-url "$ALGORITHM_REPO" \
@@ -158,6 +159,11 @@ find "$BACKTEST_OUTPUT/meta" -name result.json -print
 Confirm that the results identify the expected algorithm versions, input date, dependency packages, predictions, and
 evaluation outputs. A successful command is evidence of workflow completion, not proof that the candidate is good
 enough to release.
+
+When the change needs an automated, objective-driven control-versus-treatment release decision, complete
+[Release QA validation with hv-qa](../hv-qa-release-validation/index.md) here, before artifact publication or any
+EMS mutation. That guide adds paired multi-day quality, optional parity, and controlled system-performance gates;
+this guide resumes at the external release boundary after the evidence is accepted.
 
 ## 4. Identify the two packages
 
@@ -191,32 +197,32 @@ The algorithm ID and parameter ID are the join keys used later by EMS metadata, 
     remote mutation, is organization-specific, and has no generic Hotvect command. Record the immutable artifact URIs
     and any integrity metadata produced by that pipeline. Do not substitute a local path in an EMS variant.
 
-!!! danger "External mutation 2 — register and start the experiment"
+!!! danger "Authorized mutation 2 — register and start the experiment"
 
-    In the external EMS control plane, register the algorithm and parameter records, create or update a variant that
+    In the deployed EMS control plane, register the algorithm and parameter records, create or update a variant that
     references their exact identities, attach it to the intended slot and experiment, and apply the approved ramp-up.
-    Use the authorized EMS UI, API, or automation for your environment. `hv-exp` cannot do this: it is intentionally
+    Use the authorized EMS UI, API, or automation for your environment. `hv exp` cannot do this: it is intentionally
     read-only. Starting or ramping an experiment changes live assignment and requires the normal operational approval.
 
 ## 5. Read back what EMS will serve
 
-Do not rely on the mutation request alone. Read the external control-plane state back through `hv-exp`:
+Do not rely on the mutation request alone. Read the deployed control-plane state back through `hv exp`:
 
 ```bash
-hv-exp slot get --slot-name "$EMS_SLOT" | jq .
-hv-exp experiment get --experiment-id "$EXPERIMENT_ID" | jq .
-hv-exp experiment rampup-log --experiment-id "$EXPERIMENT_ID" | jq .
-hv-exp algorithm list-in-use --slot-name "$EMS_SLOT" | jq .
+hv exp slot get --slot-name "$EMS_SLOT" | jq .
+hv exp experiment get --experiment-id "$EXPERIMENT_ID" | jq .
+hv exp experiment rampup-log --experiment-id "$EXPERIMENT_ID" | jq .
+hv exp algorithm list-in-use --slot-name "$EMS_SLOT" | jq .
 ```
 
 Use the algorithm identity returned by EMS to inspect its definition and available parameters:
 
 ```bash
-hv-exp algorithm get \
+hv exp algorithm get \
   --algorithm-name "$ALGORITHM_NAME" \
   --algorithm-version "$CANDIDATE_VERSION" | jq .
 
-hv-exp algorithm parameter list \
+hv exp algorithm parameter list \
   --algorithm-name "$ALGORITHM_NAME" \
   --algorithm-version "$CANDIDATE_VERSION" | jq .
 ```
@@ -224,52 +230,28 @@ hv-exp algorithm parameter list \
 Verify the slot, experiment state, variant allocation, algorithm ID, parameter ID, and published artifact locations.
 Stop if they do not resolve to the packages accepted in the previous steps.
 
-## 6. Exercise the EMS-selected runtime locally
+## 6. Exercise the EMS-selected runtime in the containing application
 
-`hv serve` can use the same EMS selection and repository-loading path for local debugging. The assignment key is
-deterministic, so use a key known to select the variant you intend to inspect:
+Run the containing application's integration test or development deployment with the candidate EMS project and slot.
+Use a deterministic assignment key known to select the variant, send a representative request, and inspect the
+application's algorithm and variant metadata. Match the algorithm, parameter, runtime, and EMS variant identities to
+the values read with `hv exp`.
 
-```bash
-export EMS_TOKEN='<bearer-token>'
-
-hv serve \
-  --ems-url "$EMS_URL" \
-  --ems-slot "$EMS_SLOT" \
-  --ems-assignment-key "$EMS_ASSIGNMENT_KEY" \
-  --port 8080
-```
-
-This connects to EMS and downloads published artifacts. It is an external read with local execution, not a production
-deployment. `EMS_TOKEN` is the default bearer-token environment variable; use `--ems-token-env <NAME>` when your
-environment exposes it under another name.
-
-In another shell, inspect the selected runtime before sending a representative request:
-
-```bash
-curl --fail --silent http://127.0.0.1:8080/api/metadata | jq .
-
-curl --fail --silent \
-  --header 'Content-Type: application/json' \
-  --data @/path/to/request.json \
-  http://127.0.0.1:8080/predict | jq .
-```
-
-The metadata and prediction response identify the algorithm, parameters, runtime, and EMS variant used. Match those
-identities to the values read with `hv-exp`. Use `--ui --source-path /path/to/examples` when a browser-based inspection
-is useful; it exercises the same local serving core.
+Use `hv algorithm serve` separately when you need to inspect the candidate JAR and parameter ZIP with recorded examples. It is a
+local algorithm debugger and does not reproduce the containing application's EMS integration.
 
 ## 7. Inspect attributed online results
 
 After the online evaluation pipeline has produced result partitions, discover the available analysis dates:
 
 ```bash
-hv-exp experiment results list --experiment-id "$EXPERIMENT_ID" | jq .
+hv exp experiment results list --experiment-id "$EXPERIMENT_ID" | jq .
 ```
 
 Inspect one partition as decompressed JSONL:
 
 ```bash
-hv-exp experiment results show \
+hv exp experiment results show \
   --experiment-id "$EXPERIMENT_ID" \
   --analysis-date 2000-01-15
 ```
@@ -277,7 +259,7 @@ hv-exp experiment results show \
 Or download the retained partitions and manifest:
 
 ```bash
-hv-exp experiment results download \
+hv exp experiment results download \
   --experiment-id "$EXPERIMENT_ID" \
   --analysis-date 2000-01-15 \
   --output-base-dir /path/to/online-results
@@ -294,9 +276,9 @@ The chain is complete when you can point to all of the following without inferri
 - release-candidate train result and baseline/candidate backtest results;
 - immutable algorithm and parameter package locations;
 - EMS variant, experiment, slot, allocation, and ramp-up history;
-- local EMS-backed serving metadata and one representative response;
+- containing-application EMS serving metadata and one representative response;
 - online result partition attributed to the same experiment and variant.
 
 For deeper detail, read [Configuration and experimentation](../../concepts/configuration-and-experimentation/index.md),
 [Train locally](../local-train/index.md), [Backtest locally](../local-backtest/index.md), and the
-[`hv-exp` reference](../../reference/cli/index.md#hv-exp).
+[`hv exp` reference](../../reference/cli/index.md#hv-exp).

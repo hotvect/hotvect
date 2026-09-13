@@ -4,7 +4,7 @@
 
     <groupId>com.hotvect</groupId>
     <artifactId>hotvect-parent</artifactId>
-        <version>10.43.2</version>
+        <version>11.0.2</version>
     <packaging>pom</packaging>
 
     <name>Hotvect Project</name>
@@ -22,7 +22,6 @@
         <module>hotvect-python</module>
         <module>hotvect-online-util</module>
         <module>hotvect-offline-util</module>
-        <module>hotvect-algorithm-serve</module>
         <module>hotvect-algorithm-demo</module>
         <module>examples/product-search-and-ranking</module>
         <module>hotvect-integration-test</module>
@@ -43,6 +42,7 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
 
         <maven.compiler.release>21</maven.compiler.release>
+        <maven.compiler.parameters>true</maven.compiler.parameters>
 
         <!-- Keep empty by default; other tools (e.g. jacoco) can override via -DargLine=... -->
         <argLine></argLine>
@@ -51,6 +51,7 @@
         <mockito.version>5.22.0</mockito.version>
 
         <jackson.version>2.21.1</jackson.version>
+        <jackson.annotations.version>2.21</jackson.annotations.version>
         <logback.version>1.5.32</logback.version>
 
         <jmh.version>1.37</jmh.version>
@@ -137,12 +138,6 @@
                 <artifactId>hotvect-online-util</artifactId>
                 <version>${project.version}</version>
             </dependency>
-            <dependency>
-                <groupId>com.hotvect</groupId>
-                <artifactId>hotvect-algorithm-serve</artifactId>
-                <version>${project.version}</version>
-            </dependency>
-
             <!-- commons -->
             <dependency>
                 <groupId>com.google.guava</groupId>
@@ -168,7 +163,17 @@
             </dependency>
             <dependency>
                 <groupId>com.fasterxml.jackson.core</groupId>
+                <artifactId>jackson-annotations</artifactId>
+                <version>${jackson.annotations.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.fasterxml.jackson.core</groupId>
                 <artifactId>jackson-databind</artifactId>
+                <version>${jackson.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.fasterxml.jackson.datatype</groupId>
+                <artifactId>jackson-datatype-jsr310</artifactId>
                 <version>${jackson.version}</version>
             </dependency>
 

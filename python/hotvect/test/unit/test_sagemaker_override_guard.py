@@ -14,7 +14,9 @@ def _write_test_jar(path: Path, *, algo_name: str, algo_def: dict) -> None:
         z.writestr(f"{algo_name}-algorithm-definition.json", json.dumps(algo_def).encode("utf-8"))
 
 
-def test_override_guard_raises_for_legacy_semver_image_when_effective_definition_differs(tmp_path: Path) -> None:
+def test_override_guard_raises_for_pre_s3_pipeline_parameters_image_when_effective_definition_differs(
+    tmp_path: Path,
+) -> None:
     algo_name = "my-algo"
     jar_def = {"algorithm_name": algo_name, "train_data_prefix": "train_a"}
     effective_def = {"algorithm_name": algo_name, "train_data_prefix": "train_b"}
@@ -23,18 +25,18 @@ def test_override_guard_raises_for_legacy_semver_image_when_effective_definition
     _write_test_jar(jar, algo_name=algo_name, algo_def=jar_def)
 
     executor = SagemakerTrainingExecutor.__new__(SagemakerTrainingExecutor)
-    executor.training_job_definition = {"AlgorithmSpecification": {"TrainingImage": "repo/hotvect:10.13.15"}}
+    executor.training_job_definition = {"AlgorithmSpecification": {"TrainingImage": "repo/hotvect:10.43.6"}}
     executor.algorithm_pipeline = SimpleNamespace(
         algorithm_name=algo_name,
         algorithm_definition=effective_def,
         algorithm_jar_path=lambda: jar,
     )
 
-    with pytest.raises(ValueError, match=r"must be >= v10\.14\.0"):
+    with pytest.raises(ValueError, match=r"must be >= v10\.43\.7"):
         executor._fail_if_algorithm_overrides_would_be_ignored()
 
 
-def test_override_guard_allows_v10_semver_image_when_effective_definition_differs(tmp_path: Path) -> None:
+def test_override_guard_allows_s3_pipeline_parameters_image_when_effective_definition_differs(tmp_path: Path) -> None:
     algo_name = "my-algo"
     jar_def = {"algorithm_name": algo_name, "train_data_prefix": "train_a"}
     effective_def = {"algorithm_name": algo_name, "train_data_prefix": "train_b"}
@@ -43,7 +45,7 @@ def test_override_guard_allows_v10_semver_image_when_effective_definition_differ
     _write_test_jar(jar, algo_name=algo_name, algo_def=jar_def)
 
     executor = SagemakerTrainingExecutor.__new__(SagemakerTrainingExecutor)
-    executor.training_job_definition = {"AlgorithmSpecification": {"TrainingImage": "repo/hotvect:10.14.0"}}
+    executor.training_job_definition = {"AlgorithmSpecification": {"TrainingImage": "repo/hotvect:10.43.7"}}
     executor.algorithm_pipeline = SimpleNamespace(
         algorithm_name=algo_name,
         algorithm_definition=effective_def,
@@ -53,28 +55,30 @@ def test_override_guard_allows_v10_semver_image_when_effective_definition_differ
     executor._fail_if_algorithm_overrides_would_be_ignored()
 
 
-def test_override_guard_raises_for_legacy_semver_image_when_jar_cannot_be_read(tmp_path: Path) -> None:
+def test_override_guard_raises_for_pre_s3_pipeline_parameters_image_when_jar_cannot_be_read(tmp_path: Path) -> None:
     jar = tmp_path / "algo.jar"
     jar.write_text("not a zip", encoding="utf-8")
 
     executor = SagemakerTrainingExecutor.__new__(SagemakerTrainingExecutor)
-    executor.training_job_definition = {"AlgorithmSpecification": {"TrainingImage": "repo/hotvect:10.13.15"}}
+    executor.training_job_definition = {"AlgorithmSpecification": {"TrainingImage": "repo/hotvect:10.43.6"}}
     executor.algorithm_pipeline = SimpleNamespace(
         algorithm_name="my-algo",
         algorithm_definition={"algorithm_name": "my-algo", "train_data_prefix": "train_b"},
         algorithm_jar_path=lambda: jar,
     )
 
-    with pytest.raises(ValueError, match=r"must be >= v10\.14\.0"):
+    with pytest.raises(ValueError, match=r"must be >= v10\.43\.7"):
         executor._fail_if_algorithm_overrides_would_be_ignored()
 
 
-def test_override_guard_skips_jar_inspection_for_v10_image_when_jar_cannot_be_read(tmp_path: Path) -> None:
+def test_override_guard_skips_jar_inspection_for_s3_pipeline_parameters_image_when_jar_cannot_be_read(
+    tmp_path: Path,
+) -> None:
     jar = tmp_path / "algo.jar"
     jar.write_text("not a zip", encoding="utf-8")
 
     executor = SagemakerTrainingExecutor.__new__(SagemakerTrainingExecutor)
-    executor.training_job_definition = {"AlgorithmSpecification": {"TrainingImage": "repo/hotvect:10.14.0"}}
+    executor.training_job_definition = {"AlgorithmSpecification": {"TrainingImage": "repo/hotvect:10.43.7"}}
     executor.algorithm_pipeline = SimpleNamespace(
         algorithm_name="my-algo",
         algorithm_definition={"algorithm_name": "my-algo", "train_data_prefix": "train_b"},
@@ -84,7 +88,9 @@ def test_override_guard_skips_jar_inspection_for_v10_image_when_jar_cannot_be_re
     executor._fail_if_algorithm_overrides_would_be_ignored()
 
 
-def test_override_guard_raises_for_pre_10_14_image_even_without_algorithm_override(tmp_path: Path) -> None:
+def test_override_guard_raises_for_pre_s3_pipeline_parameters_image_even_without_algorithm_override(
+    tmp_path: Path,
+) -> None:
     algo_name = "my-algo"
     jar_def = {"algorithm_name": algo_name, "train_data_prefix": "train_a"}
 
@@ -92,14 +98,14 @@ def test_override_guard_raises_for_pre_10_14_image_even_without_algorithm_overri
     _write_test_jar(jar, algo_name=algo_name, algo_def=jar_def)
 
     executor = SagemakerTrainingExecutor.__new__(SagemakerTrainingExecutor)
-    executor.training_job_definition = {"AlgorithmSpecification": {"TrainingImage": "repo/hotvect:10.13.15"}}
+    executor.training_job_definition = {"AlgorithmSpecification": {"TrainingImage": "repo/hotvect:10.43.6"}}
     executor.algorithm_pipeline = SimpleNamespace(
         algorithm_name=algo_name,
         algorithm_definition=jar_def,
         algorithm_jar_path=lambda: jar,
     )
 
-    with pytest.raises(ValueError, match=r"must be >= v10\.14\.0"):
+    with pytest.raises(ValueError, match=r"must be >= v10\.43\.7"):
         executor._fail_if_algorithm_overrides_would_be_ignored()
 
 

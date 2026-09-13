@@ -17,7 +17,7 @@ The easiest way to understand the architecture is to keep three activities separ
 | --- | --- | --- |
 | **Build the algorithm** | Compile time | Algorithm package with implementation, embedded definition, and packaged assets |
 | **Prepare and evaluate it** | Offline, before release | Optional parameter package, predictions, evaluation results, and performance evidence |
-| **Execute decisions** | In a job or containing application | A loaded `AlgorithmInstance` called through a public algorithm shape |
+| **Execute decisions** | In a job or containing application | An owned algorithm graph called through its root's public algorithm shape |
 
 The Python workflow coordinates offline work. It is not part of the request-time call path, and it does not replace the
 Java runtime embedded by an application.
@@ -63,13 +63,13 @@ Java runtime embedded by an application.
     </div>
     <div class="hv-system-map__down">↕</div>
     <div class="hv-system-map__node hv-system-map__node--accent">
-      <span class="hv-system-map__badge">EXTERNAL TODAY</span>
+      <span class="hv-system-map__badge">DEPLOY SEPARATELY</span>
       <strong>Experiment Management Service (EMS)</strong>
       <small>slots · variants · experiments · package metadata</small>
     </div>
     <div class="hv-system-map__down">↓</div>
     <div class="hv-system-map__node">
-      <strong><code>hv-exp</code> inspection</strong>
+      <strong><code>hv exp</code> inspection</strong>
       <small>read-only configuration and online results</small>
     </div>
     <div class="hv-system-map__output">
@@ -96,7 +96,7 @@ Java runtime embedded by an application.
     </div>
     <div class="hv-system-map__down">↓</div>
     <div class="hv-system-map__node">
-      <strong><code>AlgorithmInstance</code></strong>
+      <strong><code>AlgorithmGraph</code></strong>
       <small>typed request → decision</small>
     </div>
     <div class="hv-system-map__runtimes">
@@ -106,12 +106,13 @@ Java runtime embedded by an application.
   </section>
 </div>
 
-The offline plane produces packages and evidence but does not serve requests. An organization may publish packages
-through its own path and keep selection metadata in an external EMS; `hv-exp` only reads that state. The online plane
-is always the containing application. It can load already selected local artifacts directly, or resolve an EMS
-assignment through the repository, then construct an `AlgorithmInstance`. It may invoke explicit Python or native
-integrations behind that instance. When EMS is used, EMS and the artifact store are not in the per-request scoring path
-after the serving snapshot is loaded.
+The offline plane produces packages and evidence but does not serve requests. An organization publishes packages
+through its own path and may run a separately deployed EMS server to keep selection metadata; `hv exp` only reads that
+state. The
+online plane is always the containing application. It can load already selected local artifacts directly, or resolve
+an EMS assignment through the repository, then construct and retain an algorithm graph. It may invoke explicit Python
+or native integrations behind the graph's root algorithm. When EMS is used, EMS and the artifact store are not in the per-request
+scoring path after the serving snapshot is loaded.
 
 ## One algorithm, from source to decision
 
@@ -178,12 +179,13 @@ A runner or containing application supplies:
 5. an `ExecutionContext` such as `REALTIME` plus `ONLINE`.
 
 `AlgorithmInstanceFactory` reads the embedded definition, constructs declared children, applies named dependency
-bindings, opens parameter streams, and calls the selected factories. The result is an `AlgorithmInstance`: the resolved
-definition, parameter metadata, and callable algorithm object.
+bindings, opens parameter streams, and calls the selected factories. Direct loading returns an `AlgorithmGraph`, which
+owns topology, recursive identity, classloaders, and lifecycle. Each node's `AlgorithmInstance` contains only its
+resolved definition, parameter metadata, callable algorithm object, and declared type contract.
 
-The repository-based online path adds artifact download and reuse. In the current implementation,
-`AlgorithmRepository` downloads JAR and ZIP files, caches JAR factories by algorithm ID, and caches live instances by
-algorithm ID plus parameter ID. Direct factory use is the smaller path when the application already has local files.
+The EMS serving path adds artifact download, atomic refresh, and internal graph reuse. It keys graphs by artifact,
+parameter, and effective dependency identities, so a new generation reuses unchanged reachable nodes. Direct factory
+use is the smaller path when the application already has local files.
 
 ### 5. Execute inside the environment that owns the request
 
@@ -223,10 +225,10 @@ requires strict algorithm-version checking. None of these checks verifies a cryp
 The containing application must obtain algorithm and parameter packages through a trusted, access-controlled
 publication path and add any required integrity verification before loading them.
 
-Resource ownership also depends on the loading path. A caller that directly creates an `AlgorithmInstance` closes that
-instance when finished. `AlgorithmRepository` reuses live instances and closes their outer algorithms after the
-instances become unreachable. Application-provided dependency bindings remain application-owned; closing an outer
-instance does not generically close every child or external binding.
+Resource ownership also depends on the loading path. A caller that directly creates an `AlgorithmGraph` closes that
+graph when finished. EMS serving keeps graph ownership internal. Published generations and in-flight invocations retain
+leases on their complete graphs. Retired generations close asynchronously after the last invocation finishes, releasing
+graphs and artifacts when their final leases are closed. Application-provided dependency bindings remain application-owned.
 
 ## Module map
 
@@ -234,11 +236,12 @@ instance does not generically close every child or external binding.
 | --- | --- | --- |
 | Public contracts | `hotvect-api` | Algorithm shapes, request and decision types, factories, execution context, identity |
 | Algorithm implementation | `hotvect-core`, `hotvect-processor` | Runtime feature transformation and compile-time generated transformers |
-| Algorithm backends | `hotvect-catboost`, `hotvect-tensorflow`, Java `hotvect-python` | Backend-specific encoding, scoring, and managed Python workers |
+| Algorithm backends | `hotvect-catboost`, `hotvect-tensorflow`, Java `hotvect-python` | CatBoost encoding/scoring, TensorFlow feature/schema/TFRecord support, and managed Python-worker infrastructure |
 | Runtime assembly | `hotvect-online-util` | Dynamic loading, parameter resolution, dependency binding, EMS selection, instance repository |
+| External experiment control plane | Standalone EMS service | Spring Boot EMS persistence and REST API, built and deployed from its own repository with PostgreSQL and OAuth integration |
 | Offline execution | `hotvect-offline-util` | Audit, encode, predict, performance test, and state-generation JVM tasks |
 | Offline orchestration | Python package `hotvect` | Train and backtest planning, dependency preparation, caching, remote submission, result bookkeeping |
-| Local debugging | `hotvect-algorithm-serve`, `hotvect-algorithm-demo` | Local HTTP and browser surfaces for exercising an algorithm |
+| Local algorithm server and debugger | `hotvect-algorithm-demo` | Local HTTP lifecycle, runtime loading, offline example decoding, execution, comparison, and browser UI |
 
 Java `hotvect-python` is a runtime backend module. It is distinct from the Python orchestration package named
 `hotvect`.
@@ -246,6 +249,13 @@ Java `hotvect-python` is a runtime backend module. It is distinct from the Pytho
 ## Continue by concern
 
 <div class="grid cards" markdown>
+
+-   **System map**
+
+    Distinguish algorithm artifacts, offline workflows, embedded runtimes, EMS, stores, and local tools by deployment
+    and ownership boundary.
+
+    [Open the system map](../components/index.md){ .hv-btn }
 
 -   **Application integration**
 
@@ -276,6 +286,7 @@ Java `hotvect-python` is a runtime backend module. It is distinct from the Pytho
     Connect effective definitions and parameter releases to EMS slots, variants, assignment, and inspection.
 
     [Read configuration and experimentation](../concepts/configuration-and-experimentation/index.md){ .hv-btn }
+    [Understand the EMS control plane](../components/experiment-management-service/index.md){ .hv-btn }
 
 -   **Current boundaries**
 

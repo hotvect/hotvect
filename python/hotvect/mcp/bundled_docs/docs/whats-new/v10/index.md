@@ -50,8 +50,8 @@ Hotvect v10 includes a caching layer for backtests and training runs. It can sho
 outputs remain valid for reuse.
 
 - CLI:
-  - `hv train --cache ...`
-  - `hv backtest --cache ...`
+  - `hv algorithm train --cache ...`
+  - `hv algorithm backtest --cache ...`
   - `--cache-scope major|minor|patch|hyperparam` controls sharing across **algorithm versions**
   - `--cache-refresh` ignores cache reads and writes fresh run-level cache results (requires an effective `cache_base_dir` and effective cache mode `run`)
 - Algorithm definition:
@@ -63,20 +63,36 @@ For details and recommended usage patterns, see:
 - [Guide: Caching](../../guides/caching/index.md)
 
 ### SageMaker One-Shot & Train Support
-`hv train` and `hv backtest` can submit pipeline jobs to SageMaker. `audit`, `predict`, `encode`, `evaluate`, and
+`hv algorithm train` and `hv algorithm backtest` can submit pipeline jobs to SageMaker. `hv algorithm audit`,
+`hv algorithm predict`, `hv algorithm encode`, `hv algorithm evaluate`, and
 `performance-test` also support one-shot SageMaker execution; audit, predict, and encode can fan out across multiple
 jobs.
 
 ### Interactive Debugging Tools
-- **`hv serve`**: Serves the full Java algorithm runtime over HTTP for easy testing and manual inspection.
-- **`hv serve --ui`**: Exposes the browser debugger on the same algorithm server, including action details and offline example browsing.
+- **`hv algorithm serve`**: Serves the full Java algorithm runtime over HTTP for easy testing and manual inspection.
+- **`hv algorithm serve --ui`**: Exposes the browser debugger on the same algorithm server, including action details and offline example browsing.
 - **`hv worker serve`**: Serves the worker runtime only over HTTP using the configured worker backend.
 
-### Metrics Suite (`hv-ext metrics`)
+### Metrics Suite (`hv metrics`)
 A comprehensive CLI suite for evaluating and comparing model performance:
-- `hv-ext metrics compare-quality`: Compare offline metrics (ROC-AUC, NDCG, etc.) between runs.
-- `hv-ext metrics compare-system`: Compare system performance (latency, throughput, memory).
-- `hv-ext metrics plot`: Generate PDF reports with comparative plots.
+- `hv metrics compare-quality`: Compare offline metrics (ROC-AUC, NDCG, etc.) between runs.
+- `hv metrics compare-system`: Compare system performance (latency, throughput, memory).
+- `hv metrics plot`: Generate PDF reports with comparative plots.
+
+### Release QA (`hv qa`)
+`hv qa` automates objective-driven control-versus-treatment validation for agentic engineering loops:
+- `hv qa candidate start`, `hv qa candidate resume`, and `hv qa candidate status`: Manage staged QA runs.
+- `hv qa candidate start --prod-default-of-slot-as-control <slot>`: Resolve the current `hv exp` prod default once at start
+  time and freeze it into the QA run.
+- `hv qa evaluate`: Judge an existing proof directory using the `<proof-dir>/<dt>/control/result.json` and
+  `<proof-dir>/<dt>/treatment/result.json` convention; it requires at least two paired dates.
+- `hv qa criteria`: List and describe the built-in `exact`, `noninferiority`, and `superiority` criteria.
+- Multi-day quality decisions pair `evaluate.<metric>.value` by test date. Superiority records a Bonferroni-adjusted
+  decision across every evaluated metric and treatment.
+
+See [Release QA validation](../../guides/hv-qa-release-validation/index.md) and the
+[CLI reference](../../reference/cli/index.md#hv-qa-release-qa). The `hv-qa` executable remains a compatibility
+interface, including its raw `criteria evaluate` diagnostic command.
 
 ## 3. Operational Improvements
 

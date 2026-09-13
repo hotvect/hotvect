@@ -15,6 +15,8 @@ import java.io.File;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -33,12 +35,19 @@ public class EncodeTask<EXAMPLE extends Example<? extends OfflineRequest, ?>> ex
 
     @Override
     protected Map<String, Object> perform() throws Exception {
+        try (AlgorithmOfflineSupporterFactory algorithmSupporterFactory =
+                     new AlgorithmOfflineSupporterFactory(this.offlineTaskContext.classLoader())) {
+            return perform(algorithmSupporterFactory);
+        }
+    }
 
-        AlgorithmOfflineSupporterFactory algorithmSupporterFactory = new AlgorithmOfflineSupporterFactory(this.offlineTaskContext.classLoader());
-
+    private Map<String, Object> perform(
+            AlgorithmOfflineSupporterFactory algorithmSupporterFactory) throws Exception {
         ExampleDecoder<EXAMPLE> scoringExampleDecoder = algorithmSupporterFactory.getTrainDecoder(offlineTaskContext.algorithmDefinition());
 
-        ExampleEncoder<EXAMPLE> exampleEncoder = algorithmSupporterFactory.getTrainEncoder(offlineTaskContext.algorithmDefinition(), this.offlineTaskContext.options().parameters);
+        ExampleEncoder<EXAMPLE> exampleEncoder = algorithmSupporterFactory.prepareTrainEncoder(
+                offlineTaskContext.algorithmDefinition(),
+                this.offlineTaskContext.directRuntime().algorithmSource().parameters());
 
         String extension;
         try {
@@ -58,21 +67,26 @@ public class EncodeTask<EXAMPLE extends Example<? extends OfflineRequest, ?>> ex
         }
         if (!extension.isEmpty() && !extension.startsWith(".")) {
             throw new IllegalStateException(
-                    "Encoder " + exampleEncoder.getClass().getName() + " returned an invalid file extension from encodedFileExtension(): "
+                    "Encoder " + exampleEncoder.getClass().getName()
+                            + " returned an invalid file extension from encodedFileExtension(): "
                             + extension + ". Expected \"\" or a leading dot, e.g. \".tfrecord\", \".tsv\", \".jsonl\""
             );
         }
 
         Optional<String> schemaDescription = exampleEncoder.schemaDescription();
-        if(schemaDescription.isPresent()){
+        if (schemaDescription.isPresent()) {
             checkArgument(
                     this.offlineTaskContext.options().schemaDescriptionFile != null,
                     "Your algorithm needs a schema description, but your script did not provide --schema file location. This is e.g. column_description.tsv"
             );
-            Files.writeString(this.offlineTaskContext.options().schemaDescriptionFile.toPath(), schemaDescription.get(), StandardCharsets.UTF_8);
+            Files.writeString(
+                    this.offlineTaskContext.options().schemaDescriptionFile.toPath(),
+                    schemaDescription.get(),
+                    StandardCharsets.UTF_8);
         }
 
-        Function<String, List<ByteBuffer>> transformation = scoringExampleDecoder.andThen(s -> ListTransform.map(s, exampleEncoder));
+        Function<String, List<ByteBuffer>> transformation = scoringExampleDecoder.andThen(
+                s -> ListTransform.map(s, exampleEncoder));
 
         Optional<String> orderingSpec = this.offlineTaskContext.algorithmDefinition().trainDecoderParameter()
                 .flatMap(hp -> Optional.ofNullable(hp.get("ordering")).map(JsonNode::asText));
@@ -85,24 +99,72 @@ public class EncodeTask<EXAMPLE extends Example<? extends OfflineRequest, ?>> ex
                 ? this.offlineTaskContext.options().writerNumShards
                 : writerNumShardsFromAlgoDef;
 
-        File destinationDir = buildDestinationDirectory(
-                this.offlineTaskContext.options().destinationFile,
-                extension
-        );
-
-        Map<String, Object> metadata;
-
-        checkState(
-                this.offlineTaskContext.options().sourceFiles.size() == 1 &&
-                        this.offlineTaskContext.options().sourceFiles.keySet().iterator().next().equals("default")
-                ,
-                "Only one source file type is supported for encode tasks"
-        );
-
         boolean orderedOutput = resolveOrderedOutput(
                 orderingSpec.map("ordered"::equalsIgnoreCase).orElse(false),
                 "encode"
         );
+
+        boolean mappingsMode = !this.offlineTaskContext.options().sourceDestMappings.isEmpty();
+        List<SourceDestMapping> mappings;
+        if (mappingsMode) {
+            mappings = this.offlineTaskContext.options().sourceDestMappings;
+        } else {
+            checkState(
+                    this.offlineTaskContext.options().sourceFiles.size() == 1
+                            && this.offlineTaskContext.options().sourceFiles.keySet().iterator().next().equals("default"),
+                    "Only one source file type is supported for encode tasks"
+            );
+            mappings = List.of(new SourceDestMapping(
+                    this.offlineTaskContext.options().sourceFiles.values().iterator().next(),
+                    this.offlineTaskContext.options().destinationFile
+            ));
+        }
+
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        List<Map<String, Object>> mappingResults = new ArrayList<>();
+        for (SourceDestMapping mapping : mappings) {
+            Map<String, Object> encodeMetadata = encode(
+                    mapping.sources(),
+                    mapping.dest(),
+                    transformation,
+                    extension,
+                    orderedOutput,
+                    writerNumShards
+            );
+            if (mappingsMode) {
+                Map<String, Object> result = new LinkedHashMap<>();
+                result.put("sources", mapping.sources().stream().map(File::toString).toList());
+                result.put("dest", mapping.dest().toString());
+                result.put("metadata", encodeMetadata);
+                mappingResults.add(result);
+            } else {
+                metadata = encodeMetadata;
+            }
+        }
+        if (mappingsMode) {
+            metadata.put("source_dest_mappings", mappingResults);
+        }
+        metadata.put("example_decoder", implementationClassName(scoringExampleDecoder));
+        metadata.put("example_encoder", implementationClassName(exampleEncoder));
+        return metadata;
+    }
+
+    private static String implementationClassName(Object implementation) {
+        Class<?> implementationClass = implementation.getClass();
+        String canonicalName = implementationClass.getCanonicalName();
+        return canonicalName != null ? canonicalName : implementationClass.getName();
+    }
+
+    private Map<String, Object> encode(
+            List<File> sourceFiles,
+            File destination,
+            Function<String, List<ByteBuffer>> transformation,
+            String extension,
+            boolean orderedOutput,
+            int writerNumShards
+    ) throws Exception {
+        File destinationDir = buildDestinationDirectory(destination);
+        Map<String, Object> metadata;
 
         if (orderedOutput) {
             int nRecommendedComputationThread = min(
@@ -116,7 +178,7 @@ public class EncodeTask<EXAMPLE extends Example<? extends OfflineRequest, ?>> ex
             );
             OrderedFileMapper processor = OrderedFileMapper.mapper(
                     this.offlineTaskContext.meterRegistry(),
-                    this.offlineTaskContext.options().sourceFiles.values().iterator().next(),
+                    sourceFiles,
                     orderedDest,
                     transformation,
                     this.offlineTaskContext.options().maxThreads <= 0 ? nRecommendedComputationThread : this.offlineTaskContext.options().maxThreads,
@@ -144,7 +206,7 @@ public class EncodeTask<EXAMPLE extends Example<? extends OfflineRequest, ?>> ex
             }
 
             UnorderedFileMapper.Builder<String> mapperBuilder = UnorderedFileMapper.builder(
-                    this.offlineTaskContext.options().sourceFiles.values().iterator().next(),
+                    sourceFiles,
                     destinationDir,
                     transformation
             )
@@ -168,8 +230,6 @@ public class EncodeTask<EXAMPLE extends Example<? extends OfflineRequest, ?>> ex
                 throw new Exception("No rows have been written.");
             }
         }
-        metadata.put("example_decoder", scoringExampleDecoder.getClass().getCanonicalName());
-        metadata.put("example_encoder", exampleEncoder.getClass().getCanonicalName());
         return metadata;
     }
 
@@ -177,7 +237,7 @@ public class EncodeTask<EXAMPLE extends Example<? extends OfflineRequest, ?>> ex
         return mapper.call();
     }
 
-    private File buildDestinationDirectory(File baseDestination, String extension) {
+    private File buildDestinationDirectory(File baseDestination) {
         String baseName = baseDestination.getName();
         String parent = baseDestination.getParent();
 

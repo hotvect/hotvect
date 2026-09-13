@@ -16,8 +16,8 @@ test('loads, selects an example, and renders cards', async ({ page }) => {
   await expect(page.locator('#status')).toHaveText('OK', { timeout: 15000 });
   await expect(page.locator('#comparisonHeader')).toHaveCount(0);
   await expect(page.getByRole('combobox', { name: 'Baseline algorithm version' })).toBeVisible();
-  await expect(page.locator('#grids .columnRole')).toHaveText('Baseline');
+  await expect(page.locator('#grids .columnRole').first()).toHaveText('Baseline');
   await expect(page.locator('#grids .badge').first()).toHaveCSS('color', 'rgb(255, 255, 255)');
   await expect(page.locator('#grids .grid').first()).toBeVisible();
-  await expect(page.locator('#grids .gridPanel')).toHaveCount(1);
+  await expect(page.locator('#grids .gridPanel')).toHaveCount(2);
 });

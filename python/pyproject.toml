@@ -1,6 +1,6 @@
 [project]
 name = "hotvect"
-version = "10.43.2"
+version = "11.0.2"
 description = "Hotvect python interface"
 readme = "README.rst"
 license = "Apache-2.0"

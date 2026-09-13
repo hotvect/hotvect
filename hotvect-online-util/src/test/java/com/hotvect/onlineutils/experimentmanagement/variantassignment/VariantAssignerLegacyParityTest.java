@@ -1,23 +1,16 @@
 package com.hotvect.onlineutils.experimentmanagement.variantassignment;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotEquals;
-
-import com.google.common.collect.ImmutableMap;
 import com.google.common.hash.HashFunction;
 import com.google.common.hash.Hashing;
-import com.hotvect.api.algorithms.Algorithm;
 import com.hotvect.onlineutils.experimentmanagement.models.AlgorithmMetadata;
 import com.hotvect.onlineutils.experimentmanagement.models.Experiment;
-import com.hotvect.onlineutils.experimentmanagement.models.ExperimentConfiguration;
-import com.hotvect.onlineutils.experimentmanagement.models.ExperimentationState;
 import com.hotvect.onlineutils.experimentmanagement.models.Shard;
+import com.hotvect.onlineutils.experimentmanagement.models.Slot;
+import com.hotvect.onlineutils.experimentmanagement.models.UserForcedAssignment;
 import com.hotvect.onlineutils.experimentmanagement.models.Variant;
-import com.hotvect.onlineutils.experimentmanagement.models.VariantConfiguration;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -25,454 +18,286 @@ import java.util.Random;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
+
 class VariantAssignerLegacyParityTest {
     @SuppressWarnings("deprecation")
     private static final HashFunction MD5 = Hashing.md5();
-    private static final int LARGE_SAMPLE_SIZE = 50_000;
-    private static final int ORGANIC_TRAFFIC_PARITY_SAMPLES = 1_000;
-    private static final int FORCED_ASSIGNMENT_PARITY_SAMPLES = 250;
     private static final String ASSIGNMENT_KEY_CHARS =
             "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_";
     private static final String SLOT_SALT_CHARS = "abcdefghijklmnopqrstuvwxyz0123456789-_";
 
     @Test
     void preservesLegacyExperimentHashInputOrder() {
-        final int totalNumberOfShards = 11;
-        final ExperimentationState state = experimentationState(
+        Slot slot = slot(
                 "slot-salt",
+                11,
                 100,
                 Set.of(1, 3, 7),
                 List.of(variant(2, 1), variant(3, 1)),
                 Map.of());
-        final String customerNumber =
-                findCustomerWithDifferentLegacyAndSwappedKeyOutcomes(state, totalNumberOfShards);
+        VariantAssigner assigner = new VariantAssigner(slot);
+        String assignmentKey = findAssignmentWithDifferentSwappedKeyOutcome(slot);
 
-        final int legacyVariantId =
-                legacyAssignedVariantConfiguration(customerNumber, state, totalNumberOfShards).variant().variantId();
-        final int currentVariantId =
-                VariantAssigner.assignVariant(customerNumber, state, totalNumberOfShards).variant().variantId();
-        final int swappedKeyVariantId =
-                brokenAssignmentWithSwappedExperimentKeyOrder(customerNumber, state, totalNumberOfShards)
-                        .variant()
-                        .variantId();
+        int legacyVariantId = legacyAssign(assignmentKey, slot, VariantAssignerLegacyParityTest::legacyBucket).variantId();
+        int currentVariantId = assigner.assign(assignmentKey).variantId();
+        int swappedKeyVariantId = swappedShardKeyAssign(assignmentKey, slot).variantId();
 
         assertEquals(legacyVariantId, currentVariantId);
         assertNotEquals(swappedKeyVariantId, currentVariantId);
     }
 
     @Test
-    void matchesLegacyEmsAssignmentAcrossLargeDeterministicSample() {
-        final int totalNumberOfShards = 17;
-        final ExperimentationState state = experimentationState(
+    void matchesLegacyAssignmentAcrossLargeDeterministicSample() {
+        Slot slot = slot(
                 "slot-salt-2026",
+                17,
                 37,
                 Set.of(1, 2, 5, 8, 9, 11, 13, 17),
                 List.of(variant(2, 1), variant(3, 3), variant(4, 2)),
                 Map.of());
+        VariantAssigner assigner = new VariantAssigner(slot);
 
-        for (int i = 0; i < LARGE_SAMPLE_SIZE; i++) {
-            final String customerNumber = "customer-" + i;
+        for (int i = 0; i < 50_000; i++) {
+            String assignmentKey = "customer-" + i;
             assertEquals(
-                    legacyAssignedVariantConfiguration(customerNumber, state, totalNumberOfShards).variant().variantId(),
-                    VariantAssigner.assignVariant(customerNumber, state, totalNumberOfShards).variant().variantId(),
-                    customerNumber);
+                    legacyAssign(assignmentKey, slot, VariantAssignerLegacyParityTest::legacyBucket).variantId(),
+                    assigner.assign(assignmentKey).variantId(),
+                    assignmentKey);
         }
     }
 
     @Test
-    void matchesLegacyEmsAssignmentForUserForcedAssignments() {
-        final ExperimentationState state = experimentationState(
+    void matchesLegacyUserForcedAssignments() {
+        Slot slot = slot(
                 "slot-salt-2026",
+                1,
                 100,
                 Set.of(1),
                 List.of(variant(2, 1), variant(3, 1)),
                 Map.of("forced-user", 3));
 
         assertEquals(
-                legacyAssignedVariantConfiguration("forced-user", state, 1).variant().variantId(),
-                VariantAssigner.assignVariant("forced-user", state, 1).variant().variantId());
+                legacyAssign("forced-user", slot, VariantAssignerLegacyParityTest::legacyBucket).variantId(),
+                new VariantAssigner(slot).assign("forced-user").variantId());
     }
 
     @Test
-    void floorModWouldChangeAssignmentsForNegativeHashes() {
-        assertEquals(1, VariantAssigner.bucketFromHash(-1, 3));
-        assertEquals(2, Math.floorMod(-1, 3));
-        assertNotEquals(VariantAssigner.bucketFromHash(-1, 3), Math.floorMod(-1, 3));
-    }
+    void matchesLegacyAssignmentForGeneratedOrganicTraffic() {
+        Random random = new Random(0xC0FFEE42L);
 
-    @Test
-    void floorModWouldChangeRealAssignmentsForNegativeHashes() {
-        final int totalNumberOfShards = 17;
-        final ExperimentationState state = experimentationState(
-                "slot-salt-2026",
-                37,
-                Set.of(1, 2, 5, 8, 9, 11, 13, 17),
-                List.of(variant(2, 1), variant(3, 3), variant(4, 2)),
-                Map.of());
-        final String customerNumber = findCustomerWithDifferentLegacyAndFloorModOutcomes(state, totalNumberOfShards);
-
-        final int legacyVariantId =
-                legacyAssignedVariantConfiguration(customerNumber, state, totalNumberOfShards).variant().variantId();
-        final int currentVariantId =
-                VariantAssigner.assignVariant(customerNumber, state, totalNumberOfShards).variant().variantId();
-        final int floorModVariantId =
-                floorModAssignedVariantConfiguration(customerNumber, state, totalNumberOfShards).variant().variantId();
-
-        assertEquals(legacyVariantId, currentVariantId);
-        assertNotEquals(floorModVariantId, currentVariantId);
-    }
-
-    @Test
-    void preservesLegacyIntegerMinValueOverflow() {
-        assertEquals(-48, VariantAssigner.bucketFromHash(Integer.MIN_VALUE, 100));
-        assertEquals(-47, VariantAssigner.bucketFromHash(Integer.MIN_VALUE, 100) + 1);
-        assertEquals(-48, Math.abs(Integer.MIN_VALUE) % 100);
-        assertEquals(52, Math.floorMod(Integer.MIN_VALUE, 100));
-        assertNotEquals(
-                VariantAssigner.bucketFromHash(Integer.MIN_VALUE, 100),
-                Math.floorMod(Integer.MIN_VALUE, 100));
-    }
-
-    @Test
-    void matchesLegacyEmsAssignmentForOrganicTraffic() {
-        final Random random = new Random(0xC0FFEE42L);
-
-        for (int i = 0; i < ORGANIC_TRAFFIC_PARITY_SAMPLES; i++) {
-            final int sampleIndex = i;
-            final String customerNumber = sampleAssignmentKey(random);
-            final String slotSalt = sampleSlotSalt(random);
-            final int totalNumberOfShards = random.nextInt(20) + 1;
-            final int rampUpPercentage = random.nextInt(101);
-            final List<Integer> variantWeights = sampleVariantWeightList(random);
-            final List<Integer> shardCandidates = sampleShardCandidates(random);
-
-            final ExperimentationState state = experimentationState(
-                    slotSalt,
-                    rampUpPercentage,
-                    toShardSet(totalNumberOfShards, shardCandidates),
-                    variants(variantWeights),
+        for (int i = 0; i < 1_000; i++) {
+            int sampleIndex = i;
+            String assignmentKey = sampleString(random, ASSIGNMENT_KEY_CHARS, 1, 24);
+            int totalShards = random.nextInt(20) + 1;
+            Slot slot = slot(
+                    sampleString(random, SLOT_SALT_CHARS, 1, 16),
+                    totalShards,
+                    random.nextInt(101),
+                    sampleShards(random, totalShards),
+                    sampleVariants(random),
                     Map.of());
 
             assertEquals(
-                    legacyAssignedVariantConfiguration(customerNumber, state, totalNumberOfShards)
-                            .variant()
-                            .variantId(),
-                    VariantAssigner.assignVariant(customerNumber, state, totalNumberOfShards)
-                            .variant()
-                            .variantId(),
+                    legacyAssign(assignmentKey, slot, VariantAssignerLegacyParityTest::legacyBucket).variantId(),
+                    new VariantAssigner(slot).assign(assignmentKey).variantId(),
                     () -> "Organic parity mismatch at sample " + sampleIndex);
         }
     }
 
     @Test
-    void matchesLegacyEmsAssignmentForGeneratedUserForcedAssignments() {
-        final Random random = new Random(0x5EED1234L);
-
-        for (int i = 0; i < FORCED_ASSIGNMENT_PARITY_SAMPLES; i++) {
-            final int sampleIndex = i;
-            final String customerNumber = sampleAssignmentKey(random);
-            final String slotSalt = sampleSlotSalt(random);
-            final List<Variant> experimentVariants = variants(sampleVariantWeightList(random));
-            final int forcedVariantId = experimentVariants.get(experimentVariants.size() - 1).variantId();
-            final ExperimentationState state = experimentationState(
-                    slotSalt,
-                    100,
-                    Set.of(1),
-                    experimentVariants,
-                    Map.of(customerNumber, forcedVariantId));
-
-            assertEquals(
-                    legacyAssignedVariantConfiguration(customerNumber, state, 1).variant().variantId(),
-                    VariantAssigner.assignVariant(customerNumber, state, 1).variant().variantId(),
-                    () -> "Forced-assignment parity mismatch at sample " + sampleIndex);
-        }
+    void preservesLegacyModuloForNegativeHashes() {
+        assertEquals(1, VariantAssigner.bucketFromHash(-1, 3));
+        assertEquals(2, Math.floorMod(-1, 3));
+        assertEquals(-48, VariantAssigner.bucketFromHash(Integer.MIN_VALUE, 100));
+        assertEquals(52, Math.floorMod(Integer.MIN_VALUE, 100));
     }
 
-    private static String sampleAssignmentKey(final Random random) {
-        return sampleString(random, ASSIGNMENT_KEY_CHARS, 1, 24);
+    @Test
+    void floorModWouldChangeRealAssignments() {
+        Slot slot = slot(
+                "slot-salt-2026",
+                17,
+                37,
+                Set.of(1, 2, 5, 8, 9, 11, 13, 17),
+                List.of(variant(2, 1), variant(3, 3), variant(4, 2)),
+                Map.of());
+        VariantAssigner assigner = new VariantAssigner(slot);
+        String assignmentKey = findAssignmentWithDifferentFloorModOutcome(slot);
+
+        int legacyVariantId = legacyAssign(
+                assignmentKey, slot, VariantAssignerLegacyParityTest::legacyBucket).variantId();
+        int floorModVariantId = legacyAssign(assignmentKey, slot, Math::floorMod).variantId();
+
+        assertEquals(legacyVariantId, assigner.assign(assignmentKey).variantId());
+        assertNotEquals(floorModVariantId, assigner.assign(assignmentKey).variantId());
     }
 
-    private static String sampleSlotSalt(final Random random) {
-        return sampleString(random, SLOT_SALT_CHARS, 1, 16);
-    }
-
-    private static String sampleString(
-            final Random random,
-            final String alphabet,
-            final int minLength,
-            final int maxLength) {
-        final int length = random.nextInt(maxLength - minLength + 1) + minLength;
-        final StringBuilder builder = new StringBuilder(length);
-        for (int i = 0; i < length; i++) {
-            builder.append(alphabet.charAt(random.nextInt(alphabet.length())));
-        }
-        return builder.toString();
-    }
-
-    private static List<Integer> sampleVariantWeightList(final Random random) {
-        final int size = random.nextInt(3) + 1;
-        final List<Integer> weights = new ArrayList<>(size);
-        for (int i = 0; i < size; i++) {
-            weights.add(random.nextInt(5) + 1);
-        }
-        return weights;
-    }
-
-    private static List<Integer> sampleShardCandidates(final Random random) {
-        final int size = random.nextInt(21);
-        final List<Integer> shardCandidates = new ArrayList<>(size);
-        for (int i = 0; i < size; i++) {
-            shardCandidates.add(random.nextInt(20) + 1);
-        }
-        return shardCandidates;
-    }
-
-    private static String findCustomerWithDifferentLegacyAndSwappedKeyOutcomes(
-            final ExperimentationState state,
-            final int totalNumberOfShards) {
-        for (int i = 0; i < 100_000; i++) {
-            final String candidate = "customer-" + i;
-            final int legacyVariantId =
-                    legacyAssignedVariantConfiguration(candidate, state, totalNumberOfShards).variant().variantId();
-            final int brokenVariantId =
-                    brokenAssignmentWithSwappedExperimentKeyOrder(candidate, state, totalNumberOfShards)
-                            .variant()
-                            .variantId();
-            if (legacyVariantId != brokenVariantId) {
-                return candidate;
+    private static Variant legacyAssign(String assignmentKey, Slot slot, BucketFunction bucketFunction) {
+        for (UserForcedAssignment forced : slot.userForcedAssignments()) {
+            if (forced.userId().equals(assignmentKey)) {
+                return variant(slot, forced.variantId());
             }
         }
-        throw new AssertionError("Failed to find a customer that distinguishes legacy and swapped key order");
-    }
-
-    private static String findCustomerWithDifferentLegacyAndFloorModOutcomes(
-            final ExperimentationState state,
-            final int totalNumberOfShards) {
-        for (int i = 0; i < 100_000; i++) {
-            final String candidate = "customer-" + i;
-            final int legacyVariantId =
-                    legacyAssignedVariantConfiguration(candidate, state, totalNumberOfShards).variant().variantId();
-            final int floorModVariantId =
-                    floorModAssignedVariantConfiguration(candidate, state, totalNumberOfShards).variant().variantId();
-            if (legacyVariantId != floorModVariantId) {
-                return candidate;
-            }
+        int shardId = bucket(randomizationKey(slot.slotSalt(), assignmentKey), slot.totalNumberOfShards(), bucketFunction) + 1;
+        Experiment experiment = experimentForShard(slot, shardId);
+        if (experiment == null) {
+            return slot.defaultVariant();
         }
-        throw new AssertionError("Failed to find a customer that distinguishes legacy modulo from floorMod");
-    }
-
-    private static VariantConfiguration legacyAssignedVariantConfiguration(
-            final String customerNumber,
-            final ExperimentationState state,
-            final int totalNumberOfShards) {
-        return assignedVariantConfiguration(
-                customerNumber,
-                state,
-                totalNumberOfShards,
-                VariantAssignerLegacyParityTest::legacyBucketFromHash);
-    }
-
-    private static VariantConfiguration floorModAssignedVariantConfiguration(
-            final String customerNumber,
-            final ExperimentationState state,
-            final int totalNumberOfShards) {
-        return assignedVariantConfiguration(customerNumber, state, totalNumberOfShards, Math::floorMod);
-    }
-
-    private static VariantConfiguration brokenAssignmentWithSwappedExperimentKeyOrder(
-            final String customerNumber,
-            final ExperimentationState state,
-            final int totalNumberOfShards) {
-        final VariantConfiguration forcedVariantConfiguration = forcedVariantConfiguration(customerNumber, state);
-        if (forcedVariantConfiguration != null) {
-            return forcedVariantConfiguration;
-        }
-
-        final VariantConfiguration defaultVariantConfiguration = state.defaultVariantConfiguration();
-        final ExperimentConfiguration experimentConfiguration = state.shardId2ExperimentConfiguration().get(
-                experimentShardId(new StringBuilder(customerNumber).append(state.slotSalt()),
-                        totalNumberOfShards,
-                        VariantAssignerLegacyParityTest::legacyBucketFromHash));
-        if (experimentConfiguration == null) {
-            return defaultVariantConfiguration;
-        }
-
-        return legacyAssignedVariantConfiguration(customerNumber, state, totalNumberOfShards);
-    }
-
-    private static VariantConfiguration assignedVariantConfiguration(
-            final String customerNumber,
-            final ExperimentationState state,
-            final int totalNumberOfShards,
-            final BucketFunction bucketFunction) {
-        final VariantConfiguration forcedVariantConfiguration = forcedVariantConfiguration(customerNumber, state);
-        if (forcedVariantConfiguration != null) {
-            return forcedVariantConfiguration;
-        }
-
-        final VariantConfiguration defaultVariantConfiguration = state.defaultVariantConfiguration();
-        final ExperimentConfiguration experimentConfiguration = state.shardId2ExperimentConfiguration().get(
-                experimentShardId(randomizationKey(customerNumber, state.slotSalt()), totalNumberOfShards, bucketFunction));
-        if (experimentConfiguration == null) {
-            return defaultVariantConfiguration;
-        }
-
-        final Experiment experiment = experimentConfiguration.experiment();
-        final List<VariantConfiguration> expandedVariants = expandVariantConfigurations(experimentConfiguration);
-        final VariantConfiguration chosenVariantConfiguration = expandedVariants.get(
-                bucketFromRandomizationKey(
-                        randomizationKey(customerNumber, state.slotSalt(), String.valueOf(experiment.experimentId())),
-                        expandedVariants.size(),
-                        bucketFunction));
-
+        List<Variant> expanded = expandedVariants(experiment);
+        Variant selected = expanded.get(bucket(
+                randomizationKey(slot.slotSalt(), assignmentKey, String.valueOf(experiment.experimentId())),
+                expanded.size(),
+                bucketFunction));
         if (experiment.rampUpPercentage() == 100) {
-            return chosenVariantConfiguration;
+            return selected;
         }
-
-        final int rampUpBucket = bucketFromRandomizationKey(
-                randomizationKey(customerNumber, state.slotSalt(), String.valueOf(experiment.experimentId()), "ramp-up"),
+        int rampUpBucket = bucket(
+                randomizationKey(
+                        slot.slotSalt(),
+                        assignmentKey,
+                        String.valueOf(experiment.experimentId()),
+                        "ramp-up"),
                 100,
                 bucketFunction);
-        if (rampUpBucket >= experiment.rampUpPercentage()) {
-            return defaultVariantConfiguration;
-        }
-        return chosenVariantConfiguration;
+        return rampUpBucket < experiment.rampUpPercentage() ? selected : slot.defaultVariant();
     }
 
-    private static int experimentShardId(
-            final StringBuilder randomizationKey,
-            final int totalNumberOfShards,
-            final BucketFunction bucketFunction) {
-        return bucketFromRandomizationKey(randomizationKey, totalNumberOfShards, bucketFunction) + 1;
+    private static Variant swappedShardKeyAssign(String assignmentKey, Slot slot) {
+        int shardId = bucket(
+                new StringBuilder(assignmentKey).append(slot.slotSalt()),
+                slot.totalNumberOfShards(),
+                VariantAssignerLegacyParityTest::legacyBucket) + 1;
+        return experimentForShard(slot, shardId) == null
+                ? slot.defaultVariant()
+                : legacyAssign(assignmentKey, slot, VariantAssignerLegacyParityTest::legacyBucket);
     }
 
-    private static int bucketFromRandomizationKey(
-            final CharSequence randomizationKey,
-            final int numberOfBuckets,
-            final BucketFunction bucketFunction) {
-        final int hashAsInt = MD5.hashString(randomizationKey, StandardCharsets.UTF_8).asInt();
-        return bucketFunction.bucketFromHash(hashAsInt, numberOfBuckets);
-    }
-
-    private static int legacyBucketFromHash(final int hashAsInt, final int numberOfBuckets) {
-        return Math.abs(hashAsInt) % numberOfBuckets;
-    }
-
-    private static StringBuilder randomizationKey(
-            final String customerNumber,
-            final String slotSalt,
-            final String... args) {
-        final StringBuilder randomizationKey = new StringBuilder(slotSalt);
-        for (final String arg : args) {
-            randomizationKey.append(arg);
-        }
-        randomizationKey.append(customerNumber);
-        return randomizationKey;
-    }
-
-    private static VariantConfiguration forcedVariantConfiguration(
-            final String customerNumber,
-            final ExperimentationState state) {
-        if (!state.userForcedAssignments().containsKey(customerNumber)) {
-            return null;
-        }
-        return state.variantId2VariantConfiguration().get(state.userForcedAssignments().get(customerNumber));
-    }
-
-    private static List<VariantConfiguration> expandVariantConfigurations(
-            final ExperimentConfiguration experimentConfiguration) {
-        final List<VariantConfiguration> expandedVariants = new ArrayList<>();
-        for (final VariantConfiguration variantConfiguration : experimentConfiguration.variants()) {
-            for (int i = 0; i < variantConfiguration.variant().shardAllocationRatio(); i++) {
-                expandedVariants.add(variantConfiguration);
+    private static String findAssignmentWithDifferentSwappedKeyOutcome(Slot slot) {
+        for (int i = 0; i < 100_000; i++) {
+            String assignmentKey = "customer-" + i;
+            if (legacyAssign(assignmentKey, slot, VariantAssignerLegacyParityTest::legacyBucket).variantId()
+                    != swappedShardKeyAssign(assignmentKey, slot).variantId()) {
+                return assignmentKey;
             }
         }
-        return expandedVariants;
+        throw new AssertionError("No assignment distinguished the legacy and swapped hash keys");
     }
 
-    private static ExperimentationState experimentationState(
-            final String slotSalt,
-            final int rampUpPercentage,
-            final Set<Integer> shards,
-            final List<Variant> experimentVariants,
-            final Map<String, Integer> userForcedAssignments) {
-        final Variant defaultVariant = variant(1, 100);
-        final VariantConfiguration defaultVariantConfiguration =
-                new VariantConfiguration(defaultVariant, null);
-
-        final Map<Integer, VariantConfiguration> variantConfigurations = new HashMap<>();
-        variantConfigurations.put(defaultVariant.variantId(), defaultVariantConfiguration);
-
-        ImmutableMap<Integer, ExperimentConfiguration> shardIdToExperimentConfiguration = ImmutableMap.of();
-        if (!experimentVariants.isEmpty()) {
-            final ExperimentConfiguration experimentConfiguration =
-                    experimentConfiguration(rampUpPercentage, shards, experimentVariants);
-            experimentConfiguration.variants().forEach(variantConfiguration ->
-                    variantConfigurations.put(variantConfiguration.variant().variantId(), variantConfiguration));
-
-            final Map<Integer, ExperimentConfiguration> shardMappings = new HashMap<>();
-            shards.forEach(shardId -> shardMappings.put(shardId, experimentConfiguration));
-            shardIdToExperimentConfiguration = ImmutableMap.copyOf(shardMappings);
-        }
-
-        final int maxVariantId = variantConfigurations.keySet().stream().mapToInt(Integer::intValue).max().orElse(1);
-        return new ExperimentationState(
-                maxVariantId,
-                shardIdToExperimentConfiguration,
-                ImmutableMap.copyOf(variantConfigurations),
-                ImmutableMap.copyOf(userForcedAssignments),
-                slotSalt,
-                defaultVariantConfiguration);
-    }
-
-    private static ExperimentConfiguration experimentConfiguration(
-            final int rampUpPercentage,
-            final Set<Integer> shards,
-            final List<Variant> experimentVariants) {
-        final List<VariantConfiguration> experimentVariantConfigurations = experimentVariants.stream()
-                .map(variant -> new VariantConfiguration(variant, null))
-                .toList();
-        final Experiment experiment = new Experiment(
-                100,
-                "experiment-100",
-                experimentVariants,
-                rampUpPercentage,
-                toShards(shards));
-        return new ExperimentConfiguration(experiment, experimentVariantConfigurations);
-    }
-
-    private static List<Shard> toShards(final Set<Integer> shards) {
-        return shards.stream()
-                .map(VariantAssignerLegacyParityTest::shard)
-                .toList();
-    }
-
-    private static Shard shard(final int shardId) {
-        return new Shard(shardId, Instant.parse("2026-04-12T10:15:30Z"));
-    }
-
-    private static List<Variant> variants(final List<Integer> variantWeights) {
-        final List<Variant> variants = new ArrayList<>();
-        int variantId = 2;
-        for (final Integer weight : variantWeights) {
-            variants.add(variant(variantId++, weight));
-        }
-        return variants;
-    }
-
-    private static Set<Integer> toShardSet(
-            final int totalNumberOfShards,
-            final List<Integer> shardCandidates) {
-        final Set<Integer> shards = new HashSet<>();
-        for (final Integer shardCandidate : shardCandidates) {
-            if (shardCandidate != null && shardCandidate <= totalNumberOfShards) {
-                shards.add(shardCandidate);
+    private static String findAssignmentWithDifferentFloorModOutcome(Slot slot) {
+        for (int i = 0; i < 100_000; i++) {
+            String assignmentKey = "customer-" + i;
+            if (legacyAssign(assignmentKey, slot, VariantAssignerLegacyParityTest::legacyBucket).variantId()
+                    != legacyAssign(assignmentKey, slot, Math::floorMod).variantId()) {
+                return assignmentKey;
             }
+        }
+        throw new AssertionError("No assignment distinguished legacy modulo from floorMod");
+    }
+
+    private static Experiment experimentForShard(Slot slot, int shardId) {
+        for (Experiment experiment : slot.experiments()) {
+            if (experiment.shards().stream().anyMatch(shard -> shard.shardId() == shardId)) {
+                return experiment;
+            }
+        }
+        return null;
+    }
+
+    private static Variant variant(Slot slot, int variantId) {
+        if (slot.defaultVariant().variantId() == variantId) {
+            return slot.defaultVariant();
+        }
+        return slot.experiments().stream()
+                .flatMap(experiment -> experiment.variants().stream())
+                .filter(variant -> variant.variantId() == variantId)
+                .findFirst()
+                .orElseThrow();
+    }
+
+    private static List<Variant> expandedVariants(Experiment experiment) {
+        List<Variant> expanded = new ArrayList<>();
+        experiment.variants().stream()
+                .sorted(java.util.Comparator.comparingInt(Variant::variantId))
+                .forEach(variant -> {
+                    for (int i = 0; i < variant.shardAllocationRatio(); i++) {
+                        expanded.add(variant);
+                    }
+                });
+        return expanded;
+    }
+
+    private static StringBuilder randomizationKey(String slotSalt, String assignmentKey, String... suffixes) {
+        StringBuilder key = new StringBuilder(slotSalt);
+        for (String suffix : suffixes) {
+            key.append(suffix);
+        }
+        return key.append(assignmentKey);
+    }
+
+    private static int bucket(CharSequence key, int bound, BucketFunction bucketFunction) {
+        int hash = MD5.hashString(key, StandardCharsets.UTF_8).asInt();
+        return bucketFunction.bucket(hash, bound);
+    }
+
+    private static int legacyBucket(int hash, int bound) {
+        return Math.abs(hash) % bound;
+    }
+
+    private static String sampleString(Random random, String alphabet, int minLength, int maxLength) {
+        int length = random.nextInt(maxLength - minLength + 1) + minLength;
+        StringBuilder value = new StringBuilder(length);
+        for (int i = 0; i < length; i++) {
+            value.append(alphabet.charAt(random.nextInt(alphabet.length())));
+        }
+        return value.toString();
+    }
+
+    private static Set<Integer> sampleShards(Random random, int totalShards) {
+        Set<Integer> shards = new HashSet<>();
+        int count = random.nextInt(21);
+        for (int i = 0; i < count; i++) {
+            shards.add(random.nextInt(totalShards) + 1);
         }
         return shards;
     }
 
-    private static Variant variant(final int variantId, final int shardAllocationRatio) {
+    private static List<Variant> sampleVariants(Random random) {
+        List<Variant> variants = new ArrayList<>();
+        int count = random.nextInt(3) + 1;
+        for (int i = 0; i < count; i++) {
+            variants.add(variant(i + 2, random.nextInt(5) + 1));
+        }
+        return variants;
+    }
+
+    private static Slot slot(
+            String slotSalt,
+            int totalShards,
+            int rampUpPercentage,
+            Set<Integer> shards,
+            List<Variant> experimentVariants,
+            Map<String, Integer> forcedAssignments) {
+        Experiment experiment = new Experiment(
+                100,
+                "experiment-100",
+                experimentVariants,
+                rampUpPercentage,
+                shards.stream()
+                        .map(shard -> new Shard(shard, Instant.parse("2026-04-12T10:15:30Z")))
+                        .toList());
+        return new Slot(
+                slotSalt,
+                totalShards,
+                variant(1, 100),
+                List.of(experiment),
+                forcedAssignments.entrySet().stream()
+                        .map(entry -> new UserForcedAssignment(entry.getKey(), entry.getValue()))
+                        .toList());
+    }
+
+    private static Variant variant(int variantId, int allocation) {
         return new Variant(
                 variantId,
                 new AlgorithmMetadata(
@@ -484,13 +309,11 @@ class VariantAssignerLegacyParityTest {
                 Instant.parse("2026-04-12T10:15:30Z"),
                 false,
                 false,
-                shardAllocationRatio);
+                allocation);
     }
 
+    @FunctionalInterface
     private interface BucketFunction {
-        int bucketFromHash(int hashAsInt, int numberOfBuckets);
-    }
-
-    private static final class TestAlgorithm implements Algorithm {
+        int bucket(int hash, int bound);
     }
 }

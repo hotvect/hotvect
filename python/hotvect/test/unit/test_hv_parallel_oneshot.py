@@ -9,11 +9,13 @@ from types import ModuleType, SimpleNamespace
 
 import pytest
 
+from hotvect.offline_source_manifest import StagedLegacyOneShotSource, StagedOfflineAlgorithmSource
+from hotvect.offline_task import DirectAlgorithmSource
+
 
 def _load_hv_module(monkeypatch):
     fake_hotvectjar = ModuleType("hotvect.hotvectjar")
     fake_hotvectjar.HOTVECT_JAR_PATH = Path("/tmp/offline.jar")
-    fake_hotvectjar.HOTVECT_ALGORITHM_SERVE_JAR_PATH = Path("/tmp/serve.jar")
     fake_hotvectjar.HOTVECT_ALGORITHM_DEMO_JAR_PATH = Path("/tmp/demo.jar")
     monkeypatch.setitem(sys.modules, "hotvect.hotvectjar", fake_hotvectjar)
     for parent in Path(__file__).resolve().parents:
@@ -49,7 +51,7 @@ def _base_args():
         instance_type="ml.c7i.4xlarge",
         volume_gb=None,
         max_runtime_seconds=None,
-        training_image=None,
+        training_image="registry.example/hotvect:10.49.0",
         source_s3_uri="s3://bucket/source/",
         parameter_s3_uri="s3://bucket/params.zip",
         job_parallelism=4,
@@ -65,9 +67,13 @@ def _base_args():
         workload_mode=None,
         log_features=False,
         verbose=False,
-        parallel_preuploaded_algorithm_jar_s3_uri=None,
+        parallel_preuploaded_offline_source=None,
         _jvm_args=[],
     )
+
+
+def _algorithm_source(args) -> DirectAlgorithmSource:
+    return DirectAlgorithmSource(Path(args.algorithm_jar), args.algorithm_name)
 
 
 def test_add_or_keep_source_channel_keeps_matching_template_channel(monkeypatch):
@@ -303,6 +309,7 @@ def test_parallel_runner_rejects_effective_predict_ordered_config(monkeypatch):
             task_kind_short="pred",
             command_name="predict",
             args=args,
+            algorithm_source=_algorithm_source(args),
         )
 
 
@@ -322,6 +329,7 @@ def test_parallel_runner_rejects_effective_encode_ordered_config(monkeypatch):
             task_kind_short="encode",
             command_name="encode",
             args=args,
+            algorithm_source=_algorithm_source(args),
         )
 
 
@@ -355,14 +363,16 @@ def test_submit_parallel_one_shot_sets_public_output_hyperparameters(monkeypatch
             return "hp-slug"
 
     class FakeExecutor:
-        def __init__(self, algorithm_pipeline, training_job_definition, role_arn_to_assume):
+        def __init__(self, training_job_definition, output_slug, role_arn_to_assume):
             captured["job_def"] = training_job_definition
+            captured["output_slug"] = output_slug
             captured["role_arn_to_assume"] = role_arn_to_assume
-            self.algorithm_pipeline = algorithm_pipeline
             self.hyperparameters = training_job_definition["HyperParameters"]
             self.training_job_name = training_job_definition["TrainingJobName"]
             self.hyperparameters.setdefault("s3_uri_result_file", "s3://bucket/output/result.json")
             self.hyperparameters.setdefault("s3_uri_metadata", "s3://bucket/output/meta/")
+            self.sagemaker_output_s3_path = "s3://bucket/output/parallel-job"
+            self.s3_client = object()
 
         def run(self):
             return {"TrainingJobArn": "arn:aws:sagemaker:job/demo"}
@@ -384,15 +394,24 @@ def test_submit_parallel_one_shot_sets_public_output_hyperparameters(monkeypatch
         ),
     )
     monkeypatch.setitem(sys.modules, "hotvect.evaluation.evaluation", SimpleNamespace(standard_evaluation=object()))
-    monkeypatch.setitem(sys.modules, "hotvect.sagemaker", SimpleNamespace(SagemakerTrainingExecutor=FakeExecutor))
+    monkeypatch.setitem(sys.modules, "hotvect.sagemaker", SimpleNamespace(OneShotSagemakerExecutor=FakeExecutor))
+    monkeypatch.setattr(
+        hv,
+        "stage_offline_algorithm_source",
+        lambda *_args, **kwargs: StagedOfflineAlgorithmSource(
+            manifest_s3_uri="s3://bucket/shared/offline-source/manifest.json",
+            parameter_s3_uri=kwargs["parameter_s3_uri"],
+        ),
+    )
     monkeypatch.setattr(hv, "resolve_template_path", lambda *_args, **_kwargs: SimpleNamespace(path=None))
-    monkeypatch.setattr(hv, "resolve_training_image", lambda **_kwargs: "training-image")
+    monkeypatch.setattr(hv, "resolve_training_image", lambda **_kwargs: "registry.example/hotvect:10.49.0")
     monkeypatch.setattr(hv, "build_one_shot_training_job_name", lambda **_kwargs: "parallel-job")
     monkeypatch.setattr(
         hv,
         "build_one_shot_effective_algorithm_definition",
         lambda *_args, **_kwargs: {
             "algorithm_name": "demo-algo",
+            "algorithm_version": "1.0.0",
             "hyperparameter_version": "hp-1",
         },
     )
@@ -415,7 +434,12 @@ def test_submit_parallel_one_shot_sets_public_output_hyperparameters(monkeypatch
     args.unordered = True
     args.writer_num_shards = 5
 
-    submission = hv._submit_one_shot_sagemaker_job(task="predict", task_kind_short="preds03", args=args)
+    submission = hv._submit_one_shot_sagemaker_job(
+        task="predict",
+        task_kind_short="preds03",
+        args=args,
+        algorithm_source=_algorithm_source(args),
+    )
 
     hp = captured["job_def"]["HyperParameters"]
     assert json.loads(hp["hotvect_task_output"]) == {
@@ -451,13 +475,15 @@ def test_submit_single_job_encode_defaults_to_ordered_hyperparameter(monkeypatch
             return "hp-slug"
 
     class FakeExecutor:
-        def __init__(self, algorithm_pipeline, training_job_definition, role_arn_to_assume):
+        def __init__(self, training_job_definition, output_slug, role_arn_to_assume):
+            del output_slug, role_arn_to_assume
             captured["job_def"] = training_job_definition
-            self.algorithm_pipeline = algorithm_pipeline
             self.hyperparameters = training_job_definition["HyperParameters"]
             self.training_job_name = training_job_definition["TrainingJobName"]
             self.hyperparameters.setdefault("s3_uri_result_file", "s3://bucket/output/result.json")
             self.hyperparameters.setdefault("s3_uri_metadata", "s3://bucket/output/meta/")
+            self.sagemaker_output_s3_path = "s3://bucket/output/encode-job"
+            self.s3_client = object()
 
         def run(self):
             return {"TrainingJobArn": "arn:aws:sagemaker:job/demo"}
@@ -477,15 +503,24 @@ def test_submit_single_job_encode_defaults_to_ordered_hyperparameter(monkeypatch
         ),
     )
     monkeypatch.setitem(sys.modules, "hotvect.evaluation.evaluation", SimpleNamespace(standard_evaluation=object()))
-    monkeypatch.setitem(sys.modules, "hotvect.sagemaker", SimpleNamespace(SagemakerTrainingExecutor=FakeExecutor))
+    monkeypatch.setitem(sys.modules, "hotvect.sagemaker", SimpleNamespace(OneShotSagemakerExecutor=FakeExecutor))
+    monkeypatch.setattr(
+        hv,
+        "stage_offline_algorithm_source",
+        lambda *_args, **kwargs: StagedOfflineAlgorithmSource(
+            manifest_s3_uri="s3://bucket/shared/offline-source/manifest.json",
+            parameter_s3_uri=kwargs["parameter_s3_uri"],
+        ),
+    )
     monkeypatch.setattr(hv, "resolve_template_path", lambda *_args, **_kwargs: SimpleNamespace(path=None))
-    monkeypatch.setattr(hv, "resolve_training_image", lambda **_kwargs: "training-image")
+    monkeypatch.setattr(hv, "resolve_training_image", lambda **_kwargs: "registry.example/hotvect:10.49.0")
     monkeypatch.setattr(hv, "build_one_shot_training_job_name", lambda **_kwargs: "encode-job")
     monkeypatch.setattr(
         hv,
         "build_one_shot_effective_algorithm_definition",
         lambda *_args, **_kwargs: {
             "algorithm_name": "demo-algo",
+            "algorithm_version": "1.0.0",
             "hyperparameter_version": "hp-1",
         },
     )
@@ -506,7 +541,12 @@ def test_submit_single_job_encode_defaults_to_ordered_hyperparameter(monkeypatch
     args.job_parallelism = 1
     args.compression = "none"
 
-    hv._submit_one_shot_sagemaker_job(task="encode", task_kind_short="encode", args=args)
+    hv._submit_one_shot_sagemaker_job(
+        task="encode",
+        task_kind_short="encode",
+        args=args,
+        algorithm_source=_algorithm_source(args),
+    )
 
     hp = captured["job_def"]["HyperParameters"]
     assert hp["hotvect_ordered"] == "true"
@@ -531,13 +571,15 @@ def test_submit_single_job_encode_respects_explicit_unordered_flag(monkeypatch, 
             return "hp-slug"
 
     class FakeExecutor:
-        def __init__(self, algorithm_pipeline, training_job_definition, role_arn_to_assume):
+        def __init__(self, training_job_definition, output_slug, role_arn_to_assume):
+            del output_slug, role_arn_to_assume
             captured["job_def"] = training_job_definition
-            self.algorithm_pipeline = algorithm_pipeline
             self.hyperparameters = training_job_definition["HyperParameters"]
             self.training_job_name = training_job_definition["TrainingJobName"]
             self.hyperparameters.setdefault("s3_uri_result_file", "s3://bucket/output/result.json")
             self.hyperparameters.setdefault("s3_uri_metadata", "s3://bucket/output/meta/")
+            self.sagemaker_output_s3_path = "s3://bucket/output/encode-job"
+            self.s3_client = object()
 
         def run(self):
             return {"TrainingJobArn": "arn:aws:sagemaker:job/demo"}
@@ -557,15 +599,24 @@ def test_submit_single_job_encode_respects_explicit_unordered_flag(monkeypatch, 
         ),
     )
     monkeypatch.setitem(sys.modules, "hotvect.evaluation.evaluation", SimpleNamespace(standard_evaluation=object()))
-    monkeypatch.setitem(sys.modules, "hotvect.sagemaker", SimpleNamespace(SagemakerTrainingExecutor=FakeExecutor))
+    monkeypatch.setitem(sys.modules, "hotvect.sagemaker", SimpleNamespace(OneShotSagemakerExecutor=FakeExecutor))
+    monkeypatch.setattr(
+        hv,
+        "stage_offline_algorithm_source",
+        lambda *_args, **kwargs: StagedOfflineAlgorithmSource(
+            manifest_s3_uri="s3://bucket/shared/offline-source/manifest.json",
+            parameter_s3_uri=kwargs["parameter_s3_uri"],
+        ),
+    )
     monkeypatch.setattr(hv, "resolve_template_path", lambda *_args, **_kwargs: SimpleNamespace(path=None))
-    monkeypatch.setattr(hv, "resolve_training_image", lambda **_kwargs: "training-image")
+    monkeypatch.setattr(hv, "resolve_training_image", lambda **_kwargs: "registry.example/hotvect:10.49.0")
     monkeypatch.setattr(hv, "build_one_shot_training_job_name", lambda **_kwargs: "encode-job")
     monkeypatch.setattr(
         hv,
         "build_one_shot_effective_algorithm_definition",
         lambda *_args, **_kwargs: {
             "algorithm_name": "demo-algo",
+            "algorithm_version": "1.0.0",
             "hyperparameter_version": "hp-1",
         },
     )
@@ -587,7 +638,12 @@ def test_submit_single_job_encode_respects_explicit_unordered_flag(monkeypatch, 
     args.compression = "none"
     args.unordered = True
 
-    hv._submit_one_shot_sagemaker_job(task="encode", task_kind_short="encode", args=args)
+    hv._submit_one_shot_sagemaker_job(
+        task="encode",
+        task_kind_short="encode",
+        args=args,
+        algorithm_source=_algorithm_source(args),
+    )
 
     hp = captured["job_def"]["HyperParameters"]
     assert hp["hotvect_unordered"] == "true"
@@ -595,7 +651,7 @@ def test_submit_single_job_encode_respects_explicit_unordered_flag(monkeypatch, 
     assert "hotvect_parallel_execution" not in hp
 
 
-def test_submit_parallel_one_shot_reuses_preuploaded_algorithm_jar(monkeypatch, tmp_path: Path):
+def test_submit_parallel_one_shot_reuses_preuploaded_offline_source(monkeypatch, tmp_path: Path):
     hv = _load_hv_module(monkeypatch)
     captured = {}
 
@@ -613,13 +669,15 @@ def test_submit_parallel_one_shot_reuses_preuploaded_algorithm_jar(monkeypatch, 
             return "hp-slug"
 
     class FakeExecutor:
-        def __init__(self, algorithm_pipeline, training_job_definition, role_arn_to_assume):
+        def __init__(self, training_job_definition, output_slug, role_arn_to_assume):
+            del output_slug, role_arn_to_assume
             captured["job_def"] = training_job_definition
-            self.algorithm_pipeline = algorithm_pipeline
             self.hyperparameters = training_job_definition["HyperParameters"]
             self.training_job_name = training_job_definition["TrainingJobName"]
             self.hyperparameters.setdefault("s3_uri_result_file", "s3://bucket/output/result.json")
             self.hyperparameters.setdefault("s3_uri_metadata", "s3://bucket/output/meta/")
+            self.sagemaker_output_s3_path = "s3://bucket/output/parallel-job"
+            self.s3_client = object()
 
         def run(self):
             return {"TrainingJobArn": "arn:aws:sagemaker:job/demo"}
@@ -639,15 +697,16 @@ def test_submit_parallel_one_shot_reuses_preuploaded_algorithm_jar(monkeypatch, 
         ),
     )
     monkeypatch.setitem(sys.modules, "hotvect.evaluation.evaluation", SimpleNamespace(standard_evaluation=object()))
-    monkeypatch.setitem(sys.modules, "hotvect.sagemaker", SimpleNamespace(SagemakerTrainingExecutor=FakeExecutor))
+    monkeypatch.setitem(sys.modules, "hotvect.sagemaker", SimpleNamespace(OneShotSagemakerExecutor=FakeExecutor))
     monkeypatch.setattr(hv, "resolve_template_path", lambda *_args, **_kwargs: SimpleNamespace(path=None))
-    monkeypatch.setattr(hv, "resolve_training_image", lambda **_kwargs: "training-image")
+    monkeypatch.setattr(hv, "resolve_training_image", lambda **_kwargs: "registry.example/hotvect:10.49.0")
     monkeypatch.setattr(hv, "build_one_shot_training_job_name", lambda **_kwargs: "parallel-job")
     monkeypatch.setattr(
         hv,
         "build_one_shot_effective_algorithm_definition",
         lambda *_args, **_kwargs: {
             "algorithm_name": "demo-algo",
+            "algorithm_version": "1.0.0",
             "hyperparameter_version": "hp-1",
         },
     )
@@ -664,12 +723,21 @@ def test_submit_parallel_one_shot_reuses_preuploaded_algorithm_jar(monkeypatch, 
 
     args = _base_args()
     args.algorithm_jar = tmp_path / "algo.jar"
-    args.parallel_preuploaded_algorithm_jar_s3_uri = "s3://bucket/shared/algo.jar"
+    args.parallel_preuploaded_offline_source = StagedOfflineAlgorithmSource(
+        manifest_s3_uri="s3://bucket/shared/offline-source/manifest.json",
+        parameter_s3_uri="s3://bucket/shared/parameters.zip",
+    )
 
-    hv._submit_one_shot_sagemaker_job(task="audit", task_kind_short="audis00", args=args)
+    hv._submit_one_shot_sagemaker_job(
+        task="audit",
+        task_kind_short="audis00",
+        args=args,
+        algorithm_source=_algorithm_source(args),
+    )
 
     hp = captured["job_def"]["HyperParameters"]
-    assert hp["s3_uri_algorithm_jar"] == "s3://bucket/shared/algo.jar"
+    assert hp["hotvect_offline_source_manifest_s3_uri"] == "s3://bucket/shared/offline-source/manifest.json"
+    assert hp["s3_uri_parameter_zip"] == "s3://bucket/shared/parameters.zip"
 
 
 def _install_parallel_runner_fakes(monkeypatch, hv):
@@ -693,6 +761,14 @@ def _install_parallel_runner_fakes(monkeypatch, hv):
 
     monkeypatch.setattr(hv, "create_session", lambda _assume_role_arn=None: FakeSession())
     monkeypatch.setattr(hv, "build_one_shot_effective_algorithm_definition", lambda **_kwargs: {})
+    monkeypatch.setattr(
+        hv,
+        "stage_offline_algorithm_source",
+        lambda *_args, **kwargs: StagedOfflineAlgorithmSource(
+            manifest_s3_uri="s3://bucket/managed/offline-source/manifest.json",
+            parameter_s3_uri=kwargs["parameter_s3_uri"],
+        ),
+    )
     monkeypatch.setattr(hv, "validate_parallel_dest_path_is_empty", lambda **_kwargs: None)
     monkeypatch.setattr(
         hv,
@@ -880,7 +956,8 @@ def test_parallel_runner_fails_before_submitting_when_source_preflight_finds_no_
             task="predict",
             task_kind_short="pred",
             command_name="predict",
-            args=_base_args(),
+            args=(args := _base_args()),
+            algorithm_source=_algorithm_source(args),
         )
 
     assert submitted is False
@@ -899,6 +976,7 @@ def test_parallel_runner_logs_verify_command_for_no_wait(monkeypatch, caplog):
             task_kind_short="pred",
             command_name="predict",
             args=args,
+            algorithm_source=_algorithm_source(args),
         )
 
     assert "To finalize the run later and write _SUCCESS, use:" in caplog.text
@@ -906,9 +984,20 @@ def test_parallel_runner_logs_verify_command_for_no_wait(monkeypatch, caplog):
     assert "--no-wait was set, so the command is exiting after submission." in caplog.text
 
 
-def test_parallel_runner_uploads_shared_algorithm_jar_via_standard_s3_upload(monkeypatch):
+def test_parallel_runner_stages_one_shared_offline_source_manifest(monkeypatch):
     hv = _load_hv_module(monkeypatch)
     _shard_plan, s3_client = _install_parallel_runner_fakes(monkeypatch, hv)
+    staged = {}
+
+    def _capture_stage(source, **kwargs):
+        staged["source"] = source
+        staged.update(kwargs)
+        return StagedOfflineAlgorithmSource(
+            manifest_s3_uri="s3://bucket/managed/offline-source/manifest.json",
+            parameter_s3_uri=kwargs["parameter_s3_uri"],
+        )
+
+    monkeypatch.setattr(hv, "stage_offline_algorithm_source", _capture_stage)
     monkeypatch.setattr(
         hv,
         "wait_for_parallel_manifest",
@@ -921,9 +1010,66 @@ def test_parallel_runner_uploads_shared_algorithm_jar_via_standard_s3_upload(mon
         task_kind_short="pred",
         command_name="predict",
         args=args,
+        algorithm_source=_algorithm_source(args),
     )
 
-    assert s3_client.uploads == [("algo.jar", "bucket", "managed/_parallel_oneshot_runs/run-123/algo.jar")]
+    assert staged["source"] == _algorithm_source(args)
+    assert staged["destination_prefix"] == "s3://bucket/managed/_parallel_oneshot_runs/run-123/offline-source"
+    assert staged["s3_client"] is s3_client
+
+
+def test_parallel_runner_stages_one_legacy_source_and_reuses_it_for_every_shard(monkeypatch):
+    hv = _load_hv_module(monkeypatch)
+    shard_plan, s3_client = _install_parallel_runner_fakes(monkeypatch, hv)
+    second_shard_plan = SimpleNamespace(**vars(shard_plan))
+    second_shard_plan.index = 1
+    monkeypatch.setattr(hv, "build_parallel_worker_plans", lambda **_kwargs: [shard_plan, second_shard_plan])
+    staged_source = StagedLegacyOneShotSource(
+        algorithm_jar_s3_uri="s3://bucket/shared/algorithm.jar",
+        algorithm_definition_s3_uri="s3://bucket/shared/effective-definition.json",
+        parameter_s3_uri="s3://bucket/shared/parameters.zip",
+    )
+    stage_calls = []
+
+    def _capture_stage(source, **kwargs):
+        stage_calls.append((source, kwargs))
+        return staged_source
+
+    monkeypatch.setattr(hv, "stage_legacy_one_shot_source", _capture_stage)
+    monkeypatch.setattr(
+        hv,
+        "stage_offline_algorithm_source",
+        lambda *_args, **_kwargs: pytest.fail("legacy images must not stage an offline-source manifest"),
+    )
+    submitted_sources = []
+
+    def _capture_submit(**kwargs):
+        shard_args = kwargs["args"]
+        submitted_sources.append(shard_args.parallel_preuploaded_legacy_one_shot_source)
+        assert shard_args.parallel_preuploaded_offline_source is None
+        return {"training_job_name": f"parallel-job-{shard_args.parallel_worker_index}"}
+
+    monkeypatch.setattr(hv, "_submit_one_shot_sagemaker_job", _capture_submit)
+    monkeypatch.setattr(
+        hv,
+        "wait_for_parallel_manifest",
+        lambda **_kwargs: {"complete": True, "success_marker_uri": "s3://bucket/out/_SUCCESS"},
+    )
+    args = _base_args()
+    args.training_image = "registry.example/hotvect:10.48.9"
+
+    hv._run_parallel_one_shot_sagemaker_job(
+        task="predict",
+        task_kind_short="pred",
+        command_name="predict",
+        args=args,
+        algorithm_source=_algorithm_source(args),
+    )
+
+    assert len(stage_calls) == 1
+    assert stage_calls[0][0] == _algorithm_source(args)
+    assert stage_calls[0][1]["s3_client"] is s3_client
+    assert submitted_sources == [staged_source, staged_source]
 
 
 def test_parallel_runner_logs_verify_command_while_waiting(monkeypatch, caplog):
@@ -943,6 +1089,7 @@ def test_parallel_runner_logs_verify_command_while_waiting(monkeypatch, caplog):
             task_kind_short="pred",
             command_name="predict",
             args=args,
+            algorithm_source=_algorithm_source(args),
         )
 
     assert "To finalize the run later and write _SUCCESS, use:" in caplog.text
@@ -967,6 +1114,14 @@ def test_parallel_runner_leaves_predict_unordered_by_default(monkeypatch):
 
     monkeypatch.setattr(hv, "create_session", lambda _assume_role_arn=None: FakeSession())
     monkeypatch.setattr(hv, "build_one_shot_effective_algorithm_definition", lambda **_kwargs: {})
+    monkeypatch.setattr(
+        hv,
+        "stage_offline_algorithm_source",
+        lambda *_args, **kwargs: StagedOfflineAlgorithmSource(
+            manifest_s3_uri="s3://bucket/managed/offline-source/manifest.json",
+            parameter_s3_uri=kwargs["parameter_s3_uri"],
+        ),
+    )
     monkeypatch.setattr(hv, "validate_parallel_dest_path_is_empty", lambda **_kwargs: None)
     monkeypatch.setattr(
         hv,
@@ -1059,6 +1214,7 @@ def test_parallel_runner_leaves_predict_unordered_by_default(monkeypatch):
         task_kind_short="pred",
         command_name="predict",
         args=args,
+        algorithm_source=_algorithm_source(args),
     )
 
     assert captured["ordered"] is False
@@ -1126,6 +1282,7 @@ def test_parallel_runner_logs_recovery_command_on_keyboard_interrupt(monkeypatch
                 task_kind_short="pred",
                 command_name="predict",
                 args=args,
+                algorithm_source=_algorithm_source(args),
             )
 
     assert "Local process interrupted. Remote SageMaker jobs keep running." in caplog.text
@@ -1150,4 +1307,5 @@ def test_encode_parallel_runner_defaults_compression_to_none_when_flag_absent(mo
         task_kind_short="encode",
         command_name="encode",
         args=args,
+        algorithm_source=_algorithm_source(args),
     )

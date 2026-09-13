@@ -48,7 +48,7 @@ launchers, or package layouts belong to that payload; Hotvect does not define th
 ## Decide whether script mode is appropriate
 
 Use regular SageMaker execution when the image already contains the runtime and dependencies you need. It is the
-supported `hv backtest` / `hv train` path and Hotvect owns the pipeline lifecycle.
+supported `hv algorithm backtest` / `hv algorithm train` path and Hotvect owns the pipeline lifecycle.
 
 Use script mode only when the job needs caller-controlled behavior before or instead of that lifecycle, for example
 installing a separately built runtime, running a custom UDF, or invoking a project-specific launcher. The payload is
@@ -68,7 +68,7 @@ cp custom.py payload/custom.py
 aws s3 cp custom-payload.zip s3://<bucket>/<prefix>/custom-payload.zip
 ```
 
-Add the URI as a job-definition fragment. With `hv backtest`, put this in an algorithm override JSON or in the
+Add the URI as a job-definition fragment. With `hv algorithm backtest`, put this in an algorithm override JSON or in the
 SageMaker template; Hotvect preserves the field while it adds the standard backtest hyperparameters.
 
 ```json
@@ -104,7 +104,7 @@ Do not invoke `python/bin/sagemaker-entrypoint` again: the unchanged `s3_uri_cus
 script mode again.
 
 The normal rebuilder requires `s3_uri_algorithm_jar` and `s3_uri_algorithm_definition`; the latter is required in v10,
-not an optional preference or a legacy `_algo_def_*` fallback. A standard `hv backtest` submission also supplies the
+not an optional preference or a legacy `_algo_def_*` fallback. A standard `hv algorithm backtest` submission also supplies the
 result, metadata, pipeline-parameter, and pipeline-context hyperparameters that the rebuilt pipeline uses. If your
 payload bypasses that rebuilder, it must define and implement its own result and metadata handling.
 

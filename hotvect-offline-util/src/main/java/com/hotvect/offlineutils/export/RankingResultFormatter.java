@@ -44,6 +44,7 @@ public class RankingResultFormatter<SHARED, ACTION, OUTCOME> implements BiFuncti
         this.includeFeatureStoreResponses = includeFeatureStoreResponses;
     }
 
+    /** A reward function is required only for examples carrying non-null outcomes. */
     @Override
     public Function<RankingExample<SHARED, ACTION, OUTCOME>, ByteBuffer> apply(RewardFunction<OUTCOME> rewardFunction, Ranker<SHARED, ACTION> ranker) {
         return ex -> {
@@ -97,6 +98,10 @@ public class RankingResultFormatter<SHARED, ACTION, OUTCOME> implements BiFuncti
                 }
                 Map<String, Object> outcomeAdditionalProperties = Collections.emptyMap();
                 if (outcome != null && outcome.outcome() != null) {
+                    if (rewardFunction == null) {
+                        throw new IllegalArgumentException("Cannot compute reward for example " + ex.exampleId()
+                                + ": reward_function_factory_classname is not configured");
+                    }
                     var reward = rewardFunction.applyAsDouble(outcome.outcome());
                     result.put("reward", reward);
                     outcomeAdditionalProperties = getAdditionalProperties(outcome.outcome());

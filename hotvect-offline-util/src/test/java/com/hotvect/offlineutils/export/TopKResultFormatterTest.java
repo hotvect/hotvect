@@ -8,14 +8,54 @@ import com.hotvect.api.data.topk.TopKExample;
 import com.hotvect.api.data.topk.TopKOutcome;
 import com.hotvect.api.data.topk.TopKResponse;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class TopKResultFormatterTest {
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void allowsMissingRewardFactoryForUnlabelledExamples(boolean themed) {
+        TopKResultFormatter<Void, String, Double> formatter = themed
+                ? new ThemedTopKResultFormatter<>() : new TopKResultFormatter<>();
+        var format = formatter.apply(null, themed ? themedTopKResponse() : constantTopKResponse());
+        for (List<TopKOutcome<Double, String>> outcomes : List.of(
+                List.<TopKOutcome<Double, String>>of(),
+                List.of(new TopKOutcome<Double, String>(TopKDecision.builder("a", "A").build(), null)))) {
+            var result = format.apply(new TopKExample<>("example_1",
+                    OfflineTopKRequest.newOfflineTopKRequest("example_1", null, null, 3), outcomes));
+            String json = new String(result.array(), StandardCharsets.UTF_8);
+            assertFalse(json.contains("\"reward\""));
+            assertTrue(json.contains("\"action_id\":\"a\""));
+            if (themed) {
+                assertTrue(json.contains("\"action_list_id\":\"theme_1\""));
+            }
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void rejectsLabelledExamplesWithoutARewardFactory(boolean themed) {
+        TopKResultFormatter<Void, String, Double> formatter = themed
+                ? new ThemedTopKResultFormatter<>() : new TopKResultFormatter<>();
+        var format = formatter.apply(null, themed ? themedTopKResponse() : constantTopKResponse());
+        var example = new TopKExample<Void, String, Double>("example_1",
+                OfflineTopKRequest.newOfflineTopKRequest("example_1", null, null, 3),
+                List.of(new TopKOutcome<>(TopKDecision.builder("a", "A").build(), 1.0)));
+
+        var failure = assertThrows(IllegalArgumentException.class, () -> format.apply(example));
+        assertTrue(failure.getMessage().contains("example_1"));
+        assertTrue(failure.getMessage().contains("reward_function_factory_classname is not configured"));
+    }
 
     @Test
     void given_missing_outcome_omits_reward() {
@@ -70,6 +110,25 @@ class TopKResultFormatterTest {
     }
 
     @Test
+    void themed_formatter_handles_null_metadata_from_builder() {
+        var formatter = new ThemedTopKResultFormatter<Void, String, Double>()
+                .apply(x -> x, themedTopKResponseWithNullMetadata());
+
+        var actual = formatter.apply(
+                new TopKExample<>(
+                        "example_1",
+                        OfflineTopKRequest.newOfflineTopKRequest("example_1", null, null, 2),
+                        List.of()
+                )
+        );
+
+        assertEquals(
+                "{\"example_id\":\"example_1\",\"action_list_id\":\"theme_1\",\"action_list_metadata\":{},\"result\":[{\"action_id\":\"a\",\"rank\":0,\"score\":0.9},{\"action_id\":\"b\",\"rank\":1,\"score\":0.8}]}\n",
+                new String(actual.array(), StandardCharsets.UTF_8)
+        );
+    }
+
+    @Test
     void given_null_outcome_omits_reward() {
         var formatter = new TopKResultFormatter<Void, String, Double>()
                 .apply(x -> {
@@ -112,5 +171,16 @@ class TopKResultFormatterTest {
                 ),
                 Map.of("slot", "hero")
         );
+    }
+
+    private static TopK<Void, String> themedTopKResponseWithNullMetadata() {
+        return request -> ThemedTopKResponse.<String>builder(
+                        "theme_1",
+                        List.of(
+                                TopKDecision.builder("a", "A").withScore(0.9).build(),
+                                TopKDecision.builder("b", "B").withScore(0.8).build()
+                        ))
+                .withActionListMetadata(null)
+                .build();
     }
 }

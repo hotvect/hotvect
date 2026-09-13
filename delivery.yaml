@@ -22,7 +22,7 @@ shared_vars: &SHARED_ENV
   UV_PUBLISH_URL: "https://example.com/pypi/internal/"
   UV_PUBLISH_USERNAME: "root"
   UV_PUBLISH_PASSWORD: ""
-  HOTVECT_VERSION: "10.43.2"
+  HOTVECT_VERSION: "11.0.2"
   IMAGE_NAME: &IMAGE_NAME "#{CDP_ZAPPR_TEAM}/hotvect"
 
 pipeline:
@@ -48,7 +48,12 @@ pipeline:
       - desc: "Run version upgrade checks"
         cmd: |
           # The script uses only builtin libraries so it can be run directly without uv
-          cd python && python scripts/check_versions.py ${HOTVECT_VERSION} ${CDP_TARGET_COMMIT_ID}
+          cd python
+          if [ "${CDP_TARGET_BRANCH}" = "v10" ]; then
+            python scripts/check_versions.py ${HOTVECT_VERSION} ${CDP_TARGET_COMMIT_ID}
+          else
+            python scripts/check_versions.py ${HOTVECT_VERSION}
+          fi
 
   - id: "check-linters-push"
     depends_on: []
@@ -92,9 +97,6 @@ pipeline:
       - desc: "Stash hotvect offline util jar so that python step can use it"
         cmd: |
           cdp-tool stash push snapshot-hotvect-offline-util-target hotvect-offline-util/target/*-jar-with-dependencies.jar
-      - desc: "Stash hotvect algorithm serve jar so that python step can use it"
-        cmd: |
-          cdp-tool stash push snapshot-hotvect-algorithm-serve-target hotvect-algorithm-serve/target/*-jar-with-dependencies.jar
       - desc: "Stash hotvect algorithm demo jar so that python step can use it"
         cmd: |
           cdp-tool stash push snapshot-hotvect-algorithm-demo-target hotvect-algorithm-demo/target/*-jar-with-dependencies.jar
@@ -158,10 +160,8 @@ pipeline:
           }
 
           copy_stashed_jars_to_target stashed/snapshot-hotvect-offline-util-target hotvect-offline-util/target
-          copy_stashed_jars_to_target stashed/snapshot-hotvect-algorithm-serve-target hotvect-algorithm-serve/target
           copy_stashed_jars_to_target stashed/snapshot-hotvect-algorithm-demo-target hotvect-algorithm-demo/target
           ls -la hotvect-offline-util/target/
-          ls -la hotvect-algorithm-serve/target/
           ls -la hotvect-algorithm-demo/target/
       - desc: "Runs unittests"
         cmd: |
@@ -220,11 +220,9 @@ pipeline:
           }
 
           copy_stashed_jars_to_target stashed/snapshot-hotvect-offline-util-target hotvect-offline-util/target
-          copy_stashed_jars_to_target stashed/snapshot-hotvect-algorithm-serve-target hotvect-algorithm-serve/target
           copy_stashed_jars_to_target stashed/snapshot-hotvect-algorithm-demo-target hotvect-algorithm-demo/target
 
           ls -la hotvect-offline-util/target/
-          ls -la hotvect-algorithm-serve/target/
           ls -la hotvect-algorithm-demo/target/
       - desc: "Verifies that building the docker image works and pushes to staging"
         cmd: |
@@ -288,7 +286,6 @@ pipeline:
           }
 
           copy_stashed_jars_to_target stashed/snapshot-hotvect-offline-util-target hotvect-offline-util/target
-          copy_stashed_jars_to_target stashed/snapshot-hotvect-algorithm-serve-target hotvect-algorithm-serve/target
           copy_stashed_jars_to_target stashed/snapshot-hotvect-algorithm-demo-target hotvect-algorithm-demo/target
       - desc: "Verify docker build"
         cmd: |
@@ -327,9 +324,6 @@ pipeline:
       - desc: "Stash hotvect offline util jar so that python step can use it"
         cmd: |
           cdp-tool stash push hotvect-offline-util-target hotvect-offline-util/target/*-jar-with-dependencies.jar
-      - desc: "Stash hotvect algorithm serve jar so that python step can use it"
-        cmd: |
-          cdp-tool stash push hotvect-algorithm-serve-target hotvect-algorithm-serve/target/*-jar-with-dependencies.jar
       - desc: "Stash hotvect algorithm demo jar so that python step can use it"
         cmd: |
           cdp-tool stash push hotvect-algorithm-demo-target hotvect-algorithm-demo/target/*-jar-with-dependencies.jar
@@ -356,10 +350,8 @@ pipeline:
         cmd: |
           cdp-tool stash pop stashed
           mv stashed/hotvect-offline-util-target hotvect-offline-util/target
-          mv stashed/hotvect-algorithm-serve-target hotvect-algorithm-serve/target
           mv stashed/hotvect-algorithm-demo-target hotvect-algorithm-demo/target
           ls hotvect-offline-util/target/*
-          ls hotvect-algorithm-serve/target/*
           ls hotvect-algorithm-demo/target/*
       - desc: Publishes the package to internal PyPI
         cmd: |
@@ -388,10 +380,8 @@ pipeline:
         cmd: |
           cdp-tool stash pop stashed
           mv stashed/hotvect-offline-util-target hotvect-offline-util/target
-          mv stashed/hotvect-algorithm-serve-target hotvect-algorithm-serve/target
           mv stashed/hotvect-algorithm-demo-target hotvect-algorithm-demo/target
           ls hotvect-offline-util/target/*
-          ls hotvect-algorithm-serve/target/*
           ls hotvect-algorithm-demo/target/*
       - desc: "Build and push base training image"
         cmd: |

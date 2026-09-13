@@ -33,7 +33,7 @@ owns.
 ## Training and artifacts
 
 ```bash
-hv train \
+hv algorithm train \
   --algorithm-name example-ranker \
   --algorithm-jar /path/to/example-ranker.jar \
   --data-base-dir /path/to/data \
@@ -44,13 +44,13 @@ hv train \
 Hotvect recursively prepares dependencies before the parent continues. A dependency may train, generate state, reuse
 pinned parameters, or do no parameter work; read `result.json` instead of assuming every child trained.
 
-For `hv train`, inspect:
+For `hv algorithm train`, inspect:
 
 ```text
 <output-base-dir>/metadata/<algorithm-id>/<parameter-version>/result.json
 ```
 
-For `hv backtest`, the corresponding metadata root is `meta`. Parent and child runs each have their own algorithm and
+For `hv algorithm backtest`, the corresponding metadata root is `meta`. Parent and child runs each have their own algorithm and
 parameter-version directory.
 
 ## Override a child through the parent
@@ -98,7 +98,7 @@ This affects data requirements:
 - parent test data remains separate;
 - each dependency resolves its dates from the shared `last_test_time` and its own lag/window settings.
 
-Use `hv-ext data-dependency` with the same target and override as the planned run. See
+Use `hv data dependencies inspect` with the same target and override as the planned run. See
 [Data dependencies](../data-dependencies/index.md).
 
 ## Multiple children and deeper graphs
@@ -119,15 +119,17 @@ result as a dependency graph, not a fixed two-level tree.
 The parent packages or consumes dependency artifacts according to its algorithm factories. The presence of three
 children does not by itself define their order or data flow; that comes from the definitions and runtime wiring.
 
-!!! warning "Nested parameter artifacts"
-    A child can declare its own children, and those grandchildren are resolved recursively from the same parameter
-    ZIP. The current construction path nevertheless gives the nested composite factory itself an empty parameter map.
-    Do not make that nested composite depend on its own parameter files without verifying a changed loader path.
+Each private nested algorithm receives parameter streams from its own namespace in the parent graph's parameter ZIP.
+In online serving, every refresh selects the freshest available static-shared namespace by logical data date
+`last_test_time`, using `ran_at` to break ties between reruns of that date. The canonical code provider constructs one
+instance from that ZIP for every caller in the new generation; callers' parameter IDs never split it. A
+parameter-bearing shared namespace must include `last_test_time`, and a parameterized ZIP must package every node's
+files below that node's algorithm name.
 
 ## Failure checklist
 
 - Unknown dependency in an override: compare the key with the parent's embedded definition.
 - Missing child test data: check whether that child explicitly enables an evaluation stage.
 - Missing child artifact: inspect the child's nested entry in the parent `result.json`.
-- Nested composite parameter file not found: the current loader does not pass parameter streams to the nested
-  composite factory itself; move that state to a declared child or use a supported one-level boundary.
+- Nested composite parameter file not found: verify that the ZIP contains the file below the nested algorithm's own
+  namespace.
