@@ -49,7 +49,11 @@ def _validate_algorithm_definition_identity(result_dict: dict[str, Any], *, clai
         raise ValueError(f"result.json has invalid algorithm_definition.algorithm_version: {algorithm_version!r}")
 
     definition_algorithm_id = f"{algorithm_name.strip()}@{algorithm_version.strip()}"
-    if definition_algorithm_id != claimed_algorithm_id:
+    run_suffix_prefix = f"{definition_algorithm_id}-"
+    has_matching_base_identity = claimed_algorithm_id == definition_algorithm_id or (
+        claimed_algorithm_id.startswith(run_suffix_prefix) and len(claimed_algorithm_id) > len(run_suffix_prefix)
+    )
+    if not has_matching_base_identity:
         raise ValueError(
             f"result.json claims algorithm_id '{claimed_algorithm_id}' but "
             f"algorithm_definition implies '{definition_algorithm_id}'."

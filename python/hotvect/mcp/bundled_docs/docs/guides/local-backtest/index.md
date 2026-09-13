@@ -6,7 +6,7 @@ tags: [backtest, local, comparison, workflow]
 
 # Backtest an algorithm locally
 
-Use `hv backtest` to ask how one or more fixed source revisions behave on one or more historical test dates. A backtest
+Use `hv algorithm backtest` to ask how one or more fixed source revisions behave on one or more historical test dates. A backtest
 builds each revision, prepares its dependency graph, and records quality and system evidence from the enabled stages.
 
 ## You need
@@ -28,19 +28,19 @@ If no Hotvect config exists:
 
 ```bash
 test ! -e ~/.hotvect/config.json
-hv-ext config init \
+hv config init \
   --data-base-dir /path/to/data \
   --output-base-dir /path/to/default-output \
   --scratch-dir /path/to/default-scratch
 ```
 
-`hv-ext config init` refuses to overwrite an existing file. Inspect and edit that file; use `--force` only when replacing
+`hv config init` refuses to overwrite an existing file. Inspect and edit that file; use `--force` only when replacing
 the complete configuration is intentional.
 
 ## Run one fixed revision first
 
 ```bash
-hv backtest \
+hv algorithm backtest \
   --git-reference <git-reference> \
   --algo-repo-url /path/to/algorithm-checkout \
   --data-base-dir /path/to/data \
@@ -62,7 +62,7 @@ fixed performance contract later; performance numbers are not comparable merely 
 After one revision completes, add another fixed reference:
 
 ```bash
-hv backtest \
+hv algorithm backtest \
   --git-reference <baseline-reference> \
   --git-reference <candidate-reference> \
   --algo-repo-url /path/to/algorithm-checkout \
@@ -101,6 +101,7 @@ A failed reference makes the comparison incomplete. Do not summarize only the su
 ## Next
 
 - [Evaluation metrics and uncertainty](../../reference/evaluation-metrics/index.md) explains quality comparisons.
+- [Release QA validation](../hv-qa-release-validation/index.md) turns fixed control-versus-treatment backtests into a durable multi-stage release decision.
 - [Performance benchmarking](../performance-benchmarking/index.md) explains controlled latency and throughput claims.
 - [Score equivalence](../score-equivalence/index.md) is the narrower tool for behavior-preserving changes.
 - [Embed Hotvect in Java](../application-integration/index.md) covers the containing-application runtime after the

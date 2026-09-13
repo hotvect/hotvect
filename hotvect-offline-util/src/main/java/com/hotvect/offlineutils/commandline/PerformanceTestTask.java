@@ -40,6 +40,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Random;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -62,19 +63,21 @@ public class PerformanceTestTask<EXAMPLE extends Example<? extends OfflineReques
     protected Map<String, Object> perform() throws Exception {
         WorkloadMode workloadMode = resolveWorkloadMode(offlineTaskContext.options().performanceTestWorkloadMode);
         AlgorithmOfflineSupporterFactory algorithmSupporterFactory = new AlgorithmOfflineSupporterFactory(this.offlineTaskContext.classLoader());
-        AlgorithmInstanceFactory algoAlgorithmInstanceFactory = new AlgorithmInstanceFactory(
-                offlineTaskContext.classLoader(),
-                ExecutionContext.of(workloadMode, InputSemantic.OFFLINE),
-                false
-        );
         ExampleDecoder<EXAMPLE> decoder = algorithmSupporterFactory.getTestDecoder(offlineTaskContext.algorithmDefinition());
+        Optional<Path> localStateRoot = Optional.of(
+                Path.of(System.getProperty("java.io.tmpdir")).toAbsolutePath());
 
-
-        try (AlgorithmInstance<ALGO> algoAlgorithmInstance = algoAlgorithmInstanceFactory.load(
-                this.offlineTaskContext.algorithmDefinition(),
-                this.offlineTaskContext.options().parameters,
-                Map.of()
-        )) {
+        try (AlgorithmInstance<ALGO> algoAlgorithmInstance = new AlgorithmInstanceFactory(
+                     offlineTaskContext.classLoader(),
+                     ExecutionContext.of(workloadMode, InputSemantic.OFFLINE),
+                     false,
+                     localStateRoot
+             ).load(
+                     this.offlineTaskContext.algorithmDefinition(),
+                     this.offlineTaskContext.options().parameters,
+                     Map.of()
+             )) {
+            localStateRoot.ifPresent(path -> LOGGER.info("Using performance-test local state root: {}", path));
             LOGGER.info("Loaded AlgorithmInstance:{}", algoAlgorithmInstance);
             Options options = offlineTaskContext.options();
 

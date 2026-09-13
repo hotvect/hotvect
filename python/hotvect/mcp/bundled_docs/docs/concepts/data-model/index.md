@@ -150,4 +150,6 @@ must explicitly bridge that host dependency into its retriever; the Hotvect load
   request class is shared.
 
 Next, read [Feature computation](../feature-computation/index.md) to see how shared and action values become model
-features, or [Complete algorithms](../complete-algorithm/index.md) to place these types in the larger runtime contract.
+features, [Ranking and prediction contracts](../../reference/ranking-and-prediction-contracts/index.md) for exact
+ordering and output rules, or [Complete algorithms](../complete-algorithm/index.md) to place these types in the larger
+runtime contract.

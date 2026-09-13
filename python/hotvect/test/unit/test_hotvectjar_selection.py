@@ -47,3 +47,16 @@ def test_find_hotvect_jar_prefers_release_over_same_version_snapshot(tmp_path: P
 
     selected = find_hotvect_jar("hotvect-offline-util-*-jar-with-dependencies.jar", jar_dir=tmp_path)
     assert selected == release
+
+
+def test_find_hotvect_jar_allows_offline_util_env_override(tmp_path: Path, monkeypatch) -> None:
+    from hotvect.hotvectjar import find_hotvect_jar
+
+    bundled = tmp_path / "hotvect-offline-util-10.30.0-jar-with-dependencies.jar"
+    override = tmp_path / "hotvect-offline-util-10.14.1-jar-with-dependencies.jar"
+    bundled.touch()
+    override.touch()
+    monkeypatch.setenv("HOTVECT_OFFLINE_UTIL_JAR", str(override))
+
+    selected = find_hotvect_jar("hotvect-offline-util-*-jar-with-dependencies.jar", jar_dir=tmp_path)
+    assert selected == override

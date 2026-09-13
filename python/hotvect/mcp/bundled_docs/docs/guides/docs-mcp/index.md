@@ -2,13 +2,11 @@
 
 Hotvect ships a **documentation-only** MCP server. It is read-only: it can **search** and **read** the bundled Markdown docs, and expose a few prompt templates to help agents follow common runbooks.
 
-If you do **not** want MCP setup and only need local docs or prompt lookup, use the built-in CLI instead:
+If you do **not** want MCP setup and only need local docs lookup, use the built-in CLI instead:
 
 ```bash
 hv docs search "backtest"
 hv docs read reference/cli/index.md
-hv prompts list
-hv prompts read setup_config
 ```
 
 ## Protocol
@@ -179,13 +177,6 @@ This server also exposes high-signal runbook prompts (client support varies). Cu
 - `predict_score_equivalence_testing`
 - `ordered_backtest_with_pinned_parameters`
 - `online_offline_parity_investigation`
-
-The same prompt catalog is available without MCP via:
-
-```bash
-hv prompts list
-hv prompts read predict_score_equivalence_testing
-```
 
 ## Tips
 

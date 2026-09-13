@@ -86,6 +86,7 @@ public class ExperimentStateUpdater extends AbstractScheduledService {
 
     public void refreshStateOrThrow() throws Exception {
         synchronized (refreshLock) {
+            final long startNanos = System.nanoTime();
             final Slot slot = experimentManagementServiceClient.getDefaultVariantAndActiveExperiments(slotName);
             final int refreshedTotalNumberOfShards = slot.totalNumberOfShards();
             checkState(refreshedTotalNumberOfShards > 0,
@@ -99,7 +100,8 @@ public class ExperimentStateUpdater extends AbstractScheduledService {
             experimentationManagerState.set(newState);
             lastUpdated.set(Instant.now());
             lastFailure.set(null);
-            LOG.info("Completed updating state for slot {}.", slotName);
+            LOG.info("Completed updating state for slot {} in {} ms.",
+                    slotName, TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startNanos));
         }
     }
 

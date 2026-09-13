@@ -1,0 +1,67 @@
+{% import "partials/tabs-item.html" as item with context %}
+
+<nav class="md-tabs" aria-label="{{ lang.t('tabs') }}" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      {% for nav_item in nav %}
+        {% if nav_item.title in ["Build and run", "Validate and investigate", "Serve and integrate"] %}
+          {% set first = nav_item.children | first %}
+          {% set class = "md-tabs__item hv-tabs__item" %}
+          {% if nav_item.active %}
+            {% set class = class ~ " md-tabs__item--active" %}
+          {% endif %}
+          <li class="{{ class }}">
+            <a href="{{ first.url | url }}" class="md-tabs__link hv-tabs__trigger" aria-haspopup="true">
+              {{ nav_item.title }}
+              <span class="hv-tabs__chevron" aria-hidden="true"></span>
+            </a>
+            <div class="hv-tabs__menu">
+              {% if nav_item.title == "Build and run" %}
+                <a href="{{ 'components/algorithm-package/' | url }}" class="hv-tabs__menu-item">
+                  <strong>Algorithm SDK and packages</strong>
+                  <span>Implement, compose, and package complete algorithms</span>
+                </a>
+                <a href="{{ 'components/developer-tools/' | url }}" class="hv-tabs__menu-item">
+                  <strong>Developer tools</strong>
+                  <span>Run workflows and inspect results with the Hotvect tool suite</span>
+                </a>
+                <a href="{{ 'components/offline-workflow-runtime/' | url }}" class="hv-tabs__menu-item">
+                  <strong>Offline workflows</strong>
+                  <span>Train, predict, evaluate, and backtest locally or on SageMaker</span>
+                </a>
+              {% elif nav_item.title == "Validate and investigate" %}
+                <a href="{{ 'guides/feature-audits/' | url }}" class="hv-tabs__menu-item">
+                  <strong>Developer tools</strong>
+                  <span>Audit features, compare outputs, and reproduce behavior</span>
+                </a>
+                <a href="{{ 'reference/evaluation-metrics/' | url }}" class="hv-tabs__menu-item">
+                  <strong>Offline workflows</strong>
+                  <span>Evaluate quality, uncertainty, throughput, and regressions</span>
+                </a>
+                <a href="{{ 'guides/online-offline-parity/' | url }}" class="hv-tabs__menu-item">
+                  <strong>Online runtime integration</strong>
+                  <span>Investigate feature logging and online/offline parity</span>
+                </a>
+              {% else %}
+                <a href="{{ 'components/local-algorithm-server/' | url }}" class="hv-tabs__menu-item">
+                  <strong>Local algorithm server</strong>
+                  <span>Exercise a complete algorithm with <code>hv serve</code></span>
+                </a>
+                <a href="{{ 'architecture/online-runtime/' | url }}" class="hv-tabs__menu-item">
+                  <strong>Online runtime integration</strong>
+                  <span>Embed Hotvect inside the application that serves requests</span>
+                </a>
+                <a href="{{ 'components/experiment-management-service/' | url }}" class="hv-tabs__menu-item">
+                  <strong>Experiment management</strong>
+                  <span>Configure slots, assignment, ramp-ups, clients, and EMS deployment</span>
+                </a>
+              {% endif %}
+            </div>
+          </li>
+        {% else %}
+          {{ item.render(nav_item) }}
+        {% endif %}
+      {% endfor %}
+    </ul>
+  </div>
+</nav>

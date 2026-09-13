@@ -16,6 +16,7 @@ import java.lang.ref.WeakReference;
 import java.time.Instant;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -113,6 +114,7 @@ public class AlgorithmRepository {
     private AlgorithmInstance<?> downloadAlgorithmParameter(
         final AlgorithmMetadata algorithmMetadata) {
 
+        final long loadStartNanos = System.nanoTime();
         AlgorithmId algorithmId = algorithmMetadata.algorithmId();
         String algorithmParameterId = algorithmMetadata.latestAlgorithmParameter();
 
@@ -132,14 +134,15 @@ public class AlgorithmRepository {
                     " but file contained " + algorithmInstance.algorithmParameterMetadata().parameterId());
         }
 
+        final long loadDurationNanos = System.nanoTime() - loadStartNanos;
+        final String fullAlgorithmName =
+                String.format("%s@%s", algorithmId.algorithmName(), algorithmId.algorithmVersion());
         if (meterRegistry != null) {
-            String algorithmName = algorithmMetadata.algorithmId().algorithmName();
-            String algorithmVersion = algorithmMetadata.algorithmId().algorithmVersion();
-            String fullAlgorithmName = String.format("%s@%s", algorithmName, algorithmVersion);
             Tags tags = Tags.of(ALGORITHM_NAME_KEY, fullAlgorithmName, PARAMETER_ID_KEY, algorithmParameterId);
-
-            meterRegistry.gauge(ALGORITHM_METRICS_NAME,tags, algorithmInstance, this::emitAlgorithmAgeMetrics);
+            meterRegistry.gauge(ALGORITHM_METRICS_NAME, tags, algorithmInstance, this::emitAlgorithmAgeMetrics);
         }
+        LOG.info("Loaded algorithm {} parameter {} in {} ms",
+                fullAlgorithmName, algorithmParameterId, TimeUnit.NANOSECONDS.toMillis(loadDurationNanos));
         registerCleanup(algorithmInstance);
 
         return algorithmInstance;

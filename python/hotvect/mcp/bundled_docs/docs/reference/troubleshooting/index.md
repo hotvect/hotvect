@@ -17,8 +17,8 @@ understood.
 
 | Run | Primary metadata root |
 | --- | --- |
-| `hv train` | `<output-base-dir>/metadata/<algorithm-id>/<parameter-version>/` |
-| Local `hv backtest` | `<output-base-dir>/meta/<algorithm-id>/<parameter-version>/` |
+| `hv algorithm train` | `<output-base-dir>/metadata/<algorithm-id>/<parameter-version>/` |
+| Local `hv algorithm backtest` | `<output-base-dir>/meta/<algorithm-id>/<parameter-version>/` |
 | Java-backed one-shot command | The command's `--metadata-path` |
 | SageMaker job | CloudWatch `/aws/sagemaker/TrainingJobs` plus `s3_uri_metadata` and `s3_uri_result_file` |
 
@@ -104,21 +104,18 @@ The resource named by `algorithmDefinitionResource` must contain an array:
 
 ### Training partition not found
 
-Common causes are a mismatched `last_test_time`, lag/window setting, data prefix, or base directory. Resolve the plan
+Common causes are a mismatched `last_test_time`, lag/window setting, data prefix, or declared S3 URI. Resolve the plan
 with the same git reference, override, target, and date as the run:
 
 ```bash
-hv-ext data-dependency \
+hv data dependencies inspect --remote --local-dir /path/to/data \
   --repo-url <repo-or-local-path> \
   --git-reference <ref> \
-  --s3-base-dir s3://example-bucket/tables/ \
-  --local-data-dir /path/to/data \
   --scratch-dir /path/to/scratch \
   --last-test-time YYYY-MM-DD
 ```
 
-Then compare the plan with `/path/to/data/<data-prefix>/dt=YYYY-MM-DD/`. The default command lists; it does not
-download.
+Then compare the reported status with `/path/to/data/<data-prefix>/dt=YYYY-MM-DD/`. `inspect` does not download.
 
 ### Override references an unknown dependency
 
@@ -140,7 +137,7 @@ Use `-Xmx...` or `-XX:MaxRAMPercentage=...`, not both. Hotvect already supplies
 For a reproducible heap dump:
 
 ```bash
-hv train \
+hv algorithm train \
   --extra-jvm-args "-XX:+HeapDumpOnOutOfMemoryError,-XX:HeapDumpPath=/path/to/heap.hprof" \
   ...
 ```
@@ -153,11 +150,11 @@ hv train \
 lsof -nP -iTCP:<port> -sTCP:LISTEN
 ```
 
-Stop the existing listener or choose a different nonzero port. `hv serve` and `hv worker serve` reject port `0`.
+Stop the existing listener or choose a different nonzero port. `hv algorithm serve` and `hv worker serve` reject port `0`.
 
 ### Health check times out
 
-Read the startup output in the same terminal. For `hv serve`, increase `--startup-timeout-seconds` only after
+Read the startup output in the same terminal. For `hv algorithm serve`, increase `--startup-timeout-seconds` only after
 confirming the process is still making progress. For `hv worker serve`, inspect the selected scope's
 `startup_timeout_ms` and Python imports.
 
@@ -238,7 +235,7 @@ confirm the same algorithm cache key, `parameter_version`, and cache mode.
 
 The selected definition declares `requires_local_state_storage: true`, but the repository downloader was created
 without a local-state root. Configure the containing application with separate scratch and local-state roots and use
-the `AlgorithmDownloader` constructor that accepts both. The current `hv serve` modes do not expose this capability, so
+the `AlgorithmDownloader` constructor that accepts both. The current `hv algorithm serve` modes do not expose this capability, so
 use an application integration test for such an algorithm. Do not point the definition at scratch as an implicit
 fallback: runtime state has separate ownership and cleanup semantics.
 
@@ -259,8 +256,8 @@ silently repack an archive without proving the layout contract.
 Run both commands on a small identical source slice:
 
 ```bash
-hv audit ... --ordered --samples 100 --dest-path ./audit
-hv predict ... --ordered --samples 100 --dest-path ./predict
+hv algorithm audit ... --ordered --samples 100 --dest-path ./audit
+hv algorithm predict ... --ordered --samples 100 --dest-path ./predict
 ```
 
 If the audit differs, inspect transformation and namespace wiring. If the audit matches but prediction differs,
@@ -271,7 +268,7 @@ inspect parameter loading, scorer construction, and action identity.
 Record Java Flight Recorder data with an explicit output path:
 
 ```bash
-hv performance-test ... -- \
+hv algorithm performance-test ... -- \
   -XX:StartFlightRecording=filename=/path/to/profile.jfr,settings=profile
 ```
 

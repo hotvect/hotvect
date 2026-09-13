@@ -4,6 +4,7 @@ import os
 import pathlib
 import tarfile
 import tempfile
+import zipfile
 from datetime import date
 from unittest.mock import MagicMock, patch
 
@@ -24,6 +25,7 @@ from hotvect.utils import (
     safe_extract_tar_archive,
     store_file,
     to_local_paths,
+    to_zip_archive,
 )
 
 
@@ -100,6 +102,21 @@ def test_recommend_s3_directory_transfer_workers(num_files, available_logical_co
     assert actual == expected
 
 
+def test_to_zip_archive_clamps_pre_1980_file_timestamp(tmp_path, monkeypatch):
+    source = tmp_path / "model.parameter"
+    source.write_bytes(b"model")
+    os.utime(source, (0, 0))
+    destination = tmp_path / "parameters.zip"
+    monkeypatch.setattr(utils, "_has_7z", lambda: False)
+
+    utils.to_zip_archive([(str(source), "model.parameter")], str(destination))
+
+    with zipfile.ZipFile(destination) as archive:
+        entry = archive.getinfo("model.parameter")
+        assert archive.read("model.parameter") == b"model"
+        assert entry.date_time == (1980, 1, 1, 0, 0, 0)
+
+
 def create_dt_directory(base: pathlib.Path, dirname: str) -> str:
     """
     Helper function which creates a directory named 'dirname' under the base path.
@@ -155,6 +172,24 @@ def test_regex_with_hypothesis(tmp_path_factory, year, month, day, sep):
     # Run the main function and check that we get exactly the directory we created.
     result = to_local_paths(str(test_dir), requested)
     assert result == [created_dir]
+
+
+def test_to_zip_archive_removes_partial_7z_output_before_fallback(monkeypatch, tmp_path):
+    source = tmp_path / "source.txt"
+    source.write_text("final content", encoding="utf-8")
+    dest = tmp_path / "archive.zip"
+
+    def fail_after_partial_write(_to_archive, partial_dest):
+        pathlib.Path(partial_dest).write_text("partial 7z output", encoding="utf-8")
+        raise RuntimeError("7z failed")
+
+    monkeypatch.setattr(utils, "_has_7z", lambda: True)
+    monkeypatch.setattr(utils, "_to_zip_archive_with_7z", fail_after_partial_write)
+
+    to_zip_archive([(str(source), "source.txt")], str(dest))
+
+    with zipfile.ZipFile(dest, "r") as zip_file:
+        assert zip_file.read("source.txt").decode("utf-8") == "final content"
 
 
 # Tests for store_file() function

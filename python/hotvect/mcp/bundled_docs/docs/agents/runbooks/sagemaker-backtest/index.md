@@ -1,10 +1,10 @@
 ---
 title: Runbook - SageMaker backtest
-description: Copy/paste runbook for `hv backtest` on SageMaker with S3-backed cache
+description: Copy/paste runbook for `hv algorithm backtest` on SageMaker with S3-backed cache
 tags: [agents, runbook, sagemaker, backtest, caching]
 ---
 
-# Runbook: SageMaker backtest (`hv backtest --sagemaker`)
+# Runbook: SageMaker backtest (`hv algorithm backtest --sagemaker`)
 
 Submit a SageMaker backtest with an explicit job prefix, then validate the local submission manifest, job state, and
 remote artifacts.
@@ -13,7 +13,7 @@ remote artifacts.
 
 | Inputs | Command | Artifacts | Verify |
 | --- | --- | --- | --- |
-| Algorithm repo/ref, SageMaker template or template-free settings, job prefix, test date | `hv backtest --sagemaker` | Local submission manifest/status, SageMaker job names, S3 metadata | Submission exits `0`; every job reaches a terminal successful state before comparing results |
+| Algorithm repo/ref, SageMaker template or template-free settings, job prefix, test date | `hv algorithm backtest --sagemaker` | Local submission manifest/status, SageMaker job names, S3 metadata | Submission exits `0`; every job reaches a terminal successful state before comparing results |
 
 Use a template for a repeatable job definition. Template-free mode additionally requires `--role-arn`,
 `--s3-output-base`, and `--instance-type`.
@@ -40,7 +40,7 @@ Use a template for a repeatable job definition. Template-free mode additionally 
 ## Submit job
 
 ```bash
-hv backtest \
+hv algorithm backtest \
   --git-reference "$GIT_REF" \
   --algo-repo-url "$ALGO_REPO_URL" \
   --output-base-dir "$OUTPUT_BASE_DIR" \

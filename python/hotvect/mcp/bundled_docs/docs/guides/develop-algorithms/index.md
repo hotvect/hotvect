@@ -152,7 +152,7 @@ the learned model and `algorithm-parameters.json` into a parameter package. At r
 behavior and the parameter package supplies the selected learned state. Those packages are currently a JAR and ZIP.
 
 The current surfaces differ for parameterless algorithms: direct `AlgorithmInstanceFactory` loading can omit a ZIP,
-while `AlgorithmRepository` and local `hv serve` require a parameter identity or path. The local tutorial uses a
+while `AlgorithmRepository` and local `hv algorithm serve` require a parameter identity or path. The local tutorial uses a
 metadata-only ZIP for that reason. Do not add an artificial model merely to satisfy one host surface.
 
 ## 7. Test from the inside out
@@ -163,7 +163,7 @@ Use failures that identify one boundary at a time:
 2. Test decoding with a small synthetic record.
 3. Build the algorithm package and verify the definition resource is inside its JAR.
 4. Load the exact algorithm and parameter packages intended for the next environment.
-5. Exercise a supported bounded runtime: local `hv serve` for the minimal policy-only ranker, or audit/predict when
+5. Exercise a supported bounded runtime: local `hv algorithm serve` for the minimal policy-only ranker, or audit/predict when
    the definition declares the transformer and reward contracts those tasks require.
 6. Train or backtest one fixed date before expanding the range.
 7. Evaluate quality, parity, and performance as separate claims.

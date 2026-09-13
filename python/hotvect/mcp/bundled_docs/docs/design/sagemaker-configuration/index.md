@@ -118,7 +118,7 @@ An override remains a partial algorithm-definition patch:
 Attach overrides in the same positional order as repeated git references:
 
 ```bash
-hv backtest \
+hv algorithm backtest \
   --git-reference v2.0.0 \
   --git-reference v1.0.0 \
   --algorithm-override overrides/v2.json \

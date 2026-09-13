@@ -5,7 +5,7 @@ tags: [caching, backtest, sagemaker, optimization, parameters]
 difficulty: intermediate
 estimated_time: 20 minutes
 prerequisites:
-  - Able to run `hv backtest` locally or on SageMaker
+  - Able to run `hv algorithm backtest` locally or on SageMaker
   - S3 access configured (if using `s3://...` cache paths)
 related_docs:
   - ../reuse-outputs/index.md
@@ -97,12 +97,14 @@ When the encode partition cache is enabled, Hotvect also stores reusable date pa
 ```
 
 Those partitions are intentionally not nested under `parameter_version`, so adjacent moving training windows can reuse
-overlapping training dates. Hotvect reads a partition cache only after the partition-level `_SUCCESS` marker is valid;
-writers publish that marker after the encoded data and schema have been written. The marker is JSON with a format
-version, partition date, relative encoded/schema paths, and creation timestamp. Writers also create `_STARTED` before
-encoding/publishing a missed partition. `_STARTED` records the writer process details and acts as a partition write
-claim; if another run sees a started-but-not-successful partition, it warns, does not reuse it, and does not overwrite
-it. The current run re-encodes the partition locally.
+overlapping training dates. A partition-level `_SUCCESS` marker is the publication contract: writers publish it only after
+the encoded data and schema. Hotvect encodes all cache misses for one pipeline invocation in one Java process, reusing
+the initialized decoder, encoder, and feature dependencies across date partitions. After every output is validated,
+the writer creates `_STARTED` as an exclusive claim before publishing each partition. Marker contents carry no additional
+contract: `_STARTED` and `_SUCCESS` existence is sufficient.
+If another run sees a started-but-not-successful partition, it does not reuse or overwrite it. A normal run re-encodes
+that partition locally without publishing it. An `encode-cache` prewarm reports it as blocked without doing throwaway
+encoding, and the backtest launcher stops before submitting normal jobs.
 
 ## Cache sharing across algorithm versions: `cache_scope`
 
@@ -117,7 +119,7 @@ Notes:
 - For `major`/`minor`, Hotvect expects `algorithm_version` to be semver-like, for example `1.2.3`, `v1.2.3`, or `1.2.3-SNAPSHOT`.
 - Use `--cache-refresh` when experimenting with code changes while keeping the same `algorithm_version` string and using run-level cache.
 
-## Option 1 (recommended): `hv backtest --cache` / `hv train --cache`
+## Option 1 (recommended): `hv algorithm backtest --cache` / `hv algorithm train --cache`
 
 The `hv` CLI provides cache flags for both **backtest** and **train**:
 
@@ -127,7 +129,7 @@ The `hv` CLI provides cache flags for both **backtest** and **train**:
 
 Example (SageMaker; recommended):
 ```bash
-hv backtest \
+hv algorithm backtest \
   --git-reference v1.1.0 \
   --algo-repo-url https://github.com/example-org/example-algorithm.git \
   --output-base-dir /tmp/out \
@@ -143,7 +145,7 @@ hv backtest \
 
 Example (local execution; local cache path):
 ```bash
-hv backtest \
+hv algorithm backtest \
   --git-reference main \
   --algo-repo-url https://github.com/example-org/example-algorithm.git \
   --data-base-dir /data \
@@ -154,9 +156,9 @@ hv backtest \
   --cache-scope hyperparam
 ```
 
-Example (local `hv train`; local cache path):
+Example (local `hv algorithm train`; local cache path):
 ```bash
-hv train \
+hv algorithm train \
   --algorithm-name my-algorithm \
   --algorithm-jar /path/to/my-algorithm.jar \
   --data-base-dir /data \
@@ -191,7 +193,7 @@ Example:
 ```
 
 Root-level `cache` is the default policy for cacheable stages:
-- omitted: with `cache_base_dir`, use run-level caches and enable encode partition cache for date-windowed training
+- omitted: with `cache_base_dir`, use run-level caches
 - `true`: same default policy as omitted
 - `false`: disable caching even when `cache_base_dir` is set
 - `"run"`: use only run-level caches
@@ -208,7 +210,7 @@ Each cacheable step supports:
 
 For `encode.cache`, the values are:
 - omitted: inherit the root-level `cache` policy
-- `true`: use both the run-level encode cache and the encode partition cache
+- `true`: use the run-level encode cache
 - `"run"`: use only the run-level encode cache
 - `"partition"`: use only the encode partition cache
 - `false`: disable encode caching
@@ -230,25 +232,44 @@ Example:
 
 Partition mode applies to date-windowed training definitions with `number_of_training_days`; the training data root is
 `train_data_spec.data_prefix` when set, otherwise `train/`. It keeps training and later stages unchanged. Hotvect reuses
-or creates per-`dt` encoded partitions under `partitions/encode/dt=YYYY-MM-DD/` and assembles the normal `encoded/`
-directory from those partitions. In SageMaker, when cached partitions already exist in S3, Hotvect mounts each partition
-cache root `<cache_base>/<algorithm_key>/partitions/` as a FastFile input channel, including the common case where
-partition-cache encoders are dependencies of a parent algorithm. Encode then reads from the mounted
-`encode/dt=YYYY-MM-DD/` path that belongs to the current algorithm cache root. It writes newly missed date partitions
-back to the partition cache after claiming the partition with `_STARTED`, with the JSON `_SUCCESS` marker written last
-so partial partition writes are not reused. If a partition path already contains incomplete content or an invalid marker,
-Hotvect treats it as dirty, skips publishing to that partition cache path, and continues with the locally encoded
-partition for the current run. Partition identity is the algorithm cache root and partition `dt`; run-level parameters
-and debug metadata remain in the normal `algorithm-parameters.json` package. When only partition mode is active
-(`encode.cache="partition"`), Hotvect does not write an assembled full-window encode cache for every moving window.
+or creates per-`dt` encoded partitions under `partitions/encode/dt=YYYY-MM-DD/`. The normal `encoded/` training path is
+a partitioned dataset root whose children are the selected dates:
 
-The `"run"` and `"partition"` values are reserved encode cache modes. Other string values keep the existing
-explicit-path cache behavior.
+```
+encoded/
+  dt=2000-02-15 -> <partition-cache>/dt=2000-02-15/encoded
+  dt=2000-02-16 -> <partition-cache>/dt=2000-02-16/encoded
+```
 
-When both encode caches are enabled, either by setting `cache_base_dir`, root `cache=true`, or `encode.cache=true`,
-Hotvect first checks the run-level encode cache under `runs/<parameter_version>/encode/`. If that exact-window cache is
-missing and the training definition is partitionable, it uses the encode partition cache and writes the assembled
-full-window encode output back to the run-level cache.
+Hotvect does not list, flatten, or rename the encoded files. Their original names, extensions, and nested directories
+remain intact, so training readers must discover supported files recursively. Readers that accept multiple files can
+consume the FastFile-backed paths directly; readers such as CatBoost that require one file merge the recursively
+discovered inputs into training scratch.
+
+In SageMaker, Hotvect mounts `<cache_base>/<algorithm_key>/partitions/encode/` as a FastFile input channel, including
+the common case where partition-cache encoders are dependencies of a parent algorithm. Each date link then targets the
+mounted `dt=YYYY-MM-DD/encoded/` directory for that algorithm cache root. Hotvect writes newly missed date partitions
+back to the partition cache after the shared encode process succeeds, claiming each partition with `_STARTED` immediately
+before publication and writing `_SUCCESS` last so partial partition writes are not reused. If a partition path already
+contains incomplete content without `_SUCCESS`, Hotvect treats it as dirty and skips publishing to that partition cache
+path. Partition identity is the algorithm cache
+root and partition `dt`; run-level parameters and debug metadata remain in the normal `algorithm-parameters.json`
+package. Partition identity is intentionally controlled by the algorithm cache key: algorithm name, configured
+`cache_scope`, algorithm version, and where applicable `hyperparameter_version`. Reusing an identity across source
+revisions or data environments is an explicit user decision. Partition mode does not write a full-window encode cache
+for every moving window.
+
+Partition reuse intentionally accepts an encode parameter set that was valid for a relevant backtest window, even when
+another requested window would have produced different parameters. A pipeline whose own parameters are pinned with
+`with_parameter` is not prewarmed, and Hotvect does not descend into dependencies already bundled in that archive.
+Consequently, use partition caching only when encoding a partition with a different valid encoding-parameter package
+still produces data suitable for every sharing window. If package construction depends on the complete backtest window,
+run-specific data, or input ordering, independently encoding the partition can produce different data. This is a
+property of partition caching itself; `--prewarm` only creates the same cache entries before the normal backtest jobs.
+
+The `"run"` and `"partition"` values are mutually exclusive reserved encode cache modes. Other string values keep the
+existing explicit-path cache behavior. Backtest prewarm explicitly selects partition mode for encode while other stages
+continue to inherit the root cache policy.
 
 For composite algorithms, the child algorithm that owns the encode/train stages uses the inherited cache settings. If
 the top-level algorithm only wraps child models, top-level `hotvect_execution_parameters.cache_base_dir` and

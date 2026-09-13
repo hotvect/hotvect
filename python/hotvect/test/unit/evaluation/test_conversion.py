@@ -78,6 +78,45 @@ def test_extract_evaluation_rejects_contradictory_algorithm_definition_identity(
         )
 
 
+def test_extract_evaluation_preserves_run_suffix_with_matching_base_identity():
+    result = extract_evaluation(
+        {
+            "algorithm_id": "algo@1.0.0-3day-hv10.12.0",
+            "test_data_time": "2000-01-01",
+            "algorithm_definition": {
+                "algorithm_name": "algo",
+                "algorithm_version": "1.0.0",
+            },
+            "evaluate": {
+                "roc_auc": {"value": 0.81},
+            },
+        }
+    )
+
+    assert result is not None
+    assert result["algorithm_id"] == "algo@1.0.0-3day-hv10.12.0"
+
+
+def test_extract_evaluation_rejects_empty_run_suffix():
+    with pytest.raises(
+        ValueError,
+        match=("result.json claims algorithm_id 'algo@1.0.0-' but " "algorithm_definition implies 'algo@1.0.0'"),
+    ):
+        extract_evaluation(
+            {
+                "algorithm_id": "algo@1.0.0-",
+                "test_data_time": "2000-01-01",
+                "algorithm_definition": {
+                    "algorithm_name": "algo",
+                    "algorithm_version": "1.0.0",
+                },
+                "evaluate": {
+                    "roc_auc": {"value": 0.81},
+                },
+            }
+        )
+
+
 def test_repack_metrics():
     metrics = [
         MetricEvaluationResult(

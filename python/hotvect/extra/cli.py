@@ -6,7 +6,6 @@ import sys
 
 from hotvect.extra.commands import (
     CatBoostConvertCommand,
-    CompareEquivalenceCommand,
     ConfigCommand,
     DataDependencyCommand,
     JsonlCompareCommand,
@@ -15,8 +14,16 @@ from hotvect.extra.commands import (
     ShowDataDependencyCommand,
 )
 
+_CANONICAL_REPLACEMENTS = {
+    "metrics": "hv metrics",
+    "config": "hv config",
+    "results": "hv results",
+    "data-dependency": "hv data dependencies inspect or hv data dependencies download",
+    "show-data-dependency": "hv data dependencies inspect --remote --format sagemaker",
+}
 
-def main():
+
+def main(argv: list[str] | None = None):
     """Main entry point for hv-ext CLI."""
     # Configure logging to show INFO messages from build utilities
     # This makes git clone and Maven build progress visible to users
@@ -24,12 +31,20 @@ def main():
         level=logging.INFO,
         format="%(message)s",  # Simple format without timestamps for CLI
     )
+    argv = list(sys.argv[1:] if argv is None else argv)
+    replacement = _CANONICAL_REPLACEMENTS.get(argv[0]) if argv else None
+    if replacement:
+        print(f"Warning: 'hv-ext {argv[0]}' is deprecated; use '{replacement}'.", file=sys.stderr)
 
     parser = argparse.ArgumentParser(
         prog="hv-ext",
-        description="Extended utilities for hotvect ML operations",
+        description="Compatibility entrypoint for migrated Hotvect utilities and retained low-level extensions",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
+`hv-ext metrics`, `config`, `results`, `data-dependency`, and `show-data-dependency` remain available for
+existing scripts but print a warning with their canonical `hv` replacement. `hv-ext compare-jsonl` and
+`hv-ext catboost-convert` are retained low-level extension commands.
+
 Examples:
   # Metrics utilities (quality/system)
   hv-ext metrics compare-quality control.json treatment.json
@@ -41,10 +56,6 @@ Examples:
   # Compare JSONL files
   hv-ext compare-jsonl file1.jsonl file2.jsonl
   hv-ext compare-jsonl file1.jsonl file2.jsonl -c renamings.json
-
-  # Compare predict score/rank equivalence
-  hv-ext compare-equivalence baseline.predict/part-00000.jsonl treatment.predict/part-00000.jsonl
-  hv-ext compare-equivalence baseline.predict/part-00000.jsonl treatment.predict/part-00000.jsonl --allow-non-deterministic-tie-breaking
 
   # List/download result.json runs (local meta dir or s3:// prefix)
   hv-ext results ls s3://example-bucket/path/ --from-date "2026-02-15" --to-date "2026-02-15" --algorithm-name-regex "example-algorithm" --algorithm-version-regex "74\\.4\\..*" --job-name-regex "example-job-.*"
@@ -72,17 +83,16 @@ Use 'hv-ext <command> -h' to see help for each command.
     CatBoostConvertCommand.register_parser(subparsers)
     ConfigCommand.register_parser(subparsers)
     JsonlCompareCommand.register_parser(subparsers)
-    CompareEquivalenceCommand.register_parser(subparsers)
     DataDependencyCommand.register_parser(subparsers)
     ShowDataDependencyCommand.register_parser(subparsers)
     ResultsCommand.register_parser(subparsers)
 
     # Parse arguments
-    if len(sys.argv) == 1:
+    if not argv:
         parser.print_help()
         sys.exit(0)
 
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     # Execute command
     if args.command == "metrics":
@@ -93,8 +103,6 @@ Use 'hv-ext <command> -h' to see help for each command.
         ConfigCommand().execute(args)
     elif args.command == "compare-jsonl":
         JsonlCompareCommand().execute(args)
-    elif args.command == "compare-equivalence":
-        CompareEquivalenceCommand().execute(args)
     elif args.command == "data-dependency":
         DataDependencyCommand().execute(args)
     elif args.command == "show-data-dependency":

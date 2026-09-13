@@ -38,7 +38,7 @@ For an offline pipeline, start with:
 - top-level `predict`, `evaluate`, and `performance_test`.
 
 `prepare_dependencies` already includes nested dependency work. Do not add it to the nested timings again. Use the
-Pipeline Performance breakdown from `hv-ext metrics plot` when a dependency graph makes manual aggregation ambiguous.
+Pipeline Performance breakdown from `hv metrics plot` when a dependency graph makes manual aggregation ambiguous.
 
 For inference, separate:
 

@@ -14,12 +14,12 @@ code.
 
 | Inputs | Command | Artifact | Verify |
 | --- | --- | --- | --- |
-| JAR, algorithm name, override JSON | `hv train` or `hv backtest --algorithm-override` | `effective_algorithm_definition.json` under metadata | The effective definition contains only the intended changes |
+| JAR, algorithm name, override JSON | `hv algorithm train` or `hv algorithm backtest --algorithm-override` | `effective_algorithm_definition.json` under metadata | The effective definition contains only the intended changes |
 
 ## Identity rule
 
 An override must not be a full definition. Do **not** include `algorithm_name`; the CLI rejects it before merging.
-Do not try to change `algorithm_version` either—`hv backtest` rejects identity changes. Select a different JAR/ref
+Do not try to change `algorithm_version` either—`hv algorithm backtest` rejects identity changes. Select a different JAR/ref
 when the algorithm identity must change.
 
 ## Merge rules
@@ -61,7 +61,7 @@ when the algorithm identity must change.
 Apply the fragment:
 
 ```bash
-hv train \
+hv algorithm train \
   --algorithm-name my-algorithm \
   --algorithm-jar algorithm.jar \
   --algorithm-override /path/to/override.json \

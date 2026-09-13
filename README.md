@@ -1,6 +1,6 @@
 # Hotvect
 
-**Build the decision system. Run it from training to serving.**
+**Build complete algorithms. Run them from training to serving.**
 
 Hotvect is an application framework and runtime for the code around developer-chosen ML libraries. Use CatBoost,
 TensorFlow, PyTorch, or custom ML code for the model; Hotvect connects it to typed request handling, feature
@@ -34,8 +34,8 @@ Hotvect currently provides:
 - integration with CatBoost, TensorFlow, managed Python workers, and algorithm-owned custom runtimes;
 - local and SageMaker train, audit, predict, evaluate, performance-test, and backtest workflows;
 - dynamic algorithm-package and parameter-package loading for containing Java applications;
-- optional read integration with an external Experiment Management Service for refreshed slot state and local variant
-  assignment;
+- optional integration with a separately deployed Experiment Management Service (EMS) for refreshed slot state,
+  release metadata, and local variant assignment;
 - local HTTP and browser debugging surfaces.
 
 ## Start here
@@ -81,9 +81,10 @@ inspect definition and factories
   → expand only after the bounded proof succeeds
 ```
 
-Use `hv --help`, `hv-ext --help`, and the
-[CLI reference](python/hotvect/mcp/bundled_docs/docs/reference/cli/index.md) for exact commands. `hv serve` and
-`hv worker serve` are local debugging tools; production use embeds the online runtime in a containing application.
+Use `hv --help` and the [CLI reference](python/hotvect/mcp/bundled_docs/docs/reference/cli/index.md) for exact
+commands. New algorithm commands use `hv algorithm <operation>` (for example, `hv algorithm backtest`); `hv serve`
+and the older direct algorithm commands remain available temporarily and print a migration warning. `hv algorithm serve`
+and `hv worker serve` are local debugging tools; production use embeds the online runtime in a containing application.
 
 ## Project boundaries
 
@@ -93,7 +94,8 @@ decision algorithm. It does not replace:
 - a general data or job scheduler;
 - a feature store or artifact registry;
 - a model library;
-- the external EMS control-plane server, release governance, or production monitoring;
+- an EMS deployment's database, identity-provider adapter, artifact-publication workflow, release governance, or
+  production monitoring;
 - the HTTP, event, authentication, and traffic layers of a serving application.
 
 Those systems can surround Hotvect or satisfy explicit algorithm dependencies while keeping their own operational

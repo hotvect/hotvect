@@ -56,7 +56,21 @@ public abstract class Task extends VerboseCallable<Map<String, Object>> {
 
     @Override
     protected Map<String, Object> doCall() throws Exception {
-        LOGGER.info("Running {} from {} to {}", this.getClass().getSimpleName(), offlineTaskContext.options().sourceFiles, offlineTaskContext.options().destinationFile);
+        boolean mappingsMode = !offlineTaskContext.options().sourceDestMappings.isEmpty();
+        if (!mappingsMode) {
+            LOGGER.info(
+                    "Running {} from {} to {}",
+                    this.getClass().getSimpleName(),
+                    offlineTaskContext.options().sourceFiles,
+                    offlineTaskContext.options().destinationFile
+            );
+        } else {
+            LOGGER.info(
+                    "Running {} with {} source/destination mapping(s)",
+                    this.getClass().getSimpleName(),
+                    offlineTaskContext.options().sourceDestMappings.size()
+            );
+        }
 
         MemoryMXBean memBean = ManagementFactory.getMemoryMXBean();
         AtomicLong maxHeapMemoryUsage = new AtomicLong();
@@ -80,7 +94,9 @@ public abstract class Task extends VerboseCallable<Map<String, Object>> {
             if(offlineTaskContext.options().destinationFile != null){
                 metadata.put("destination_file", offlineTaskContext.options().destinationFile.toString());
             }
-            metadata.put("source_file", offlineTaskContext.options().sourceFiles.toString());
+            if (!mappingsMode) {
+                metadata.put("source_file", offlineTaskContext.options().sourceFiles.toString());
+            }
             metadata.put("algorithm_name", offlineTaskContext.algorithmDefinition().algorithmId().algorithmName());
             metadata.put("algorithm_version", offlineTaskContext.algorithmDefinition().algorithmId().algorithmVersion());
             metadata.put("algorithm_definition", offlineTaskContext.algorithmDefinition().toString());

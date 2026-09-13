@@ -2,9 +2,9 @@
 
 Hotvect supports fan-out execution for one-shot SageMaker commands:
 
-- `hv audit --sagemaker`
-- `hv predict --sagemaker`
-- `hv encode --sagemaker`
+- `hv algorithm audit --sagemaker`
+- `hv algorithm predict --sagemaker`
+- `hv algorithm encode --sagemaker`
 
 This mode is intended for batch workloads where splitting one large input into multiple SageMaker jobs reduces total wall-clock time.
 
@@ -50,7 +50,7 @@ Hotvect stores:
 ### Default: submit, wait, and finalize
 
 ```bash
-hv predict \
+hv algorithm predict \
   --sagemaker \
   --algorithm-jar my-algo.jar \
   --algorithm-name my-algo \
@@ -73,7 +73,7 @@ If the local process is interrupted, the remote SageMaker jobs continue running.
 ### Submit and exit immediately
 
 ```bash
-hv predict \
+hv algorithm predict \
   --sagemaker \
   --no-wait \
   --algorithm-jar my-algo.jar \
@@ -98,7 +98,7 @@ In this mode Hotvect:
 Later, run:
 
 ```bash
-hv predict \
+hv algorithm predict \
   --sagemaker \
   --verify \
   --dest-path s3://example-bucket/output/predict/dt=2000-02-01/ \
@@ -129,8 +129,8 @@ Allowed values:
 Examples:
 
 ```bash
-hv predict ... --job-parallelism 8 --compression gzip
-hv audit --parameter-s3-uri s3://example-bucket/params.zip ... --job-parallelism 4 --compression none
+hv algorithm predict ... --job-parallelism 8 --compression gzip
+hv algorithm audit --parameter-s3-uri s3://example-bucket/params.zip ... --job-parallelism 4 --compression none
 ```
 
 `encode` does not support `--compression`.

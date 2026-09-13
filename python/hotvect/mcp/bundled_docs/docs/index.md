@@ -1,6 +1,6 @@
 ---
 title: Hotvect
-description: Build versioned decision systems from request handling, features, models, and selection rules; run them from training through real-time or batch execution.
+description: Build and operate complete search, retrieval, and recommendation algorithms from feature retrieval and model training through evaluation, serving, and experimentation.
 hide:
   - navigation
   - toc
@@ -18,11 +18,11 @@ hide:
     <div class="hv-hero__copy">
       <a class="hv-announcement" href="whats-new/v10/">
         <span class="hv-announcement__badge">Hotvect 10</span>
-        <span>Decision systems, from training to serving</span>
+        <span>Search and recommendation, from training to serving</span>
         <span aria-hidden="true">→</span>
       </a>
-      <h1>Build the decision system. <span>Run it from training to serving.</span></h1>
-      <p class="hv-hero__lead">Hotvect lets you implement request handling, feature computation, model integration, reusable components, and ranking or selection logic as one versioned algorithm. Use CatBoost, TensorFlow, PyTorch, etc., or integrate another ML library; Hotvect keeps the implementation, configuration, and parameters connected across offline training and evaluation and application serving.</p>
+      <h1>Build the whole retrieval and ranking algorithm. <span>Run it from training to serving.</span></h1>
+      <p class="hv-hero__lead">Hotvect is an end-to-end framework for search, retrieval, recommendation, and browsing. It brings candidate and feature retrieval, feature computation, model training and inference, ranking, selection, exploration, and business rules into one versioned algorithm. Use CatBoost, TensorFlow, PyTorch, etc., or integrate another ML library; Hotvect keeps configuration, model artifacts, evaluation evidence, application serving, and experiment variants connected across the lifecycle.</p>
       <div class="hv-hero__actions">
         <a class="hv-action hv-action--primary" href="guides/first-run/">Run the product example <span aria-hidden="true">→</span></a>
         <a class="hv-action hv-action--secondary" href="concepts/">Understand Hotvect</a>
@@ -30,9 +30,9 @@ hide:
       <a class="hv-hero__agent-link" href="agents/">Using a coding agent? Open the exact interfaces and runbooks →</a>
     </div>
 
-    <div class="hv-workflow-panel" aria-label="Hotvect connects offline preparation to online execution through algorithm and parameter packages">
+    <div class="hv-workflow-panel" aria-label="Hotvect connects training, evaluation, and online search or recommendation execution through versioned algorithm and parameter packages">
       <div class="hv-workflow-panel__bar">
-        <span><i></i> one decision system</span>
+        <span><i></i> one search or recommendation algorithm</span>
         <strong>offline → online</strong>
       </div>
       <div class="hv-workflow-panel__body">
@@ -74,9 +74,9 @@ hide:
 
 <section class="hv-band hv-proof">
   <div class="hv-band__inner hv-proof__grid">
-    <div><strong>Complete decision system</strong><span>versioned executable unit</span></div>
-    <div><strong>Reusable components</strong><span>declared dependencies</span></div>
-    <div><strong>Offline + online</strong><span>one versioned system</span></div>
+    <div><strong>End-to-end lifecycle</strong><span>build · train · evaluate · serve</span></div>
+    <div><strong>Features + models</strong><span>retrieve · compute · integrate</span></div>
+    <div><strong>Evaluation + experiments</strong><span>compare · release · observe</span></div>
     <div><strong>Bring your ML library</strong><span>CatBoost · TensorFlow · PyTorch · etc.</span></div>
   </div>
 </section>
@@ -84,22 +84,22 @@ hide:
 <section class="hv-band hv-section">
   <div class="hv-band__inner hv-split">
     <div class="hv-section__copy">
-      <div class="hv-eyebrow">The unit is a decision system</div>
-      <h2>Package decision logic as a complete system—not just a model endpoint.</h2>
-      <p>In Hotvect, a decision system is called an <strong>algorithm</strong>. It can combine request decoding, feature computation, child algorithms, model inference, and the rule that ranks or selects a result. Its <strong>algorithm package</strong> contains the implementation and definition; an optional <strong>parameter package</strong> carries trained models or generated runtime data.</p>
+      <div class="hv-eyebrow">The unit is the complete algorithm</div>
+      <h2>Package the whole retrieval and ranking path—not just a model endpoint.</h2>
+      <p>A Hotvect <strong>algorithm</strong> can combine request decoding, candidate and feature retrieval, feature computation, child algorithms, model inference, ranking, selection, exploration, and business rules. Its <strong>algorithm package</strong> contains the implementation and definition; an optional <strong>parameter package</strong> carries trained models or generated runtime data. The APIs describe this more generally as a decision algorithm.</p>
       <p>The public Java/JVM interfaces define how an application calls an algorithm. Model work does not have to stay in the JVM: developer-defined training commands can use the chosen Python ML stack, while inference connects through built-in or algorithm-owned runtime integrations.</p>
       <ul class="hv-check-list">
         <li>Choose an input/output interface: rank items, score candidates, or select a Top K.</li>
         <li>Connect child algorithms through declared dependencies.</li>
         <li>Keep implementation separate from trained or generated state while preserving one public interface.</li>
       </ul>
-      <a class="hv-text-link" href="concepts/">Explore the decision-system model →</a>
+      <a class="hv-text-link" href="concepts/">Explore the complete algorithm model →</a>
     </div>
 
     <div class="hv-code-card" aria-label="Selected fields from the example product scorer definition">
       <div class="hv-code-card__bar"><span>example-product-scorer-algorithm-definition.json</span><span>ABBREVIATED</span></div>
       <pre><code>{
-  <span class="hv-code-accent">"hotvect_version"</span>: "10.43.1",
+  <span class="hv-code-accent">"hotvect_version"</span>: "10.44.11",
   <span class="hv-code-accent">"algorithm_name"</span>: "example-product-scorer",
   <span class="hv-code-accent">"algorithm_version"</span>: "1.2.3",
   <span class="hv-code-accent">"decoder_factory_classname"</span>: "com.hotvect.example.product.ProductRankingDecoderFactory",
@@ -137,28 +137,40 @@ hide:
 <section class="hv-band hv-section hv-section--tint">
   <div class="hv-band__inner">
     <div class="hv-section-heading">
-      <div class="hv-eyebrow">Designed around the work</div>
-      <h2>Choose the path that matches your job.</h2>
-      <p>Hotvect gives decision-system developers, researchers, and platform engineers different entry points into the same executable system.</p>
+      <div class="hv-eyebrow">One framework, five component areas</div>
+      <h2>Start with the surface you are operating.</h2>
+      <p>Each component has a distinct role and ownership boundary. The phase navigation connects them around the work.</p>
     </div>
     <div class="hv-audience-grid">
-      <a class="hv-audience-card" href="guides/develop-algorithms/">
+      <a class="hv-audience-card" href="components/algorithm-package/">
         <span class="hv-card-index">01</span>
-        <h3>Decision-system developers</h3>
-        <p>Combine features, reusable components, inference, and selection rules behind one public interface.</p>
-        <strong>Develop a decision system →</strong>
+        <h3>Algorithm SDK and packages</h3>
+        <p>Implement complete algorithms and package their definitions, code, dependencies, and runtime contract.</p>
+        <strong>Build algorithms →</strong>
       </a>
-      <a class="hv-audience-card" href="guides/serve-and-integrate/">
+      <a class="hv-audience-card" href="components/developer-tools/">
         <span class="hv-card-index">02</span>
-        <h3>ML platform engineers</h3>
-        <p>Integrate Java/JVM and Python execution, load versioned packages, and operate local or remote workflows.</p>
-        <strong>Serve and integrate →</strong>
+        <h3>Developer tools</h3>
+        <p>Run workflows, inspect results and experiment state, and debug a loaded algorithm locally.</p>
+        <strong>Choose a tool →</strong>
       </a>
-      <a class="hv-audience-card" href="guides/validate-and-investigate/">
+      <a class="hv-audience-card" href="components/offline-workflow-runtime/">
         <span class="hv-card-index">03</span>
-        <h3>Applied researchers</h3>
-        <p>Train, backtest, compare, and investigate changes while retaining the packages and outputs behind a result.</p>
-        <strong>Validate and investigate →</strong>
+        <h3>Offline workflows</h3>
+        <p>Generate state, train, predict, evaluate, and backtest locally or on managed batch compute.</p>
+        <strong>Run offline →</strong>
+      </a>
+      <a class="hv-audience-card" href="architecture/online-runtime/">
+        <span class="hv-card-index">04</span>
+        <h3>Online runtime integration</h3>
+        <p>Embed Hotvect in a serving application to load, select, and execute released algorithms.</p>
+        <strong>Integrate online →</strong>
+      </a>
+      <a class="hv-audience-card" href="components/experiment-management-service/">
+        <span class="hv-card-index">05</span>
+        <h3>Experiment management</h3>
+        <p>Deploy and operate EMS, manage slots and experiments, and control deterministic traffic assignment.</p>
+        <strong>Manage experiments →</strong>
       </a>
     </div>
   </div>
@@ -168,7 +180,7 @@ hide:
   <div class="hv-band__inner">
     <div class="hv-section-heading">
       <div class="hv-eyebrow">One system from training to serving</div>
-      <h2>Change the decision system without losing its context.</h2>
+      <h2>Change the algorithm without losing its context.</h2>
       <p>The useful unit is not only a model. Hotvect keeps component connections, effective configuration, saved state, selected runtime identity, and evaluation outputs connected as the system evolves.</p>
     </div>
     <div class="hv-capability-grid">
@@ -239,7 +251,7 @@ hide:
       <a class="hv-text-link" href="concepts/configuration-and-experimentation/">Understand configuration and experimentation →</a>
       <div class="hv-boundary-note">
         <strong>Current boundary</strong>
-        <p>Hotvect currently integrates with an external experiment control plane. Bringing that control plane into Hotvect is the direction, not a capability of the current release.</p>
+        <p>Hotvect integrates with a separately deployed EMS control plane for experiment metadata, configuration, and assignment. The server implementation, PostgreSQL, OAuth integration, artifact publication, and operations remain in the owning EMS service.</p>
       </div>
     </div>
 
@@ -252,7 +264,7 @@ hide:
         <div class="hv-lifecycle__lane">
           <header><span>LIFECYCLE</span><strong>From change to evidence</strong></header>
           <ol>
-            <li><strong>Change the decision system</strong><small>implementation or configuration</small></li>
+            <li><strong>Change the algorithm</strong><small>implementation or configuration</small></li>
             <li><strong>Train and compare</strong><small>retain packages, outputs, and metrics</small></li>
             <li><strong>Release the accepted version</strong><small>exact implementation and parameters</small></li>
             <li><strong>Assign and observe</strong><small>connect traffic and results to that version</small></li>
@@ -268,7 +280,7 @@ hide:
   <div class="hv-band__inner hv-paths-layout">
     <div class="hv-section__copy">
       <div class="hv-eyebrow">Learn by following one package</div>
-      <h2>Take one decision system from source to a selected, validated runtime.</h2>
+      <h2>Take one complete algorithm from source to a selected, validated runtime.</h2>
       <p>Start with its public input/output interface, learn which components it uses, then follow its configuration and packages through preparation, evaluation, and runtime selection.</p>
       <div class="hv-boundary-note">
         <strong>Direction: keep one logical graph even when components run in different places</strong>
@@ -276,9 +288,9 @@ hide:
       </div>
     </div>
     <div class="hv-path-list">
-      <a href="concepts/complete-algorithm/"><span>01</span><div><strong>Decision-system model</strong><small>Understand the executable unit, interfaces, and dependencies.</small></div><i>→</i></a>
+      <a href="concepts/complete-algorithm/"><span>01</span><div><strong>Complete algorithm model</strong><small>Understand the executable unit, interfaces, and dependencies.</small></div><i>→</i></a>
       <a href="guides/example-product-algorithms/"><span>02</span><div><strong>Explore a complete example</strong><small>Train a scorer, compose Ranker and TopK, and inspect the result.</small></div><i>→</i></a>
-      <a href="guides/develop-algorithms/"><span>03</span><div><strong>Develop a decision system</strong><small>Build the implementation package and validate its public interface.</small></div><i>→</i></a>
+      <a href="guides/develop-algorithms/"><span>03</span><div><strong>Develop an algorithm</strong><small>Build the implementation package and validate its public interface.</small></div><i>→</i></a>
       <a href="guides/local-backtest/"><span>04</span><div><strong>Run a backtest</strong><small>Compare a revision with explicit inputs, outputs, and checks.</small></div><i>→</i></a>
       <a href="concepts/configuration-and-experimentation/"><span>05</span><div><strong>Understand experiment releases</strong><small>Connect evaluated packages to selected runtimes and results.</small></div><i>→</i></a>
     </div>
@@ -289,7 +301,7 @@ hide:
   <div class="hv-band__inner">
     <div>
       <div class="hv-eyebrow">Start with the complete system</div>
-      <h2>Build one decision system you can run and inspect.</h2>
+      <h2>Build one complete algorithm you can run and inspect.</h2>
       <p>Connect the behavior, configuration, trained state, experiment assignment, and evidence behind each runtime version.</p>
     </div>
     <div class="hv-final-cta__actions">
@@ -301,7 +313,7 @@ hide:
 
 <footer class="hv-band hv-home-footer">
   <div class="hv-band__inner">
-    <div class="hv-home-footer__brand"><img src="hotvect-pepper.svg" alt=""><strong>Hotvect</strong><span>Framework and runtime for versioned decision systems.</span></div>
+    <div class="hv-home-footer__brand"><img src="hotvect-pepper.svg" alt=""><strong>Hotvect</strong><span>Framework and runtime for versioned algorithms.</span></div>
     <div class="hv-home-footer__links">
       <a href="guides/">Documentation</a>
       <a href="agents/">Agent workflow</a>

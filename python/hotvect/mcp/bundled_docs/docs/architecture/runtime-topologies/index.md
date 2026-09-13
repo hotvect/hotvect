@@ -17,7 +17,7 @@ operational semantics.
 | JVM algorithm with managed Python workers | Available | Local worker processes, UDS protocol, worker lifecycle and configuration | Workers run on the same machine; this is not generic remote placement |
 | LitServe worker HTTP surface | Local debugging | Worker-only HTTP startup and backend semantics | Bypasses the full JVM feature and decision path |
 | Host-provided external algorithm binding | Available, with loader caveat | Named `AlgorithmInstance` value passed to the composite factory | The declared child is still loaded first; the host owns the external object and transport |
-| Algorithm with runtime-local filesystem state | Available in an explicitly configured containing runtime | Definition capability flag, private-directory allocator, repository integration | Current `hv serve` modes do not configure the required local-state root; algorithm code owns cleanup |
+| Algorithm with runtime-local filesystem state | Available in an explicitly configured containing runtime | Definition capability flag, private-directory allocator, repository integration | Current `hv algorithm serve` modes do not configure the required local-state root; algorithm code owns cleanup |
 | SageMaker offline job | Available | Whole-job packaging, submission, channels, manifests, result collection | Remote job execution is not request-time dependency distribution |
 | Declarative arbitrary remote child binding | Direction | No generic proxy, discovery, wire protocol, or placement engine today | Must not be documented as a shipped capability |
 

@@ -31,6 +31,7 @@ setup(
     license_files=["LICENSE", "NOTICE"],
     scripts=[
         "bin/hv",
+        "bin/hv-qa",
         "bin/hv-ext",
         "bin/hv-exp",
         "bin/hv-mcp",

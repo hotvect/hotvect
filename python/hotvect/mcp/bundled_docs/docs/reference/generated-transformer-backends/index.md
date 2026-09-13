@@ -213,6 +213,72 @@ explicit arrays in the same feature list:
 }
 ```
 
+## Pair feature generation with encoding and inference
+
+The annotation backend selects generated feature value types only. A complete model-backed algorithm separately
+chooses an encoder for offline training data and an algorithm factory for inference.
+
+| Model path | Encoder factory | Inference factory or integration |
+| --- | --- | --- |
+| Generated CatBoost transformer | `CatBoostStreamingEncoderFactory` | `CatBoostStreamingBulkScorerFactory` |
+| Hand-written `ComputingRankingTransformer` with CatBoost | `CatBoostEncoderFactory` | `CatBoostBulkScorerFactory` or `CatBoostGreedyRankerFactory` |
+| Generated TensorFlow transformer | `TensorFlowEncoderFactory` | Algorithm-owned managed Python worker |
+
+There is no generic Java TensorFlow scorer in `hotvect-tensorflow`. That module produces TensorFlow-compatible feature
+types, schemas, and TFRecord training data. Online SavedModel inference requires an algorithm integration that
+materializes the same schema into the managed worker payload and interprets its result.
+
+### CatBoost runtime settings
+
+For the generated streaming path, a definition normally contains:
+
+```json
+{
+  "transformer_factory_classname": "org.example.CandidateTransformerFactory",
+  "encoder_factory_classname": "com.hotvect.catboost.CatBoostStreamingEncoderFactory",
+  "algorithm_factory_classname": "com.hotvect.catboost.CatBoostStreamingBulkScorerFactory",
+  "algorithm_parameters": {
+    "task_type": "classification",
+    "parallel_batch_scoring": true
+  }
+}
+```
+
+The parameter package must contain `model_parameter/model.parameter`. `task_type` accepts `classification`,
+`regression`, or `learn_to_rank` and defaults to `classification`. Classification applies a sigmoid to the CatBoost raw
+prediction; regression and learn-to-rank return the raw prediction. `parallel_batch_scoring` controls whether prepared
+streaming batches are consumed through a parallel stream and defaults to `true`.
+
+The computing-transformer scorer has a different concurrency control:
+`algorithm_parameters.catboost_scorer.nofork_threshold`, defaulting to `100`. Requests above that candidate count are
+recursively split on the shared fork-join pool; a nonpositive threshold disables splitting.
+
+Both scorer paths preserve request action order and action IDs in `BulkScoreResponse`. An outer parent can use
+`BulkScoreGreedyRanker` when it wants the standard descending-score and deterministic-tie policy.
+
+### CatBoost encoding contract
+
+The CatBoost encoders write tab-separated rows with the reward first and one column per used feature. Their schema
+description marks the first column as `Label` and assigns `Num`, `Categ`, `Text`, `GroupId`, or `NumVector` to feature
+columns.
+
+Missing values are encoded as `NaN` for numerical/embedding values, `Categ_Null` for categorical/group IDs, and `NA`
+for text. A text feature is a `String[]` of tokens; individual tokens must be nonempty and contain no spaces. Tabs,
+newlines, carriage returns, and quotes in delimited string fields are escaped with CSV-style quoting.
+
+### TensorFlow encoding contract
+
+`TensorFlowEncoderFactory` writes `.tfrecord` output. Every ranking action becomes one `tf.train.Example` record with
+proper TFRecord length and CRC framing. The encoder:
+
+- writes a scalar int64 `Label`, using `1` when reward is greater than zero and `0` otherwise;
+- writes transformer features under their exact namespace names;
+- requires transformed action count and IDs to align with request actions and outcomes;
+- emits a JSON schema through `schemaDescription()` for training and worker materialization.
+
+Keep that label conversion and feature schema aligned with the training command and inference worker. Selecting
+`TensorFlowBackend.class` alone does not launch TensorFlow or choose a model-serving implementation.
+
 ## Validation behavior
 
 The generated transformer backend validates output features while compiling the algorithm:

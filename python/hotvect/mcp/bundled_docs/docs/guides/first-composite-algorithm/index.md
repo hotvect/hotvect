@@ -402,7 +402,7 @@ parent would do the same in the parent folder.
 Start the local debug server:
 
 ```bash
-hv serve \
+hv algorithm serve \
   --algorithm-jar target/example-document-ranker-1.0.0.jar \
   --algorithm-name example-composite-ranker \
   --parameter-path runtime/example-composite-ranker.parameters.zip \

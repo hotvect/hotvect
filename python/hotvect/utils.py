@@ -336,6 +336,7 @@ def to_zip_archive(to_archive: list[tuple[str, str]], dest: str, compress_type=z
             return
         except Exception as e:
             logger.warning(f"7z ZIP failed, falling back to Python zipfile: {e}")
+            Path(dest).unlink(missing_ok=True)
 
     # Fallback to Python zipfile
     if is_windows:
@@ -347,7 +348,15 @@ def to_zip_archive(to_archive: list[tuple[str, str]], dest: str, compress_type=z
 
     with zipfile.ZipFile(dest, "w") as zipF:
         for src, arcname in to_archive:
-            zipF.write(src, arcname=arcname, compress_type=compress_type)
+            source_stat = os.stat(src)
+            timestamp = time.localtime(source_stat.st_mtime)[:6]
+            if timestamp < (1980, 1, 1, 0, 0, 0):
+                timestamp = (1980, 1, 1, 0, 0, 0)
+            zip_info = zipfile.ZipInfo(arcname, timestamp)
+            zip_info.external_attr = (source_stat.st_mode & 0xFFFF) << 16
+            zip_info.compress_type = compress_type
+            with open(src, "rb") as source, zipF.open(zip_info, "w", force_zip64=True) as archive_file:
+                shutil.copyfileobj(source, archive_file)
 
 
 def clean_dir(d: str):

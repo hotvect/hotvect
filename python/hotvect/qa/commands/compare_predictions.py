@@ -1,4 +1,4 @@
-"""Predict JSONL equivalence command for hv-ext CLI."""
+"""Prediction-equivalence utility for the Hotvect QA CLI."""
 
 from __future__ import annotations
 
@@ -12,10 +12,8 @@ from itertools import zip_longest
 from pathlib import Path
 from typing import Any
 
-from .base import BaseCommand
 
-
-class EquivalenceInputError(ValueError):
+class PredictionComparisonInputError(ValueError):
     """Raised when the input files do not follow the expected predict JSONL schema."""
 
 
@@ -26,62 +24,87 @@ class ParsedRecord:
     score_by_action_id: dict[str, float]
 
 
-def _is_number(value: Any) -> bool:
-    return isinstance(value, (int, float)) and not isinstance(value, bool)
-
-
 def _extract_action_id(item: dict[str, Any], line_number: int, side: str) -> str:
-    additional_properties = item.get("additional_properties")
-    action_id: Any = None
-    if isinstance(additional_properties, dict) and additional_properties.get("action_id") is not None:
-        action_id = additional_properties.get("action_id")
-    elif item.get("action_id") is not None:
-        action_id = item.get("action_id")
+    action_id: Any = item.get("action_id")
 
     if action_id is None:
-        raise EquivalenceInputError(f"line {line_number}: missing action_id in {side}.result item")
+        additional_properties = item.get("additional_properties")
+        if isinstance(additional_properties, dict) and additional_properties.get("action_id") is not None:
+            action_id = additional_properties["action_id"]
+        else:
+            raise PredictionComparisonInputError(f"line {line_number}: missing action_id in {side}.result item")
     if isinstance(action_id, str):
         return action_id
     if isinstance(action_id, (int, float)) and not isinstance(action_id, bool):
         return str(action_id)
-    raise EquivalenceInputError(
+    raise PredictionComparisonInputError(
         f"line {line_number}: action_id must be string/number in {side}.result item, got {type(action_id).__name__}"
     )
 
 
+def _extract_rank(item: dict[str, Any], line_number: int, side: str) -> int:
+    rank = item.get("rank")
+    if not isinstance(rank, int) or isinstance(rank, bool):
+        raise PredictionComparisonInputError(
+            f"line {line_number}: {side}.result item must contain integer rank, got {rank!r}"
+        )
+    return rank
+
+
+def _extract_score(item: dict[str, Any], item_index: int, line_number: int, side: str) -> float:
+    score = item.get("score")
+    if not isinstance(score, (int, float)) or isinstance(score, bool):
+        raise PredictionComparisonInputError(
+            f"line {line_number}: {side}.result[{item_index}].score must be a finite number, got {score!r}"
+        )
+    try:
+        numeric_score = float(score)
+    except OverflowError as exc:
+        raise PredictionComparisonInputError(
+            f"line {line_number}: {side}.result[{item_index}].score must be a finite number, got {score!r}"
+        ) from exc
+    if not math.isfinite(numeric_score):
+        raise PredictionComparisonInputError(
+            f"line {line_number}: {side}.result[{item_index}].score must be a finite number, got {score!r}"
+        )
+    return numeric_score
+
+
 def _parse_record(payload: Any, line_number: int, side: str) -> ParsedRecord:
     if not isinstance(payload, dict):
-        raise EquivalenceInputError(f"line {line_number}: {side} root JSON must be an object")
+        raise PredictionComparisonInputError(f"line {line_number}: {side} root JSON must be an object")
 
     example_id = payload.get("example_id")
     if example_id is None:
-        raise EquivalenceInputError(f"line {line_number}: missing example_id in {side} record")
+        raise PredictionComparisonInputError(f"line {line_number}: missing example_id in {side} record")
     if not isinstance(example_id, str):
-        raise EquivalenceInputError(f"line {line_number}: {side}.example_id must be a string")
+        raise PredictionComparisonInputError(f"line {line_number}: {side}.example_id must be a string")
 
     result = payload.get("result")
     if not isinstance(result, list):
-        raise EquivalenceInputError(f"line {line_number}: {side}.result must be an array")
+        raise PredictionComparisonInputError(f"line {line_number}: {side}.result must be an array")
 
     order: list[str] = []
     score_by_action_id: dict[str, float] = {}
+    action_id_by_rank: dict[int, str] = {}
     for item_index, item in enumerate(result):
         if not isinstance(item, dict):
-            raise EquivalenceInputError(
+            raise PredictionComparisonInputError(
                 f"line {line_number}: {side}.result[{item_index}] must be an object, got {type(item).__name__}"
             )
         action_id = _extract_action_id(item, line_number, side)
         if action_id in score_by_action_id:
-            raise EquivalenceInputError(f"line {line_number}: duplicate action_id in {side} result: {action_id}")
-
-        score = item.get("score")
-        if not _is_number(score):
-            raise EquivalenceInputError(
-                f"line {line_number}: {side}.result[{item_index}].score must be numeric, got {score!r}"
+            raise PredictionComparisonInputError(
+                f"line {line_number}: duplicate action_id in {side} result: {action_id}"
             )
-        score_by_action_id[action_id] = float(score)
-        order.append(action_id)
+        rank = _extract_rank(item, line_number, side)
+        if rank in action_id_by_rank:
+            raise PredictionComparisonInputError(f"line {line_number}: duplicate rank in {side} result: {rank}")
 
+        score_by_action_id[action_id] = _extract_score(item, item_index, line_number, side)
+        action_id_by_rank[rank] = action_id
+
+    order = [action_id for _, action_id in sorted(action_id_by_rank.items())]
     return ParsedRecord(example_id=example_id, order=order, score_by_action_id=score_by_action_id)
 
 
@@ -127,7 +150,7 @@ def compare_predict_jsonl(
     baseline_file: str, treatment_file: str, score_eps: float, allow_non_deterministic_tie_breaking: bool
 ) -> dict[str, Any]:
     if score_eps < 0:
-        raise EquivalenceInputError("score_eps must be >= 0")
+        raise PredictionComparisonInputError("score_eps must be >= 0")
 
     mismatches: list[dict[str, Any]] = []
     processed_lines = 0
@@ -155,11 +178,15 @@ def compare_predict_jsonl(
             try:
                 baseline_payload = json.loads(baseline_line)
             except json.JSONDecodeError as err:
-                raise EquivalenceInputError(f"line {line_number}: invalid JSON in baseline: {err.msg}") from err
+                raise PredictionComparisonInputError(
+                    f"line {line_number}: invalid JSON in baseline: {err.msg}"
+                ) from err
             try:
                 treatment_payload = json.loads(treatment_line)
             except json.JSONDecodeError as err:
-                raise EquivalenceInputError(f"line {line_number}: invalid JSON in treatment: {err.msg}") from err
+                raise PredictionComparisonInputError(
+                    f"line {line_number}: invalid JSON in treatment: {err.msg}"
+                ) from err
 
             baseline_record = _parse_record(baseline_payload, line_number, "baseline")
             treatment_record = _parse_record(treatment_payload, line_number, "treatment")
@@ -275,15 +302,11 @@ def _error_payload(
     return payload
 
 
-class CompareEquivalenceCommand(BaseCommand):
+class ComparePredictionsCommand:
     """Compare two predict JSONL files for score and rank equivalence."""
 
-    @classmethod
-    def register_parser(cls, subparsers):
-        parser = subparsers.add_parser(
-            "compare-equivalence",
-            help="Compare predict JSONL files for score and rank equivalence",
-        )
+    @staticmethod
+    def add_arguments(parser):
         parser.add_argument("baseline_file", help="Path to baseline predict JSONL file")
         parser.add_argument("treatment_file", help="Path to treatment predict JSONL file")
         parser.add_argument(
@@ -301,7 +324,6 @@ class CompareEquivalenceCommand(BaseCommand):
             "--output",
             help="Optional output directory for artifacts (writes comparison.json)",
         )
-        return parser
 
     def execute(self, args):
         try:
@@ -332,9 +354,6 @@ class CompareEquivalenceCommand(BaseCommand):
             if result["status"] == "passed":
                 return
             sys.exit(1)
-        except EquivalenceInputError as err:
+        except PredictionComparisonInputError as err:
             print(json.dumps(_error_payload(str(err)), indent=2))
-            sys.exit(2)
-        except Exception as err:
-            print(json.dumps(_error_payload(str(err), error_code="runtime_error"), indent=2))
             sys.exit(2)

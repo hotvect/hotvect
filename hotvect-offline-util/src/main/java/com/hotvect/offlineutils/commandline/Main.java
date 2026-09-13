@@ -38,6 +38,7 @@ import java.io.File;
 import java.io.IOException;
 import java.net.URL;
 import java.net.URLClassLoader;
+import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.Callable;
 import java.util.concurrent.TimeUnit;
@@ -172,6 +173,7 @@ public class Main {
     }
 
     private static int doRunTask(String taskName, Options opts, Slf4jReporter reporter) {
+        ProgressJsonlReporter progressReporter = null;
         try {
             CommandlineUtility.expandTildaOnFileFields(opts);
             if (opts.metadataLocation.getName().endsWith(".json")) {
@@ -183,6 +185,15 @@ public class Main {
 
             reporter.start(20, TimeUnit.SECONDS);
             OfflineTaskContext offlineTaskContext = getOfflineTaskContext(taskName, opts);
+            progressReporter = new ProgressJsonlReporter(
+                    METRIC_REGISTRY,
+                    OM,
+                    metadataDir,
+                    taskName,
+                    opts,
+                    offlineTaskContext.algorithmDefinition()
+            );
+            progressReporter.start();
             Callable<Map<String, Object>> task = switch (taskName) {
                 case "encode" -> new EncodeTask<>(offlineTaskContext);
                 case "predict" -> new PredictTask<>(offlineTaskContext);
@@ -197,10 +208,14 @@ public class Main {
 
             File metadataFile = CommandlineUtility.metadataJsonFile(metadataDir);
             OM.writeValue(metadataFile, metadata);
+            progressReporter.writeEnd(metadata);
             LOGGER.info("Wrote metadata: location={}, metadata={}", metadataFile, metadata);
             return 0;
 
         } catch (Throwable e) {
+            if (progressReporter != null) {
+                progressReporter.writeFailure(e);
+            }
             Throwable root = Throwables.getRootCause(e);
             if (root instanceof InterruptedException) {
                 LOGGER.warn("Task was aborted");
@@ -213,6 +228,9 @@ public class Main {
         } finally {
             reporter.report();
             reporter.stop();
+            if (progressReporter != null) {
+                progressReporter.close();
+            }
         }
     }
 
@@ -419,6 +437,32 @@ public class Main {
         public SourceFilesSpec sourceFiles;
     }
 
+    public static final class EncodeInputOptions {
+        @Option(
+                names = {"--source"},
+                paramLabel = "SOURCE",
+                description = "Data source paths (files or directories). Directories are traversed recursively. "
+                        + "Format: JSON starting with '{' or '[' (e.g., '{\"type\":[\"file\"]}' or '[\"file1\",\"file2\"]') "
+                        + "or comma-separated paths (file1,file2). Must be used together with --dest.",
+                parameterConsumer = SourceFileConsumer.class
+        )
+        public SourceFilesOption.SourceFilesSpec sourceFiles;
+
+        @Option(
+                names = {"--dest"},
+                paramLabel = "DESTINATION_PATH",
+                description = "Destination directory containing encoded part files. Must be used together with --source."
+        )
+        public File destinationFile;
+
+        @Option(
+                names = {"--source-dest-mappings"},
+                paramLabel = "FILE",
+                description = "JSON file containing source/destination mappings. Cannot be combined with --source or --dest."
+        )
+        public File sourceDestMappingsFile;
+    }
+
     public static final class ExecutionOptions {
         @Option(names = {"--max-threads"}, description = "Number of threads to be used for processing.", defaultValue = "-1")
         public int maxThreads = -1;
@@ -528,8 +572,7 @@ public class Main {
         @Mixin public OptionalParametersOption parameters = new OptionalParametersOption();
         @Mixin public ExecutionOptions execution = new ExecutionOptions();
         @Mixin public OutputOrderingOptions ordering = new OutputOrderingOptions();
-        @Mixin public SourceFilesOption sources = new SourceFilesOption();
-        @Mixin public DestinationOption destination = new DestinationOption();
+        @Mixin public EncodeInputOptions input = new EncodeInputOptions();
         @Mixin public MetadataOption metadata = new MetadataOption();
 
         @Option(names = {"--dest-schema-description"}, paramLabel = "DEST_SCHEMA_DESCRIPTION_FILE", description = "The file to which the schema description of the destination file will be written.")
@@ -538,19 +581,86 @@ public class Main {
         @Override
         public Integer call() {
             validateOutputOrderingOptions(spec, ordering.ordered, ordering.unordered, ordering.writerNumShards);
+            validateEncodeInputOptions(spec, input);
+            boolean mappingsMode = input.sourceDestMappingsFile != null;
+
             Options opts = new Options();
             opts.algorithmJar = algo.algorithmJar;
             opts.algorithmDefinition = algo.algorithmDefinition;
             opts.additionalJarFiles = algo.additionalJarFiles;
             opts.parameters = parameters.parameters;
             applyExecutionOptions(opts, execution);
-            opts.sourceFiles = sources.sourceFiles.files;
-            opts.destinationFile = destination.destinationFile;
+            if (mappingsMode) {
+                opts.sourceDestMappings = readSourceDestMappings(spec, input.sourceDestMappingsFile);
+            } else {
+                opts.sourceFiles = input.sourceFiles.files;
+                opts.destinationFile = input.destinationFile;
+            }
             opts.metadataLocation = metadata.metadataLocation;
             applyOutputOrderingOptions(opts, ordering);
             opts.schemaDescriptionFile = schemaDescriptionFile;
             return runTask("encode", opts);
         }
+    }
+
+    static void validateEncodeInputOptions(CommandSpec spec, EncodeInputOptions input) {
+        boolean mappingsMode = input.sourceDestMappingsFile != null;
+        boolean singleSourceMode = input.sourceFiles != null || input.destinationFile != null;
+        if (mappingsMode && singleSourceMode) {
+            throw new ParameterException(
+                    spec.commandLine(),
+                    "--source-dest-mappings cannot be combined with --source or --dest."
+            );
+        }
+        if (!mappingsMode && (input.sourceFiles == null || input.destinationFile == null)) {
+            throw new ParameterException(
+                    spec.commandLine(),
+                    "Encode requires either --source together with --dest, or --source-dest-mappings."
+            );
+        }
+    }
+
+    static List<SourceDestMapping> readSourceDestMappings(CommandSpec spec, File mappingsFile) {
+        final List<SourceDestMapping> mappings;
+        try {
+            mappings = OM.readValue(mappingsFile, new TypeReference<>() {});
+        } catch (IOException e) {
+            throw new ParameterException(
+                    spec.commandLine(),
+                    "Failed to read --source-dest-mappings from " + mappingsFile + ": " + e.getMessage(),
+                    e
+            );
+        }
+
+        if (mappings == null || mappings.isEmpty()) {
+            throw new ParameterException(spec.commandLine(), "--source-dest-mappings must contain at least one mapping.");
+        }
+
+        Set<Path> destinations = new HashSet<>();
+        for (int index = 0; index < mappings.size(); index++) {
+            SourceDestMapping mapping = mappings.get(index);
+            if (mapping == null) {
+                throw new ParameterException(spec.commandLine(), "Mapping at index " + index + " must be an object.");
+            }
+            if (mapping.sources() == null || mapping.sources().isEmpty()
+                    || mapping.sources().stream().anyMatch(source -> source == null || source.getPath().isBlank())) {
+                throw new ParameterException(
+                        spec.commandLine(),
+                        "Mapping at index " + index + " must contain at least one non-blank source."
+                );
+            }
+            if (mapping.dest() == null || mapping.dest().getPath().isBlank()) {
+                throw new ParameterException(spec.commandLine(), "Mapping at index " + index + " must contain dest.");
+            }
+            Path normalizedDest = mapping.dest().toPath().toAbsolutePath().normalize();
+            if (!destinations.add(normalizedDest)) {
+                throw new ParameterException(
+                        spec.commandLine(),
+                        "Duplicate destination in --source-dest-mappings: " + mapping.dest()
+                );
+            }
+        }
+        return List.copyOf(mappings);
     }
 
     @Command(name = "predict", description = "Perform prediction (test) on the source file.", mixinStandardHelpOptions = true)

@@ -4,6 +4,7 @@ import sys
 from importlib.machinery import SourceFileLoader
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
+from urllib.parse import parse_qsl
 
 import pytest
 
@@ -91,8 +92,8 @@ def test_submit_one_shot_sagemaker_job_includes_perf_pacing_hyperparameters(monk
     }
 
     class FakeAlgorithmPipelineContext:
-        def __init__(self, **_kwargs):
-            pass
+        def __init__(self, **kwargs):
+            captured["ctx_kwargs"] = kwargs
 
     class FakeExecutor:
         def __init__(self, algorithm_pipeline, training_job_definition, role_arn_to_assume):
@@ -158,6 +159,7 @@ def test_submit_one_shot_sagemaker_job_includes_perf_pacing_hyperparameters(monk
         target_rps=120.0,
         target_throughput_fraction=0.5,
         workload_mode="batch",
+        max_threads=2,
         assume_role_arn=None,
     )
 
@@ -170,11 +172,13 @@ def test_submit_one_shot_sagemaker_job_includes_perf_pacing_hyperparameters(monk
     assert hp["hotvect_target_rps"] == "120.0"
     assert hp["hotvect_target_throughput_fraction"] == "0.5"
     assert hp["hotvect_workload_mode"] == "batch"
+    assert hp["hotvect_max_threads"] == "2"
     assert hp["s3_uri_parameter_zip"] == "s3://bucket/params.zip"
     assert hp["hotvect_source_s3_uri"] == "s3://bucket/source/"
     assert hp["hotvect_instance_type"] == "ml.m5.large"
     assert hp["hotvect_training_image"] == "training-image"
     assert hp["hotvect_sagemaker_output_s3_uri"] == "s3://bucket/output/perf-job"
+    assert captured["ctx_kwargs"]["max_threads"] == 2
     assert captured["ran"] is True
 
 
@@ -417,6 +421,58 @@ def test_run_task_adds_perf_pacing_flags(monkeypatch, tmp_path: Path):
     assert cmd[cmd.index("--target-throughput-fraction") + 1] == "0.5"
     assert "--workload-mode" in cmd
     assert cmd[cmd.index("--workload-mode") + 1] == "batch"
+
+
+def test_run_task_enables_jfr_for_one_shot(monkeypatch, tmp_path: Path):
+    import hotvect.sagemaker_tasks as st
+
+    captured = {}
+
+    def _capture_output(cmd, env=None, **_kwargs):
+        captured["cmd"] = cmd
+        captured["env"] = env
+        assert env is not None
+        java_tool_options = env["JAVA_TOOL_OPTIONS"]
+        assert "-XX:StartFlightRecording=" in java_tool_options
+        raw_options = java_tool_options.split("-XX:StartFlightRecording=", maxsplit=1)[1].split()[0]
+        recording_options = dict(parse_qsl(raw_options.replace(",", "&")))
+        recording_path = Path(recording_options["filename"])
+        recording_path.parent.mkdir(parents=True, exist_ok=True)
+        recording_path.write_bytes(b"jfr")
+        return {"command": " ".join(cmd), "return_code": 0, "stderr": "", "stdout": ""}
+
+    monkeypatch.setattr(st, "capture_output", _capture_output)
+
+    source_dir = tmp_path / "source"
+    metadata_dir = tmp_path / "meta"
+    output_dir = tmp_path / "out"
+    source_dir.mkdir()
+    metadata_dir.mkdir()
+    output_dir.mkdir()
+
+    req = st.OneShotTaskRequest(
+        task="performance-test",
+        source_dir=source_dir,
+        metadata_dir=metadata_dir,
+        output_dir=output_dir,
+        task_output_s3_uri="s3://bucket/output",
+        samples=222,
+        sample_pool_size=64,
+        target_rps=120.0,
+        target_throughput_fraction=0.5,
+        workload_mode="batch",
+        algorithm_definition={"algorithm_name": "demo-algo"},
+        jfr_enabled=True,
+    )
+
+    st._run_task(
+        req,
+        local_algorithm_jar=tmp_path / "algo.jar",
+        local_parameter_zip=tmp_path / "params.zip",
+    )
+
+    assert captured["cmd"][0] == "java"
+    assert (metadata_dir / "jfr" / "performance-test.jfr").read_bytes() == b"jfr"
 
 
 def test_run_task_for_encode_includes_parameter_zip(monkeypatch, tmp_path: Path):

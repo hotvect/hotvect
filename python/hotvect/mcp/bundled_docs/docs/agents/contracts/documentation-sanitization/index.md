@@ -62,19 +62,22 @@ DOC_SURFACES=(
 )
 
 # UUIDs
-rg -n -i '\\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\b' "${DOC_SURFACES[@]}"
+rg -n -i '\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b' "${DOC_SURFACES[@]}"
 
 # AWS + S3
-rg -n '\\bs3://' "${DOC_SURFACES[@]}"
-rg -n '\\barn:aws' "${DOC_SURFACES[@]}"
+rg -n '\bs3://' "${DOC_SURFACES[@]}"
+rg -n '\barn:aws' "${DOC_SURFACES[@]}"
 
 # URLs + emails
 rg -n 'https?://' "${DOC_SURFACES[@]}"
-rg -n '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}' "${DOC_SURFACES[@]}"
+rg -n '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}' "${DOC_SURFACES[@]}"
 
 # Dates and timestamps: inspect every match and keep examples deliberately synthetic
-rg -n '\\b20[1-9][0-9]-[0-9]{2}-[0-9]{2}([T ][0-9]{2}:[0-9]{2})?' "${DOC_SURFACES[@]}"
+rg -n '\b20[1-9][0-9]-[0-9]{2}-[0-9]{2}([T ][0-9]{2}:[0-9]{2})?' "${DOC_SURFACES[@]}"
 ```
+
+Each pattern is single-quoted, so write regex escapes with a single backslash (`\b`, not `\\b`). A doubled backslash
+makes ripgrep search for a literal backslash, which matches nothing and makes the scan look clean when it is not.
 
 If you find anything that looks real or internal, replace it with a clearly synthetic placeholder.
 

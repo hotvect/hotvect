@@ -11,7 +11,7 @@ Local commands and single-job SageMaker one-shot runs write uncompressed output.
 parallel SageMaker one-shot `predict` and `audit` runs:
 
 ```bash
-hv predict ... \
+hv algorithm predict ... \
   --sagemaker \
   --job-parallelism 8 \
   --compression gzip

@@ -29,7 +29,7 @@ from hotvect.sagemaker_contracts import (
     resolve_evaluate_source_path,
     task_text_output_paths,
 )
-from hotvect.utils import runshell
+from hotvect.utils import capture_output, runshell
 
 logger = logging.getLogger(__name__)
 
@@ -61,11 +61,40 @@ class OneShotTaskRequest:
     parallel_worker_count: int | None = None
     parallel_worker_index: int | None = None
     compression: str = "none"
+    jfr_enabled: bool = False
 
 
 def _write_json(path: Path, data: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, indent=2, sort_keys=True))
+
+
+def _parse_bool_hyperparameter(hyperparameters: dict[str, Any], key: str) -> bool:
+    value = hyperparameters.get(key)
+    if value is None:
+        return False
+    normalized = str(value).strip().lower()
+    if normalized == "true":
+        return True
+    if normalized == "false":
+        return False
+    raise ValueError(f"{key} must be true or false, got: {value!r}")
+
+
+def _configure_jfr(metadata_dir: Path, env: dict[str, str]) -> Path:
+    jfr_dir = metadata_dir / "jfr"
+    jfr_dir.mkdir(parents=True, exist_ok=True)
+    recording_path = jfr_dir / "performance-test.jfr"
+    jfr_flag = (
+        "-XX:StartFlightRecording="
+        f"name=hotvect-sagemaker,"
+        f"settings=profile,"
+        f"filename={recording_path},"
+        "dumponexit=true"
+    )
+    existing = env.get("JAVA_TOOL_OPTIONS", "").strip()
+    env["JAVA_TOOL_OPTIONS"] = f"{jfr_flag} {existing}".strip()
+    return recording_path
 
 
 def _gzip_file(source: Path) -> Path:
@@ -306,7 +335,15 @@ def _run_task(
     ]
 
     logger.info("Running one-shot task: %s", " ".join(cmd))
-    runshell(cmd)
+    if req.jfr_enabled:
+        java_env = os.environ.copy()
+        recording_path = _configure_jfr(req.metadata_dir, java_env)
+        capture_output(cmd, env=java_env)
+        if not recording_path.is_file():
+            raise FileNotFoundError(f"JFR was enabled, but no recording was found at {recording_path}")
+        logger.info("JFR recording is available in metadata directory: %s", recording_path)
+    else:
+        runshell(cmd)
 
     metadata_file = stage_metadata_dir / "metadata.json"
     if metadata_file.exists():
@@ -390,6 +427,7 @@ def run_one_shot_from_sagemaker_env() -> None:
             parallel_worker_count=parallel_worker_count,
             parallel_worker_index=parallel_worker_index,
             compression=compression,
+            jfr_enabled=_parse_bool_hyperparameter(hp, "jfr_enabled"),
         )
 
         try:

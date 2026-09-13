@@ -1,4 +1,5 @@
 import logging
+import os
 import re
 from pathlib import Path
 
@@ -20,6 +21,14 @@ def _normalize_version_for_sorting(version_str: str) -> str:
     return version_str
 
 
+def _override_env_var(pattern: str) -> str | None:
+    if pattern.startswith("hotvect-offline-util-"):
+        return "HOTVECT_OFFLINE_UTIL_JAR"
+    if pattern.startswith("hotvect-algorithm-demo-"):
+        return "HOTVECT_ALGORITHM_DEMO_JAR"
+    return None
+
+
 def find_hotvect_jar(pattern: str, *, jar_dir: Path | None = None) -> Path:
     """
     Find the bundled `hotvect-offline-util-...-jar-with-dependencies.jar`.
@@ -29,6 +38,15 @@ def find_hotvect_jar(pattern: str, *, jar_dir: Path | None = None) -> Path:
     To be robust, pick the highest semantic version when multiple matches exist, and warn.
     """
     from packaging.version import InvalidVersion, Version
+
+    env_var = _override_env_var(pattern)
+    if env_var:
+        override = os.environ.get(env_var)
+        if override:
+            path = Path(override).expanduser()
+            if not path.is_file():
+                raise FileNotFoundError(f"{env_var} points to a missing hotvect JAR: {path}")
+            return path
 
     root = jar_dir or Path(__file__).parent
     jars = sorted(root.glob(pattern))

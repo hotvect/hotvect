@@ -1,14 +1,15 @@
 ---
 title: Hotvect concepts
-description: Stable concepts behind Hotvect decision systems, including components, packages, configuration, experimentation, execution, and feature computation
+description: Stable concepts behind end-to-end search, retrieval, and recommendation algorithms, including features, models, packages, evaluation, experimentation, and execution
 tags: [concepts, algorithms, architecture, configuration, experimentation]
 ---
 
 # Hotvect concepts
 
-Hotvect lets a team implement, configure, train, evaluate, select, and load a complete decision system under one
-explicit interface and package definition. In Hotvect, that decision system is called an **algorithm**. It can include
-typed request handling, feature calculation, models, rules, child algorithms, and the final ranking or selection rule.
+Hotvect lets a team implement, configure, train, evaluate, select, and load a complete search, retrieval, or
+recommendation algorithm under one explicit interface and package definition. It can include typed request handling,
+candidate and feature retrieval, feature computation, models, child algorithms, ranking, selection, exploration, and
+business rules. Hotvect's APIs generalize this as a **decision algorithm**.
 
 If Hotvect is new to you, do not begin with the CLI reference. Install Hotvect and run the product example first, then
 use this section to understand what you just executed.
@@ -53,8 +54,8 @@ application adapters, runtime settings, configuration selection, and host-provid
 
 -   **3. Complete algorithms**
 
-    Learn the exact Hotvect term for a decision system: its public interface, runtime behavior, definition, parameters,
-    and child algorithms.
+    Learn how the public interface, retrieval and ranking behavior, definition, model parameters, and child algorithms
+    form one executable unit.
 
     [Read complete algorithms](complete-algorithm/index.md){ .hv-btn }
 
@@ -71,21 +72,28 @@ application adapters, runtime settings, configuration selection, and host-provid
 
     [Read feature computation](feature-computation/index.md){ .hv-btn }
 
--   **6. Packages and identity**
+-   **6. Feature-store integration**
+
+    See how an application-owned client is bound into an algorithm, how partial failures are represented, and how
+    recorded responses preserve offline meaning.
+
+    [Read feature-store integration](feature-store-integration/index.md){ .hv-btn }
+
+-   **7. Packages and identity**
 
     Follow the implementation package, embedded definition, optional parameter package, and the identifiers that
     distinguish one runtime instance from another.
 
     [Read artifacts and identity](artifacts-and-identity/index.md){ .hv-btn }
 
--   **7. Configuration and experimentation**
+-   **8. Configuration and experimentation**
 
     Distinguish embedded and effective configuration, trained parameters, released runtimes, slots, experiments, and
     variant assignment.
 
     [Read configuration and experimentation](configuration-and-experimentation/index.md){ .hv-btn }
 
--   **8. Where it runs**
+-   **9. Where it runs**
 
     Keep live versus batch workload behavior separate from request versus file-based input semantics.
 
@@ -110,8 +118,10 @@ Use one consistent path:
 | --- | --- |
 | Why is a Hotvect algorithm broader than a model? | [Why Hotvect](motivation/index.md) |
 | What do unfamiliar Hotvect terms mean? | [Glossary](../reference/glossary/index.md) |
-| How do the framework modules fit together? | [Architecture overview](../architecture/index.md) |
+| How do the SDK, tools, offline execution, online integration, and experiment management cooperate? | [System map](../components/index.md) |
+| How do the framework modules and execution paths fit together internally? | [Architecture overview](../architecture/index.md) |
 | How are feature values identified? | [Namespace identity](namespaces/index.md) |
+| How does an application-owned feature store enter the algorithm? | [Feature-store integration](feature-store-integration/index.md) |
 | How is an algorithm JAR isolated and loaded? | [Algorithm JAR loading](jar-loading/index.md) |
 | How do configuration, parameters, and experiment variants relate? | [Configuration and experimentation](configuration-and-experimentation/index.md) |
 | What fields are valid in the definition? | [Algorithm definition reference](../reference/algorithm-definition/index.md) |
@@ -120,7 +130,11 @@ Use one consistent path:
 
 ## Boundaries
 
-Hotvect owns how a decision system is connected, configured, packaged, selected, and run. The current release consumes
-experiment state from an external Experiment Management Service (EMS) server; bringing that control plane into Hotvect is directional. Hotvect does not
-replace data orchestration, model libraries, a feature store, or production monitoring. Those systems can surround or
-satisfy dependencies of a Hotvect algorithm while retaining their own operational interfaces.
+Hotvect owns how an algorithm is connected, configured, packaged, selected, and run. It integrates with a separately
+deployed Experiment Management Service (EMS) for control-plane state, while the EMS repository and deployment own the
+server implementation, database, identity integration, artifact publication, and operations. Hotvect does not replace
+data orchestration, model libraries, a feature store, or production monitoring. Those systems can surround or satisfy
+dependencies of a Hotvect algorithm while retaining their own operational interfaces.
+
+Use the [system map](../components/index.md) to see which capabilities are artifacts, embedded libraries,
+deployed processes, or external integration roles.

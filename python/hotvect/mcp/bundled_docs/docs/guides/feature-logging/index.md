@@ -6,7 +6,7 @@ tags: [prediction, debugging, features, composite-algorithms]
 
 # Predict with feature logging
 
-Use `hv predict --log-features` to inspect computed features alongside the scored actions of a prediction. It is most
+Use `hv algorithm predict --log-features` to inspect computed features alongside the scored actions of a prediction. It is most
 useful when an outer algorithm decodes the input and delegates feature work to child algorithms: one bounded predict
 run then shows the real end-to-end path.
 
@@ -14,7 +14,7 @@ run then shows the real end-to-end path.
 
 | Inputs | Command | Artifacts | Verify |
 | --- | --- | --- | --- |
-| Algorithm JAR/name, a small source slice, and parameters when the target needs them | `hv predict --log-features --ordered` | `part-00000.jsonl`, metadata, logs | Each inspected `result[]` action contains the expected `feature_audit` entry |
+| Algorithm JAR/name, a small source slice, and parameters when the target needs them | `hv algorithm predict --log-features --ordered` | `part-00000.jsonl`, metadata, logs | Each inspected `result[]` action contains the expected `feature_audit` entry |
 
 Use a small, non-production sample. Feature values are serialized into prediction output and can make files large.
 
@@ -23,7 +23,7 @@ Use a small, non-production sample. Feature values are serialized into predictio
 ```bash
 OUT=./prediction-with-features
 
-hv predict \
+hv algorithm predict \
   --log-features \
   --algorithm-jar /path/to/parent-algorithm.jar \
   --algorithm-name <parent-algorithm-name> \
@@ -96,8 +96,8 @@ algorithm definition loads.
 
 | Question | Use | Target | Parameter ZIP |
 | --- | --- | --- | --- |
-| Did a feature-transforming algorithm produce the expected values? | `hv audit` | The algorithm with the transformer; vectorizer-only definitions are not supported by the current audit task | Required |
-| Did an outer algorithm decode the input and score candidates through its dependencies correctly? | `hv predict --log-features` | The outer algorithm | Provide one when the target/dependencies require it |
+| Did a feature-transforming algorithm produce the expected values? | `hv algorithm audit` | The algorithm with the transformer; vectorizer-only definitions are not supported by the current audit task | Required |
+| Did an outer algorithm decode the input and score candidates through its dependencies correctly? | `hv algorithm predict --log-features` | The outer algorithm | Provide one when the target/dependencies require it |
 | Did two builds preserve the full predict score/rank contract? | [Score equivalence testing](../score-equivalence/index.md) | Each build | One shared ZIP |
 
 Audit output uses root `example_id` plus `actions[]`; feature logging uses root `example_id` plus `result[]` and puts
@@ -109,7 +109,7 @@ Run the command above once per JAR with the same parameters and input. Then use 
 workflow for the score/rank contract, and compare individual feature payloads only after locating the affected
 `example_id` and `action_id`.
 
-For a direct feature-transform comparison, run `hv audit` for both builds and use `hv-ext compare-jsonl` on their
+For a direct feature-transform comparison, run `hv algorithm audit` for both builds and use `hv-ext compare-jsonl` on their
 ordered `part-00000.jsonl` outputs.
 
 ## See also

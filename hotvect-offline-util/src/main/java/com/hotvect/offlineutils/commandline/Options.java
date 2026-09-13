@@ -34,6 +34,8 @@ public class Options {
 
     public Map<String, List<File>> sourceFiles = new HashMap<>();
 
+    public List<SourceDestMapping> sourceDestMappings = new ArrayList<>();
+
     public File schemaDescriptionFile;
 
     public File destinationFile;
@@ -66,6 +68,7 @@ public class Options {
                 ", unordered=" + unordered +
                 ", writerNumShards=" + writerNumShards +
                 ", sourceFiles=" + sourceFiles +
+                ", sourceDestMappings=" + sourceDestMappings +
                 ", schemaDescriptionFile=" + schemaDescriptionFile +
                 ", destinationFile=" + destinationFile +
                 ", metadataLocation=" + metadataLocation +

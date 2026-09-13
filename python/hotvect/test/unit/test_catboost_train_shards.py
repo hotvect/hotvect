@@ -33,6 +33,23 @@ def test_resolve_encoded_file_merges_multiple_parts_in_sorted_order(tmp_path: Pa
     assert resolved.read_text() == "a\nb\n"
 
 
+def test_resolve_encoded_file_merges_date_partition_symlinks_with_duplicate_basenames(tmp_path: Path):
+    module = _load_catboost_train_module()
+    encoded_dir = tmp_path / "encoded"
+    encoded_dir.mkdir()
+    scratch_dir = tmp_path / "scratch"
+
+    for partition_date, content in [("2000-02-16", "b\n"), ("2000-02-15", "a\n")]:
+        partition = tmp_path / "cache" / partition_date / "encoded"
+        partition.mkdir(parents=True)
+        (partition / "part-00000.tsv").write_text(content)
+        (encoded_dir / f"dt={partition_date}").symlink_to(partition, target_is_directory=True)
+
+    resolved = Path(module.resolve_encoded_file(str(encoded_dir), scratch_dir=str(scratch_dir)))
+
+    assert resolved.read_text() == "a\nb\n"
+
+
 def test_resolve_encoded_file_requires_scratch_dir_for_multiple_parts(tmp_path: Path):
     module = _load_catboost_train_module()
     (tmp_path / "part-00000.tsv").write_text("a\n")
@@ -79,6 +96,17 @@ def test_resolve_encoded_file_accepts_legacy_shard_basename_when_tsv(tmp_path: P
     shard.write_text("legacy")
 
     assert module.resolve_encoded_file(str(tmp_path)) == str(shard)
+
+
+def test_resolve_encoded_file_ignores_partition_metadata(tmp_path: Path):
+    module = _load_catboost_train_module()
+    partition = tmp_path / "dt=2000-02-16"
+    partition.mkdir()
+    (partition / "part-00000.tsv").write_text("data\n")
+    (partition / "encoded-schema-description").write_text("schema")
+    (partition / "_SUCCESS").touch()
+
+    assert module.resolve_encoded_file(str(tmp_path)) == str(partition / "part-00000.tsv")
 
 
 def test_resolve_encoded_file_rejects_gzipped_tsv(tmp_path: Path):

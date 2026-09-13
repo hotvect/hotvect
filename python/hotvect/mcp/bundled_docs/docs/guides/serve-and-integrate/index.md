@@ -4,7 +4,10 @@ description: Embed Hotvect in an application and use its local debugging and run
 tags: [serving, integration, online, debugging]
 difficulty: intermediate
 related_docs:
+  - ../../components/index.md
   - ../../architecture/online-runtime/index.md
+  - ../../components/experiment-management-service/index.md
+  - ../../components/ems-runtime-client/index.md
   - ../../architecture/runtime-topologies/index.md
   - ../../reference/cli/index.md
   - ../local-algorithm-debugging/index.md
@@ -15,8 +18,9 @@ related_docs:
 # Serve and integrate
 
 Hotvect is designed to be embedded as the algorithm runtime inside a containing serving application. This section
-groups the released loading, compatibility, and local-debugging surfaces for that integration. The current `hv serve`
-and `hv worker serve` commands are local debugging tools; they are not production hosting products.
+groups the released loading, compatibility, and local-debugging surfaces for that integration. The current
+`hv algorithm serve` and `hv worker serve` commands are local debugging tools; they are not production hosting
+services.
 
 ## Choose the narrowest path
 
@@ -29,11 +33,26 @@ and `hv worker serve` commands are local debugging tools; they are not productio
     [Open the Java integration guide](../application-integration/index.md){ .hv-btn }
     [Understand the online runtime](../../architecture/online-runtime/index.md){ .hv-btn }
 
+-   **Connect a serving application to EMS**
+
+    Refresh released runtimes from a separately deployed control plane and assign requests locally.
+
+    [Open the runtime integration guide](../connect-online-runtime-to-ems/index.md){ .hv-btn }
+    [Understand the EMS runtime client](../../components/ems-runtime-client/index.md){ .hv-btn }
+
+-   **Deploy the experiment control plane**
+
+    EMS deployment remains owned by the service team. Configure Hotvect clients against an existing EMS endpoint; do
+    not embed the service implementation in an algorithm or serving application.
+
+    [Understand the EMS control plane](../../components/experiment-management-service/index.md){ .hv-btn }
+
 -   **Run a full algorithm locally**
 
     Exercise a complete algorithm against recorded examples and inspect its HTTP result or browser debugger.
 
     [Open browser debugging](../local-algorithm-debugging/index.md){ .hv-btn }
+    [Understand the local algorithm server](../../components/local-algorithm-server/index.md){ .hv-btn }
 
 -   **Debug a Python worker**
 

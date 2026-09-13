@@ -45,7 +45,9 @@ mkdir -p /tmp/hv-first-algorithm/src/main/resources
 cd /tmp/hv-first-algorithm
 ```
 
-Create `pom.xml`:
+Create `pom.xml`. Set `<hotvect.version>` to the version of the Hotvect checkout you installed, which you can print
+with `mvn -q -f /path/to/hotvect/pom.xml help:evaluate -Dexpression=project.version -DforceStdout`. The value below is
+the version this tutorial was verified against; a source install only resolves the version it actually built.
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
@@ -60,7 +62,7 @@ Create `pom.xml`:
   <properties>
     <maven.compiler.release>21</maven.compiler.release>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-    <hotvect.version>10.43.1</hotvect.version>
+    <hotvect.version>10.44.11</hotvect.version>
     <jackson.version>2.21.1</jackson.version>
     <guava.version>33.5.0-jre</guava.version>
     <junit.version>6.0.2</junit.version>
@@ -252,7 +254,7 @@ public final class DocumentExampleDecoderFactory
 ```
 
 The decoder establishes the boundary between external JSON and your application types. It creates an offline request
-because local `hv serve` reuses the offline example-decoding path. An application embedding Hotvect for online traffic
+because local `hv algorithm serve` reuses the offline example-decoding path. An application embedding Hotvect for online traffic
 can construct an online request directly instead.
 
 `FeatureStoreResponseContainer.empty()` says that this synthetic request carries no prefetched feature-store values.
@@ -343,7 +345,7 @@ Activate the Hotvect Python environment, then start the local debug server:
 
 ```bash
 source /path/to/hotvect/python/.venv/bin/activate
-hv serve \
+hv algorithm serve \
   --algorithm-jar target/example-document-ranker-1.0.0.jar \
   --algorithm-name example-document-ranker \
   --parameter-path runtime/example-document-ranker.parameters.zip \

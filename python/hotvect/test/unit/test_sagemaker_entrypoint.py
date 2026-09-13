@@ -36,9 +36,9 @@ def test_train_uses_experiment_management_updater_agent(monkeypatch):
             self.sagemaker_env = SimpleNamespace(
                 hyperparameters={
                     module.SHOULD_UPDATE_EMS_PARAMETER_VAR: True,
-                    module.EMS_S3_OUTPUT_PREFIX_VAR: "s3://bucket/output",
+                    module.EMS_S3_OUTPUT_PREFIX_VAR: "s3://example-bucket/output",
                     module.EMS_URI_VAR: "https://ems.example",
-                    module.ZALANDO_TOKEN_SECRET_ID_VAR: "secret-id",
+                    module.EMS_TOKEN_SECRET_ID_VAR: "secret-id",
                 }
             )
             self.algorithm_pipeline = "pipeline"
@@ -68,7 +68,7 @@ def test_train_uses_experiment_management_updater_agent(monkeypatch):
     assert captured["disabled"] is True
     assert captured["init"] == {
         "algorithm_pipeline": "pipeline",
-        "output_s3_path": "s3://bucket/output",
+        "output_s3_path": "s3://example-bucket/output",
         "ems_uri": "https://ems.example",
         "secret_id": "secret-id",
     }

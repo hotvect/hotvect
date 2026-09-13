@@ -57,11 +57,7 @@ def _update_pom_version(info: PomVersionInfo, old_version: str, new_version: str
             + r"(\s*</version>)"
         )
     elif info.source == "parent":
-        pattern = (
-            r"(<parent>.*?<artifactId>\s*hotvect-parent\s*</artifactId>.*?<version>\s*)"
-            + re.escape(old_version)
-            + r"(\s*</version>.*?</parent>)"
-        )
+        pattern = r"(<parent>.*?<version>\s*)" + re.escape(old_version) + r"(\s*</version>.*?</parent>)"
     else:
         raise ValueError(f"Unknown pom version source for {info.path}: {info.source}")
     _replace_once(info.path, pattern, new_version)

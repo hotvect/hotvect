@@ -17,7 +17,7 @@ algorithm implementation modules in the algorithm JAR.
 | `hotvect-core` | Algorithm-side feature transformation implementations and annotations |
 | `hotvect-processor` | Compile-time generated transformer processor |
 | `hotvect-catboost` | CatBoost transformer, encoding, training, and scoring integration |
-| `hotvect-tensorflow` | TensorFlow generated transformer and runtime integration |
+| `hotvect-tensorflow` | TensorFlow generated feature types, JSON schema generation, and TFRecord encoding; inference is supplied by an algorithm-owned worker integration |
 | Java `hotvect-python` | Managed Python worker runtime integration |
 | `hotvect-online-util` | Dynamic online loading and algorithm repository |
 | `hotvect-offline-util` | JVM offline tasks and command-line runner |
@@ -65,6 +65,11 @@ that requires storage must reject the missing capability in its factory.
 The API defines request, response, decision, example, and outcome types for ranking and TopK workflows. Containing
 applications should adapt their domain objects at the boundary instead of leaking runner-specific JSON or file formats
 into the algorithm interface.
+
+Read [Ranking and prediction contracts](../ranking-and-prediction-contracts/index.md) for exact ordering, adapter,
+tie-breaking, metadata, and batch-output rules. Read
+[Feature-store integration](../../concepts/feature-store-integration/index.md) for the asynchronous capability and
+partial-failure contract.
 
 ## Javadocs
 

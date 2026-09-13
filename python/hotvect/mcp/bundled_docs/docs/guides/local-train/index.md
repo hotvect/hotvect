@@ -6,7 +6,7 @@ tags: [train, local, parameters, workflow]
 
 # Train an algorithm locally
 
-Use `hv train` when you already have an algorithm JAR and want to prepare its state or parameters from local data. Use
+Use `hv algorithm train` when you already have an algorithm JAR and want to prepare its state or parameters from local data. Use
 a backtest instead when the primary question is how source revisions compare on historical outcomes.
 
 ## You need
@@ -33,7 +33,7 @@ clearly synthetic `2000-01-xx` dates.
 ## Run one local training lifecycle
 
 ```bash
-hv train \
+hv algorithm train \
   --algorithm-name <algorithm-name> \
   --algorithm-jar /path/to/algorithm.jar \
   --data-base-dir /path/to/data \
@@ -57,7 +57,7 @@ result rather than assuming every stage ran.
 Use an override for a temporary data window, hyperparameter, runtime setting, or child patch:
 
 ```bash
-hv train \
+hv algorithm train \
   --algorithm-name <algorithm-name> \
   --algorithm-jar /path/to/algorithm.jar \
   --data-base-dir /path/to/data \

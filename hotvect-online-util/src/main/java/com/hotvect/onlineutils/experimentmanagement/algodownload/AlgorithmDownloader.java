@@ -17,6 +17,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -67,9 +68,13 @@ public class AlgorithmDownloader {
         final Path downloadDestination = scratchDirectory.resolve(randomPrefix + "-" + fileName);
         try {
             Files.createDirectories(downloadDestination.getParent());
+            final long downloadStartNanos = System.nanoTime();
             algorithmDownloadClient.downloadAlgorithmJar(algorithm, downloadDestination);
             checkState(downloadDestination.toFile().exists() && downloadDestination.toFile().length() > 0,
                     "File download failed");
+            LOG.info("Downloaded algorithm jar {} ({} bytes) in {} ms",
+                    fileName, downloadDestination.toFile().length(),
+                    TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - downloadStartNanos));
             // Not strictly necessary but friendly to local execution
             // Delete only happens on orderly shutdown
             downloadDestination.toFile().deleteOnExit();
@@ -97,11 +102,21 @@ public class AlgorithmDownloader {
         final Path partialDestination = downloadDestination.resolveSibling(downloadDestination.getFileName() + ".part");
         try {
             Files.createDirectories(parameterDirectory);
+            final long downloadStartNanos = System.nanoTime();
             algorithmDownloadClient.downloadAlgorithmParameter(algorithm, partialDestination);
             checkState(partialDestination.toFile().exists() && partialDestination.toFile().length() > 0,
                     "File download failed");
+            final long parameterBytes = partialDestination.toFile().length();
             moveCompletedDownload(partialDestination, downloadDestination);
-            return algorithmHolder.load(algorithm.algorithmName(), downloadDestination.toFile(), dependencyOverrides);
+            LOG.info("Downloaded algorithm parameter {} ({} bytes) in {} ms",
+                    algoParameterName, parameterBytes,
+                    TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - downloadStartNanos));
+            final long buildStartNanos = System.nanoTime();
+            final AlgorithmInstance<?> algorithmInstance =
+                    algorithmHolder.load(algorithm.algorithmName(), downloadDestination.toFile(), dependencyOverrides);
+            LOG.info("Constructed algorithm instance for {} in {} ms",
+                    algorithm.algorithmName(), TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - buildStartNanos));
+            return algorithmInstance;
         } catch (IOException e) {
             throw new RuntimeException("Algorithm parameters couldn't get downloaded: " + algoParameterName, e);
         } finally {

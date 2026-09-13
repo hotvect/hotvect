@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 SHOULD_UPDATE_EMS_PARAMETER_VAR = "should_update_ems_parameter"
 EMS_S3_OUTPUT_PREFIX_VAR = "ems_s3_output_prefix"
 EMS_URI_VAR = "ems_uri"
-ZALANDO_TOKEN_SECRET_ID_VAR = "zalando_token_secret_id"
+EMS_TOKEN_SECRET_ID_VAR = "ems_token_secret_id"
 REQUIRED_PARAMS_FOR_EMS_UPDATE = [EMS_S3_OUTPUT_PREFIX_VAR, EMS_URI_VAR]
 
 
@@ -61,7 +61,7 @@ def train():
     if should_update_ems_parameter:
         ems_uri = hyperparameters.get(EMS_URI_VAR)
         ems_s3_output_prefix = hyperparameters.get(EMS_S3_OUTPUT_PREFIX_VAR)
-        secret_id = hyperparameters.get(ZALANDO_TOKEN_SECRET_ID_VAR)
+        secret_id = hyperparameters.get(EMS_TOKEN_SECRET_ID_VAR)
         training_result_updater = ExperimentManagementUpdaterAgent(
             algorithm_pipeline=hotvect_rebuilder.algorithm_pipeline,
             output_s3_path=ems_s3_output_prefix,
@@ -126,7 +126,7 @@ class ExperimentManagementUpdaterAgent:
         self._output_s3_path: str = output_s3_path
         if secret_id:
             if not ems_uri:
-                raise ValueError("ems_uri is required when using zalando_token_secret_id")
+                raise ValueError("ems_uri is required when using ems_token_secret_id")
             self._experiment_management_client: ExperimentManagementClient = ExperimentManagementClient(
                 ExperimentManagementConnection(
                     environment=str(ems_uri),

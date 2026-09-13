@@ -12,6 +12,7 @@ class OfflineTaskSpec:
     metadata_path: Path
     source_path: Path | None = None
     dest_path: Path | None = None
+    source_dest_mappings_path: Path | None = None
     parameter_path: Path | None = None
     dest_schema_description_path: Path | None = None
     samples: int | None = None
@@ -34,7 +35,28 @@ _TASKS_WITH_SAMPLES = {"encode", "predict", "audit", "performance-test"}
 _TASKS_WITH_MAX_THREADS = {"encode", "predict", "audit", "performance-test"}
 
 
+def validate_offline_task_inputs(
+    *,
+    task: str,
+    source_path: Path | None,
+    dest_path: Path | None,
+    source_dest_mappings_path: Path | None,
+) -> None:
+    if source_dest_mappings_path is not None and task != "encode":
+        raise ValueError("--source-dest-mappings is only supported for encode")
+    if source_dest_mappings_path is not None and (source_path is not None or dest_path is not None):
+        raise ValueError("--source-dest-mappings cannot be combined with --source-path or --dest-path")
+
+
 def build_offline_task_main_args(spec: OfflineTaskSpec) -> list[str]:
+    validate_offline_task_inputs(
+        task=spec.task,
+        source_path=spec.source_path,
+        dest_path=spec.dest_path,
+        source_dest_mappings_path=spec.source_dest_mappings_path,
+    )
+    mappings_mode = spec.task == "encode" and spec.source_dest_mappings_path is not None
+
     args = [
         "com.hotvect.offlineutils.commandline.Main",
         spec.task,
@@ -46,7 +68,7 @@ def build_offline_task_main_args(spec: OfflineTaskSpec) -> list[str]:
         str(spec.metadata_path),
     ]
 
-    if spec.task in _TASKS_WITH_DEST:
+    if spec.task in _TASKS_WITH_DEST and not mappings_mode:
         if spec.dest_path is None:
             raise ValueError(f"Task {spec.task} requires dest_path")
         args.extend(["--dest", str(spec.dest_path)])
@@ -56,6 +78,9 @@ def build_offline_task_main_args(spec: OfflineTaskSpec) -> list[str]:
 
     if spec.source_path is not None and spec.task in _TASKS_WITH_SOURCE:
         args.extend(["--source", str(spec.source_path)])
+
+    if mappings_mode:
+        args.extend(["--source-dest-mappings", str(spec.source_dest_mappings_path)])
 
     if spec.ordered:
         args.append("--ordered")
