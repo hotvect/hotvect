@@ -9,6 +9,7 @@ from typing import Any
 import boto3
 from botocore.exceptions import ClientError
 
+from hotvect.offline_source_files import is_parallel_source_path
 from hotvect.s3_utils import download_json_from_s3 as _shared_download_json_from_s3
 from hotvect.s3_utils import join_s3_uri as s3_join
 from hotvect.s3_utils import normalize_s3_prefix_uri
@@ -129,8 +130,8 @@ def list_source_objects(s3_client, source_s3_uri: str) -> list[S3ObjectRef]:
             if key.endswith("/"):
                 continue
             relative_key = _relative_source_key(normalized_source_s3_uri, key)
-            relative_parts = [part for part in relative_key.split("/") if part]
-            if not relative_parts or any(part.startswith("_") for part in relative_parts):
+            relative_parts = tuple(part for part in relative_key.split("/") if part)
+            if not is_parallel_source_path(relative_parts):
                 continue
             objects.append(S3ObjectRef(key=key, size=int(entry.get("Size", 0))))
     if not objects:

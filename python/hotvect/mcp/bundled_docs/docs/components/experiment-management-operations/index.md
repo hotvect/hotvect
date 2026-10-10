@@ -134,13 +134,10 @@ The API field is named `userId` for compatibility, but the runtime compares it w
 supplied by the containing application. EMS does not validate whether that key represents a customer, session, device,
 or another domain identity.
 
-## Rotate a slot salt
+## Assignment salts
 
-Salt refresh terminates the active salt and creates a new one. The deployment must explicitly enable
-`custom-properties.slot-salts-refresh-enabled`; otherwise the mutation returns a conflict.
-
-Changing the salt redistributes all non-forced assignment hashes after runtimes refresh. It is not a routine cache
-refresh and should be treated as a coordinated traffic operation.
+Changing an existing slot's salt redistributes all non-forced assignment hashes after runtimes refresh. EMS disables
+salt refresh by default through `custom-properties.slot-salts-refresh-enabled`. The Hotvect CLI excludes salt rotation.
 
 ## HTTP resource map
 

@@ -69,7 +69,7 @@ def prod_default_facts_from_slot_active_info(*, slot_name: str, active_info: Any
         raise ValueError(f"EMS slot {slot_name!r} active-info payload has no default_variant object")
     algorithm = default_variant.get("algorithm")
     if not isinstance(algorithm, dict):
-        raise ValueError(f"EMS slot {slot_name!r} default_variant has no algorithm object")
+        raise ValueError(f"EMS slot {slot_name!r} default_variant algorithm must be an object")
 
     algorithm_name = algorithm.get("algorithm_name")
     algorithm_version = algorithm.get("algorithm_version")

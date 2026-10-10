@@ -38,7 +38,7 @@ that a backtest or training result can be inspected later.
 
 Offline workflows then produce a parameter package with its own identity. Publication and registration associate an
 algorithm version with available parameter versions. Online selection chooses an exact algorithm and parameter
-identity; the runtime loader downloads or reuses those packages and constructs the `AlgorithmInstance`.
+identity; the runtime loader downloads or reuses those packages and constructs the owned algorithm graph.
 
 Read [Algorithm definitions](../../reference/algorithm-definition/index.md) for patch semantics and
 [Packages and identity](../artifacts-and-identity/index.md) for the identifiers carried by each artifact.
@@ -68,48 +68,49 @@ its standalone repository, including its database migrations and identity integr
 - allocation ratios and experiment ramp-up;
 - explicit user forced assignments.
 
-The Java runtime client fetches the current default variant and active experiments for configured slots. On refresh it
-resolves every referenced algorithm, downloads or reuses its algorithm and parameter packages, and atomically replaces
-the immutable serving snapshot. Assignment is then local and deterministic for the supplied assignment key. Forced
-assignments take precedence; otherwise slot shards, experiment allocation, variant allocation, and ramp-up determine
-the selected variant.
+`HotvectServingRuntime` fetches the current default variant and active experiments for every declared root slot. One
+refresh cycle discovers reachable named dependency slots, resolves every referenced algorithm, downloads or reuses
+its algorithm and parameter packages, then atomically replaces the complete immutable serving generation. A failed
+candidate leaves the prior complete generation active. This is local JVM atomicity only: the independent EMS reads do
+not become a provider-side transaction. On each request the containing application supplies the touchpoint, slot, and
+stable assignment key, and Hotvect assigns the variant locally. Forced assignments take precedence; otherwise slot
+shards, experiment allocation, variant allocation, and ramp-up determine the selected variant.
 
-The containing application still owns the slot and assignment key it supplies, failure behavior, request transport,
-and operational controls. Hotvect owns conversion of the selected metadata into loaded algorithm instances.
+The containing application owns typed request transport, touchpoint-to-slot routing, assignment-key extraction,
+invocation compatibility, response mapping, logging, failure behavior, and operational controls. Hotvect owns refresh,
+assignment, and loaded-algorithm lifecycle.
 
 The containing application depends on `hotvect-online-util`. It calls the separately deployed EMS service and does not
 embed the server implementation.
 
-`hv algorithm serve` exposes this path for local debugging through `--ems-url`, `--ems-slot`, and
-`--ems-assignment-key`. It is not
-a production hosting service.
+`hv algorithm serve` is a local artifact debugger, not an EMS client or production hosting service. Exercise EMS-backed selection
+through the containing application's integration tests or development deployment.
 
-## Inspect EMS with `hv ems`
+## Inspect EMS with `hv exp`
 
-`hv ems` is the current read-only command-line view of experiment configuration. It emits JSON and does not create,
-modify, ramp, or terminate experiments.
-
-The older `hv-exp` executable remains available for existing scripts and prints a warning to use `hv ems`.
+`hv exp` provides a command-line view of experiment configuration and online results. It also exposes typed
+commands for 10 EMS business mutations. Writes require a reason and create an EMS approval request when the server
+requires dual approval.
 
 ```bash
 # See the default variant and active experiments in one slot
-hv ems slot get --slot-name example-slot
+hv exp slot get --slot-name example-slot
 
 # Resolve the algorithms referenced by defaults and active experiments
-hv ems algorithm list-in-use --slot-name example-slot
+hv exp algorithm list-in-use --slot-name example-slot
 
 # Inspect an experiment, its ramp-up history, and available online results
-hv ems experiment get --experiment-id 42
-hv ems experiment rampup-log --experiment-id 42
-hv ems experiment results list --experiment-id 42
+hv exp experiment get --experiment-id 42
+hv exp experiment rampup-log --experiment-id 42
+hv exp experiment results list --experiment-id 42
 
 # Inspect the definition and parameter records behind one variant
-hv ems algorithm get --algorithm-name example-ranker --algorithm-version 1.2.0
-hv ems algorithm parameter list --algorithm-name example-ranker --algorithm-version 1.2.0
+hv exp algorithm get --algorithm-name example-ranker --algorithm-version 1.2.0
+hv exp algorithm parameter list --algorithm-name example-ranker --algorithm-version 1.2.0
 ```
 
 The command tree also includes slot and experiment listing, default-variant listing, active-algorithm listing, parameter
-record lookup, and online-result download. Use [the `hv ems` reference](../../reference/cli/index.md#hv-ems) for the full
+record lookup, and online-result download. Use [the `hv exp` reference](../../reference/cli/index.md#hv-exp) for the full
 map and [Hotvect configuration](../../reference/config/index.md) for EMS connection settings.
 
 ## Current boundary and direction
@@ -119,13 +120,14 @@ map and [Hotvect configuration](../../reference/config/index.md) for EMS connect
 | Embedded definitions, explicit overrides, and saved effective definitions | Available now |
 | Java EMS read client, state refresh, deterministic assignment, artifact loading, and runtime reuse | Available now |
 | Python EMS client models and API client | Available now; connects to a configured EMS server |
-| `hv ems` inspection CLI | Available now and intentionally read-only |
+| `hv exp` operator CLI | Inspection, snapshots, online results, and typed mutations with EMS approval |
 | EMS control-plane server and its persistence/API implementation | Available from the standalone EMS repository and deployed independently with PostgreSQL and OAuth integration |
 
 The Python `ExperimentManagementClient` contains read and mutation methods for a configured EMS endpoint, including
 algorithm and parameter registration, experiment lifecycle and ramp-up, default promotion, and forced assignments.
-Those methods remain clients; the server implementation stays in the separate EMS repository. `hv ems` deliberately
-exposes only the inspection subset.
+Those methods remain clients; the server implementation stays in the separate EMS repository. `hv exp` provides
+typed operator commands with the server-backed
+[dual-approval workflow](../../guides/ems-dual-approval/index.md).
 
 See the [Python EMS client reference](../../reference/python-ems-client/index.md) for the exact read/mutation boundary
 and authentication setup.
@@ -143,4 +145,4 @@ evaluation must remain attributable to the variant that produced it.
 - [Online runtime integration](../../architecture/online-runtime/index.md)
 - [EMS control plane](../../components/experiment-management-service/index.md)
 - [EMS runtime client, refresh, and assignment](../../components/ems-runtime-client/index.md)
-- [`hv ems` command reference](../../reference/cli/index.md#hv-ems)
+- [`hv exp` command reference](../../reference/cli/index.md#hv-exp)

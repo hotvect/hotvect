@@ -21,7 +21,7 @@ and automation surfaces; installing them does not deploy an online serving appli
 | --- | --- | --- |
 | `hv` | Run local and remote algorithm workflows, inspect bundled docs, and start the local debugger | Algorithm SDK, offline workflows, online integration |
 | `hv-ext` | Compare generic JSONL output and convert CatBoost models | Supporting utilities |
-| `hv ems` | Inspect algorithms, parameters, slots, experiments, ramp-up history, and online results | Experiment management |
+| `hv exp` | Inspect EMS state, export snapshots, retrieve online results, request typed mutations, and inspect approvals | Experiment management |
 | `hv-mcp` | Expose the bundled documentation and reviewed workflow prompts to an MCP-compatible agent | Agent-assisted workflows |
 
 The installed package also contains execution entry points used inside managed jobs. For example,
@@ -46,13 +46,14 @@ output and convert CatBoost models.
 Keeping these operations separate from `hv` makes the execution boundary explicit: `hv` runs a Hotvect algorithm or
 workflow, while `hv-ext` prepares or analyzes its inputs and outputs.
 
-## `hv ems`: inspect the control plane
+## `hv exp`: inspect and change the control plane
 
-`hv ems` is the read-only EMS inspection CLI. It is useful for understanding which versions are active, checking a
-slot's current experiment state, and examining ramp-up or parameter history without exposing mutation commands.
+`hv exp` inspects active versions, slot and experiment state, ramp-up, parameters, and online results. It also exposes
+10 typed business mutations. Protected writes create server-stored approval requests, which another operator reviews
+and applies in EMS UI. Use `approval get` and `approval list` for CLI inspection.
 
-Experiment creation and release automation use the typed Python EMS client or the deployed HTTP API with appropriate
-authorization. Read [EMS clients and operator tools](../ems-clients-and-tools/index.md) for that boundary.
+Read [EMS clients and operator tools](../ems-clients-and-tools/index.md) and the
+[dual-approved EMS mutations guide](../../guides/ems-dual-approval/index.md).
 
 ## `hv-mcp`: make the documentation executable
 

@@ -2,9 +2,9 @@
   "algorithm_name": "jar_name",
   "algorithm_version": "v2",
   "state": "NEW",
-  "absolute_s3_jar_path": "s3://bucket/dir/jar_name-v2.jar",
+  "absolute_s3_jar_path": "s3://example-bucket/dir/jar_name-v2.jar",
   "created_at": "2000-09-17T06:23:11.789719Z",
-  "algorithm_training_image_name": "registry.example.com/example/jar_name:v2",
+  "algorithm_training_image_name": "registry.example.com/team/jar_name:v2",
   "parameter_mode": "REQUIRED",
   "latest_algorithm_parameter": null
 }

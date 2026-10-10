@@ -35,12 +35,19 @@ public class EncodeTask<EXAMPLE extends Example<? extends OfflineRequest, ?>> ex
 
     @Override
     protected Map<String, Object> perform() throws Exception {
+        try (AlgorithmOfflineSupporterFactory algorithmSupporterFactory =
+                     new AlgorithmOfflineSupporterFactory(this.offlineTaskContext.classLoader())) {
+            return perform(algorithmSupporterFactory);
+        }
+    }
 
-        AlgorithmOfflineSupporterFactory algorithmSupporterFactory = new AlgorithmOfflineSupporterFactory(this.offlineTaskContext.classLoader());
-
+    private Map<String, Object> perform(
+            AlgorithmOfflineSupporterFactory algorithmSupporterFactory) throws Exception {
         ExampleDecoder<EXAMPLE> scoringExampleDecoder = algorithmSupporterFactory.getTrainDecoder(offlineTaskContext.algorithmDefinition());
 
-        ExampleEncoder<EXAMPLE> exampleEncoder = algorithmSupporterFactory.getTrainEncoder(offlineTaskContext.algorithmDefinition(), this.offlineTaskContext.options().parameters);
+        ExampleEncoder<EXAMPLE> exampleEncoder = algorithmSupporterFactory.prepareTrainEncoder(
+                offlineTaskContext.algorithmDefinition(),
+                this.offlineTaskContext.directRuntime().algorithmSource().parameters());
 
         String extension;
         try {
@@ -60,21 +67,26 @@ public class EncodeTask<EXAMPLE extends Example<? extends OfflineRequest, ?>> ex
         }
         if (!extension.isEmpty() && !extension.startsWith(".")) {
             throw new IllegalStateException(
-                    "Encoder " + exampleEncoder.getClass().getName() + " returned an invalid file extension from encodedFileExtension(): "
+                    "Encoder " + exampleEncoder.getClass().getName()
+                            + " returned an invalid file extension from encodedFileExtension(): "
                             + extension + ". Expected \"\" or a leading dot, e.g. \".tfrecord\", \".tsv\", \".jsonl\""
             );
         }
 
         Optional<String> schemaDescription = exampleEncoder.schemaDescription();
-        if(schemaDescription.isPresent()){
+        if (schemaDescription.isPresent()) {
             checkArgument(
                     this.offlineTaskContext.options().schemaDescriptionFile != null,
                     "Your algorithm needs a schema description, but your script did not provide --schema file location. This is e.g. column_description.tsv"
             );
-            Files.writeString(this.offlineTaskContext.options().schemaDescriptionFile.toPath(), schemaDescription.get(), StandardCharsets.UTF_8);
+            Files.writeString(
+                    this.offlineTaskContext.options().schemaDescriptionFile.toPath(),
+                    schemaDescription.get(),
+                    StandardCharsets.UTF_8);
         }
 
-        Function<String, List<ByteBuffer>> transformation = scoringExampleDecoder.andThen(s -> ListTransform.map(s, exampleEncoder));
+        Function<String, List<ByteBuffer>> transformation = scoringExampleDecoder.andThen(
+                s -> ListTransform.map(s, exampleEncoder));
 
         Optional<String> orderingSpec = this.offlineTaskContext.algorithmDefinition().trainDecoderParameter()
                 .flatMap(hp -> Optional.ofNullable(hp.get("ordering")).map(JsonNode::asText));
@@ -98,8 +110,8 @@ public class EncodeTask<EXAMPLE extends Example<? extends OfflineRequest, ?>> ex
             mappings = this.offlineTaskContext.options().sourceDestMappings;
         } else {
             checkState(
-                    this.offlineTaskContext.options().sourceFiles.size() == 1 &&
-                            this.offlineTaskContext.options().sourceFiles.keySet().iterator().next().equals("default"),
+                    this.offlineTaskContext.options().sourceFiles.size() == 1
+                            && this.offlineTaskContext.options().sourceFiles.keySet().iterator().next().equals("default"),
                     "Only one source file type is supported for encode tasks"
             );
             mappings = List.of(new SourceDestMapping(

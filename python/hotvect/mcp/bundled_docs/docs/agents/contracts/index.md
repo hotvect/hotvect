@@ -18,7 +18,8 @@ complete example.
 - Overrides are fragments, not full definitions: `algorithm_name` is rejected before merge, and `hv algorithm backtest` also
   rejects `algorithm_version`.
 - `dependencies` is a child-override map, not a generic JSON merge:
-  - keys must match already-declared child algorithms
+  - keys must be unversioned names matching already-declared child algorithms
+  - `@version` belongs to a shared declaration and is invalid in an override key
   - unknown child names are a hard error
   - overriding one child preserves unspecified siblings
 - **Dependency overrides must be nested**:

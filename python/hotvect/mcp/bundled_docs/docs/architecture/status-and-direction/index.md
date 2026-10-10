@@ -17,32 +17,31 @@ promise that the current release implements it.
 | Public decision surfaces | Ranker and TopK in local serving; ranker, bulk scorer, TopK, and ThemedTopK in offline prediction |
 | State-generation workflows | Definitions can generate and package lookup data, aggregates, or other state |
 | Composite dependency graphs | Recursive child definitions, preparation, loading, and composite factories |
-| Host-provided dependencies | Named `AlgorithmInstance` overrides supplied by the containing application |
+| Host-provided dependencies | Named `Algorithm` implementations supplied and owned by the containing application |
 | Offline lifecycle | State, encode, train, predict, evaluate, audit, performance test, and backtest workflows |
-| Online application integration | Dynamic algorithm and parameter loading through the online utility module |
+| Online application integration | Dynamic algorithm and optional parameter loading through the online utility module |
 | Configuration provenance | Embedded definitions, explicit overrides, saved effective definitions, and separate parameter identity |
 | Experiment Management Service (EMS) runtime integration | Configured EMS reads, slot snapshots, deterministic variant assignment, periodic refresh, and algorithm loading |
 | EMS control-plane server | A standalone EMS repository provides the Spring Boot persistence, migrations, REST API, and deployment |
-| Experiment inspection | Read-only `hv ems` queries for slots, experiments, ramp-up, algorithms, parameters, and online results |
+| Experiment operations | `hv exp` inspection, snapshots, online results, and typed mutations subject to EMS dual approval |
 | Python inference workers | Managed local subprocesses over Unix domain sockets |
-| Runtime-local filesystem state | Private-directory allocation for explicitly configured containing runtimes; algorithm factories own cleanup |
+| Runtime-local filesystem state | Lazy private-directory allocation; algorithm factories own cleanup |
 | Remote offline work | Whole train/backtest/one-shot jobs submitted to SageMaker |
 
 ## Bounded or local surfaces
 
 - `hv algorithm serve` and its UI are local full-algorithm debugging tools, not production hosting.
 - `hv worker serve` is a local worker-only HTTP debugger, not the direct-worker transport.
-- Current `hv algorithm serve` modes do not configure the local-state root required by definitions with
-  `requires_local_state_storage: true`.
+- `hv algorithm serve` supplies lazy runtime-local state beneath the system temporary directory.
 - Metadata-selection clients do not turn Hotvect into a production hosting service; the containing application owns
   selection and traffic behavior.
 - The EMS server is maintained and deployed outside Hotvect. Hotvect documents the contract and provides compatible
   clients; the EMS deployment owns PostgreSQL, OAuth token introspection, artifact publication, and operations.
-  `hv ems` intentionally exposes inspection, not experiment mutations.
+  `hv exp` exposes typed mutations through the deployment's server-backed dual-approval workflow.
 - Host-provided external bindings can wrap clients, but Hotvect does not supply a generic remote proxy.
-- A host binding wins in the composite factory map only after the declared child has been loaded.
-- Nested composite children currently receive no parameter streams from their own packaged parameter namespace.
-- `AlgorithmRepository` requires parameter metadata; use direct factory loading for a genuinely parameterless runtime.
+- A host binding replaces construction of the declared dependency by name; packaged definitions may still be inspected
+  to discover reachable EMS slots.
+- EMS metadata represents a parameterless algorithm by omitting both the parameter ID and parameter path.
 
 ## Direction
 

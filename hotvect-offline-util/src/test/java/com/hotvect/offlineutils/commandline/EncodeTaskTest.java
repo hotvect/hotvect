@@ -138,9 +138,8 @@ public class EncodeTaskTest {
     private static AlgorithmDefinition nullExtensionAlgorithmDefinition() {
         String nestedClassPrefix = EncodeTaskTest.class.getCanonicalName() + "$";
         return new AlgorithmDefinition(
-                null,
+                JsonNodeFactory.instance.objectNode(),
                 new AlgorithmId("test-algorithm", "1.2.3"),
-                ImmutableMap.of(),
                 ImmutableMap.of(),
                 null,
                 nestedClassPrefix + NullExtensionDecoderFactory.class.getSimpleName(),
@@ -158,7 +157,10 @@ public class EncodeTaskTest {
     }
 
     private static AlgorithmDefinition queueLengthAlgorithmDefinition() {
-        return queueLengthAlgorithmDefinition(null, Optional.empty(), Optional.empty());
+        return queueLengthAlgorithmDefinition(
+                JsonNodeFactory.instance.objectNode(),
+                Optional.empty(),
+                Optional.empty());
     }
 
     private static AlgorithmDefinition queueLengthAlgorithmDefinition(
@@ -170,7 +172,6 @@ public class EncodeTaskTest {
         return new AlgorithmDefinition(
                 rawAlgorithmDefinition,
                 new AlgorithmId("test-algorithm", "1.2.3"),
-                ImmutableMap.of(),
                 ImmutableMap.of(),
                 null,
                 nestedClassPrefix + QueueLengthDecoderFactory.class.getSimpleName(),
@@ -189,7 +190,7 @@ public class EncodeTaskTest {
 
     @Test
     void shouldFailWhenEncoderReturnsNullExtension() throws Exception {
-        Options options = new Options();
+        Options options = OfflineTaskTestOptions.direct();
 
         try (URLClassLoader classLoader = new URLClassLoader(new URL[0], this.getClass().getClassLoader())) {
             OfflineTaskContext offlineTaskContext = new OfflineTaskContext(
@@ -208,7 +209,7 @@ public class EncodeTaskTest {
 
     @Test
     void shouldAllowMissingParametersForParameterlessEncodeAlgorithms() throws Exception {
-        Options options = new Options();
+        Options options = OfflineTaskTestOptions.direct();
         options.sourceFiles = ImmutableMap.of(
                 "default",
                 ImmutableList.of(Paths.get(Objects.requireNonNull(this.getClass().getResource("multiple")).toURI()).toFile())
@@ -249,7 +250,7 @@ public class EncodeTaskTest {
         File source = Paths.get(
                 Objects.requireNonNull(this.getClass().getResource("multiple")).toURI()
         ).toFile();
-        Options options = new Options();
+        Options options = OfflineTaskTestOptions.direct();
         options.sourceDestMappings = List.of(
                 new SourceDestMapping(List.of(source), tempDir.resolve("day-1").toFile()),
                 new SourceDestMapping(List.of(source), tempDir.resolve("day-2").toFile())
@@ -288,8 +289,7 @@ public class EncodeTaskTest {
 
     @Test
     void forwardsQueueLengthToUnorderedMapper() throws Exception {
-        Options options = new Options();
-        options.parameters = Paths.get(Objects.requireNonNull(this.getClass().getResource("test-algorithm-parameter.zip")).toURI()).toFile();
+        Options options = OfflineTaskTestOptions.direct(Paths.get(Objects.requireNonNull(this.getClass().getResource("test-algorithm-parameter.zip")).toURI()).toFile());
         options.sourceFiles = ImmutableMap.of(
                 "default",
                 ImmutableList.of(Paths.get(Objects.requireNonNull(this.getClass().getResource("multiple")).toURI()).toFile())
@@ -330,8 +330,7 @@ public class EncodeTaskTest {
 
     @Test
     void forwardsSplitQueueLengthsToUnorderedMapper() throws Exception {
-        Options options = new Options();
-        options.parameters = Paths.get(Objects.requireNonNull(this.getClass().getResource("test-algorithm-parameter.zip")).toURI()).toFile();
+        Options options = OfflineTaskTestOptions.direct(Paths.get(Objects.requireNonNull(this.getClass().getResource("test-algorithm-parameter.zip")).toURI()).toFile());
         options.sourceFiles = ImmutableMap.of(
                 "default",
                 ImmutableList.of(Paths.get(Objects.requireNonNull(this.getClass().getResource("multiple")).toURI()).toFile())
@@ -373,8 +372,7 @@ public class EncodeTaskTest {
 
     @Test
     void orderedEncodeWritesPartFiles() throws Exception {
-        Options options = new Options();
-        options.parameters = Paths.get(Objects.requireNonNull(this.getClass().getResource("test-algorithm-parameter.zip")).toURI()).toFile();
+        Options options = OfflineTaskTestOptions.direct(Paths.get(Objects.requireNonNull(this.getClass().getResource("test-algorithm-parameter.zip")).toURI()).toFile());
         options.sourceFiles = ImmutableMap.of(
                 "default",
                 ImmutableList.of(Paths.get(Objects.requireNonNull(this.getClass().getResource("multiple")).toURI()).toFile())
@@ -410,8 +408,7 @@ public class EncodeTaskTest {
 
     @Test
     void explicitCliOrderedEncodeOverridesAlgorithmDefinitionUnordered() throws Exception {
-        Options options = new Options();
-        options.parameters = Paths.get(Objects.requireNonNull(this.getClass().getResource("test-algorithm-parameter.zip")).toURI()).toFile();
+        Options options = OfflineTaskTestOptions.direct(Paths.get(Objects.requireNonNull(this.getClass().getResource("test-algorithm-parameter.zip")).toURI()).toFile());
         options.sourceFiles = ImmutableMap.of(
                 "default",
                 ImmutableList.of(Paths.get(Objects.requireNonNull(this.getClass().getResource("multiple")).toURI()).toFile())
@@ -452,8 +449,7 @@ public class EncodeTaskTest {
 
     @Test
     void explicitCliUnorderedEncodeOverridesAlgorithmDefinitionOrdered() throws Exception {
-        Options options = new Options();
-        options.parameters = Paths.get(Objects.requireNonNull(this.getClass().getResource("test-algorithm-parameter.zip")).toURI()).toFile();
+        Options options = OfflineTaskTestOptions.direct(Paths.get(Objects.requireNonNull(this.getClass().getResource("test-algorithm-parameter.zip")).toURI()).toFile());
         options.sourceFiles = ImmutableMap.of(
                 "default",
                 ImmutableList.of(Paths.get(Objects.requireNonNull(this.getClass().getResource("multiple")).toURI()).toFile())
@@ -500,8 +496,7 @@ public class EncodeTaskTest {
 
     @Test
     void shouldAllowNullQueueLengthForUnorderedMapper() throws Exception {
-        Options options = new Options();
-        options.parameters = Paths.get(Objects.requireNonNull(this.getClass().getResource("test-algorithm-parameter.zip")).toURI()).toFile();
+        Options options = OfflineTaskTestOptions.direct(Paths.get(Objects.requireNonNull(this.getClass().getResource("test-algorithm-parameter.zip")).toURI()).toFile());
         options.sourceFiles = ImmutableMap.of(
                 "default",
                 ImmutableList.of(Paths.get(Objects.requireNonNull(this.getClass().getResource("multiple")).toURI()).toFile())

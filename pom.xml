@@ -4,7 +4,7 @@
 
     <groupId>com.hotvect</groupId>
     <artifactId>hotvect-parent</artifactId>
-    <version>10.55.0</version>
+        <version>11.2.4</version>
     <packaging>pom</packaging>
 
     <name>Hotvect Project</name>
@@ -22,7 +22,6 @@
         <module>hotvect-python</module>
         <module>hotvect-online-util</module>
         <module>hotvect-offline-util</module>
-        <module>hotvect-algorithm-serve</module>
         <module>hotvect-algorithm-demo</module>
         <module>examples/product-search-and-ranking</module>
         <module>hotvect-integration-test</module>
@@ -137,11 +136,6 @@
             <dependency>
                 <groupId>com.hotvect</groupId>
                 <artifactId>hotvect-online-util</artifactId>
-                <version>${project.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>com.hotvect</groupId>
-                <artifactId>hotvect-algorithm-serve</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <!-- commons -->

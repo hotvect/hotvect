@@ -128,7 +128,7 @@ while preserving the parent contract.
 Design each boundary around a typed capability and explicit ownership. Do not assume an algorithm package is isolated
 for security, or that replacing a child transfers its lifecycle automatically. Read
 [Dependencies and bindings](../../concepts/dependencies-and-bindings/index.md) before relying on deeper graphs or host
-overrides; it records the current nested-factory parameter boundary.
+bindings; it records recursive parameter and ownership behavior.
 
 ## 5. Write the embedded definition
 
@@ -151,9 +151,10 @@ A policy-only algorithm can be created directly without parameter streams. A tra
 the learned model and `algorithm-parameters.json` into a parameter package. At runtime, the algorithm package supplies
 behavior and the parameter package supplies the selected learned state. Those packages are currently a JAR and ZIP.
 
-The current surfaces differ for parameterless algorithms: direct `AlgorithmInstanceFactory` loading can omit a ZIP,
-while `AlgorithmRepository` and local `hv algorithm serve` require a parameter identity or path. The local tutorial uses a
-metadata-only ZIP for that reason. Do not add an artificial model merely to satisfy one host surface.
+The current surfaces differ for parameterless algorithms: direct `AlgorithmInstanceFactory` loading and EMS serving
+can omit a ZIP, while local `hv algorithm serve` still requires a parameter path. EMS represents the absence by
+omitting both the parameter ID and parameter path. The local tutorial uses a metadata-only ZIP for the CLI requirement.
+Do not add an artificial model merely to satisfy one host surface.
 
 ## 7. Test from the inside out
 

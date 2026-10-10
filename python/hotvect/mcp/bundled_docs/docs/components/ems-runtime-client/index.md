@@ -11,8 +11,8 @@ related_docs:
 
 # EMS runtime client, refresh, and assignment
 
-The EMS runtime client is part of `hotvect-online-util`. A containing Java serving application embeds it to select and
-load released algorithms from a separately deployed EMS control plane.
+The EMS runtime client is part of `hotvect-online-util`. A containing Java serving application embeds it to load and
+invoke released algorithms selected by a separately deployed EMS control plane.
 
 The client is not the EMS server. It does not persist experiments or expose administrative endpoints.
 
@@ -34,43 +34,57 @@ sequenceDiagram
     participant Host as Serving application
     participant Client as EMS read client
     participant EMS as EMS deployment
-    participant Repo as AlgorithmRepository
+    participant Repo as Internal graph owner
     participant Store as Artifact storage
 
-    Host->>Client: Start configured slot refreshers
-    Client->>EMS: GET default variant and active experiments
-    EMS-->>Client: Immutable slot description
-    Client->>Repo: Resolve every referenced runtime
-    Repo->>Store: Download missing JARs and parameter ZIPs
+    Host->>Client: Start one runtime-wide refresh scheduler
+    Client->>EMS: Read every root and reachable dependency slot
+    EMS-->>Client: Independent slot descriptions
+    Client->>Repo: Prepare every reachable graph composition
+    Repo->>Store: Download missing JARs and parameter ZIPs when present
     Store-->>Repo: Artifact bytes
-    Repo-->>Client: Loaded AlgorithmInstances
-    Client-->>Host: Atomically install serving snapshot
+    Repo-->>Client: Leased graph compositions
+    Client-->>Host: Atomically publish the complete generation
 ```
 
-Each configured slot has a refresher. Startup performs an initial refresh before the manager becomes ready. Later
-refreshes run on the configured period.
+One scheduler refreshes all configured roots and every recursively referenced slot. Startup prepares a complete
+snapshot before the runtime becomes ready. A background cycle publishes one immutable generation only after every
+slot, artifact, dependency binding, and serving contract validates. Request threads continue using the previous
+generation during preparation and observe the new generation through one atomic publication; they do not take a
+refresh lock.
 
-The slot's total shard count is initialized from the first successful payload and treated as immutable for that
-refresher's lifetime. Changing it requires a coordinated process restart rather than silently changing the hash space
-inside a running process.
+EMS slot reads are independent HTTP operations. Complete local publication prevents a process-local partial update,
+but it does not turn those reads into a transactional EMS snapshot.
 
 ## Artifact resolution and reuse
 
-The runtime converts the EMS response into exact algorithm and parameter identities. `AlgorithmRepository` then:
+The runtime converts the EMS response into exact algorithm identities and optional parameter identities. Its internal
+graph repository then:
 
-- retains an `AlgorithmInstanceFactory` for each algorithm ID;
-- reuses a live `AlgorithmInstance` for the same algorithm ID and parameter ID;
-- downloads a new parameter package when a new identity is selected;
+- indexes downloaded artifacts and composed graphs while they have live leases;
+- reuses every live graph whose artifact, parameter, and effective dependency identities are unchanged;
+- resolves exact shared dependency IDs through one snapshot-wide canonical artifact/classloader catalog;
+- interns identical static shared nodes across all root compositions while parent graphs or preparation scopes retain them;
+- downloads a new parameter package when a parameter identity is selected;
 - supplies application-provided dependency overrides during construction;
-- closes an algorithm after its instance becomes unreachable.
+- closes each retired generation asynchronously after its last invocation lease is released, closing graph-owned
+  algorithms before their dependencies and artifact/classloader resources;
+- removes each owner from the reuse registry before closing it, without relying on garbage collection;
+- waits for all current and retired generations to finish cleanup during runtime shutdown.
 
 All algorithms referenced by the default variant and active experiments must resolve before the new snapshot is
-installed. This prevents one request from observing a partially updated experiment graph.
+installed. Every resolved definition must be a committed release without `hyperparameter_version`; that field is
+reserved for offline experiments. This prevents one request from observing a partially updated experiment graph or an
+uncommitted configuration variant.
+
+Before constructing parameter graphs, the runtime enumerates the complete compositions implied by independently
+assigned nested slots. It rejects a snapshot that exceeds 64 compositions for one configured root or 256 across the
+runtime. The validation error reports the observed count and the root or slot variant counts that caused the expansion.
 
 ## Built-in parameter-age metric
 
-Pass a Micrometer `MeterRegistry` to `AlgorithmRepository` to register one gauge for each loaded parameterized
-instance:
+Pass a Micrometer `MeterRegistry` to `HotvectServingRuntime.Builder.meterRegistry(...)` to register one gauge for each
+loaded parameterized instance:
 
 ```text
 ems.algorithm_parameter.age
@@ -84,12 +98,11 @@ The value is the number of seconds since `algorithm-parameters.json.ran_at`. Its
 | `AlgorithmParameterId` | Loaded parameter ID |
 
 No gauge is registered for an instance without parameter metadata. A registered gauge reports `-1` when `ran_at` is
-unavailable. It follows the lifetime of the weakly cached `AlgorithmInstance`, so a runtime no longer referenced by a
-serving snapshot can disappear after collection.
+unavailable. Its lifetime follows the internally owned runtime identity.
 
-This metric measures parameter age, not EMS refresh age. The default public manager interface exposes the current
-snapshot but does not expose its per-slot last-failure timestamp. A containing application that needs structured
-refresh health must add that integration explicitly and should not infer it from parameter age.
+This metric measures parameter age, not EMS refresh age. `HotvectServingRuntime.status()` reports whether a complete
+generation is active, its generation and activation age, preparation duration, reachable slot assignments, and the
+latest runtime-wide refresh failure.
 
 ## Request path
 
@@ -102,14 +115,16 @@ flowchart LR
     shard --> experiment["Active experiment"]
     experiment --> allocation["Variant allocation"]
     allocation --> ramp["Ramp-up"]
-    ramp --> selected["Loaded AlgorithmInstance"]
+    ramp --> selected["Root algorithm in retained graph"]
 ```
 
-The first applicable rule determines the selected variant. The selected `VariantConfiguration` contains both the
-variant metadata and its already-loaded `AlgorithmInstance`.
+The first applicable rule determines the selected variant for each root or nested dependency slot. Stage 2 requires
+every variant to select exactly one algorithm. The runtime resolves the resulting complete composition and keeps its
+immutable generation reachable throughout the synchronous algorithm invocation. It then returns an
+`AlgorithmExecution` containing the algorithm response and immutable serving metadata.
 
-The request does not call EMS and does not download an artifact. The containing application calls the selected
-algorithm locally and maps its result into the application's response.
+The request does not call EMS and does not download an artifact. No caller-owned graph or algorithm handle escapes the
+invocation boundary.
 
 Record at least the selected slot, variant ID, algorithm ID, parameter ID, and full runtime ID with request metrics or
 traces. Parameter age alone cannot attribute a decision to an experiment or distinguish two variants using the same
@@ -125,8 +140,13 @@ device, or request identifier is correct for the application's product semantics
 
 ## Application-provided dependencies
 
-The application may construct one shared `AlgorithmRepository` with named `AlgorithmInstance` overrides. This is how a
-host can supply an application-owned capability such as a feature-store adapter.
+Register named application-owned algorithms with `HotvectServingRuntime.Builder.dependency(...)`. This is how a host
+can supply a capability such as a feature-store adapter.
+
+The registration declares the dependency's complete contract explicitly. Use a class literal for a non-generic
+interface, for example `.dependency("feature-store", FeatureStore.class, applicationFeatureStore)`. For a generic
+algorithm interface, pass a concrete Guava `TypeToken` instead. Raw generic class literals are rejected so the host
+cannot erase a contract that a composed algorithm expects.
 
 The algorithm sees the bound interface, while the application remains responsible for the implementation's credentials,
 transport, batching, timeouts, metrics, failure behavior, and lifecycle. Read
@@ -141,7 +161,7 @@ Initial and background failures have different operational consequences:
 | Initial EMS read fails | No serving snapshot exists | Usually fail startup or readiness |
 | Initial artifact resolution fails | No complete snapshot is installed | Usually fail startup or readiness |
 | Later EMS read fails | Previous successful snapshot remains installed | Report staleness and choose health/traffic policy |
-| Later artifact resolution fails | Candidate snapshot is discarded | Continue with previous snapshot and surface failure |
+| Later artifact resolution fails | Prepared snapshot is discarded | Continue with previous snapshot and surface failure |
 | Per-request algorithm fails | Request execution fails inside the host | Map to the application's error and observability policy |
 
 Hotvect records refresh failure and staleness information, but it does not invent a fallback algorithm or silently
@@ -149,18 +169,29 @@ switch to an unrelated deployment.
 
 ## Lifecycle and resources
 
-Create one `AlgorithmRepository` per application and share it across slots and request threads. Keep strong references
-to selected `AlgorithmInstance` wrappers for as long as their algorithms are in use.
+Create one `HotvectServingRuntime` per application and share it across request threads. Each synchronous `invoke(...)`
+call retains its complete generation in all success and failure paths.
 
 On shutdown:
 
-1. stop the experimentation manager and its slot refreshers;
-2. close the EMS HTTP client;
-3. close the artifact download client;
-4. close application-owned artifact-store clients and dependency bindings.
+1. stop the runtime-wide refresh scheduler and clear the published generation;
+2. wait for in-flight invocations and resource cleanup of every current and retired generation;
+3. close the algorithm repository, EMS HTTP client, and artifact download client;
+4. let the application close its own dependency bindings after runtime `close()` returns.
 
-The containing application owns scratch capacity, optional runtime-local state storage, credentials, and process
-shutdown ordering.
+During serving, final lease release schedules graph and artifact cleanup asynchronously, outside request and refresh
+threads. Runtime `close()` waits for that cleanup and surfaces cleanup failure. Call it outside an invocation.
+
+Offline runtimes instead own one fixed composition or pinned EMS snapshot for the whole task. Their
+`AlgorithmRuntimeContext` exposes only the root instance, runtime ID, and artifact classloader;
+`SelectedAlgorithmRuntime` pairs that borrowed view with EMS attribution. Neither value owns resources.
+Use the owning runtime's `invoke(...)` methods for request execution, or invoke the borrowed instance through its
+algorithm contract when an offline task needs its own decoding and formatting. Finish all worker threads, invocations,
+and decoder use before closing the runtime; offline `close()` releases resources synchronously and must not race with
+task work.
+
+The containing application owns scratch capacity, credentials, and process shutdown ordering. Hotvect derives
+runtime-local state from scratch unless `localStateRoot(...)` places it on another volume.
 
 Continue with [Connect an online runtime to EMS](../../guides/connect-online-runtime-to-ems/index.md) for a concrete Java
 integration.

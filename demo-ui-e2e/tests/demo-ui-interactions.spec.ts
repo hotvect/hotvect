@@ -109,6 +109,29 @@ test.describe('demo UI interactions', () => {
     await expect(parameterTrigger).toBeFocused();
   });
 
+  test('updates header and runtime metadata for the selected baseline', async ({ page }) => {
+    await page.goto('/');
+
+    const baselineSelect = page.getByRole('combobox', { name: 'Baseline algorithm version' });
+    await expect(baselineSelect).toBeVisible();
+    await expect(baselineSelect.locator('option')).toHaveCount(2);
+    const secondRuntimeId = await baselineSelect.locator('option').nth(1).getAttribute('value');
+    expect(secondRuntimeId).toBeTruthy();
+
+    await baselineSelect.selectOption(secondRuntimeId!);
+    await expect(page.locator('#status')).toHaveText('OK');
+    await expect(page.locator('#paramMeta')).toContainText('e2e-local-2');
+
+    await page.locator('#paramMeta').click();
+    await expect(page.locator('#runtimeMetadataModalSubtitle')).toHaveText(secondRuntimeId!);
+    await expect(page.locator('#runtimeMetadataModalJson')).toContainText('e2e-local-2');
+    await page.keyboard.press('Escape');
+
+    await page.locator('#algoMeta').click();
+    await expect(page.locator('#runtimeMetadataModalSubtitle')).toHaveText(secondRuntimeId!);
+    await expect(page.locator('#runtimeMetadataModalJson')).toContainText('demo-ranker');
+  });
+
   test('renders embedded action images without expanding their payload in metadata', async ({ page }) => {
     await page.goto('/');
 
@@ -143,7 +166,7 @@ test.describe('demo UI interactions', () => {
     await first.click();
     await expect(page.locator('#status')).toHaveText('OK');
 
-    const example = await (await page.request.get(`/api/examples/${exampleIndex}`)).json();
+    const example = await (await page.request.get(`/api/demo/examples/${exampleIndex}`)).json();
     const { key, value } = pickEditableTopLevelField(example.json);
     const path = `.${key}`;
     const newValue: EditableScalar =
@@ -229,7 +252,7 @@ test.describe('demo UI interactions', () => {
     await first.click();
     await expect(page.locator('#status')).toHaveText('OK');
 
-    const example = await (await page.request.get(`/api/examples/${exampleIndex}`)).json();
+    const example = await (await page.request.get(`/api/demo/examples/${exampleIndex}`)).json();
     const { key } = pickEditableTopLevelField(example.json);
     const path = `.${key}`;
 
@@ -268,7 +291,7 @@ test.describe('demo UI interactions', () => {
     await first.click();
     await expect(page.locator('#status')).toHaveText('OK');
 
-    const example = await (await page.request.get(`/api/examples/${exampleIndex}`)).json();
+    const example = await (await page.request.get(`/api/demo/examples/${exampleIndex}`)).json();
     const { key } = pickEditableTopLevelField(example.json);
     const path = `.${key}`;
 

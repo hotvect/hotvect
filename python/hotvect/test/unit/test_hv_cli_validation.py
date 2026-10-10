@@ -13,7 +13,7 @@ def _hv_bin_path() -> Path:
     return python_dir / "bin" / "hv"
 
 
-def _run_hv(*args: str, input_text: str | None = None) -> subprocess.CompletedProcess[str]:
+def _run_hv(*args: str) -> subprocess.CompletedProcess[str]:
     hv_bin = _hv_bin_path()
     python_dir = hv_bin.parent.parent
     return subprocess.run(
@@ -22,7 +22,6 @@ def _run_hv(*args: str, input_text: str | None = None) -> subprocess.CompletedPr
         capture_output=True,
         text=True,
         env=dict(os.environ, PYTHONPATH=str(python_dir)),
-        input=input_text,
     )
 
 
@@ -64,7 +63,8 @@ def test_hv_help_exposes_canonical_namespaces_and_legacy_algorithm_aliases():
     assert result.returncode == 0
     assert "algorithm" in result.stdout
     assert "qa" in result.stdout
-    assert "ems" in result.stdout
+    assert "exp" in result.stdout
+    assert "ems" not in result.stdout
     assert "config" in result.stdout
     assert "data" in result.stdout
     assert "metrics" in result.stdout
@@ -77,7 +77,7 @@ def test_hv_version_is_available_only_at_the_root():
     assert root_version.returncode == 0
     assert "hotvect" in root_version.stderr
 
-    for namespace in ("algorithm", "qa", "ems", "config", "worker", "docs", "metrics", "results", "data", "audit"):
+    for namespace in ("algorithm", "qa", "exp", "config", "worker", "docs", "metrics", "results", "data", "audit"):
         result = _run_hv(namespace, "--version")
         assert result.returncode == 2
 
@@ -112,17 +112,54 @@ def test_hv_qa_uses_candidate_namespace_and_keeps_criteria_evaluation_internal()
     assert "invalid choice" in raw_evaluate.stderr
 
 
-def test_hv_ems_and_config_namespaces_have_direct_help():
-    ems_help = _run_hv("ems", "--help")
-    ems_slot_help = _run_hv("ems", "slot", "--help")
+def test_hv_exp_and_config_namespaces_have_direct_help():
+    exp_help = _run_hv("exp", "--help")
+    exp_slot_help = _run_hv("exp", "slot", "--help")
     config_help = _run_hv("config", "--help")
 
-    assert ems_help.returncode == 0
-    assert "Slot operations" in ems_help.stdout
-    assert ems_slot_help.returncode == 0
-    assert "list" in ems_slot_help.stdout
+    assert exp_help.returncode == 0
+    assert "Slot operations" in exp_help.stdout
+    assert exp_slot_help.returncode == 0
+    assert "list" in exp_slot_help.stdout
     assert config_help.returncode == 0
     assert "hv config" in config_help.stdout
+
+
+def test_hv_exp_exposes_mutations_and_approval_inspection():
+    for path in (
+        ("experiment", "ramp-up"),
+        ("experiment", "terminate"),
+        ("algorithm", "state"),
+        ("algorithm", "parameter", "create"),
+        ("variant", "algorithm"),
+        ("approval", "get"),
+        ("approval", "list"),
+    ):
+        result = _run_hv("exp", *path, "--help")
+        assert result.returncode == 0, result.stderr
+        assert "usage: hv exp" in result.stdout
+    termination = _run_hv("exp", "experiment", "terminate", "--experiment-id", "42")
+    assert termination.returncode == 2
+    assert "--reason" in termination.stderr
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        ("slot", "create"),
+        ("slot", "salt", "refresh"),
+        ("approve",),
+        ("approve-and-execute",),
+        ("execute",),
+        ("reject",),
+        ("emergency-execute",),
+    ],
+)
+def test_hv_exp_rejects_excluded_commands(path):
+    result = _run_hv("exp", *path, "--help")
+
+    assert result.returncode == 2
+    assert "invalid choice" in result.stderr
 
 
 def test_hv_exposes_structured_utility_namespaces():
@@ -180,7 +217,6 @@ def test_hv_qa_exposes_prediction_equivalence_comparison():
 def test_legacy_entrypoints_remain_available_and_warn_about_the_canonical_cli():
     qa_help = _run_python_bin("hv-qa", "--help")
     qa_criteria = _run_python_bin("hv-qa", "criteria", "list")
-    exp_help = _run_python_bin("hv-exp", "--help")
     ext_help = _run_python_bin("hv-ext", "--help")
 
     assert qa_help.returncode == 0
@@ -189,9 +225,6 @@ def test_legacy_entrypoints_remain_available_and_warn_about_the_canonical_cli():
     assert "'hv-qa' is deprecated; use 'hv qa'" not in qa_help.stderr
     assert qa_criteria.returncode == 0
     assert "'hv-qa' is deprecated; use 'hv qa'" in qa_criteria.stderr
-    assert exp_help.returncode == 0
-    assert "slot" in exp_help.stdout
-    assert "'hv-exp' is deprecated; use 'hv ems'" in exp_help.stderr
     assert ext_help.returncode == 0
     assert "data-dependency" in ext_help.stdout
     assert "compare-equivalence" not in ext_help.stdout
@@ -607,7 +640,7 @@ def test_hv_train_cache_refresh_uses_effective_cache_base_dir(tmp_path: Path):
             "--algorithm-jar",
             str(dummy_jar),
             "--last-test-time",
-            "2026-01-07",
+            "2000-01-07",
             "--data-base-dir",
             str(tmp_path),
             "--output-base-dir",

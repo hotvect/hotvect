@@ -21,6 +21,7 @@ public class TopKResultFormatter<SHARED, ACTION, OUTCOME> implements BiFunction<
 
     protected final ObjectMapper objectMapper = new ObjectMapper();
 
+    /** A reward function is required only for examples carrying non-null outcomes. */
     @Override
     public Function<TopKExample<SHARED, ACTION, OUTCOME>, ByteBuffer> apply(RewardFunction<OUTCOME> rewardFunction, TopK<SHARED, ACTION> topK) {
         return ex -> {
@@ -86,6 +87,10 @@ public class TopKResultFormatter<SHARED, ACTION, OUTCOME> implements BiFunction<
                 result.put("probability", probability);
             }
             if (outcome != null) {
+                if (rewardFunction == null) {
+                    throw new IllegalArgumentException("Cannot compute reward for example " + ex.exampleId()
+                            + ": reward_function_factory_classname is not configured");
+                }
                 double reward = rewardFunction.applyAsDouble(outcome);
                 result.put("reward", reward);
             }

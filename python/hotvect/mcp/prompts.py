@@ -101,15 +101,15 @@ _MAJOR_BACKWARD_COMPAT_PREDICT_REGRESSION = PromptDef(
         "\n"
         "This runbook is predict-only on purpose. Do **not** retrain for compatibility proof.\n"
         "\n"
-        "## Step 1 — List all in-use algorithms from EMS (`hv ems`)\n"
+        "## Step 1 — List all in-use algorithms from EMS (`hv exp`)\n"
         "Run:\n"
         "```bash\n"
-        "hv ems algorithm list-in-use > in_use_algorithms.json\n"
+        "hv exp algorithm list-in-use > in_use_algorithms.json\n"
         "```\n"
         "\n"
         "Optional (single slot):\n"
         "```bash\n"
-        "hv ems algorithm list-in-use --slot-name <slot-name>\n"
+        "hv exp algorithm list-in-use --slot-name <slot-name>\n"
         "```\n"
         "\n"
         "Extract unique `(algorithm_name, algorithm_version)` pairs from `algorithms[]`.\n"
@@ -179,7 +179,7 @@ _MAJOR_BACKWARD_COMPAT_PREDICT_REGRESSION = PromptDef(
         "- failure reason (if any).\n"
         "\n"
         "## Find relevant docs/code\n"
-        '- `rg -n "hv ems algorithm list-in-use|compare-predictions|with_parameter|predict parity" python/hotvect/mcp/bundled_docs/docs python/hotvect`\n'
+        '- `rg -n "hv exp algorithm list-in-use|compare-predictions|with_parameter|predict parity" python/hotvect/mcp/bundled_docs/docs python/hotvect`\n'
     ),
 )
 

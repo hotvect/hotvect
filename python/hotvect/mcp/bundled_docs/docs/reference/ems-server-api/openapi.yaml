@@ -1,14 +1,11 @@
 openapi: 3.1.0
 info:
   title: Experiment Management Service
-  description: Backend service to manage experiments, slots, variants, and algorithms
-    for Hotvect-based services.
+  description: Backend service to manage experiment slots, variants, algorithms, and algorithm parameters.
   version: 2.0.0
 servers:
 - url: https://ems.example
-  description: Production instance
-- url: https://ems-staging.example
-  description: Staging instance
+  description: Example EMS deployment
 - url: http://localhost:8080
   description: Local instance
 paths:
@@ -1878,8 +1875,6 @@ components:
         clientCredentials:
           tokenUrl: https://auth.example.com/oauth2/token
           scopes:
-            experiment-management-service.read_all: Grants read access for
-              experiment-management-service
-            experiment-management-service.write_all: Grants write access for
-              experiment-management-service
+            ems.read_all: Grants read access for the Experiment Management Service
+            ems.write_all: Grants write access for the Experiment Management Service
             uid: Provides the caller's user identity

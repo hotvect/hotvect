@@ -1,12 +1,14 @@
 package com.hotvect.integrationtest.demoui;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.hotvect.api.algodefinition.AlgorithmInstance;
+import com.hotvect.api.algodefinition.AlgorithmDependencies;
+import com.hotvect.api.algodefinition.storage.LocalStateStorage;
 import com.hotvect.api.algodefinition.ranking.CompositeRankerFactory;
 import com.hotvect.api.algorithms.Ranker;
 import com.hotvect.api.data.ranking.RankingDecision;
 import com.hotvect.api.data.ranking.RankingRequest;
 import com.hotvect.api.data.ranking.RankingResponse;
+import com.hotvect.api.execution.ExecutionContext;
 
 import java.io.InputStream;
 import java.util.ArrayList;
@@ -17,10 +19,12 @@ import java.util.Optional;
 
 public class DemoUiRankerFactory implements CompositeRankerFactory<JsonNode, JsonNode> {
     @Override
-    public Ranker<JsonNode, JsonNode> apply(
+    public Ranker<JsonNode, JsonNode> create(
+            ExecutionContext executionContext,
+            Optional<LocalStateStorage> localStateStorage,
             Optional<JsonNode> configuration,
             Map<String, InputStream> parameters,
-            Map<String, AlgorithmInstance<?>> dependencies) {
+            AlgorithmDependencies dependencies) {
         return new Ranker<>() {
             @Override
             public RankingResponse<JsonNode> rank(RankingRequest<JsonNode, JsonNode> rankingRequest) {

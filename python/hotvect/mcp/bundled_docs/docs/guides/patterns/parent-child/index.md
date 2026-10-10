@@ -119,15 +119,17 @@ result as a dependency graph, not a fixed two-level tree.
 The parent packages or consumes dependency artifacts according to its algorithm factories. The presence of three
 children does not by itself define their order or data flow; that comes from the definitions and runtime wiring.
 
-!!! warning "Nested parameter artifacts"
-    A child can declare its own children, and those grandchildren are resolved recursively from the same parameter
-    ZIP. The current construction path nevertheless gives the nested composite factory itself an empty parameter map.
-    Do not make that nested composite depend on its own parameter files without verifying a changed loader path.
+Each private nested algorithm receives parameter streams from its own namespace in the parent graph's parameter ZIP.
+In online serving, every refresh selects the freshest available static-shared namespace by logical data date
+`last_test_time`, using `ran_at` to break ties between reruns of that date. The canonical code provider constructs one
+instance from that ZIP for every caller in the new generation; callers' parameter IDs never split it. A
+parameter-bearing shared namespace must include `last_test_time`, and a parameterized ZIP must package every node's
+files below that node's algorithm name.
 
 ## Failure checklist
 
 - Unknown dependency in an override: compare the key with the parent's embedded definition.
 - Missing child test data: check whether that child explicitly enables an evaluation stage.
 - Missing child artifact: inspect the child's nested entry in the parent `result.json`.
-- Nested composite parameter file not found: the current loader does not pass parameter streams to the nested
-  composite factory itself; move that state to a declared child or use a supported one-level boundary.
+- Nested composite parameter file not found: verify that the ZIP contains the file below the nested algorithm's own
+  namespace.

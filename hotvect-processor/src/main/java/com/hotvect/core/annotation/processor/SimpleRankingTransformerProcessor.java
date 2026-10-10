@@ -26,6 +26,7 @@ import com.hotvect.core.annotation.processor.model.TransformerSpec;
 import com.hotvect.core.annotation.processor.report.MarkdownReportWriter;
 import com.hotvect.core.annotation.processor.scan.FeatureScanner;
 import com.hotvect.core.annotation.processor.scan.SpecReader;
+import com.hotvect.api.algorithms.Algorithm;
 
 @SupportedSourceVersion(SourceVersion.RELEASE_21)
 public final class SimpleRankingTransformerProcessor extends AbstractProcessor {
@@ -45,7 +46,10 @@ public final class SimpleRankingTransformerProcessor extends AbstractProcessor {
                 processingEnv.getElementUtils().getTypeElement(Inject.class.getCanonicalName()),
                 processingEnv.getElementUtils().getTypeElement(InjectAlgorithm.class.getCanonicalName()),
                 processingEnv.getElementUtils().getTypeElement(GenerateSimpleRankingTransformer.class.getCanonicalName()),
-                processingEnv.getElementUtils().getTypeElement(SharedContext.class.getCanonicalName())
+                processingEnv.getElementUtils().getTypeElement(SharedContext.class.getCanonicalName()),
+                processingEnv.getElementUtils().getTypeElement(Algorithm.class.getCanonicalName()),
+                processingEnv.getElementUtils().getTypeElement(java.util.Map.class.getCanonicalName()),
+                processingEnv.getElementUtils().getTypeElement(String.class.getCanonicalName())
         );
     }
 

@@ -1,5 +1,7 @@
 package com.hotvect.example.product;
 
+import com.google.common.reflect.TypeToken;
+import com.hotvect.api.algodefinition.AlgorithmDependencies;
 import com.hotvect.api.algodefinition.AlgorithmInstance;
 import com.hotvect.api.algorithms.BulkScorer;
 import com.hotvect.api.algorithms.Ranker;
@@ -11,6 +13,8 @@ import com.hotvect.api.data.ranking.RankingResponse;
 import com.hotvect.api.data.scoring.BulkScoreResponse;
 import com.hotvect.api.data.scoring.ScoringDecision;
 import com.hotvect.api.data.topk.OfflineTopKRequest;
+import com.hotvect.api.execution.ExecutionContext;
+import com.hotvect.api.execution.InputSemantic;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -27,6 +31,7 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ProductCompositionTest {
+    private static final ExecutionContext EXECUTION_CONTEXT = ExecutionContext.realtime(InputSemantic.ONLINE);
     private static final ProductQuery QUERY = new ProductQuery("toy vehicle", "vehicles", 30.0);
     private static final AvailableAction<Product> HELICOPTER = AvailableAction.of(
             "toy-helicopter",
@@ -46,7 +51,6 @@ class ProductCompositionTest {
     private static final List<AvailableAction<Product>> CANDIDATES = List.of(HELICOPTER, EXCAVATOR, TEA_SET);
 
     @Test
-    @SuppressWarnings("removal")
     void rankerWrapsTheScorerAndPreservesCandidateIdentityAndMetadata() {
         BulkScorer<ProductQuery, Product> scorer = new BulkScorer<>() {
             @Override
@@ -62,10 +66,17 @@ class ProductCompositionTest {
                 );
             }
         };
-        var ranker = new ProductRankerFactory().apply(
+        var ranker = new ProductRankerFactory().create(
+                EXECUTION_CONTEXT,
+                Optional.empty(),
                 Optional.empty(),
                 Map.of(),
-                Map.of(ProductRankerFactory.SCORER_DEPENDENCY, AlgorithmInstance.externalAlgorithm("scorer", scorer))
+                new AlgorithmDependencies(Map.of(
+                        ProductRankerFactory.SCORER_DEPENDENCY,
+                        AlgorithmInstance.externalAlgorithm(
+                                "scorer",
+                                new TypeToken<BulkScorer<ProductQuery, Product>>() {},
+                                scorer)))
         );
 
         RankingResponse<Product> response = ranker.rank(
@@ -80,7 +91,6 @@ class ProductCompositionTest {
     }
 
     @Test
-    @SuppressWarnings("removal")
     void explorationRankerAppliesStableActionHashJitterAndPreservesBaseMetadata() {
         var featureStore = FeatureStoreResponseContainer.empty();
         BulkScorer<ProductQuery, Product> scorer = new BulkScorer<>() {
@@ -97,13 +107,17 @@ class ProductCompositionTest {
                 );
             }
         };
-        var explorationRanker = new ProductExplorationRankerFactory().apply(
+        var explorationRanker = new ProductExplorationRankerFactory().create(
+                EXECUTION_CONTEXT,
+                Optional.empty(),
                 Optional.empty(),
                 Map.of(),
-                Map.of(
+                new AlgorithmDependencies(Map.of(
                         ProductExplorationRankerFactory.SCORER_DEPENDENCY,
-                        AlgorithmInstance.externalAlgorithm("scorer", scorer)
-                )
+                        AlgorithmInstance.externalAlgorithm(
+                                "scorer",
+                                new TypeToken<BulkScorer<ProductQuery, Product>>() {},
+                                scorer)))
         );
 
         var request = RankingRequest.ofAvailableActions("exploration-example", QUERY, CANDIDATES);
@@ -148,7 +162,6 @@ class ProductCompositionTest {
     }
 
     @Test
-    @SuppressWarnings("removal")
     void searchTopKRetrievesFromCatalogThenCallsTheRankerAndKeepsOnlyKDecisions() {
         AtomicReference<RankingRequest<ProductQuery, Product>> seenRequest = new AtomicReference<>();
         Ranker<ProductQuery, Product> ranker = request -> {
@@ -163,15 +176,22 @@ class ProductCompositionTest {
                     Map.of("ranker", "called")
             );
         };
-        var topK = new ProductSearchTopKFactory().apply(
+        var topK = new ProductSearchTopKFactory().create(
+                EXECUTION_CONTEXT,
+                Optional.empty(),
                 Optional.empty(),
                 Map.of(),
-                Map.of(
+                new AlgorithmDependencies(Map.of(
                         ProductSearchTopKFactory.CATALOG_DEPENDENCY,
-                        AlgorithmInstance.externalAlgorithm("catalog", new ProductCatalogState(CANDIDATES)),
+                        AlgorithmInstance.externalAlgorithm(
+                                "catalog",
+                                ProductCatalogState.class,
+                                new ProductCatalogState(CANDIDATES)),
                         ProductSearchTopKFactory.RANKER_DEPENDENCY,
-                        AlgorithmInstance.externalAlgorithm("ranker", ranker)
-                )
+                        AlgorithmInstance.externalAlgorithm(
+                                "ranker",
+                                new TypeToken<Ranker<ProductQuery, Product>>() {},
+                                ranker)))
         );
         var request = OfflineTopKRequest.newOfflineTopKRequest(
                 "topk-example",

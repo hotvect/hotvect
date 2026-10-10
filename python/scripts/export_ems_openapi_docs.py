@@ -190,7 +190,7 @@ def _append_schema(lines: list[str], name: str, schema: Mapping[str, Any]) -> No
     )
 
 
-def _build_reference(specification: Mapping[str, Any]) -> str:
+def build_reference(specification: Mapping[str, Any]) -> str:
     info = specification["info"]
     lines = [
         "---",
@@ -211,16 +211,28 @@ def _build_reference(specification: Mapping[str, Any]) -> str:
         "- Machine-readable source: [openapi.yaml](openapi.yaml)",
         "",
         "A deployed EMS instance remains authoritative for its own API identity, server URLs, OAuth scopes, and exact",
-        "runtime contract. Refresh this static export from the generated EMS `api.yaml` whenever the server API changes:",
-        "",
-        "```shell",
-        "cd python",
-        "python scripts/export_ems_openapi_docs.py /path/to/ems-server/docs/api.yaml",
-        "```",
-        "",
-        "## Service endpoints",
-        "",
+        "runtime contract.",
     ]
+
+    lines.extend(
+        [
+            "",
+            "Hotvect's Python and Java EMS clients ignore additional response fields, including fields in nested",
+            "objects, so additive server changes do not require a client upgrade. Known fields still follow this",
+            "contract's validation rules. Ignored fields are not retained or sent back in requests.",
+            "Python models used only for request bodies continue to reject unknown fields.",
+            "",
+            "Refresh this static export from the generated EMS `api.yaml` whenever the server API changes:",
+            "",
+            "```shell",
+            "cd python",
+            "python scripts/export_ems_openapi_docs.py /path/to/ems-server/docs/api.yaml",
+            "```",
+            "",
+        ]
+    )
+
+    lines.extend(["## Service endpoints", ""])
 
     for path, path_item in specification["paths"].items():
         inherited_parameters = path_item.get("parameters", [])
@@ -270,7 +282,7 @@ def main() -> int:
 
     OUTPUT_DIRECTORY.mkdir(parents=True, exist_ok=True)
     RAW_SPEC_PATH.write_text(source_text, encoding="utf-8")
-    REFERENCE_PATH.write_text(_build_reference(specification), encoding="utf-8")
+    REFERENCE_PATH.write_text(build_reference(specification), encoding="utf-8")
     print(f"Exported {source} to {REFERENCE_PATH.relative_to(REPOSITORY_ROOT)}")
     return 0
 

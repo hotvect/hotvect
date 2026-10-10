@@ -7,7 +7,7 @@ tags: [reference, config]
 # Configuration reference (`~/.hotvect/config.json`)
 
 The unified `hv` CLI reads `~/.hotvect/config.json` for common defaults such as paths, SageMaker template location,
-experiment-management settings, and QA workflow defaults. The legacy `hv-ext`, `hv-exp`, and `hv-qa` commands read
+experiment-management settings, and QA workflow defaults. The legacy `hv-ext` and `hv-qa` commands read
 the same file; migrated invocations print a warning to use the canonical `hv` command.
 
 If a CLI flag is provided, it takes precedence over config.
@@ -68,7 +68,7 @@ from `sagemaker.sagemaker_config_template`:
 ## `experiment_management` (optional)
 
 Used when Hotvect needs to call an experiment-management service and you want to provide
-an external token provider (a command that prints a bearer token). `hv ems experiment results ...` also uses
+an external token provider (a command that prints a bearer token). `hv exp experiment results ...` also uses
 this section to resolve slot-specific online-results S3 prefixes.
 
 Example:
@@ -98,7 +98,12 @@ Example:
 The timeout fields are optional. If omitted, Hotvect uses a 5 second connect timeout and a 15 second read timeout
 for service calls.
 
-The `online_results.slots` mapping is optional unless you want to use `hv ems experiment results ...` without
+Typed `hv exp` mutations and approval inspection use the same endpoint, token provider, and timeouts. Each operator uses
+their own credentials; EMS stores the canonical operation and derives requester and reviewer identities from OAuth
+`uid`. Review and apply requests in EMS UI. No local approval configuration is needed. See the
+[dual-approved EMS mutations guide](../../guides/ems-dual-approval/index.md).
+
+The `online_results.slots` mapping is optional unless you want to use `hv exp experiment results ...` without
 passing `--s3-base-prefix`. In that case, Hotvect resolves `experiment_id -> slot ->
 experiment_management.online_results.slots.<slot>.s3_base_prefix`.
 

@@ -11,8 +11,9 @@ import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.collect.ImmutableMap;
 import com.hotvect.api.algodefinition.AlgorithmDefinition;
+import com.hotvect.api.algodefinition.AlgorithmDependencyDeclaration;
 import com.hotvect.api.algodefinition.AlgorithmId;
-import com.hotvect.api.algodefinition.AlgorithmInstance;
+import com.hotvect.api.algodefinition.AlgorithmDependencies;
 import com.hotvect.api.algodefinition.common.CompositeAlgorithmFactory;
 import com.hotvect.api.algodefinition.ranking.RankerFactory;
 import com.hotvect.api.algodefinition.ranking.RankingTransformer;
@@ -61,7 +62,7 @@ class PerformanceTestTaskLocalStateStorageTest {
     }
 
     @Test
-    void realtimePerformanceTestLoadsNestedStateRequiringLocalStorageAndCleansPrivateDirectories() throws Exception {
+    void realtimePerformanceTestLoadsNestedStateAndCleansPrivateDirectories() throws Exception {
         Path metadataDirectory = tempDir.resolve("metadata");
         Map<String, Object> result = task(true, metadataDirectory).perform();
 
@@ -70,7 +71,7 @@ class PerformanceTestTaskLocalStateStorageTest {
         assertTrue(allocatedStateDirectory.getFileName().toString()
                 .startsWith("performance-test-storage-state-1.0.0-state-"));
         assertEquals(
-                Path.of(System.getProperty("java.io.tmpdir")).toAbsolutePath(),
+                Path.of(System.getProperty("java.io.tmpdir"), "algorithm-state").toAbsolutePath(),
                 allocatedStateDirectory.getParent());
         assertTrue(STORAGE_STATE_CLOSED.get());
         assertFalse(Files.exists(allocatedStateDirectory));
@@ -79,7 +80,7 @@ class PerformanceTestTaskLocalStateStorageTest {
     }
 
     @Test
-    void realtimePerformanceTestMakesStorageAvailableWithoutAllocatingForLegacyAlgorithm() throws Exception {
+    void realtimePerformanceTestMakesStorageAvailableWithoutAllocatingIt() throws Exception {
         Path metadataDirectory = tempDir.resolve("legacy-metadata");
         Map<String, Object> result = task(false, metadataDirectory).perform();
 
@@ -92,13 +93,13 @@ class PerformanceTestTaskLocalStateStorageTest {
     private PerformanceTestTask<
             RankingExample<ParityFixtureAlgorithm.SharedContext, ParityFixtureAlgorithm.ActionContext, Double>,
             Ranker<ParityFixtureAlgorithm.SharedContext, ParityFixtureAlgorithm.ActionContext>> task(
-                    boolean requiresLocalStateStorage,
+                    boolean usesNestedState,
                     Path metadataDirectory) throws Exception {
         Files.createDirectories(metadataDirectory);
-        Path source = tempDir.resolve(requiresLocalStateStorage ? "local-state.jsonl" : "legacy.jsonl");
+        Path source = tempDir.resolve(usesNestedState ? "local-state.jsonl" : "legacy.jsonl");
         Files.writeString(source, "example|1.0\n");
 
-        Options options = new Options();
+        Options options = OfflineTaskTestOptions.direct();
         options.metadataLocation = metadataDirectory.toFile();
         options.sourceFiles = Map.of("default", List.of(source.toFile()));
         options.samples = 1;
@@ -111,30 +112,30 @@ class PerformanceTestTaskLocalStateStorageTest {
                 new URLClassLoader(new URL[0], getClass().getClassLoader()),
                 new SimpleMeterRegistry(),
                 options,
-                algorithmDefinition(requiresLocalStateStorage));
+                algorithmDefinition(usesNestedState));
         return new PerformanceTestTask<>(context);
     }
 
-    private static AlgorithmDefinition algorithmDefinition(boolean requiresLocalStateStorage) {
+    private static AlgorithmDefinition algorithmDefinition(boolean usesNestedState) {
         ObjectNode rawDefinition = JsonNodeFactory.instance.objectNode();
-        if (requiresLocalStateStorage) {
-            rawDefinition.put("requires_local_state_storage", true);
-        }
-        Map<String, Optional<JsonNode>> dependencyOverrides = requiresLocalStateStorage
-                ? ImmutableMap.of(STORAGE_STATE_NAME, Optional.empty())
+        Map<String, AlgorithmDependencyDeclaration> dependencyDeclarations = usesNestedState
+                ? ImmutableMap.of(
+                        STORAGE_STATE_NAME,
+                        new AlgorithmDependencyDeclaration.Private(
+                                STORAGE_STATE_NAME,
+                                Optional.empty()))
                 : ImmutableMap.of();
         return new AlgorithmDefinition(
                 rawDefinition,
-                new AlgorithmId(requiresLocalStateStorage ? "local-state-ranker" : "legacy-ranker", "1.0.0"),
-                dependencyOverrides,
-                ImmutableMap.of(),
+                new AlgorithmId(usesNestedState ? "local-state-ranker" : "legacy-ranker", "1.0.0"),
+                dependencyDeclarations,
                 null,
                 ParityFixtureAlgorithm.ExampleDecoderFactory.class.getName(),
-                requiresLocalStateStorage ? null : ParityFixtureAlgorithm.TransformerFactory.class.getName(),
+                usesNestedState ? null : ParityFixtureAlgorithm.TransformerFactory.class.getName(),
                 null,
                 ParityFixtureAlgorithm.TestRewardFunctionFactory.class.getName(),
                 null,
-                (requiresLocalStateStorage ? StorageDependentRankerFactory.class : LegacyRankerFactory.class).getName(),
+                (usesNestedState ? StorageDependentRankerFactory.class : LegacyRankerFactory.class).getName(),
                 Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),
@@ -151,25 +152,17 @@ class PerformanceTestTaskLocalStateStorageTest {
     public static final class StorageDependentRankerFactory implements CompositeAlgorithmFactory<Ranker<
             ParityFixtureAlgorithm.SharedContext, ParityFixtureAlgorithm.ActionContext>> {
         @Override
-        public Ranker<ParityFixtureAlgorithm.SharedContext, ParityFixtureAlgorithm.ActionContext> apply(
-                Optional<JsonNode> hyperparameters,
-                Map<String, InputStream> parameters,
-                Map<String, AlgorithmInstance<?>> dependencies) {
-            throw new AssertionError("Runtime-aware factory overload should be used");
-        }
-
-        @Override
         public Ranker<ParityFixtureAlgorithm.SharedContext, ParityFixtureAlgorithm.ActionContext> create(
                 ExecutionContext executionContext,
                 Optional<LocalStateStorage> localStateStorage,
                 Optional<JsonNode> hyperparameters,
                 Map<String, InputStream> parameters,
-                Map<String, AlgorithmInstance<?>> dependencies) {
+                AlgorithmDependencies dependencies) {
             assertEquals(ExecutionContext.of(WorkloadMode.REALTIME, InputSemantic.OFFLINE), executionContext);
             assertTrue(localStateStorage.isPresent());
-            AlgorithmInstance<?> state = dependencies.get(STORAGE_STATE_NAME);
+            Algorithm state = dependencies.only(STORAGE_STATE_NAME);
             assertNotNull(state);
-            return new DependencyOwningTestRanker(state);
+            return new TestRanker();
         }
     }
 
@@ -238,19 +231,6 @@ class PerformanceTestTaskLocalStateStorageTest {
                     .map(action -> RankingDecision.builder(action.actionId(), 0, action.action()).build())
                     .toList();
             return RankingResponse.newResponse(decisions);
-        }
-    }
-
-    private static final class DependencyOwningTestRanker extends TestRanker {
-        private final AlgorithmInstance<?> dependency;
-
-        private DependencyOwningTestRanker(AlgorithmInstance<?> dependency) {
-            this.dependency = dependency;
-        }
-
-        @Override
-        public void close() throws Exception {
-            dependency.close();
         }
     }
 

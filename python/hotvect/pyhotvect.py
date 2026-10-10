@@ -7,13 +7,13 @@ import shutil
 import sys
 import time
 import zipfile
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone, tzinfo
 from functools import reduce
 from pathlib import Path
-from typing import Any, NamedTuple, cast
+from typing import Any, NamedTuple
 
 import boto3
 import psutil
@@ -28,12 +28,9 @@ from hotvect.algorithm_definition_overrides import (
     validate_algorithm_override_metadata,
 )
 from hotvect.benchmark_contract import BENCHMARK_CONTRACT_KEY, build_benchmark_contract
-from hotvect.dto import AlgorithmDefinition, PredictionDataSpec, StateAlgorithmDefinition, TrainableAlgorithmDefinition
 from hotvect.jvm_args import normalize_runtime_jvm_args
 from hotvect.s3_utils import download_s3_file, require_s3_uri
 from hotvect.utils import (
-    ALGORITHM_DEFINITION_FILENAME,
-    ALGORITHM_DEPENDENCIES_FILENAME,
     as_locally_available_content,
     assert_s3_directory_uri_empty,
     clean_dir,
@@ -59,6 +56,8 @@ _HV_LOG_FORMAT = "%(asctime)s:%(levelname)s:%(name)s:%(funcName)s:%(message)s"
 _HV_LOG_HANDLER_KIND_ATTR = "_hotvect_log_kind"
 _HV_LOG_HANDLER_KIND_PIPELINE = "pipeline"
 _HV_LOG_HANDLER_KIND_COMBINED = "combined"
+_ALGORITHM_DEPENDENCY_REFERENCE = re.compile(r"^([\w-]+)(?:@([\w.-]+))?$")
+_EMS_SLOT_NAME = re.compile(r"^[a-z0-9-]+$")
 
 
 def _standard_evaluation(*args, **kwargs):
@@ -96,14 +95,14 @@ def _training_container_hotvect_major(training_container: Any) -> int | None:
     return _parse_major_version(training_container.rsplit(":", 1)[1])
 
 
-def _algorithm_hotvect_major(algorithm_definition: Mapping[str, Any]) -> int | None:
+def _algorithm_hotvect_major(algorithm_definition: dict[str, Any]) -> int | None:
     hotvect_major = _parse_major_version(algorithm_definition.get("hotvect_version"))
     if hotvect_major is not None:
         return hotvect_major
     return _training_container_hotvect_major(algorithm_definition.get("training_container"))
 
 
-def _uses_legacy_model_parameter_path(algorithm_definition: Mapping[str, Any]) -> bool:
+def _uses_legacy_model_parameter_path(algorithm_definition: dict[str, Any]) -> bool:
     major = _algorithm_hotvect_major(algorithm_definition)
     return major is not None and major <= 9
 
@@ -167,7 +166,7 @@ class AlgorithmPipeline:
     def __init__(
         self,
         algorithm_pipeline_context: AlgorithmPipelineContext,
-        algorithm_definition: str | dict[str, Any] | AlgorithmDefinition | tuple[str, dict[str, Any]],
+        algorithm_definition: str | dict[str, Any] | tuple[str, dict[str, Any]],
         last_test_time: date,
         evaluation_func: Callable[[str], dict[str, Any]] | None,
         hyperparameter_version: str | None = None,
@@ -203,12 +202,10 @@ class AlgorithmPipeline:
 
         # Algorithm definition
         self.algorithm_definition_override: dict[str, Any] | None = None
-        self.committed_algorithm_definition: AlgorithmDefinition | None = None
-        self.algorithm_definition: AlgorithmDefinition
-        self.hyper_parameter_version: str | None
+        self.committed_algorithm_definition: dict[str, Any] | None = None
         if isinstance(algorithm_definition, str):
             self.algorithm_name = verify_algorithm_name(algorithm_definition)
-            self.algorithm_definition = read_algorithm_definition_from_jar(
+            self.algorithm_definition: dict[str, Any] = read_algorithm_definition_from_jar(
                 algorithm_name=self.algorithm_name,
                 algorithm_jar_path=self.algorithm_jar_path(),
                 additional_jars=(
@@ -228,7 +225,7 @@ class AlgorithmPipeline:
             )
         elif isinstance(algorithm_definition, dict):
             self.algorithm_name = verify_algorithm_name(algorithm_definition["algorithm_name"])
-            self.algorithm_definition = cast(AlgorithmDefinition, copy.deepcopy(algorithm_definition))
+            self.algorithm_definition = copy.deepcopy(algorithm_definition)
             self.committed_algorithm_definition = copy.deepcopy(self.algorithm_definition)
             self.algorithm_version = verify_algorithm_version(self.algorithm_definition["algorithm_version"])
             if hyperparameter_version and "hyperparameter_version" in self.algorithm_definition.keys():
@@ -262,7 +259,11 @@ class AlgorithmPipeline:
                 )
             self.algorithm_version = verify_algorithm_version(self.algorithm_definition["algorithm_version"])
             self.committed_algorithm_definition = copy.deepcopy(algo_def)
-            self.algorithm_definition = apply_algorithm_definition_override(algo_def, algorithm_definition_override)
+            self.algorithm_definition = apply_algorithm_definition_override(
+                algo_def,
+                algorithm_definition_override,
+                offline=True,
+            )
             if hyperparameter_version and "hyperparameter_version" in self.algorithm_definition.keys():
                 self.hyper_parameter_version = (
                     f"{self.algorithm_definition['hyperparameter_version']}-{hyperparameter_version}"
@@ -278,12 +279,12 @@ class AlgorithmPipeline:
             else list(self.encode_partition_dates_by_algorithm.get(self.algorithm_name, []))
         )
 
-        definition: Mapping[str, Any] = self.algorithm_definition
-        self.algorithm_is_state = definition.get("generator_factory_classname", False)
-        if "algorithm_factory_classname" not in self.algorithm_definition:
+        self.algorithm_is_state = self.algorithm_definition.get("generator_factory_classname", False)
+        if not self.algorithm_definition.get("algorithm_factory_classname") and not self.algorithm_is_state:
             raise ValueError(
-                f"Algorithm {self.algorithm_name} does not have an algorithm_factory_classname defined. All algorithms must have one."
+                f"Algorithm {self.algorithm_name} must declare algorithm_factory_classname or generator_factory_classname."
             )
+        self._validate_runtime_target(self.run_target)
         if self.algorithm_is_state:
             # If an algorithm is a state, it cannot have any of these
             prohibited = {
@@ -306,7 +307,7 @@ class AlgorithmPipeline:
 
         # Execution parameters
         self.last_test_time = last_test_time
-        self.training_lag_days = definition.get("training_lag_days", 1)
+        self.training_lag_days = self.algorithm_definition.get("training_lag_days", 1)
         if not isinstance(self.training_lag_days, int):
             raise ValueError("training_lag_days must be an integer")
         self.training_lag = timedelta(days=self.training_lag_days)
@@ -314,7 +315,7 @@ class AlgorithmPipeline:
         # Parameter version and runtime
         nowtime = datetime.utcnow().replace(tzinfo=SimpleUTC())
         self.ran_at: str = ran_at or nowtime.isoformat()
-        # If no parameter version was specified, we use ran_at
+        # Default parameter identity follows the run's logical data date.
         if parameter_version:
             self.parameter_version = parameter_version
         else:
@@ -375,75 +376,139 @@ class AlgorithmPipeline:
             cache_inherited_parameters.setdefault("encode", {})["cache"] = encode_parameters["cache"]
 
         self.dependency_pipelines: dict[str, AlgorithmPipeline] = {}
-        if self.algorithm_definition.get("dependencies"):
-            dependencies = self.algorithm_definition["dependencies"]
 
+        def dependency_pipeline(
+            algorithm_name: str, algorithm_definition_override: dict[str, Any]
+        ) -> AlgorithmPipeline:
+            if cache_inherited_parameters:
+                inherited_def = {"hotvect_execution_parameters": cache_inherited_parameters}
+                algorithm_definition_override = merge_algorithm_definition_override_fragments(
+                    inherited_def,
+                    algorithm_definition_override,
+                    offline=True,
+                )
+            return AlgorithmPipeline(
+                algorithm_pipeline_context=self.algorithm_pipeline_context,
+                algorithm_definition=(algorithm_name, algorithm_definition_override),
+                last_test_time=self.last_test_time,
+                hyperparameter_version=self.hyper_parameter_version,
+                parameter_version=self.parameter_version,
+                evaluation_func=self.evaluation_function,
+                encode_test_data=encode_test_data,
+                execute_audit=execute_audit,
+                run_target="parameters",
+                data_environment=self.data_environment,
+                encode_partition_dates_by_algorithm=self.encode_partition_dates_by_algorithm,
+            )
+
+        dependencies = self.algorithm_definition.get("dependencies")
+        if dependencies is not None:
             if isinstance(dependencies, list):
                 # Dependencies are specified as names, so no algorithm definition overrides
-                for algorithm_name in dependencies:
-                    assert isinstance(algorithm_name, str)
+                declared_dependency_names = set()
+                normalized_dependency_names = []
+                for algorithm_reference in dependencies:
+                    if not isinstance(algorithm_reference, str):
+                        raise ValueError(f"Dependency entries must be strings but found {algorithm_reference!r}")
+                    match = _ALGORITHM_DEPENDENCY_REFERENCE.fullmatch(algorithm_reference)
+                    if match is None:
+                        raise ValueError(
+                            f"Dependency {algorithm_reference} must match " f"{_ALGORITHM_DEPENDENCY_REFERENCE.pattern}"
+                        )
+                    algorithm_name, algorithm_version = match.groups()
+                    verify_algorithm_name(algorithm_name)
+                    if algorithm_version is not None:
+                        verify_algorithm_version(algorithm_version)
+                    if algorithm_name in declared_dependency_names:
+                        raise ValueError(f"Dependency {algorithm_name} is declared more than once")
+                    declared_dependency_names.add(algorithm_name)
                     if algorithm_name == self.algorithm_name:
                         raise ValueError(
-                            f"Invalid algorithm definition: '{self.algorithm_name}' cannot list itself in 'dependencies'."
+                            f"Invalid algorithm definition: '{self.algorithm_name}' cannot list itself in "
+                            "'dependencies'."
                         )
-                    algo_def_override = {}
-                    if cache_inherited_parameters:
-                        inherited_def = {"hotvect_execution_parameters": cache_inherited_parameters}
-                        algo_def_override = merge_algorithm_definition_override_fragments(
-                            inherited_def, algo_def_override
-                        )
-                    pipeline = AlgorithmPipeline(
-                        algorithm_pipeline_context=self.algorithm_pipeline_context,
-                        algorithm_definition=(algorithm_name, algo_def_override),
-                        last_test_time=self.last_test_time,
-                        hyperparameter_version=self.hyper_parameter_version,
-                        parameter_version=self.parameter_version,
-                        evaluation_func=self.evaluation_function,
-                        encode_test_data=encode_test_data,
-                        execute_audit=execute_audit,
-                        run_target="parameters",
-                        data_environment=self.data_environment,
-                        encode_partition_dates_by_algorithm=self.encode_partition_dates_by_algorithm,
-                    )
-                    self.dependency_pipelines[algorithm_name] = pipeline
+                    normalized_dependency_names.append(algorithm_name)
+                for algorithm_name in normalized_dependency_names:
+                    self.dependency_pipelines[algorithm_name] = dependency_pipeline(algorithm_name, {})
             elif isinstance(dependencies, dict):
-                if self.algorithm_name in dependencies:
-                    raise ValueError(
-                        f"Invalid algorithm definition/override: 'dependencies' contains '{self.algorithm_name}'. "
-                        "Self-dependency overrides are not supported. "
-                        "Move those fields to the top-level override, or apply the override file to the parent "
-                        "algorithm (where this algorithm is a true dependency)."
-                    )
-                # Dependencies are specified as dict, so there are algorithm definition overrides
-                for algorithm_name, algo_def_override in dependencies.items():
-                    assert isinstance(algorithm_name, str)
-                    verify_algorithm_name(algorithm_name)
-                    assert isinstance(algo_def_override, dict)
-                    if cache_inherited_parameters:
-                        inherited_def = {"hotvect_execution_parameters": cache_inherited_parameters}
-                        algo_def_override = merge_algorithm_definition_override_fragments(
-                            inherited_def, algo_def_override
+                parsed_dependencies = []
+                dependency_references_by_name = {}
+                for algorithm_reference, algo_def_override in dependencies.items():
+                    if not isinstance(algorithm_reference, str):
+                        raise ValueError(f"Dependency references must be strings but found {algorithm_reference!r}")
+                    if not isinstance(algo_def_override, dict):
+                        raise ValueError(f"Dependency declaration for {algorithm_reference} must be a JSON object")
+                    match = _ALGORITHM_DEPENDENCY_REFERENCE.fullmatch(algorithm_reference)
+                    if match is None:
+                        raise ValueError(
+                            f"Dependency {algorithm_reference} must match " f"{_ALGORITHM_DEPENDENCY_REFERENCE.pattern}"
                         )
-                    pipeline = AlgorithmPipeline(
-                        algorithm_pipeline_context=self.algorithm_pipeline_context,
-                        algorithm_definition=(algorithm_name, algo_def_override),
-                        last_test_time=self.last_test_time,
-                        hyperparameter_version=self.hyper_parameter_version,
-                        parameter_version=self.parameter_version,
-                        evaluation_func=self.evaluation_function,
-                        encode_test_data=encode_test_data,
-                        execute_audit=execute_audit,
-                        run_target="parameters",
-                        data_environment=self.data_environment,
-                        encode_partition_dates_by_algorithm=self.encode_partition_dates_by_algorithm,
-                    )
-                    self.dependency_pipelines[algorithm_name] = pipeline
-            else:
-                raise ValueError(f"Dependency object has unexpected type: {dependencies}")
+                    algorithm_name, algorithm_version = match.groups()
+                    verify_algorithm_name(algorithm_name)
+                    if algorithm_version is not None:
+                        verify_algorithm_version(algorithm_version)
+                    if algorithm_name == self.algorithm_name:
+                        raise ValueError(
+                            f"Invalid algorithm definition/override: 'dependencies' contains '{self.algorithm_name}'. "
+                            "Self-dependency overrides are not supported. "
+                            "Move those fields to the top-level override, or apply the override file to the parent "
+                            "algorithm (where this algorithm is a true dependency)."
+                        )
 
+                    previous_reference = dependency_references_by_name.get(algorithm_name)
+                    if previous_reference is not None:
+                        raise ValueError(
+                            f"Dependencies {previous_reference} and {algorithm_reference} resolve to the same "
+                            f"logical dependency name {algorithm_name}"
+                        )
+                    dependency_references_by_name[algorithm_name] = algorithm_reference
+                    parsed_dependencies.append(
+                        (algorithm_reference, algo_def_override, algorithm_name, algorithm_version)
+                    )
+
+                for algorithm_reference, algo_def_override, algorithm_name, algorithm_version in parsed_dependencies:
+                    if "scope" not in algo_def_override:
+                        self.dependency_pipelines[algorithm_name] = dependency_pipeline(
+                            algorithm_name, algo_def_override
+                        )
+                        continue
+
+                    scope = algo_def_override["scope"]
+                    if not isinstance(scope, str):
+                        raise ValueError(f"Dependency {algorithm_name} scope must be the string shared or slot")
+                    if scope == "private":
+                        raise ValueError(
+                            f"Dependency {algorithm_name} must not declare scope: private; private is the default"
+                        )
+                    if scope == "slot":
+                        if len(algo_def_override) != 1:
+                            raise ValueError(f"Slot-backed dependency {algorithm_name} must contain only scope: slot")
+                        if algorithm_version is not None:
+                            raise ValueError(
+                                f"Slot-backed dependency {algorithm_name} must not declare an algorithm version"
+                            )
+                        if _EMS_SLOT_NAME.fullmatch(algorithm_name) is None:
+                            raise ValueError(
+                                f"Slot-backed dependency {algorithm_name} must match {_EMS_SLOT_NAME.pattern}"
+                            )
+                        continue
+                    if scope != "shared":
+                        raise ValueError(
+                            f"Dependency {algorithm_name} scope must be shared or slot with no other fields"
+                        )
+                    private_override = copy.deepcopy(algo_def_override)
+                    private_override.pop("scope")
+                    self.dependency_pipelines[algorithm_name] = dependency_pipeline(
+                        algorithm_name,
+                        private_override,
+                    )
+            else:
+                raise ValueError(f"dependencies must be an array or object but found {type(dependencies).__name__}")
         # One pipeline invocation owns one parameter source. Its dependencies write into the
         # same namespaced tree, so there is nothing to assemble after their stages complete.
         self._parameter_source_algorithms: set[str] = {self.algorithm_name}
+        # Packages already built during this run. clean() wipes output_path(), which is where the
+        # packages live, so the presence of the file on disk is the invalidation.
         self._materialized_parameter_packages: set[str] = set()
         self._set_parameter_source_root(f"{self.output_path()}.parameters", owns_root=True)
         logger.info(f"Initialized: {self.__dict__}")
@@ -577,7 +642,7 @@ class AlgorithmPipeline:
             self._encode_partition_cache_enabled()
             and not self._uses_prebuilt_parameters()
             and self.should_train()
-            and bool(cast(TrainableAlgorithmDefinition, self.algorithm_definition).get("number_of_training_days", 0))
+            and bool(self.algorithm_definition.get("number_of_training_days", 0))
         )
 
     def _should_encode_with_partition_cache(self) -> bool:
@@ -604,9 +669,7 @@ class AlgorithmPipeline:
         return self.algorithm_pipeline_context.algorithm_jar_path
 
     def _training_dates_for_last_test_time(self, last_test_time: date) -> list[date]:
-        # Backtests also call this on state dependencies, which have no training window.
-        definition: Mapping[str, Any] = self.algorithm_definition
-        num_of_training_days = definition.get("number_of_training_days", 0)
+        num_of_training_days = self.algorithm_definition.get("number_of_training_days", 0)
         return [last_test_time - self.training_lag - timedelta(days=x) for x in range(num_of_training_days)]
 
     def _training_dates(self):
@@ -618,22 +681,19 @@ class AlgorithmPipeline:
         return sorted(self._training_dates())
 
     def _get_train_data_prefix(self):
-        definition = cast(TrainableAlgorithmDefinition, self.algorithm_definition)
-        data_prefix = definition.get("train_data_spec", {}).get("data_prefix")
+        data_prefix = self.algorithm_definition.get("train_data_spec", {}).get("data_prefix")
         if not data_prefix:
-            data_prefix = definition.get("train_data_prefix")
+            data_prefix = self.algorithm_definition.get("train_data_prefix")
         return data_prefix
 
     def _get_test_data_prefix(self):
-        definition = cast(TrainableAlgorithmDefinition, self.algorithm_definition)
-        data_prefix = definition.get("test_data_spec", {}).get("data_prefix")
+        data_prefix = self.algorithm_definition.get("test_data_spec", {}).get("data_prefix")
         if not data_prefix:
-            data_prefix = definition.get("test_data_prefix")
+            data_prefix = self.algorithm_definition.get("test_data_prefix")
         return data_prefix
 
-    def _get_prediction_spec(self) -> PredictionDataSpec | None:
-        definition = cast(TrainableAlgorithmDefinition, self.algorithm_definition)
-        prediction_spec = definition.get("prediction_spec")
+    def _get_prediction_spec(self) -> dict[str, Any] | None:
+        prediction_spec = self.algorithm_definition.get("prediction_spec")
         if prediction_spec is None:
             return None
         if not isinstance(prediction_spec, dict):
@@ -642,7 +702,7 @@ class AlgorithmPipeline:
             )
         return prediction_spec
 
-    def _require_prediction_spec(self) -> PredictionDataSpec:
+    def _require_prediction_spec(self) -> dict[str, Any]:
         prediction_spec = self._get_prediction_spec()
         if prediction_spec is None:
             raise ValueError(
@@ -763,7 +823,6 @@ class AlgorithmPipeline:
 
     def data_dependencies(self, *, target: str | None = None) -> list[DataDependency]:
         ret = []
-        definition: Mapping[str, Any] = self.algorithm_definition
         effective_target = self._resolve_run_target(evaluate=True, target=target)
         uses_prebuilt_parameters = self._uses_prebuilt_parameters()
         no_encode_cache_assignment = (
@@ -788,7 +847,9 @@ class AlgorithmPipeline:
                     data_prefix=train_data_prefix,
                     data_dates=set(self._training_dates()),
                     data_type="train",
-                    additional_properties=extract_additional_properties(definition.get("train_data_spec")),
+                    additional_properties=extract_additional_properties(
+                        self.algorithm_definition.get("train_data_spec")
+                    ),
                 )
             )
 
@@ -802,7 +863,9 @@ class AlgorithmPipeline:
                         data_prefix=test_data_prefix,
                         data_dates=set(self._test_dates()),
                         data_type="test",
-                        additional_properties=extract_additional_properties(definition.get("test_data_spec")),
+                        additional_properties=extract_additional_properties(
+                            self.algorithm_definition.get("test_data_spec")
+                        ),
                     )
                 )
         elif effective_target == "predict":
@@ -824,7 +887,7 @@ class AlgorithmPipeline:
         # channels should not be auto-attached for SageMaker submission.
         if not uses_prebuilt_parameters and not no_encode_cache_assignment:
             # Add state data dependencies
-            source_data = definition.get("source_data", {})
+            source_data = self.algorithm_definition.get("source_data", {})
             for source_prefix_name, per_source_config in source_data.items():
                 data_prefix = per_source_config.get("data_prefix")
                 number_of_days = per_source_config.get("number_of_days", None)
@@ -863,7 +926,7 @@ class AlgorithmPipeline:
                 ret.extend(dependency.data_dependencies(target=dependency_target))
         return ret
 
-    def state_source_path(self, source_config: Mapping[str, Any]):
+    def state_source_path(self, source_config: dict[str, Any]):
         data_prefix = source_config["data_prefix"]
         number_of_days = source_config.get("number_of_days", None)
         lag_days = source_config.get("lag_days", None)
@@ -905,8 +968,7 @@ class AlgorithmPipeline:
         )
 
     def state_output_path(self) -> str:
-        definition = cast(StateAlgorithmDefinition, self.algorithm_definition)
-        state_output_filename = definition.get("state_output_filename", None)
+        state_output_filename = self.algorithm_definition.get("state_output_filename", None)
         if state_output_filename is None:
             return self._algorithm_parameter_source_path()
         if not isinstance(state_output_filename, str):
@@ -983,24 +1045,17 @@ class AlgorithmPipeline:
         return os.path.join(self._algorithm_parameter_source_path(), "algorithm-parameters.json")
 
     def _algorithm_parameter_definition_path(self) -> str:
-        return os.path.join(self._algorithm_parameter_source_path(), ALGORITHM_DEFINITION_FILENAME)
+        return os.path.join(self._algorithm_parameter_source_path(), "algorithm_definition.json")
 
     def _write_algorithm_definition(self) -> str:
         """Write algorithm definition so that Java can read it"""
-        algorithm_definition_path = os.path.join(self.metadata_path(), ALGORITHM_DEFINITION_FILENAME)
+        algorithm_definition_path = os.path.join(self.metadata_path(), "algorithm_definition.json")
         trydelete(algorithm_definition_path)
         with open(algorithm_definition_path, "w") as fp:
             json.dump(self.algorithm_definition, fp)
-        # Dependencies carry their own versions, so record which directories they actually use.
-        algorithm_dependencies_path = os.path.join(self.metadata_path(), ALGORITHM_DEPENDENCIES_FILENAME)
-        trydelete(algorithm_dependencies_path)
-        with open(algorithm_dependencies_path, "w") as fp:
-            json.dump(
-                {name: pipeline.hyperparameter_slug() for name, pipeline in self.dependency_pipelines.items()}, fp
-            )
         return algorithm_definition_path
 
-    def _write_data(self, data: dict[str, Any] | AlgorithmDefinition, dest_file_name: str) -> str:
+    def _write_data(self, data: dict, dest_file_name: str) -> str:
         """Write algorithm definition so that Java can read it"""
         dest = dest_file_name  # Use path as-is (callers provide full path)
         os.makedirs(os.path.dirname(dest), exist_ok=True)  # Ensure parent dirs exist
@@ -1127,6 +1182,7 @@ class AlgorithmPipeline:
     ) -> dict[str, Any]:
         start_time = time.time()
         execution_target = self._resolve_run_target(evaluate=evaluate, target=target)
+        self._validate_runtime_target(execution_target)
         if materialize_parameter_package is None:
             materialize_parameter_package = execution_target == "parameters"
         algorithm_override_metadata = validate_algorithm_override_metadata(self.algorithm_override_metadata)
@@ -1387,6 +1443,13 @@ class AlgorithmPipeline:
         if not evaluate:
             return "parameters"
         return _normalize_run_target(self.run_target)
+
+    def _validate_runtime_target(self, target: str) -> None:
+        if target != "parameters" and not self.algorithm_definition.get("algorithm_factory_classname"):
+            raise ValueError(
+                f"Algorithm {self.algorithm_name} requires algorithm_factory_classname for target {target!r}. "
+                "Use target 'parameters' for a generator-only definition."
+            )
 
     @staticmethod
     def _skip_stages(result: dict[str, Any], stages: list[str], reason: str) -> None:
@@ -1651,10 +1714,9 @@ class AlgorithmPipeline:
 
     def generate_states(self) -> dict:
         """Generate state files with directory-based caching"""
-        definition = cast(StateAlgorithmDefinition, self.algorithm_definition)
         output_path = self.state_output_path()
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
-        state_output_filename = definition.get("state_output_filename")
+        state_output_filename = self.algorithm_definition.get("state_output_filename")
         state_dir_name = os.path.basename(
             state_output_filename if state_output_filename is not None else self.output_path()
         )
@@ -1700,7 +1762,7 @@ class AlgorithmPipeline:
         cmd = self._base_command("generate-state", metadata_dir)
 
         # Handle multiple source data and format as JSON
-        source_data_dict = definition["source_data"]
+        source_data_dict = self.algorithm_definition["source_data"]
         source_json = {}
         for prefix_name, per_source_config in source_data_dict.items():
             source_paths = self.state_source_path(per_source_config)  # Returns List[str]
@@ -1805,8 +1867,7 @@ class AlgorithmPipeline:
                 if any(path.resolve() not in metadata_paths for path in state_output_path.rglob("*") if path.is_file()):
                     return
 
-            definition = cast(StateAlgorithmDefinition, self.algorithm_definition)
-            if definition.get("state_output_filename") is not None:
+            if self.algorithm_definition.get("state_output_filename") is not None:
                 raise FileNotFoundError(
                     f"No state files found for {self.algorithm_name}. "
                     f"Expected configured state output path at {state_output_path} to be a file or directory."
@@ -2463,11 +2524,10 @@ class AlgorithmPipeline:
             raise ValueError(
                 f"Encoded directory does not exist! Expected directory here: {os.path.abspath(self.encoded_data_file_path())}"
             )
-        definition = cast(TrainableAlgorithmDefinition, self.algorithm_definition)
-        train_command_template = Template(definition["training_command"])
+        train_command_template = Template(self.algorithm_definition["training_command"])
         python_executable = sys.executable
         train_command = train_command_template.render(
-            algorithm_definition_path=os.path.join(self.metadata_path(), ALGORITHM_DEFINITION_FILENAME),
+            algorithm_definition_path=os.path.join(self.metadata_path(), "algorithm_definition.json"),
             algorithm_jar_path=self.algorithm_jar_path(),
             encoded_data_file_path=self.encoded_data_file_path(),
             encoded_schema_description_file_path=self.encoded_schema_description_file_path(),
@@ -2751,9 +2811,7 @@ class AlgorithmPipeline:
         return available_parameter_cache_path
 
 
-def _get_jvm_args(
-    algorithm_definition: Mapping[str, Any], task_name: str, jvm_args: list[str] | None
-) -> list[str] | None:
+def _get_jvm_args(algorithm_definition: dict[str, Any], task_name: str, jvm_args: list[str] | None) -> list[str] | None:
     execution_parameters = algorithm_definition.get("hotvect_execution_parameters", {})
 
     # See if there is a task specific override
@@ -2776,7 +2834,7 @@ def _get_jvm_args(
             return arg_set
 
 
-def _recursive_get(dx: Mapping[str, Any], keys: list[str], default: Any = None):
+def _recursive_get(dx: dict[Any, Any], keys: list[str], default: Any = None):
     def get_with_default(d, key):
         return d.get(key, default) if isinstance(d, dict) else default
 

@@ -18,7 +18,7 @@ algorithm implementation + embedded definition
   → algorithm package
   → optional training, evaluation, or state generation
   → optional parameter package
-  → application loads AlgorithmInstance
+  → application/runtime owns an AlgorithmGraph
   → request → decision
 ```
 
@@ -37,6 +37,15 @@ Hotvect currently provides:
 - optional integration with a separately deployed Experiment Management Service (EMS) for refreshed slot state,
   release metadata, and local variant assignment;
 - local HTTP and browser debugging surfaces.
+
+For targeted serving tests, a containing application can invoke an active EMS root variant by passing
+`String rootVariantId` to the `invoke(touchpoint, assignmentKey, rootVariantId, request)` overload, or the
+corresponding `invokeThemedTopK` overload when it needs a concrete themed response. The current EMS
+lookup converts the string to EMS's integer ID; the runtime API does not expose that representation.
+The override selects only the root variant; dependency slots continue to
+assign from `assignmentKey`.
+The override lasts for one invocation and does not change EMS assignments. The containing application
+controls which requests may use it. These APIs first appear in version 11.2.2.
 
 ## Start here
 
@@ -97,8 +106,8 @@ mvn package -DskipTests
 python3 python/scripts/copy_jar.py
 ```
 
-If your build environment needs a specific Docker network to reach a package index, add `--network=<name>` to each
-`docker build` command below, or set `DOCKER_NETWORK=<name>` when using the helper script.
+The commands below use Docker's default network. If your package index is reachable only through a specific Docker
+network, pass `--network=<name>` to each build, or set `DOCKER_NETWORK` when using the helper script.
 
 ```bash
 docker build --platform=linux/amd64 \
@@ -126,7 +135,7 @@ docker run --rm --platform=linux/amd64 --entrypoint sh hotvect:cpu-torch-tensorf
 For the complete base, TensorFlow, CPU PyTorch, and CPU PyTorch+TensorFlow sequence, use the helper instead:
 
 ```bash
-scripts/docker-build-images-local.sh
+DOCKER_NETWORK=bridge scripts/docker-build-images-local.sh
 ```
 
 On an ARM host, `--platform=linux/amd64` runs the Linux image under emulation. Use the build and `uv pip check` to
@@ -157,5 +166,6 @@ contracts.
 | Online loading | `hotvect-online-util` |
 | Offline JVM tasks | `hotvect-offline-util` |
 | Python lifecycle and CLIs | `python/` |
-| Local debugging | `hotvect-algorithm-serve`, `hotvect-algorithm-demo` |
+| Local algorithm server and debugger | `hotvect-algorithm-demo` |
+| Experiment control plane | Standalone EMS service |
 | Runnable product search and ranking example | `examples/product-search-and-ranking/` |

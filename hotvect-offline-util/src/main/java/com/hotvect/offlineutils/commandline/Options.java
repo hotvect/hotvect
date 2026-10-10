@@ -4,21 +4,14 @@ import java.io.File;
 import java.util.*;
 
 public class Options {
+    OfflineAlgorithmSource algorithmSource;
     public int maxThreads = -1;
-    public List<File> additionalJarFiles = new ArrayList<>();
 
     public int batchSize = -1;
 
     public int queueLength = -1;
     public int readQueueLength = -1;
     public int writeQueueLength = -1;
-
-    public File algorithmJar;
-
-    public String algorithmDefinition;
-
-
-    public File parameters;
 
     public boolean verbose;
 
@@ -29,6 +22,8 @@ public class Options {
     public boolean ordered;
 
     public boolean unordered;
+
+    public boolean requireUnorderedOutput;
 
     public int writerNumShards = -1;
 
@@ -52,20 +47,18 @@ public class Options {
     @Override
     public String toString() {
         return "Options{" +
-                "maxThreads=" + maxThreads +
-                ", additionalJarFiles=" + additionalJarFiles +
+                "algorithmSource=" + algorithmSource +
+                ", maxThreads=" + maxThreads +
                 ", batchSize=" + batchSize +
                 ", queueLength=" + queueLength +
                 ", readQueueLength=" + readQueueLength +
                 ", writeQueueLength=" + writeQueueLength +
-                ", algorithmJar=" + algorithmJar +
-                ", algorithmDefinition='" + algorithmDefinition + '\'' +
-                ", parameters=" + parameters +
                 ", verbose=" + verbose +
                 ", logFeatures=" + logFeatures +
                 ", includeFeatureStoreResponses=" + includeFeatureStoreResponses +
                 ", ordered=" + ordered +
                 ", unordered=" + unordered +
+                ", requireUnorderedOutput=" + requireUnorderedOutput +
                 ", writerNumShards=" + writerNumShards +
                 ", sourceFiles=" + sourceFiles +
                 ", sourceDestMappings=" + sourceDestMappings +

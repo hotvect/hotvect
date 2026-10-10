@@ -3,6 +3,14 @@ package com.hotvect.api.algodefinition;
 import java.time.Instant;
 import java.util.Optional;
 
+/**
+ * Identity and provenance read from one algorithm namespace in a parameter package.
+ *
+ * @param algorithmId algorithm code identity expected to consume the parameters
+ * @param parameterId immutable parameter identity
+ * @param ranAt time when the producing pipeline run began
+ * @param lastTestTime logical date anchoring the data used by the run, when recorded
+ */
 public record AlgorithmParameterMetadata(
         AlgorithmId algorithmId,
         String parameterId,

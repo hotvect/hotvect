@@ -28,10 +28,14 @@ algorithm implementation modules in the algorithm JAR.
 | --- | --- |
 | `com.hotvect.api.algorithms.Algorithm` | Base lifecycle contract; algorithms are `AutoCloseable` |
 | `Ranker`, `Scorer`, `BulkScorer`, `TopK`, `ThemedTopK` | Public decision shapes |
-| `AlgorithmDefinition` | Resolved identity, factories, configuration, and child definitions |
-| `AlgorithmInstance` | Definition, parameter metadata, and instantiated algorithm |
-| `AlgorithmRuntimeIdentity` | Canonical algorithm/hyperparameter/parameter identity |
+| `AlgorithmDefinition` | Declarative identity, factories, and configuration; it never owns constructed children |
+| `AlgorithmInstance` | One constructed node value: definition, parameter metadata, instantiated algorithm, and declared `TypeToken` contract |
+| `HyperparameterizedAlgorithmId` | Algorithm code and effective hyperparameter identity |
+| `ParameterizedAlgorithmId` | One algorithm's code, hyperparameters, and parameters, excluding dependencies |
+| `AlgorithmRuntimeId` | Parameterized algorithm identity plus recursively resolved child identities |
+| `AlgorithmDependencies` | Typed access to each resolved singleton child algorithm through `only(...)` |
 | `ExecutionContext` | Workload mode plus input semantic supplied to factories |
+| `AlgorithmGraph` (`hotvect-online-util`) | Direct-load owner of graph topology, recursive identity, classloaders, and lifecycle |
 
 The legacy `State` marker is deprecated for removal. State generation uses the definition's state-generator factory
 and offline workflow rather than a new implementation of that marker.
@@ -40,10 +44,36 @@ and offline workflow rather than a new implementation of that marker.
 
 `SimpleAlgorithmFactory` receives execution context, optional local-state storage, and algorithm configuration.
 Non-composite parameterized factories additionally receive their dependency and parameter streams. Composite factories
-additionally receive the named map of child `AlgorithmInstance` objects. Callers should use the longest applicable
-`create(...)` overload when they need the execution context or runtime-local storage.
-Several v10 factory interfaces retain abstract, deprecated `apply(...)` methods for binary compatibility, so check the
-exact interface version before implementing or migrating a factory.
+additionally receive `AlgorithmDependencies`. `only(name)` requires one selected algorithm; `name` is always the
+unversioned dependency key. Its return type is inferred from the factory code:
+
+```java
+BulkScorer<Query, Candidate> scorer = dependencies.only("candidate-scorer");
+```
+
+Callers that want dependency compatibility checks during composition can pass Guava's `TypeToken`, which preserves
+the expected type arguments at the dynamic boundary:
+
+```java
+import com.google.common.reflect.TypeToken;
+
+BulkScorer<Query, Candidate> scorer = dependencies.only(
+        "candidate-scorer",
+        new TypeToken<BulkScorer<Query, Candidate>>() {});
+```
+
+The typed lookup rejects incompatible algorithm interfaces and, when the dependency's contract for the requested
+interface is fully resolved, incompatible generic arguments. Unresolved generic factory arguments are allowed without
+verifying generic compatibility. This does not relax serving-root contract validation.
+
+`AlgorithmDependencies` has no `Class`-argument lookup overload. The expected `TypeToken` must always be concrete,
+including for non-generic algorithm types. Generated transformers require a concrete algorithm type for
+each `@InjectAlgorithm` parameter and emit public `TypeToken` constants for their exact injected contracts. New
+composite factories implement the single context- and local-storage-aware `create(...)` method shown above.
+
+The runtime retains the deprecated published-v10 composite factory signatures so existing algorithm JARs whose
+factories receive `Map<String, AlgorithmInstance<?>>` remain executable. That contract, like the Stage 2 runtime,
+represents exactly one algorithm per dependency.
 
 Common entry points include:
 
@@ -55,10 +85,9 @@ Common entry points include:
 - decoder, encoder, vectorizer, transformer, and reward-function factories.
 
 `LocalStateStorage.allocateDirectory()` transfers cleanup ownership to the caller. Delete an allocation when factory
-construction fails, or from the returned algorithm's `close()` after successful construction. The algorithm definition
-must declare `requires_local_state_storage: true`, and the runtime must supply a storage root; the declaration does not
-create storage by itself. A direct factory receives `Optional.empty()` when no root was configured, so an algorithm
-that requires storage must reject the missing capability in its factory.
+construction fails, or from the returned algorithm's `close()` after successful construction. Hotvect always supplies
+the lazy allocator. A direct factory uses the system temporary directory by default; containing runtimes derive it from
+their scratch directory or set an explicit root.
 
 ## Data contracts
 

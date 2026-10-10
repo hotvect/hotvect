@@ -249,7 +249,11 @@ def apply_performance_test_samples_override(
     if performance_test_samples is None:
         return algorithm_definition_override
     samples_update = {"hotvect_execution_parameters": {"performance-test": {"samples": int(performance_test_samples)}}}
-    return merge_algorithm_definition_override_fragments(algorithm_definition_override, samples_update)
+    return merge_algorithm_definition_override_fragments(
+        algorithm_definition_override,
+        samples_update,
+        offline=True,
+    )
 
 
 def apply_performance_test_sample_pool_size_override(
@@ -263,4 +267,8 @@ def apply_performance_test_sample_pool_size_override(
             "performance-test": {"sample_pool_size": int(performance_test_sample_pool_size)}
         }
     }
-    return merge_algorithm_definition_override_fragments(algorithm_definition_override, sample_pool_size_update)
+    return merge_algorithm_definition_override_fragments(
+        algorithm_definition_override,
+        sample_pool_size_update,
+        offline=True,
+    )

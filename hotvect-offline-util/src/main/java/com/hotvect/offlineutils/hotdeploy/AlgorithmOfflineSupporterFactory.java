@@ -2,7 +2,7 @@ package com.hotvect.offlineutils.hotdeploy;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.hotvect.api.algodefinition.AlgorithmDefinition;
-import com.hotvect.api.algodefinition.AlgorithmInstance;
+import com.hotvect.api.algodefinition.AlgorithmDependencies;
 import com.hotvect.api.algodefinition.common.ExampleDecoderFactory;
 import com.hotvect.api.algodefinition.common.ExampleEncoderFactory;
 import com.hotvect.api.algodefinition.common.RewardFunction;
@@ -20,27 +20,23 @@ import com.hotvect.onlineutils.hotdeploy.util.MalformedAlgorithmException;
 import java.io.File;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
-import java.util.Map;
 import java.util.Optional;
 import java.util.function.Function;
 
-public class AlgorithmOfflineSupporterFactory extends AlgorithmInstanceFactory implements AlgorithmOfflineInstantiator {
+/** Creates offline codecs and retains prepared feature-extraction graphs until closed. */
+public class AlgorithmOfflineSupporterFactory extends AlgorithmInstanceFactory {
     private static final ExecutionContext EXECUTION_CONTEXT = ExecutionContext.of(WorkloadMode.BATCH, InputSemantic.OFFLINE);
 
-    public AlgorithmOfflineSupporterFactory(File algorithmJar, ClassLoader parent) throws MalformedAlgorithmException {
-        super(algorithmJar, parent, EXECUTION_CONTEXT, false);
-    }
-
-    public AlgorithmOfflineSupporterFactory(File algorithmJar) throws MalformedAlgorithmException {
-        super(algorithmJar, EXECUTION_CONTEXT, false);
-    }
-
     public AlgorithmOfflineSupporterFactory(ClassLoader parent) throws MalformedAlgorithmException {
-        super(parent, EXECUTION_CONTEXT, false);
+        super(parent, new Options(EXECUTION_CONTEXT.inputSemantic(), false, false, Optional.empty()));
     }
 
     public <OUTCOME> RewardFunction<OUTCOME> getRewardFunction(AlgorithmDefinition algorithmDefinition) throws MalformedAlgorithmException {
         String factoryName = algorithmDefinition.rewardFunctionFactoryName();
+        if (factoryName == null) {
+            throw new MalformedAlgorithmException("Algorithm " + algorithmDefinition.algorithmId()
+                    + " requires reward_function_factory_classname to compute rewards");
+        }
         RewardFunctionFactory<OUTCOME> rewardFunctionFactory = instantiate(factoryName);
         return rewardFunctionFactory.get();
     }
@@ -52,23 +48,26 @@ public class AlgorithmOfflineSupporterFactory extends AlgorithmInstanceFactory i
         return decoderFactory.create(parameter);
     }
 
-    @Override
-    public <DEPENDENCY> DEPENDENCY loadFeatureExtractionDependency(AlgorithmDefinition algorithmDefinition, File parameterFile, Map<String, AlgorithmInstance<?>> dependencyOverrides) throws MalformedAlgorithmException {
-        return super.loadFeatureExtractionDependency(algorithmDefinition, parameterFile, dependencyOverrides);
+    /**
+     * Prepares a feature-extraction value that remains valid until this factory is closed.
+     */
+    public <DEPENDENCY> DEPENDENCY prepareFeatureExtraction(
+            AlgorithmDefinition algorithmDefinition,
+            File parameterFile,
+            AlgorithmDependencies dependencyOverrides) throws MalformedAlgorithmException {
+        return super.prepareFeatureExtraction(
+                algorithmDefinition, parameterFile, dependencyOverrides, EXECUTION_CONTEXT);
     }
 
-    public <E> E getFeatureExtractionDependency(AlgorithmDefinition algorithmDefinition, File parameterFile) throws MalformedAlgorithmException {
-        return loadFeatureExtractionDependency(algorithmDefinition, parameterFile, Map.of());
-    }
-
-    public <EXAMPLE extends Example<? extends OfflineRequest, ?>> ExampleEncoder<EXAMPLE> getTrainEncoder(AlgorithmDefinition algorithmDefinition, File parameters) throws MalformedAlgorithmException {
+    public <EXAMPLE extends Example<? extends OfflineRequest, ?>> ExampleEncoder<EXAMPLE> prepareTrainEncoder(
+            AlgorithmDefinition algorithmDefinition,
+            File parameters) throws MalformedAlgorithmException {
         String factoryName = algorithmDefinition.encoderFactoryName();
         RewardFunction<?> rewardFunction = this.getRewardFunction(algorithmDefinition);
 
-        Object dependency = loadFeatureExtractionDependency(algorithmDefinition, parameters, Map.of());
         ExampleEncoderFactory encoderFactory = instantiate(factoryName);
+        Object dependency = prepareFeatureExtraction(algorithmDefinition, parameters, AlgorithmDependencies.empty());
         Object rawEncoder = encoderFactory.create(dependency, rewardFunction);
-
         return adaptTrainEncoder(rawEncoder);
     }
 

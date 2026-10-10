@@ -18,7 +18,8 @@ related_docs:
 # Deploy the Experiment Management Service
 
 This guide is for the owner of a dedicated EMS control-plane deployment. Build the standalone Spring Boot application
-from the EMS server repository, then connect it to the deployment's PostgreSQL database, identity provider, observability, and delivery system.
+from the EMS server repository,
+then connect it to the deployment's PostgreSQL database, identity provider, observability, and delivery system.
 
 Do not follow this guide in an algorithm project or serving application. Algorithm projects publish JARs. Serving
 applications embed `hotvect-online-util`. The EMS repository owns the server implementation and deployment.
@@ -189,6 +190,6 @@ Do not manually publish or deploy from a development checkout to bypass this ord
 ## 10. Connect serving runtimes
 
 Deploying EMS does not make an application use it. Each containing serving application separately embeds
-`hotvect-online-util`, configures read credentials and artifact access, and starts its slot refreshers.
+`hotvect-online-util`, configures read credentials and artifact access, and starts its runtime-wide graph refresher.
 
 Continue with [Connect an online runtime to EMS](../connect-online-runtime-to-ems/index.md).

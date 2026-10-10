@@ -113,7 +113,7 @@ def test_partition_cache_allows_pinned_trainable_dependency(tmp_path: Path):
         definition={
             "training_command": ["train"],
             "number_of_training_days": 2,
-            "hotvect_execution_parameters": {"with_parameter": "s3://bucket/child-parameters.zip"},
+            "hotvect_execution_parameters": {"with_parameter": "s3://example-bucket/child-parameters.zip"},
         },
     )
     parent.dependency_pipelines = {"child": child}
@@ -131,7 +131,7 @@ def test_partition_cache_does_not_prewarm_pinned_pipeline(tmp_path: Path):
             "hotvect_execution_parameters": {
                 "cache_base_dir": str(tmp_path / "cache"),
                 "encode": {"cache": "partition"},
-                "with_parameter": "s3://bucket/pinned-parameters.zip",
+                "with_parameter": "s3://example-bucket/pinned-parameters.zip",
             },
         },
     )
@@ -218,7 +218,7 @@ def test_generate_states_materializes_s3_cached_state_at_the_configured_output_p
         algorithm_definition={
             "generator_factory_classname": "example.StateGeneratorFactory",
             "state_output_filename": "state.bin",
-            "hotvect_execution_parameters": {"cache_base_dir": "s3://bucket/cache"},
+            "hotvect_execution_parameters": {"cache_base_dir": "s3://example-bucket/cache"},
         },
     )
     cached_state = tmp_path / "cached-state.bin"
@@ -797,7 +797,7 @@ def test_invalid_root_cache_value_is_rejected(tmp_path: Path):
         algorithm_definition={
             "hotvect_execution_parameters": {
                 "cache_base_dir": "/tmp/hotvect-cache",
-                "cache": "s3://bucket/cache",
+                "cache": "s3://example-bucket/cache",
             }
         },
     )
@@ -1025,7 +1025,7 @@ def test_available_predict_parameter_cache_path_still_requires_with_parameter(tm
                 "cache_base_dir": str(tmp_path / "cache"),
                 "cache": "run",
                 "cache_refresh": True,
-                "with_parameter": "s3://bucket/prefix/params.zip",
+                "with_parameter": "s3://example-bucket/prefix/params.zip",
             }
         },
     )
@@ -1575,13 +1575,13 @@ def test_encode_partition_cache_uses_mounted_partition_when_success_marker_exist
             "training_lag_days": 1,
             "training_command": "echo train",
             "hotvect_execution_parameters": {
-                "cache_base_dir": "s3://bucket/cache",
+                "cache_base_dir": "s3://example-bucket/cache",
                 "encode": {"cache": "partition"},
             },
         },
     )
     pipeline.algorithm_pipeline_context = pipeline.algorithm_pipeline_context._replace(
-        partition_cache_base_paths={"s3://bucket/cache/algo@55.7.0": tmp_path / "mounted-cache"}
+        partition_cache_base_paths={"s3://example-bucket/cache/algo@55.7.0": tmp_path / "mounted-cache"}
     )
 
     partition_date = date(2000, 2, 16)
@@ -1616,13 +1616,13 @@ def test_encode_partition_cache_falls_back_to_s3_when_mounted_content_is_not_mat
             "training_lag_days": 1,
             "training_command": "echo train",
             "hotvect_execution_parameters": {
-                "cache_base_dir": "s3://bucket/cache",
+                "cache_base_dir": "s3://example-bucket/cache",
                 "encode": {"cache": "partition"},
             },
         },
     )
     pipeline.algorithm_pipeline_context = pipeline.algorithm_pipeline_context._replace(
-        partition_cache_base_paths={"s3://bucket/cache/algo@55.7.0": tmp_path / "mounted-cache"}
+        partition_cache_base_paths={"s3://example-bucket/cache/algo@55.7.0": tmp_path / "mounted-cache"}
     )
 
     partition_date = date(2000, 2, 16)
@@ -1659,13 +1659,13 @@ def test_encode_partition_cache_uses_s3_partition_cache_when_mounted_cache_is_in
             "training_lag_days": 1,
             "training_command": "echo train",
             "hotvect_execution_parameters": {
-                "cache_base_dir": "s3://bucket/cache",
+                "cache_base_dir": "s3://example-bucket/cache",
                 "encode": {"cache": "partition"},
             },
         },
     )
     pipeline.algorithm_pipeline_context = pipeline.algorithm_pipeline_context._replace(
-        partition_cache_base_paths={"s3://bucket/cache/algo@55.7.0": tmp_path / "mounted-cache"}
+        partition_cache_base_paths={"s3://example-bucket/cache/algo@55.7.0": tmp_path / "mounted-cache"}
     )
 
     partition_date = date(2000, 2, 16)
@@ -1689,7 +1689,7 @@ def test_encode_partition_cache_uses_s3_partition_cache_when_mounted_cache_is_in
     monkeypatch.setattr(pyhotvect_module, "download_s3_file", write_s3_file)
 
     def materialize_encoded_cache(cache_path, local_cache_path):
-        assert cache_path == "s3://bucket/cache/algo@55.7.0/partitions/encode/dt=2000-02-16/encoded/"
+        assert cache_path == "s3://example-bucket/cache/algo@55.7.0/partitions/encode/dt=2000-02-16/encoded/"
         assert local_cache_path.endswith("partitions/encode/dt=2000-02-16")
         local_encoded_path.mkdir(parents=True)
         (local_encoded_path / "part-00000.tsv").write_text("encoded\n", encoding="utf-8")
@@ -1762,7 +1762,7 @@ def test_s3_encode_partition_cache_without_success_marker_is_incomplete(tmp_path
 
     result, publish_blocked = pipeline._load_s3_encode_partition_cache(
         partition_date=date(2000, 2, 16),
-        partition_cache_path="s3://bucket/cache/algo@55.7.0/partitions/encode/dt=2000-02-16",
+        partition_cache_path="s3://example-bucket/cache/algo@55.7.0/partitions/encode/dt=2000-02-16",
         local_cache_dir=str(tmp_path / "local-cache"),
         source_paths=[str(tmp_path / "source")],
     )
@@ -1793,7 +1793,7 @@ def test_s3_encode_partition_cache_without_success_marker_but_existing_content_b
 
     result, publish_blocked = pipeline._load_s3_encode_partition_cache(
         partition_date=date(2000, 2, 16),
-        partition_cache_path="s3://bucket/cache/algo@55.7.0/partitions/encode/dt=2000-02-16",
+        partition_cache_path="s3://example-bucket/cache/algo@55.7.0/partitions/encode/dt=2000-02-16",
         local_cache_dir=str(tmp_path / "local-cache"),
         source_paths=[str(tmp_path / "source")],
     )
@@ -1822,7 +1822,7 @@ def test_s3_encode_partition_cache_started_marker_blocks_publish(tmp_path: Path,
 
     result, publish_blocked = pipeline._load_s3_encode_partition_cache(
         partition_date=date(2000, 2, 16),
-        partition_cache_path="s3://bucket/cache/algo@55.7.0/partitions/encode/dt=2000-02-16",
+        partition_cache_path="s3://example-bucket/cache/algo@55.7.0/partitions/encode/dt=2000-02-16",
         local_cache_dir=str(tmp_path / "local-cache"),
         source_paths=[str(tmp_path / "source")],
     )
@@ -1852,7 +1852,7 @@ def test_s3_encode_partition_cache_materializes_published_encoded_directory(tmp_
 
     result, publish_blocked = pipeline._load_s3_encode_partition_cache(
         partition_date=date(2000, 2, 16),
-        partition_cache_path="s3://bucket/cache/algo@55.7.0/partitions/encode/dt=2000-02-16",
+        partition_cache_path="s3://example-bucket/cache/algo@55.7.0/partitions/encode/dt=2000-02-16",
         local_cache_dir=str(tmp_path / "local-cache"),
         source_paths=[str(tmp_path / "source")],
     )
@@ -1861,7 +1861,7 @@ def test_s3_encode_partition_cache_materializes_published_encoded_directory(tmp_
     assert result["encoded_path"] == str(encoded_dir)
     assert publish_blocked is False
     materialize_encoded.assert_called_once_with(
-        "s3://bucket/cache/algo@55.7.0/partitions/encode/dt=2000-02-16/encoded/",
+        "s3://example-bucket/cache/algo@55.7.0/partitions/encode/dt=2000-02-16/encoded/",
         str(tmp_path / "local-cache"),
     )
 
@@ -1889,7 +1889,7 @@ def test_s3_encode_partition_cache_with_success_marker_propagates_missing_schema
     with pytest.raises(ClientError):
         pipeline._load_s3_encode_partition_cache(
             partition_date=date(2000, 2, 16),
-            partition_cache_path="s3://bucket/cache/algo@55.7.0/partitions/encode/dt=2000-02-16",
+            partition_cache_path="s3://example-bucket/cache/algo@55.7.0/partitions/encode/dt=2000-02-16",
             local_cache_dir=str(tmp_path / "local-cache"),
             source_paths=[str(tmp_path / "source")],
         )
@@ -1952,7 +1952,7 @@ def test_s3_encode_partition_cache_claim_returns_false_when_started_marker_exist
     monkeypatch.setattr(pyhotvect_module.boto3, "client", MagicMock(return_value=s3_client))
 
     claimed = pipeline._claim_encode_partition_cache_write(
-        "s3://bucket/cache/algo@55.7.0/partitions/encode/dt=2000-02-16"
+        "s3://example-bucket/cache/algo@55.7.0/partitions/encode/dt=2000-02-16"
     )
 
     assert claimed is False
@@ -2100,7 +2100,7 @@ def test_encode_partition_cache_miss_writes_direct_s3_partition_without_deleting
             "training_lag_days": 1,
             "training_command": "echo train",
             "hotvect_execution_parameters": {
-                "cache_base_dir": "s3://bucket/cache",
+                "cache_base_dir": "s3://example-bucket/cache",
                 "encode": {"cache": "partition"},
             },
         },
@@ -2135,7 +2135,7 @@ def test_encode_partition_cache_miss_writes_direct_s3_partition_without_deleting
         ("store", f"{partition_cache_path}/_SUCCESS"),
     ]
     started_call = s3_client.put_object.call_args.kwargs
-    assert started_call["Bucket"] == "bucket"
+    assert started_call["Bucket"] == "example-bucket"
     assert started_call["Key"] == "cache/algo@55.7.0/partitions/encode/dt=2000-02-16/_STARTED"
     assert started_call["IfNoneMatch"] == "*"
     s3_client.delete_objects.assert_not_called()
@@ -2152,7 +2152,7 @@ def test_encode_cache_target_does_not_overwrite_dirty_s3_partition_cache(tmp_pat
             "training_lag_days": 1,
             "training_command": "echo train",
             "hotvect_execution_parameters": {
-                "cache_base_dir": "s3://bucket/cache",
+                "cache_base_dir": "s3://example-bucket/cache",
                 "encode": {"cache": "partition"},
             },
         },
@@ -2201,7 +2201,7 @@ def test_s3_partition_writer_skips_publish_when_started_claim_exists(tmp_path: P
             "training_lag_days": 1,
             "training_command": "echo train",
             "hotvect_execution_parameters": {
-                "cache_base_dir": "s3://bucket/cache",
+                "cache_base_dir": "s3://example-bucket/cache",
                 "encode": {"cache": "partition"},
             },
         },
@@ -2376,7 +2376,7 @@ def test_with_parameter_is_still_used_when_cache_refresh_enabled_if_available(tm
                 "cache_base_dir": str(tmp_path / "cache"),
                 "cache": "run",
                 "cache_refresh": True,
-                "with_parameter": "s3://bucket/prefix/params.zip",
+                "with_parameter": "s3://example-bucket/prefix/params.zip",
             }
         },
     )
@@ -2399,7 +2399,10 @@ def test_with_parameter_skips_dependency_preparation(tmp_path: Path, monkeypatch
     from hotvect.pyhotvect import AlgorithmPipeline
 
     pipeline = AlgorithmPipeline.__new__(AlgorithmPipeline)
-    pipeline.algorithm_definition = {"hotvect_execution_parameters": {"with_parameter": "s3://bucket/params.zip"}}
+    pipeline.algorithm_definition = {
+        "algorithm_factory_classname": "example.Factory",
+        "hotvect_execution_parameters": {"with_parameter": "s3://example-bucket/params.zip"},
+    }
     pipeline.algorithm_definition_override = None
     pipeline.algorithm_override_metadata = None
     pipeline.algorithm_name = "algo"

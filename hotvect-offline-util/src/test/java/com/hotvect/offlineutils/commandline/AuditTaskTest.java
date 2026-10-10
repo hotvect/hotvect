@@ -111,7 +111,7 @@ class AuditTaskTest {
     }
 
     private static AlgorithmDefinition algorithmDefinition() {
-        return algorithmDefinition(null);
+        return algorithmDefinition(JsonNodeFactory.instance.objectNode());
     }
 
     private static AlgorithmDefinition algorithmDefinition(JsonNode rawAlgorithmDefinition) {
@@ -119,7 +119,6 @@ class AuditTaskTest {
         return new AlgorithmDefinition(
                 rawAlgorithmDefinition,
                 new AlgorithmId("test-algorithm", "1.2.3"),
-                ImmutableMap.of(),
                 ImmutableMap.of(),
                 null,
                 nestedClassPrefix + ExampleDecoderFactory.class.getSimpleName(),
@@ -138,8 +137,7 @@ class AuditTaskTest {
 
     @Test
     void defaultsToOrderedAuditWhenFlagsAndAlgorithmDefinitionDoNotSpecifyOrdering() throws Exception {
-        Options options = new Options();
-        options.parameters = Paths.get(Objects.requireNonNull(this.getClass().getResource("test-algorithm-parameter.zip")).toURI()).toFile();
+        Options options = OfflineTaskTestOptions.direct(Paths.get(Objects.requireNonNull(this.getClass().getResource("test-algorithm-parameter.zip")).toURI()).toFile());
         options.sourceFiles = ImmutableMap.of("default", ImmutableList.of(Paths.get(Objects.requireNonNull(this.getClass().getResource("multiple")).toURI()).toFile()));
         Path tempDir = Files.createTempDirectory("audit-default-ordered");
         options.destinationFile = tempDir.resolve("audit").toFile();
@@ -174,8 +172,7 @@ class AuditTaskTest {
 
     @Test
     void orderedAuditWritesSinglePartFile() throws Exception {
-        Options options = new Options();
-        options.parameters = Paths.get(Objects.requireNonNull(this.getClass().getResource("test-algorithm-parameter.zip")).toURI()).toFile();
+        Options options = OfflineTaskTestOptions.direct(Paths.get(Objects.requireNonNull(this.getClass().getResource("test-algorithm-parameter.zip")).toURI()).toFile());
         options.sourceFiles = ImmutableMap.of("default", ImmutableList.of(Paths.get(Objects.requireNonNull(this.getClass().getResource("multiple")).toURI()).toFile()));
         Path tempDir = Files.createTempDirectory("audit-ordered-layout");
         Path destinationPath = tempDir.resolve("audit");
@@ -212,8 +209,7 @@ class AuditTaskTest {
 
     @Test
     void unorderedAuditShouldWriteShardedOutputDirectory() throws Exception {
-        Options options = new Options();
-        options.parameters = Paths.get(Objects.requireNonNull(this.getClass().getResource("test-algorithm-parameter.zip")).toURI()).toFile();
+        Options options = OfflineTaskTestOptions.direct(Paths.get(Objects.requireNonNull(this.getClass().getResource("test-algorithm-parameter.zip")).toURI()).toFile());
         options.sourceFiles = ImmutableMap.of("default", ImmutableList.of(Paths.get(Objects.requireNonNull(this.getClass().getResource("multiple")).toURI()).toFile()));
         Path tempDir = Files.createTempDirectory("audit-unordered");
         Path destinationPath = tempDir.resolve("audit");
@@ -270,8 +266,7 @@ class AuditTaskTest {
 
     @Test
     void algorithmDefinitionCanEnableUnorderedAudit() throws Exception {
-        Options options = new Options();
-        options.parameters = Paths.get(Objects.requireNonNull(this.getClass().getResource("test-algorithm-parameter.zip")).toURI()).toFile();
+        Options options = OfflineTaskTestOptions.direct(Paths.get(Objects.requireNonNull(this.getClass().getResource("test-algorithm-parameter.zip")).toURI()).toFile());
         options.sourceFiles = ImmutableMap.of("default", ImmutableList.of(Paths.get(Objects.requireNonNull(this.getClass().getResource("multiple")).toURI()).toFile()));
         Path tempDir = Files.createTempDirectory("audit-algodef-unordered");
         options.destinationFile = tempDir.resolve("audit").toFile();
@@ -309,8 +304,7 @@ class AuditTaskTest {
 
     @Test
     void forwardsLegacyQueueLengthToUnorderedMapper() throws Exception {
-        Options options = new Options();
-        options.parameters = Paths.get(Objects.requireNonNull(this.getClass().getResource("test-algorithm-parameter.zip")).toURI()).toFile();
+        Options options = OfflineTaskTestOptions.direct(Paths.get(Objects.requireNonNull(this.getClass().getResource("test-algorithm-parameter.zip")).toURI()).toFile());
         options.sourceFiles = ImmutableMap.of("default", ImmutableList.of(Paths.get(Objects.requireNonNull(this.getClass().getResource("multiple")).toURI()).toFile()));
         Path tempDir = Files.createTempDirectory("audit-unordered-legacy-queue");
         options.destinationFile = tempDir.resolve("audit").toFile();
@@ -348,8 +342,7 @@ class AuditTaskTest {
 
     @Test
     void forwardsSplitQueueLengthsToUnorderedMapper() throws Exception {
-        Options options = new Options();
-        options.parameters = Paths.get(Objects.requireNonNull(this.getClass().getResource("test-algorithm-parameter.zip")).toURI()).toFile();
+        Options options = OfflineTaskTestOptions.direct(Paths.get(Objects.requireNonNull(this.getClass().getResource("test-algorithm-parameter.zip")).toURI()).toFile());
         options.sourceFiles = ImmutableMap.of("default", ImmutableList.of(Paths.get(Objects.requireNonNull(this.getClass().getResource("multiple")).toURI()).toFile()));
         Path tempDir = Files.createTempDirectory("audit-unordered-split-queue");
         options.destinationFile = tempDir.resolve("audit").toFile();
@@ -389,8 +382,7 @@ class AuditTaskTest {
 
     @Test
     void shouldRejectConflictingAuditOrderingFlags() throws Exception {
-        Options options = new Options();
-        options.parameters = Paths.get(Objects.requireNonNull(this.getClass().getResource("test-algorithm-parameter.zip")).toURI()).toFile();
+        Options options = OfflineTaskTestOptions.direct(Paths.get(Objects.requireNonNull(this.getClass().getResource("test-algorithm-parameter.zip")).toURI()).toFile());
         options.sourceFiles = ImmutableMap.of("default", ImmutableList.of(Paths.get(Objects.requireNonNull(this.getClass().getResource("multiple")).toURI()).toFile()));
         Path tempDir = Files.createTempDirectory("audit-conflicting-ordering");
         options.destinationFile = tempDir.resolve("audit").toFile();
@@ -415,8 +407,7 @@ class AuditTaskTest {
 
     @Test
     void shouldRejectMultipleWriterShardsForOrderedAudit() throws Exception {
-        Options options = new Options();
-        options.parameters = Paths.get(Objects.requireNonNull(this.getClass().getResource("test-algorithm-parameter.zip")).toURI()).toFile();
+        Options options = OfflineTaskTestOptions.direct(Paths.get(Objects.requireNonNull(this.getClass().getResource("test-algorithm-parameter.zip")).toURI()).toFile());
         options.sourceFiles = ImmutableMap.of("default", ImmutableList.of(Paths.get(Objects.requireNonNull(this.getClass().getResource("multiple")).toURI()).toFile()));
         Path tempDir = Files.createTempDirectory("audit-ordered-multiple-shards");
         options.destinationFile = tempDir.resolve("audit").toFile();

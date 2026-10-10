@@ -176,11 +176,13 @@ class AlgorithmDefinitionOverrideUtilsTest {
                 () -> AlgorithmDefinitionOverrideUtils.applyOverride(base, override)
         );
 
-        assertEquals("You may not override algorithm_name", ex.getMessage());
+        assertEquals(
+                "Algorithm definition override must not contain identity field: algorithm_name",
+                ex.getMessage());
     }
 
     @Test
-    void applyOverrideAllowsSameProtectedFieldValues() throws Exception {
+    void applyOverrideRejectsSameIdentityFieldValues() throws Exception {
         JsonNode base = OBJECT_MAPPER.readTree("""
                 {
                   "algorithm_name": "algo",
@@ -197,19 +199,13 @@ class AlgorithmDefinitionOverrideUtilsTest {
                 }
                 """);
 
-        JsonNode effective = AlgorithmDefinitionOverrideUtils.applyOverride(base, override);
+        IllegalArgumentException ex = assertThrows(
+                IllegalArgumentException.class,
+                () -> AlgorithmDefinitionOverrideUtils.applyOverride(base, override));
 
         assertEquals(
-                OBJECT_MAPPER.readTree("""
-                        {
-                          "algorithm_name": "algo",
-                          "algorithm_version": "10.0.0",
-                          "algorithm_factory_classname": "com.example.AlgoFactory",
-                          "training_lag_days": 14
-                        }
-                        """),
-                effective
-        );
+                "Algorithm definition override must not contain identity field: algorithm_name",
+                ex.getMessage());
     }
 
     @Test
@@ -250,5 +246,182 @@ class AlgorithmDefinitionOverrideUtilsTest {
                         """),
                 merged
         );
+    }
+
+    @Test
+    void applyOverridePreservesDependencyPoliciesAndVersionedKeys() throws Exception {
+        JsonNode base = OBJECT_MAPPER.readTree("""
+                {
+                  "algorithm_name": "root",
+                  "algorithm_version": "1",
+                  "algorithm_factory_classname": "example.RootFactory",
+                  "dependencies": {
+                    "candidate-slot": {"scope": "slot"},
+                    "shared-child@2": {"scope": "shared"}
+                  }
+                }
+                """);
+        JsonNode override = OBJECT_MAPPER.readTree("""
+                {
+                  "dependencies": {
+                    "candidate-slot": {},
+                    "shared-child": {}
+                  }
+                }
+                """);
+
+        JsonNode effective = AlgorithmDefinitionOverrideUtils.applyOverride(base, override);
+
+        assertEquals(
+                OBJECT_MAPPER.readTree("""
+                        {
+                          "candidate-slot": {"scope": "slot"},
+                          "shared-child@2": {"scope": "shared"}
+                        }
+                        """),
+                effective.path("dependencies"));
+    }
+
+    @Test
+    void applyOverrideRejectsVersionQualifiedDependencyKey() throws Exception {
+        JsonNode base = OBJECT_MAPPER.readTree("""
+                {
+                  "algorithm_name": "root",
+                  "algorithm_version": "1",
+                  "algorithm_factory_classname": "example.RootFactory",
+                  "dependencies": {"shared-child@2": {"scope": "shared"}}
+                }
+                """);
+        JsonNode override = OBJECT_MAPPER.readTree("""
+                {"dependencies": {"shared-child@999": {}}}
+                """);
+
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class,
+                () -> AlgorithmDefinitionOverrideUtils.applyOverride(base, override));
+
+        assertEquals(
+                "Dependency override key shared-child@999 must be an unversioned dependency name",
+                error.getMessage());
+    }
+
+    @Test
+    void mergeOverrideFragmentsRejectsVersionQualifiedDependencyKey() throws Exception {
+        JsonNode fragment = OBJECT_MAPPER.readTree("""
+                {"dependencies": {"shared-child@2": {}}}
+                """);
+
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class,
+                () -> AlgorithmDefinitionOverrideUtils.mergeOverrideFragments(
+                        fragment,
+                        OBJECT_MAPPER.createObjectNode()));
+
+        assertEquals(
+                "Dependency override key shared-child@2 must be an unversioned dependency name",
+                error.getMessage());
+    }
+
+    @Test
+    void applyOverrideRejectsDependencyScope() throws Exception {
+        JsonNode base = OBJECT_MAPPER.readTree("""
+                {
+                  "algorithm_name": "root",
+                  "algorithm_version": "1",
+                  "algorithm_factory_classname": "example.RootFactory",
+                  "dependencies": {"candidate-slot": {"scope": "slot"}}
+                }
+                """);
+        JsonNode override = OBJECT_MAPPER.readTree("""
+                {"dependencies": {"candidate-slot": {"scope": null}}}
+                """);
+
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class,
+                () -> AlgorithmDefinitionOverrideUtils.applyOverride(base, override));
+
+        assertEquals("Override for dependency candidate-slot must not declare scope", error.getMessage());
+    }
+
+    @Test
+    void applyOverrideRejectsNonEmptyOverridesForScopedDependencies() throws Exception {
+        JsonNode base = OBJECT_MAPPER.readTree("""
+                {
+                  "algorithm_name": "root",
+                  "algorithm_version": "1",
+                  "algorithm_factory_classname": "example.RootFactory",
+                  "dependencies": {
+                    "candidate-slot": {"scope": "slot"},
+                    "shared-child@2": {"scope": "shared"}
+                  }
+                }
+                """);
+
+        IllegalArgumentException slotError = assertThrows(
+                IllegalArgumentException.class,
+                () -> AlgorithmDefinitionOverrideUtils.applyOverride(base, OBJECT_MAPPER.readTree("""
+                        {"dependencies":{"candidate-slot":{"algorithm_parameters":{"threshold":0.7}}}}
+                        """)));
+        assertEquals("Override for scoped dependency candidate-slot must be empty", slotError.getMessage());
+
+        IllegalArgumentException sharedError = assertThrows(
+                IllegalArgumentException.class,
+                () -> AlgorithmDefinitionOverrideUtils.applyOverride(base, OBJECT_MAPPER.readTree("""
+                        {"dependencies":{"shared-child":{"algorithm_parameters":{"threshold":0.7}}}}
+                        """)));
+        assertEquals("Override for scoped dependency shared-child must be empty", sharedError.getMessage());
+    }
+
+    @Test
+    void mergeOverrideFragmentsRejectsDependencyScopeAlreadyPresentInBaseFragment() throws Exception {
+        JsonNode base = OBJECT_MAPPER.readTree("""
+                {"dependencies":{"candidate-slot":{"scope":"slot"}}}
+                """);
+        JsonNode extra = OBJECT_MAPPER.readTree("{}");
+
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class,
+                () -> AlgorithmDefinitionOverrideUtils.mergeOverrideFragments(base, extra));
+
+        assertEquals("Override for dependency candidate-slot must not declare scope", error.getMessage());
+    }
+
+    @Test
+    void offlineOverrideConvertsSharedDependenciesToPrivateAndIgnoresVersionedKeys() throws Exception {
+        JsonNode base = OBJECT_MAPPER.readTree("""
+                {
+                  "algorithm_name": "root",
+                  "algorithm_version": "1",
+                  "algorithm_factory_classname": "example.RootFactory",
+                  "dependencies": {"shared-child@2": {"scope": "shared"}}
+                }
+                """);
+
+        JsonNode effective = AlgorithmDefinitionOverrideUtils.applyOverride(
+                base,
+                OBJECT_MAPPER.readTree("""
+                        {"dependencies":{"shared-child@999":{"algorithm_parameters":{"threshold":0.7}}}}
+                        """),
+                AlgorithmDefinitionReader.DependencyResolution.OFFLINE);
+
+        assertEquals(
+                OBJECT_MAPPER.readTree("""
+                        {"shared-child":{"algorithm_parameters":{"threshold":0.7}}}
+                        """),
+                effective.path("dependencies"));
+
+        JsonNode merged = AlgorithmDefinitionOverrideUtils.mergeOverrideFragments(
+                OBJECT_MAPPER.readTree("""
+                        {"dependencies":{"shared-child@999":{"algorithm_parameters":{"threshold":0.7}}}}
+                        """),
+                OBJECT_MAPPER.readTree("""
+                        {"dependencies":{"shared-child":{"algorithm_parameters":{"limit":3}}}}
+                        """),
+                AlgorithmDefinitionReader.DependencyResolution.OFFLINE);
+        assertEquals(
+                OBJECT_MAPPER.readTree("""
+                        {"dependencies":{"shared-child":{"algorithm_parameters":{"threshold":0.7,"limit":3}}}}
+                        """),
+                merged);
     }
 }

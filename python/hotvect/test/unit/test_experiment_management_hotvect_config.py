@@ -34,7 +34,7 @@ def test_create_client_from_hotvect_config_uses_config_url_and_token_provider(mo
         req = SimpleNamespace(headers={})
         auth(req)
         recorded["auth_header"] = req.headers.get("Authorization")
-        return SimpleNamespace(status_code=200, text="", json=lambda: None, raise_for_status=lambda: None)
+        return SimpleNamespace(status_code=200, text="payload", json=lambda: [], raise_for_status=lambda: None)
 
     monkeypatch.setattr("hotvect.experiment_management.client.requests.request", fake_request)
 
@@ -67,7 +67,7 @@ def test_create_client_from_hotvect_config_allows_url_override(monkeypatch):
         recorded["method"] = method
         recorded["url"] = url
         recorded["timeout"] = timeout
-        return SimpleNamespace(status_code=200, text="", json=lambda: None, raise_for_status=lambda: None)
+        return SimpleNamespace(status_code=200, text="payload", json=lambda: [], raise_for_status=lambda: None)
 
     monkeypatch.setattr("hotvect.experiment_management.client.requests.request", fake_request)
 
