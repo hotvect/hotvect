@@ -6,7 +6,7 @@ difficulty: beginner
 estimated_time: 10 minutes
 prerequisites:
   - Algorithm JAR built and available
-  - Predict-parameters ZIP for the algorithm
+  - Parameter source directory or predict-parameters ZIP for the algorithm
   - Test data available in expected directory structure
   - hotvect CLI installed
 related_docs:
@@ -31,7 +31,7 @@ human-readable JSONL for the same transformation path that encoding uses.
 
 | Inputs | Command | Artifacts | Verify |
 | --- | --- | --- | --- |
-| One algorithm JAR/name, predict-parameters ZIP, and source rows | `hv algorithm audit` | A destination directory containing `part-*.jsonl` and a metadata directory | Compare the matching part files with `hv-ext compare-jsonl` |
+| One algorithm JAR/name, parameter source or ZIP, and source rows | `hv algorithm audit` | A destination directory containing `part-*.jsonl` and a metadata directory | Compare the matching part files with `hv-ext compare-jsonl` |
 
 Audit output is a **directory**, never a single `.jsonl` file. For a deterministic, row-for-row comparison, pass
 `--ordered` and compare `part-00000.jsonl` from each run.
@@ -89,7 +89,7 @@ The corresponding audit record is structured by example and action:
 hv algorithm audit \
   --algorithm-jar /path/to/algorithm-1.2.3.jar \
   --algorithm-name <algorithm-name> \
-  --parameter-path /path/to/predict.parameters.zip \
+  --parameter-path /path/to/predict.parameters \
   --metadata-path ./audit.1.2.3.meta \
   --source-path training_data/dt=2000-01-06 \
   --dest-path audit.1.2.3 \
@@ -102,8 +102,8 @@ reproducibility, keep `--source-path`, `--samples`, and ordering fixed when comp
 
 Artifacts are written under `--metadata-path/` (including `metadata.json` and `hotvect-offline-utils.log`). If you run audits via the `hv` CLI wrapper, hotvect also writes `hv.log` (Python logs) and `stdout-stderr.log` (raw subprocess output) there.
 
-`hv algorithm audit` always requires a predict-parameters ZIP. Pass it with `--parameter-path`; Hotvect forwards it to Java as
-`--parameters`.
+`hv algorithm audit` always requires parameters. Pass either a source directory or ZIP package with
+`--parameter-path`; Hotvect forwards it to Java as `--parameters`.
 
 
 Use `--algorithm-override` for a definition patch and place raw JVM arguments after `--`. The [CLI

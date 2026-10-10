@@ -61,6 +61,21 @@ class AlgorithmRepositoryTest {
     }
 
     @Test
+    void reusesParameterlessAlgorithmInstance() throws Exception {
+        CountingAlgorithmDownloader downloader = new CountingAlgorithmDownloader();
+        AlgorithmRepository repository = new AlgorithmRepository(downloader);
+        AlgorithmMetadata algorithmMetadata = parameterlessAlgorithmMetadata();
+
+        AlgorithmInstance<?> firstInstance = repository.getAlgorithmInstance(algorithmMetadata);
+        AlgorithmInstance<?> secondInstance = repository.getAlgorithmInstance(algorithmMetadata);
+
+        assertSame(firstInstance, secondInstance);
+        assertNull(firstInstance.algorithmParameterMetadata());
+        assertEquals(1, downloader.getJarDownloadCount());
+        assertEquals(1, downloader.getAlgorithmLoadCount());
+    }
+
+    @Test
     void closesAlgorithmAfterAlgorithmInstanceBecomesUnreachable() throws Exception {
         CountingAlgorithmDownloader downloader = new CountingAlgorithmDownloader();
         AlgorithmRepository repository = new AlgorithmRepository(downloader);
@@ -99,6 +114,15 @@ class AlgorithmRepositoryTest {
                 parameterId,
                 "s3://bucket/test-algorithm.jar",
                 "s3://bucket/" + parameterId + ".zip");
+    }
+
+    private static AlgorithmMetadata parameterlessAlgorithmMetadata() {
+        return new AlgorithmMetadata(
+                "test-algorithm",
+                "1.0.0",
+                null,
+                "s3://bucket/test-algorithm.jar",
+                null);
     }
 
     private record CapturedAlgorithm(
@@ -149,11 +173,13 @@ class AlgorithmRepositoryTest {
                             Optional.empty(),
                             Optional.empty(),
                             Optional.empty()),
-                    new AlgorithmParameterMetadata(
-                            new AlgorithmId(algorithmMetadata.algorithmName(), algorithmMetadata.algorithmVersion()),
-                            algorithmMetadata.latestAlgorithmParameter(),
-                            Instant.now(),
-                            Optional.empty()),
+                    algorithmMetadata.hasParameter()
+                            ? new AlgorithmParameterMetadata(
+                                    new AlgorithmId(algorithmMetadata.algorithmName(), algorithmMetadata.algorithmVersion()),
+                                    algorithmMetadata.latestAlgorithmParameter(),
+                                    Instant.now(),
+                                    Optional.empty())
+                            : null,
                     new TestAlgorithm());
         }
 

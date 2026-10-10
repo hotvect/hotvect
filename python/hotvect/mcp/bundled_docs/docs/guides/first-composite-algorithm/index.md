@@ -5,7 +5,7 @@ tags: [getting-started, algorithm, java, composition, dependencies]
 difficulty: intermediate
 prerequisites:
   - Completed Build your first algorithm
-  - Familiarity with requests, factories, definitions, JARs, and parameter ZIPs
+  - Familiarity with requests, factories, definitions, JARs, and parameter sources
 related_docs:
   - ../first-algorithm/index.md
   - ../../concepts/dependencies-and-bindings/index.md
@@ -355,13 +355,14 @@ jar tf target/example-document-ranker-1.0.0.jar \
   | rg 'example-(composite-ranker|title-length-scorer)-algorithm-definition.json'
 ```
 
-## 6. Package the graph and call the parent
+## 6. Assemble the graph and call the parent
 
-The current local server expects one parameter ZIP. For a parent with one child, place each algorithm's metadata in a
-folder named after that algorithm:
+The local server accepts either a parameter source directory or a ZIP package. This is a constraint of
+`hv algorithm serve`, not EMS serving; EMS can select a parameterless graph with no parameter ID, path, or package. For
+this local example, place each algorithm's metadata in a folder named after that algorithm:
 
 ```text
-example-composite-ranker.parameters.zip
+runtime/params/
 ├── example-composite-ranker/
 │   └── algorithm-parameters.json
 └── example-title-length-scorer/
@@ -388,13 +389,8 @@ Create the two metadata files with these contents, changing only `algorithm_name
 }
 ```
 
-Put them under `runtime/params/<algorithm-name>/algorithm-parameters.json`, then package both directories:
-
-```bash
-(cd runtime/params && \
-  zip -qr ../example-composite-ranker.parameters.zip \
-    example-composite-ranker example-title-length-scorer)
-```
+Put them under `runtime/params/<algorithm-name>/algorithm-parameters.json`. No packaging step is needed — the server
+reads the directory directly.
 
 A learned child would place its model files beside the child's `algorithm-parameters.json`. A parameter-bearing
 parent would do the same in the parent folder.
@@ -405,7 +401,7 @@ Start the local debug server:
 hv algorithm serve \
   --algorithm-jar target/example-document-ranker-1.0.0.jar \
   --algorithm-name example-composite-ranker \
-  --parameter-path runtime/example-composite-ranker.parameters.zip \
+  --parameter-path runtime/params \
   --port 12003
 ```
 
@@ -444,8 +440,8 @@ The abridged response should contain this order and these scores:
 
 - The parent exposes the public `Ranker`; the child exposes the narrower `BulkScorer` capability.
 - `dependencies` records a named graph edge, while the parent factory decides when and how to call the child.
-- The JAR carries the code and both definitions; the ZIP carries parameter metadata and any parameter files for both
-  algorithms.
+- The JAR carries the code and both definitions; this local-server parameter source carries parameter metadata and any
+  parameter files for both algorithms.
 - A containing JVM can replace the named child with a host-supplied `AlgorithmInstance`, including a proxy. The current
   loader still constructs the declared child before overlaying that binding, and the host retains lifecycle ownership
   of the replacement. Read [Dependencies and bindings](../../concepts/dependencies-and-bindings/index.md) before using

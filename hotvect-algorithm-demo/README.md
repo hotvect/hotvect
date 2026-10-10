@@ -17,7 +17,7 @@ java -cp target/hotvect-algorithm-demo-*-jar-with-dependencies.jar \
   com.hotvect.algorithmdemo.Main \
   --algorithm-jar /path/to/algorithm.jar \
   --algorithm-name <algorithm_name> \
-  --parameter-path /path/to/parameters.zip \
+  --parameter-path /path/to/parameters \
   --ui \
   --source-path /path/to/examples_dir \
   --action-metadata-path /path/to/action_metadata_dir \
@@ -42,12 +42,14 @@ java -cp ../hotvect-algorithm-serve/target/hotvect-algorithm-serve-*-jar-with-de
   com.hotvect.algorithmserver.Main \
   --algorithm-jar /path/to/algorithm.jar \
   --algorithm-name <algorithm_name> \
-  --parameter-path /path/to/parameters.zip \
+  --parameter-path /path/to/parameters \
   --max-request-mib 256
 ```
 
 For headless local debugging, use `hotvect-algorithm-serve`; this module adds the browser UI to that same local
 debugging core.
+
+`--parameter-path` accepts either a local parameter source directory or a ZIP package.
 
 When `--local-runtime-config` contains multiple runtimes, the UI exposes one algorithm comparison view per
 `algorithm_runtime_id`. One available view renders one result column; two selected views render a side-by-side

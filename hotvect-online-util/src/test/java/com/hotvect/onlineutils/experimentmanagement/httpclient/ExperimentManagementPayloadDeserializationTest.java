@@ -1,6 +1,7 @@
 package com.hotvect.onlineutils.experimentmanagement.httpclient;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.fasterxml.jackson.databind.exc.ValueInstantiationException;
@@ -25,7 +26,7 @@ class ExperimentManagementPayloadDeserializationTest {
                       "absolute_s3_algorithm_jar_path": "s3://bucket/algo-a.jar",
                       "absolute_s3_algorithm_parameter_path": "s3://bucket/param-1.zip"
                     },
-                    "created_at": "2026-04-11T10:15:30Z",
+                    "created_at": "2000-04-11T10:15:30Z",
                     "is_control": true,
                     "is_default": true,
                     "shard_allocation_ratio": 100
@@ -44,7 +45,7 @@ class ExperimentManagementPayloadDeserializationTest {
                             "absolute_s3_algorithm_jar_path": "s3://bucket/algo-b.jar",
                             "absolute_s3_algorithm_parameter_path": "s3://bucket/param-7.zip"
                           },
-                          "created_at": "2026-04-11T10:15:30Z",
+                          "created_at": "2000-04-11T10:15:30Z",
                           "is_control": false,
                           "is_default": false,
                           "shard_allocation_ratio": 100
@@ -54,15 +55,15 @@ class ExperimentManagementPayloadDeserializationTest {
                       "shards": [
                         {
                           "shard_id": 1,
-                          "created_at": "2026-04-11T10:15:30Z"
+                          "created_at": "2000-04-11T10:15:30Z"
                         },
                         {
                           "shard_id": 2,
-                          "created_at": "2026-04-11T10:15:30Z"
+                          "created_at": "2000-04-11T10:15:30Z"
                         },
                         {
                           "shard_id": 3,
-                          "created_at": "2026-04-11T10:15:30Z"
+                          "created_at": "2000-04-11T10:15:30Z"
                         }
                       ]
                     }
@@ -111,7 +112,7 @@ class ExperimentManagementPayloadDeserializationTest {
                       "absolute_s3_algorithm_jar_path": "s3://bucket/algo-a.jar",
                       "absolute_s3_algorithm_parameter_path": "s3://bucket/param-1.zip"
                     },
-                    "created_at": "2026-04-11T10:15:30Z",
+                    "created_at": "2000-04-11T10:15:30Z",
                     "is_control": true,
                     "is_default": true,
                     "shard_allocation_ratio": 100
@@ -123,6 +124,34 @@ class ExperimentManagementPayloadDeserializationTest {
 
         assertEquals(0, slot.experiments().size());
         assertEquals(0, slot.userForcedAssignments().size());
+    }
+
+    @Test
+    void deserializesParameterlessAlgorithmSelection() throws IOException {
+        String payload = """
+                {
+                  "slot_salt": "salt-1",
+                  "total_number_of_shards": 100,
+                  "default_variant": {
+                    "variant_id": 1,
+                    "algorithm": {
+                      "algorithm_name": "parameterless",
+                      "algorithm_version": "1.0.0",
+                      "absolute_s3_algorithm_jar_path": "s3://bucket/parameterless.jar"
+                    },
+                    "created_at": "2000-04-11T10:15:30Z"
+                  }
+                }
+                """;
+
+        var algorithm = ExperimentManagementServiceClient.objectMapper()
+                .readValue(payload, Slot.class)
+                .defaultVariant()
+                .algorithm();
+
+        assertEquals("parameterless", algorithm.algorithmName());
+        assertNull(algorithm.latestAlgorithmParameter());
+        assertNull(algorithm.absoluteS3AlgorithmParameterPath());
     }
 
     @Test

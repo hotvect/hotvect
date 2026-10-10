@@ -90,5 +90,5 @@ deploys the control-plane application.
 - Training and evaluation owners: start with [Offline workflows](offline-workflow-runtime/index.md).
 - Serving-application engineers: start with [Online runtime integration](../architecture/online-runtime/index.md) and
   [Connect an online runtime to EMS](../guides/connect-online-runtime-to-ems/index.md).
-- EMS deployment and experiment owners: start with [Experiment management](experiment-management-service/index.md) and
-  the deployment owner's service documentation.
+- EMS deployment and experiment owners: start with [Experiment management](experiment-management-service/index.md), then
+  [Deploy EMS](../guides/experiment-management-server/index.md).

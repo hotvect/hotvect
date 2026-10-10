@@ -18,11 +18,9 @@ import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.util.HashSet;
-import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Pattern;
-import java.util.zip.ZipFile;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.base.Preconditions.checkState;
@@ -70,11 +68,11 @@ public class AlgorithmUtils {
     }
 
     public static AlgorithmParameterMetadata readAlgorithmParameterMetadata(AlgorithmId algorithmId, File parameterFile, boolean strictAlgorithmVersionCheck) throws MalformedAlgorithmException {
-        checkState(parameterFile != null, "Parameter file is required, but was not supplied");
-        checkState(parameterFile.exists(), "Specified parameter file %s does not exist", parameterFile);
-        try (ZipFile parameterFileIn = new ZipFile(parameterFile)) {
-            String pattern = "^" + Pattern.quote(algorithmId.algorithmName()) + "\\/algorithm-parameters\\.json$";
-            JsonNode parsed = new ObjectMapper().readTree(ZipFiles.readFromZipFirstMatching(parameterFileIn, pattern));
+        checkState(parameterFile != null, "Parameter source is required, but was not supplied");
+        checkState(parameterFile.exists(), "Specified parameter source %s does not exist", parameterFile);
+        try (AlgorithmParameterSource parameterSource = AlgorithmParameterSource.open(parameterFile);
+             InputStream metadata = parameterSource.readMetadata(algorithmId)) {
+            JsonNode parsed = new ObjectMapper().readTree(metadata);
             AlgorithmId algorithmIdFromZip = new AlgorithmId(
                     checkNotNull(parsed.get("algorithm_name").asText(), "algorithm_name not found"),
                     checkNotNull(parsed.get("algorithm_version").asText(), "algorithm_version not found")
@@ -107,8 +105,4 @@ public class AlgorithmUtils {
         }
     }
 
-    public static Map<String, InputStream> extractParameters(AlgorithmId algorithmId, ZipFile parameterFile) {
-        String pattern = "^" + Pattern.quote(algorithmId.algorithmName()) + "(@[\\w\\-\\.]+)?\\/.+";
-        return ZipFiles.readFromZipMatching(parameterFile, pattern);
-    }
 }

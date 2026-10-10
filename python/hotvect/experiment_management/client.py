@@ -12,6 +12,7 @@ from .models import (
     AlgorithmSpec,
     AlgorithmState,
     AlgorithmStateLog,
+    AlgorithmsWithVariantsDTO,
     AlgorithmWithActiveVariantsResponse,
     AlgorithmWithLatestParameter,
     Experiment,
@@ -156,7 +157,7 @@ class ExperimentManagementClient:
         return TypeAdapter(list[AlgorithmWithLatestParameter]).validate_python(algorithms_json["algorithms"])
 
     def create_algorithm(self, algorithm: AlgorithmSpec) -> None:
-        self._request(Method.POST, "/algorithms", body=algorithm.model_dump())
+        self._request(Method.POST, "/algorithms", body=algorithm.model_dump(exclude_none=True))
 
     def promote_algorithm(self, slot_name: str, algorithm_name: str, algorithm_version: str) -> None:
         endpoint = f"/algorithms/{algorithm_name}/{algorithm_version}/promote"
@@ -205,8 +206,11 @@ class ExperimentManagementClient:
         algorithm_parameter_json = self._request(Method.GET, endpoint)
         return AlgorithmParameter.model_validate(algorithm_parameter_json) if algorithm_parameter_json else None
 
-    def create_algorithm_parameter(self, algorithm_parameter: AlgorithmParameterSpec) -> None:
-        self._request(Method.POST, "/algorithm-parameters", body=algorithm_parameter.model_dump())
+    def create_algorithm_parameter(self, algorithm_parameter: AlgorithmParameterSpec) -> AlgorithmParameter:
+        saved_parameter = self._request(
+            Method.POST, "/algorithm-parameters", body=algorithm_parameter.model_dump(mode="json")
+        )
+        return AlgorithmParameter.model_validate(saved_parameter)
 
     def get_algorithm_state_logs(self) -> list[AlgorithmStateLog] | None:
         algorithm_state_logs_json = self._request(Method.GET, "/algorithm-state-logs")
@@ -220,11 +224,11 @@ class ExperimentManagementClient:
             )
         raise ValueError("Unexpected /algorithm-state-logs response shape")
 
-    def get_algorithms_with_active_variants(self) -> list[AlgorithmWithActiveVariantsResponse] | None:
+    def get_algorithms_with_active_variants(self) -> list[AlgorithmsWithVariantsDTO] | None:
         algorithms_json = self._request(Method.GET, "/algorithms/with-active-variants")
-        if not algorithms_json:
+        if algorithms_json is None:
             return None
-        return TypeAdapter(list[AlgorithmWithActiveVariantsResponse]).validate_python(algorithms_json["algorithms"])
+        return AlgorithmWithActiveVariantsResponse.model_validate(algorithms_json).algorithms
 
     def get_variants(self, slot_name: str) -> list[Variant] | None:
         variants_json = self._request(Method.GET, f"/slots/{slot_name}/variants")

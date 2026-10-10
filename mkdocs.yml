@@ -105,6 +105,7 @@ nav:
           - Operations and state transitions: components/experiment-management-operations/index.md
           - Traffic assignment and ramp-up: components/experiment-assignment/index.md
           - Clients and operator tools: components/ems-clients-and-tools/index.md
+          - Deploy EMS: guides/experiment-management-server/index.md
   - Agent workflow:
       - Overview: agents/index.md
       - Contracts:
@@ -125,6 +126,7 @@ nav:
       - Java API map: reference/java-api/index.md
       - Ranking and prediction contracts: reference/ranking-and-prediction-contracts/index.md
       - Python EMS client: reference/python-ems-client/index.md
+      - EMS server API: reference/ems-server-api/index.md
       - Configuration: reference/config/index.md
       - Version compatibility: reference/version-compatibility/index.md
       - Algorithm definition reference: reference/algorithm-definition/index.md

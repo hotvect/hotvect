@@ -52,6 +52,14 @@ The stable public methods group into these concerns:
 `hv ems` exposes the inspection subset as JSON and additionally handles configured online-result partitions. Prefer it
 for shell workflows so a read task cannot accidentally call a mutation method.
 
+`get_algorithm(name, version)` returns `AlgorithmWithLatestParameter`. Its `latest_algorithm_parameter` field
+is required and nullable: it contains the existing two-field ID/S3-path summary, or `None`. The explicit
+`parameter_mode` (`REQUIRED` or `NONE`) distinguishes an untrained algorithm from one that needs no parameters.
+`get_latest_algorithm_parameter` returns `None` for EMS's `204 No Content` response for a `NONE` algorithm.
+`get_algorithms_with_active_variants` follows the deployed EMS controller and reads its single
+`{"algorithms": [...]}` response envelope; the released OpenAPI document incorrectly describes that response as an
+array.
+
 ## Mutation surface
 
 These calls change configured control-plane state:
@@ -95,6 +103,16 @@ client.create_experiment("example-slot", spec)
 
 Use `model_dump()` when release automation needs to retain the exact submitted payload as evidence. The server response
 remains the source of truth; read it back after mutation rather than treating the request object as proof of state.
+
+`AlgorithmSpec` may omit `parameter_mode`; EMS then defaults it to `REQUIRED`. New training writers should send
+the mode explicitly. Algorithm responses, including the nested algorithm in `AlgorithmParameter`, require that
+field. `create_algorithm_parameter` returns the validated saved `AlgorithmParameter` from EMS. Its request still
+uses `AlgorithmParameterSpec` with an `AlgorithmName` containing only name and version. SageMaker training retains
+this direct POST registration flow.
+
+Use an EMS server that supports the `parameter_mode` field before adopting this client, and coordinate the migration
+for algorithm writers. The v10 Java serving reader accepts `NONE` selections without trying to download a parameter
+archive, so serving can stay running throughout the management-client rollout.
 
 ## Boundaries
 

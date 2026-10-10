@@ -35,7 +35,8 @@ unlabelled JSONL + algorithm package + parameter package
     → decode → vectorize → load model_parameter → rank → prediction JSONL
 ```
 
-In the current implementation, the algorithm package is a JAR and the parameter package is a ZIP.
+In the current implementation, the algorithm package is a JAR. Local stages use a parameter source directory; this
+tutorial's `parameters` target also materializes it as a ZIP.
 
 ## Before you start
 
@@ -413,9 +414,9 @@ public final class DocumentModelFactory
 }
 ```
 
-Hotvect supplies parameter streams using their paths inside the algorithm's section of the ZIP. Because the training
-stage writes the single file `model_parameter`, the factory loads that exact key. It reads the model once while
-constructing the `Ranker`, not once per request.
+Hotvect supplies parameter streams using their paths inside the algorithm's section of the parameter source or ZIP.
+Because the training stage writes the single file `model_parameter`, the factory loads that exact key. It reads the
+model once while constructing the `Ranker`, not once per request.
 
 ## 6. Connect the lifecycle
 
@@ -502,9 +503,10 @@ Inspect the concrete result:
 
 ```bash
 MODEL_DIR=output/trainable-document-ranker@1.0.0/last_test_date_2000-01-02
+PARAMETER_SOURCE="${MODEL_DIR}.parameters"
 PARAMETERS="$MODEL_DIR/trainable-document-ranker@1.0.0@last_test_date_2000-01-02.parameters.zip"
 
-cat "$MODEL_DIR/model_parameter"
+cat "$PARAMETER_SOURCE/trainable-document-ranker/model_parameter"
 unzip -l "$PARAMETERS"
 jq '{run_target, encode, train, package_predict_params}' \
   output/metadata/trainable-document-ranker@1.0.0/last_test_date_2000-01-02/result.json
@@ -518,9 +520,9 @@ trainable-document-ranker/algorithm_definition.json
 trainable-document-ranker/model_parameter
 ```
 
-The ZIP is the loadable parameter package. The loose `model_parameter` beside it is a stage output and is useful for
-inspection, but inference should consume the package. The packaged definition records provenance; it does not replace
-the runtime definition read from the JAR or an explicit override.
+The source directory is loadable by local Hotvect commands; the ZIP is the form used to cache or distribute it. The
+packaged definition records provenance; it does not replace the runtime definition read from the JAR or an explicit
+override.
 
 ## 8. Load the package for bounded inference
 

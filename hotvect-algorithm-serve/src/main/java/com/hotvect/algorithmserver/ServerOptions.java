@@ -20,7 +20,7 @@ public class ServerOptions implements Callable<Integer> {
     @CommandLine.Option(names = {"--algorithm-override"}, description = "Path to JSON file with algorithm definition overrides (optional)")
     public File algorithmOverride;
 
-    @CommandLine.Option(names = {"--parameter-path"}, description = "Path to parameters ZIP (required in local mode)")
+    @CommandLine.Option(names = {"--parameter-path"}, description = "Path to parameter source directory or ZIP package (required in local mode)")
     public File parameterPath;
 
     @CommandLine.Option(

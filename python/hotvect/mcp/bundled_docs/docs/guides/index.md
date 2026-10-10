@@ -92,5 +92,5 @@ If you are new to Hotvect, follow the five steps below before choosing an advanc
 - Need remote execution? Use the [SageMaker backtest guide](sagemaker-backtests/index.md).
 - Need to move one candidate from source to the Experiment Management Service (EMS) and online evidence? [Take a change to a live experiment](change-to-live-experiment/index.md).
 - Need to connect a serving application to EMS? [Connect an online runtime to EMS](connect-online-runtime-to-ems/index.md).
-- Need to operate an EMS control plane? Use the deployment owner's service documentation alongside the Hotvect EMS client references.
+- Need to deploy the EMS control plane? [Deploy the Experiment Management Service](experiment-management-server/index.md).
 - Need an exact flag or output path? Use the [CLI reference](../reference/cli/index.md).

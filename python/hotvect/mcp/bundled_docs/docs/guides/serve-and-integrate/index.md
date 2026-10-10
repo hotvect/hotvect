@@ -42,9 +42,10 @@ services.
 
 -   **Deploy the experiment control plane**
 
-    EMS deployment remains owned by the service team. Configure Hotvect clients against an existing EMS endpoint; do
-    not embed the service implementation in an algorithm or serving application.
+    Build the standalone EMS application from its repository and connect it to the existing PostgreSQL database and
+    environment-specific OAuth integration.
 
+    [Open the EMS deployment guide](../experiment-management-server/index.md){ .hv-btn }
     [Understand the EMS control plane](../../components/experiment-management-service/index.md){ .hv-btn }
 
 -   **Run a full algorithm locally**

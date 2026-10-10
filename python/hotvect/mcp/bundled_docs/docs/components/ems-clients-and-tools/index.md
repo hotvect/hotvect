@@ -23,8 +23,8 @@ matches the operation and authorization level you need.
 | `hv ems` | Human and agent inspection | Yes | No | No |
 | Deployed OpenAPI document | Contract discovery and generated clients | Describes API | Describes API | No |
 
-The standalone EMS server is not a client SDK. Use a Hotvect client to call an existing deployment; the deployment
-owner maintains the server implementation and its release lifecycle separately from Hotvect.
+The standalone EMS server is not a client SDK. Use a Hotvect client to call an existing deployment; build and deploy
+the server from the EMS server repository (see [Deploy EMS](../../guides/experiment-management-server/index.md)).
 
 ## Java runtime client
 
@@ -65,8 +65,12 @@ Read the [`hv ems` command reference](../../reference/cli/index.md#hv-ems).
 The deployed EMS service publishes its generated OpenAPI document, including endpoint schemas, deployment-specific API
 identity, contact, server URLs, and OAuth flow.
 
-Treat that generated document as the HTTP contract for the deployed version. Obtain it from the deployment owner; it
-remains authoritative for deployment-specific identity, servers, and OAuth settings.
+Treat that generated document as the HTTP contract for the deployed version. A static copy should be regenerated from
+the exact server artifact in CI rather than maintained independently by hand.
+
+For convenient reference with this Hotvect release, the docsite bundles a complete static export of the EMS
+[endpoint and schema contract](../../reference/ems-server-api/index.md). The deployed EMS document remains
+authoritative for its deployment-specific identity, servers, and OAuth settings.
 
 ## Authentication
 

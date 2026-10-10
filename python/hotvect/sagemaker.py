@@ -55,6 +55,8 @@ ALGORITHM_DEFINITION_S3_URI_HYPERPARAMETER: str = ALGO_DEF_S3_URI_HYPERPARAMETER
 """This is the prefix that the algorithm definition keys will have in the hyperparameter dictionary."""
 ALGO_PIPELINE_S3_URI_HYPERPARAMETER: str = "_pipeline_s3_uri"
 ALGO_PIPELINE_S3_BASENAME = "pipeline.json"
+SHOULD_UPDATE_EMS_PARAMETER_HYPERPARAMETER: str = "should_update_ems_parameter"
+"""Set when the training job is expected to publish its parameters to experiment-management (EMS)."""
 MANDATORY_PARAMETERS = [
     "s3_uri_result_file",
     "s3_uri_algorithm_jar",
@@ -283,14 +285,6 @@ class SagemakerTrainingExecutor:
 
     def _add_s3_uri_predict_parameters_zip(self) -> None:
         if getattr(self.algorithm_pipeline, "run_target", "evaluate") == "encode-cache":
-            return
-        try:
-            should_publish = self.algorithm_pipeline.should_publish_predict_parameters_zip()
-        except Exception as exc:
-            raise ValueError(
-                "Failed to determine whether the algorithm pipeline should publish a predict-parameters ZIP."
-            ) from exc
-        if not should_publish:
             return
         try:
             local_name = Path(self.algorithm_pipeline.predict_parameter_file_path()).name
@@ -688,7 +682,13 @@ class SagemakerAlgorithmPipelineRebuilder:
         try:
             self._check_mandatory_parameters()
             self.algorithm_pipeline = self.rebuild_algorithm_pipeline()
-            result = self.algorithm_pipeline.run_all(clean=False)
+            self._check_parameter_publication_is_supported()
+            # Materialize inside run_all so the parameter metadata recorded in result.json and in the
+            # uploaded metadata directory names the package we are about to publish.
+            result = self.algorithm_pipeline.run_all(
+                clean=False,
+                materialize_parameter_package=True if self._publishes_predict_parameters() else None,
+            )
             self._add_sagemaker_metadata_to_result_file()
             self._upload_metadata_to_s3()
             self._maybe_upload_predict_parameters_zip()
@@ -698,6 +698,21 @@ class SagemakerAlgorithmPipelineRebuilder:
             self._upload_metadata_to_s3()
             traceback_ = traceback.format_exc()
             self._write_failure_reason_and_exit(traceback_)
+
+    def _publishes_predict_parameters(self) -> bool:
+        hyperparameters = self.sagemaker_env.hyperparameters
+        return bool(hyperparameters.get(PREDICT_PARAMETERS_ZIP_HYPERPARAMETER)) or bool(
+            hyperparameters.get(SHOULD_UPDATE_EMS_PARAMETER_HYPERPARAMETER)
+        )
+
+    def _check_parameter_publication_is_supported(self) -> None:
+        run_target = getattr(self.algorithm_pipeline, "run_target", "evaluate")
+        if run_target == "encode-cache" and self._publishes_predict_parameters():
+            raise ValueError(
+                "Publishing predict parameters is not supported with run target 'encode-cache', because that "
+                "target skips training and therefore never produces a complete predict parameter package. "
+                "Run a target that trains the algorithm, or drop the parameter publication hyperparameters."
+            )
 
     def _upload_metadata_to_s3(self) -> None:
         """
@@ -925,7 +940,7 @@ class SagemakerAlgorithmPipelineRebuilder:
         s3_uri = self.sagemaker_env.hyperparameters.get(PREDICT_PARAMETERS_ZIP_HYPERPARAMETER)
         if not s3_uri:
             return
-        local_zip = str(self.algorithm_pipeline.predict_parameter_file_path())
+        local_zip = self.algorithm_pipeline.materialize_predict_parameter_package()
         if not os.path.isfile(local_zip):
             raise FileNotFoundError(
                 f"Predict parameters ZIP was advertised for upload to {s3_uri}, but no local ZIP exists at {local_zip}"

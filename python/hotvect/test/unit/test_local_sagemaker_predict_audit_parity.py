@@ -288,7 +288,11 @@ def _assert_ordered_example_order(output_path: Path, expected_order: list[str]) 
 def _assert_unordered_output_layout(output_path: Path) -> None:
     assert output_path.is_dir(), f"Expected unordered output directory, got {output_path}"
     part_files = sorted(output_path.glob("part-*.jsonl"))
-    assert [path.name for path in part_files] == [f"part-{index:05d}.jsonl" for index in range(UNORDERED_SHARDS)]
+    # The writer omits unused shard files; metadata still records the configured shard count.
+    assert part_files, f"No unordered output shards found under {output_path}"
+    expected_names = {f"part-{index:05d}.jsonl" for index in range(UNORDERED_SHARDS)}
+    assert {path.name for path in part_files} <= expected_names
+    assert all(path.stat().st_size > 0 for path in part_files), "Expected each output shard to contain data"
 
 
 def _assert_predict_ordered_layout(output_path: Path) -> None:

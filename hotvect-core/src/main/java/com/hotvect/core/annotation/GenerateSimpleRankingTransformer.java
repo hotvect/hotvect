@@ -36,6 +36,12 @@ public @interface GenerateSimpleRankingTransformer {
     Class<? extends GeneratedTransformerBackend> backend();
 
     /**
+     * Batch size used by the generated prepared-stream transformer. A value of {@code 0} preserves the
+     * runtime adaptive batch-size calculation.
+     */
+    int batchSize() default 0;
+
+    /**
      * Classpath resource path to an algorithm definition JSON file. The annotation processor reads
      * {@code transformer_parameters.features} to determine the generated output features at compile time.
      */

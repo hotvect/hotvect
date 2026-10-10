@@ -2,7 +2,6 @@ package com.hotvect.onlineutils.experimentmanagement.algodownload;
 
 import static com.google.common.base.Preconditions.checkState;
 
-import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
 import com.hotvect.api.algodefinition.AlgorithmId;
 import com.hotvect.api.algodefinition.AlgorithmInstance;
@@ -118,31 +117,40 @@ public class AlgorithmRepository {
         AlgorithmId algorithmId = algorithmMetadata.algorithmId();
         String algorithmParameterId = algorithmMetadata.latestAlgorithmParameter();
 
-        checkState(!Strings.isNullOrEmpty(algorithmParameterId), "No parameter Id available for " + algorithmId);
-
         final AlgorithmInstanceFactory algorithmHolder = getAlgorithmHolder(algorithmMetadata);
         checkState(algorithmHolder != null, "Could not find algorithm holder for " + algorithmId + " and parameter " + algorithmParameterId);
 
-        LOG.info("Downloading algorithm parameter for {}", algorithmMetadata.algorithmId());
+        LOG.info(
+                algorithmMetadata.hasParameter() ? "Downloading algorithm parameter for {}" : "Loading parameterless algorithm {}",
+                algorithmMetadata.algorithmId());
         final AlgorithmInstance<?> algorithmInstance = algorithmDownloader.loadAlgorithmInstance(algorithmMetadata, algorithmHolder, globalDependencyOverrides);
         checkState(algorithmInstance.algorithmDefinition().algorithmId().equals(algorithmId),
             "Loaded algorithm instance has wrong algorithm ID");
 
-        if (algorithmInstance.algorithmParameterMetadata() != null) {
+        if (algorithmMetadata.hasParameter()) {
+            checkState(algorithmInstance.algorithmParameterMetadata() != null,
+                    "Parameterized algorithm loaded without parameter metadata for " + algorithmId);
             checkState(algorithmInstance.algorithmParameterMetadata().parameterId().equals(algorithmParameterId),
                 "Downloaded algorithm parameter has wrong version. Expected: " + algorithmParameterId +
                     " but file contained " + algorithmInstance.algorithmParameterMetadata().parameterId());
+        } else {
+            checkState(algorithmInstance.algorithmParameterMetadata() == null,
+                    "Parameterless algorithm unexpectedly loaded parameter metadata for " + algorithmId);
         }
 
         final long loadDurationNanos = System.nanoTime() - loadStartNanos;
-        final String fullAlgorithmName =
-                String.format("%s@%s", algorithmId.algorithmName(), algorithmId.algorithmVersion());
-        if (meterRegistry != null) {
+        final String fullAlgorithmName = String.format("%s@%s", algorithmId.algorithmName(), algorithmId.algorithmVersion());
+        if (meterRegistry != null && algorithmMetadata.hasParameter()) {
             Tags tags = Tags.of(ALGORITHM_NAME_KEY, fullAlgorithmName, PARAMETER_ID_KEY, algorithmParameterId);
             meterRegistry.gauge(ALGORITHM_METRICS_NAME, tags, algorithmInstance, this::emitAlgorithmAgeMetrics);
         }
-        LOG.info("Loaded algorithm {} parameter {} in {} ms",
-                fullAlgorithmName, algorithmParameterId, TimeUnit.NANOSECONDS.toMillis(loadDurationNanos));
+        if (algorithmMetadata.hasParameter()) {
+            LOG.info("Loaded algorithm {} parameter {} in {} ms",
+                    fullAlgorithmName, algorithmParameterId, TimeUnit.NANOSECONDS.toMillis(loadDurationNanos));
+        } else {
+            LOG.info("Loaded parameterless algorithm {} in {} ms",
+                    fullAlgorithmName, TimeUnit.NANOSECONDS.toMillis(loadDurationNanos));
+        }
         registerCleanup(algorithmInstance);
 
         return algorithmInstance;

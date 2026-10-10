@@ -2,6 +2,7 @@ package com.hotvect.onlineutils.experimentmanagement.algodownload;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -108,6 +109,30 @@ class AlgorithmDownloaderStorageTest {
     }
 
     @Test
+    void loadsParameterlessAlgorithmWithoutDownloadingParameters() throws Exception {
+        RecordingDownloadClient client = new RecordingDownloadClient();
+        AlgorithmDownloader downloader = downloader(client, tempDir.resolve("scratch"), Optional.empty());
+        StubFactory factory = new StubFactory(false);
+
+        downloader.loadAlgorithmInstance(parameterlessMetadata(), factory, Map.of());
+
+        assertNull(factory.parameterFile);
+        assertEquals(0, client.parameterDownloads);
+    }
+
+    @Test
+    void rejectsParameterlessAlgorithmWhenLocalStateStorageIsUnavailable() throws Exception {
+        RecordingDownloadClient client = new RecordingDownloadClient();
+        AlgorithmDownloader downloader = downloader(client, tempDir.resolve("scratch"), Optional.empty());
+
+        assertThrows(
+                UnsupportedRuntimeStorageException.class,
+                () -> downloader.loadAlgorithmInstance(parameterlessMetadata(), new StubFactory(true), Map.of()));
+
+        assertEquals(0, client.parameterDownloads);
+    }
+
+    @Test
     void oldConstructorRemainsScratchOnly() throws Exception {
         Path scratch = tempDir.resolve("scratch");
         RecordingDownloadClient client = new RecordingDownloadClient();
@@ -136,6 +161,10 @@ class AlgorithmDownloaderStorageTest {
 
     private static AlgorithmMetadata metadata() {
         return new AlgorithmMetadata("test", "1", "p1", "/test.jar", "/parameters.zip");
+    }
+
+    private static AlgorithmMetadata parameterlessMetadata() {
+        return new AlgorithmMetadata("test", "1", null, "/test.jar", null);
     }
 
     private static class RecordingDownloadClient implements AlgorithmDownloadClient {
@@ -168,6 +197,7 @@ class AlgorithmDownloaderStorageTest {
     private static final class StubFactory extends AlgorithmInstanceFactory {
         private final boolean requiresLocalStateStorage;
         private final boolean failLoad;
+        private File parameterFile;
 
         private StubFactory(boolean requiresLocalStateStorage) {
             this(requiresLocalStateStorage, false);
@@ -192,6 +222,7 @@ class AlgorithmDownloaderStorageTest {
                 String algorithmName,
                 File parameterFile,
                 Map<String, AlgorithmInstance<?>> dependencyOverrides) {
+            this.parameterFile = parameterFile;
             if (failLoad) {
                 throw new RuntimeException("load failed");
             }

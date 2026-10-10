@@ -1,8 +1,13 @@
 import importlib.util
+import json
 import sys
 from importlib.machinery import SourceFileLoader
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
+
+import requests
+
+from hotvect.experiment_management import ExperimentManagementClient, ExperimentManagementConnection
 
 
 def _load_entrypoint_module(monkeypatch):
@@ -73,3 +78,42 @@ def test_train_uses_experiment_management_updater_agent(monkeypatch):
         "secret_id": "secret-id",
     }
     assert captured["uploaded"] is True
+
+
+def test_ems_parameter_update_posts_algorithm_identity_and_validates_saved_response(monkeypatch):
+    module = _load_entrypoint_module(monkeypatch)
+    fixture = Path(__file__).parent / "fixtures" / "ems_registration" / "algorithm-parameters-create.json"
+    saved_parameter = json.loads(fixture.read_text())
+    requests_sent = []
+
+    def fake_send(self, request, **kwargs):
+        requests_sent.append(request)
+        response = requests.Response()
+        response.status_code = 201
+        response._content = json.dumps(saved_parameter).encode()
+        response.request = request
+        return response
+
+    monkeypatch.setattr(requests.Session, "send", fake_send)
+    updater = module.ExperimentManagementUpdaterAgent.__new__(module.ExperimentManagementUpdaterAgent)
+    updater._algorithm_pipeline = SimpleNamespace(
+        algorithm_name="jar_name", algorithm_version="v2", parameter_version="trained-parameter"
+    )
+    updater._output_s3_path = "s3://bucket"
+    updater._experiment_management_client = ExperimentManagementClient(
+        ExperimentManagementConnection(
+            environment="https://ems.example", bearer_auth=requests.auth.HTTPBasicAuth("test", "test")
+        )
+    )
+
+    updater._update_parameter_in_ems()
+
+    assert [(request.method, request.url) for request in requests_sent] == [
+        ("POST", "https://ems.example/algorithm-parameters")
+    ]
+    assert json.loads(requests_sent[0].body) == {
+        "algorithm_parameter_id": "trained-parameter",
+        "algorithm": {"algorithm_name": "jar_name", "algorithm_version": "v2"},
+        "evaluation_results": "",
+        "absolute_s3_path": "s3://bucket/trained-parameter.parameters.zip",
+    }

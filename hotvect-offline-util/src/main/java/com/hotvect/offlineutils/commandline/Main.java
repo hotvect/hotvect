@@ -377,14 +377,14 @@ public class Main {
     }
 
     public static final class ParametersOption {
-        @Option(names = {"--parameters"}, required = true, description = "Path to parameter package file to be used.")
+        @Option(names = {"--parameters"}, required = true, description = "Path to parameter source directory or ZIP package to be used.")
         public File parameters;
     }
 
     public static final class OptionalParametersOption {
         @Option(
                 names = {"--parameters"},
-                description = "Path to parameter package file to be used when the algorithm requires one."
+                description = "Path to parameter source directory or ZIP package to be used when the algorithm requires one."
         )
         public File parameters;
     }

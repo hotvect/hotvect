@@ -62,12 +62,12 @@ hv train \
   --target evaluate
 ```
 
-The outer TopK run generates the catalogue index, trains the scorer, and packages the complete dependency graph. Start
-the browser demo with the outer ZIP:
+The outer TopK run generates the catalogue index, trains the scorer, and prepares the complete dependency graph. Start
+the browser demo with the outer parameter source directory:
 
 ```bash
-PARAMETERS="$OUTPUT/example-product-search-topk@$ALGORITHM_VERSION/last_test_date_2000-01-03/example-product-search-topk@$ALGORITHM_VERSION@last_test_date_2000-01-03.parameters.zip"
-test -f "$PARAMETERS"
+PARAMETERS="$OUTPUT/example-product-search-topk@$ALGORITHM_VERSION/last_test_date_2000-01-03.parameters"
+test -d "$PARAMETERS"
 
 hv serve \
   --algorithm-name example-product-search-topk \

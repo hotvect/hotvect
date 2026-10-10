@@ -22,13 +22,15 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, NamedTuple
+from typing import TYPE_CHECKING, Any, NamedTuple, cast
 from urllib.parse import unquote, urlparse
 
 import boto3
 import psutil
 from boto3.s3.transfer import TransferConfig
 from pebble import ProcessFuture, ProcessPool
+
+from hotvect.dto import AlgorithmDefinition, DependencyStateMetadata
 
 if TYPE_CHECKING:
     from hotvect.pyhotvect import DataDependency
@@ -41,6 +43,8 @@ S3_DIRECTORY_TRANSFER_VCPUS_PER_WORKER = 1.5
 S3_DIRECTORY_TRANSFER_MAX_WORKERS = 32
 S3_DIRECTORY_TRANSFER_CONFIG = TransferConfig(use_threads=False)
 S3_DIRECTORY_TRANSFER_ACCELERATOR = "s5cmd"
+ALGORITHM_DEFINITION_FILENAME = "algorithm_definition.json"
+ALGORITHM_DEPENDENCIES_FILENAME = "algorithm_dependencies.json"
 
 logger = logging.getLogger(__name__)
 
@@ -115,7 +119,7 @@ class AlgorithmSpec(NamedTuple):
     git_commit_hash: str
 
 
-def write_data(data: dict[str, Any], dest: str) -> Path:
+def write_data(data: dict[str, Any] | AlgorithmDefinition, dest: str) -> Path:
     with open(dest, "w") as fp:
         json.dump(data, fp)
     return Path(dest)
@@ -199,8 +203,106 @@ def trydelete(file):
 
 
 def read_json(file) -> dict[Any, Any]:
-    with open(file) as f:
+    """Read a UTF-8 JSON file.
+
+    Args:
+        file: Filesystem path to the JSON file.
+
+    Returns:
+        The decoded JSON payload.
+
+    Raises:
+        OSError: If the file cannot be read.
+        json.JSONDecodeError: If the file contains invalid JSON.
+    """
+    with open(file, encoding="utf-8") as f:
         return json.load(f)
+
+
+def hotvect_algorithm_definition(algorithm_definition_path: str | os.PathLike[str]) -> AlgorithmDefinition:
+    """Read an effective JSON definition, preserving every field as written.
+
+    This reads a materialized file, rather than the definition embedded in a JAR.
+    The DTO describes fields consumed by trainers; it is not a runtime validator
+    for the complete algorithm-definition schema.
+
+    Args:
+        algorithm_definition_path: Filesystem path to the effective JSON definition.
+
+    Returns:
+        The effective definition with all JSON fields preserved.
+
+    Raises:
+        OSError: If the definition file cannot be read.
+        json.JSONDecodeError: If the file contains invalid JSON.
+        ValueError: If the decoded definition is not a JSON object.
+    """
+    definition = read_json(algorithm_definition_path)
+    if not isinstance(definition, dict):
+        raise ValueError(f"Hotvect algorithm definition must be a JSON object: {algorithm_definition_path}")
+    return cast(AlgorithmDefinition, definition)
+
+
+def hotvect_state_dependency_metadata(
+    algorithm_definition_path: str | os.PathLike[str],
+) -> dict[str, DependencyStateMetadata]:
+    """Read exact generate-state metadata for the definition's direct dependencies.
+
+    The definition must use the metadata layout
+    ``<metadata-base>/<algorithm>@<version>[-<hyperparameter-version>]/<parameter-version>/algorithm_definition.json``
+    and sit next to the ``algorithm_dependencies.json`` that the pipeline writes with it. That file maps each direct
+    dependency to its artifact directory, because a dependency has its own version and hyperparameter version. Each
+    dependency uses the same parameter version as the supplied definition. Dependencies without a
+    ``generate-state/metadata.json`` artifact return an empty node.
+
+    Args:
+        algorithm_definition_path: Filesystem path to the effective JSON definition
+            in the metadata layout described above.
+
+    Returns:
+        Metadata nodes keyed by direct dependency name. Each available node
+        contains the metadata file path and its complete JSON object. Nodes
+        without generated state metadata are empty dictionaries.
+
+    Raises:
+        OSError: If the dependency record or an available metadata file cannot be read.
+        json.JSONDecodeError: If the dependency record or metadata contains invalid JSON.
+        ValueError: If the path layout is malformed.
+    """
+    definition_path = Path(algorithm_definition_path)
+    if definition_path.name != ALGORITHM_DEFINITION_FILENAME:
+        raise ValueError(
+            f"Hotvect algorithm_definition_path must point to {ALGORITHM_DEFINITION_FILENAME}, got {definition_path}"
+        )
+
+    parameter_directory = definition_path.parent
+    algorithm_directory = parameter_directory.parent
+    metadata_base_dir = algorithm_directory.parent
+    if not parameter_directory.name or not algorithm_directory.name or not metadata_base_dir.name:
+        raise ValueError(
+            "Hotvect algorithm_definition_path must use "
+            f"<metadata-base>/<algorithm>@<version>/<parameter-version>/{ALGORITHM_DEFINITION_FILENAME}, "
+            f"got {definition_path}"
+        )
+    parameter_version = parameter_directory.name
+
+    dependency_slugs: dict[str, str] = read_json(parameter_directory / ALGORITHM_DEPENDENCIES_FILENAME)
+
+    dependency_metadata: dict[str, DependencyStateMetadata] = {}
+    for dependency_name, dependency_slug in dependency_slugs.items():
+        metadata_path = metadata_base_dir / dependency_slug / parameter_version / "generate-state" / "metadata.json"
+        try:
+            generate_state_metadata = read_json(metadata_path)
+        except FileNotFoundError:
+            dependency_metadata[dependency_name] = DependencyStateMetadata()
+            continue
+
+        dependency_metadata[dependency_name] = DependencyStateMetadata(
+            generate_state_metadata_path=str(metadata_path),
+            generate_state_metadata=generate_state_metadata,
+        )
+
+    return dependency_metadata
 
 
 def beep():
@@ -390,7 +492,7 @@ def is_iterable(x: Any) -> bool:
 
 def read_algorithm_definition_from_jar(
     algorithm_name: str, algorithm_jar_path: Path, additional_jars: list[Path] | None = None
-) -> dict[str, Any]:
+) -> AlgorithmDefinition:
     jars = [algorithm_jar_path] if additional_jars is None else additional_jars + [algorithm_jar_path]
     algo_def_filename = f"{algorithm_name}-algorithm-definition.json"
 
@@ -400,7 +502,10 @@ def read_algorithm_definition_from_jar(
             for zip_info in list_zip_info:
                 file_name = zip_info.filename
                 if file_name == algo_def_filename:
-                    return json.loads(zip_file.read(zip_info.filename).decode("utf8"))
+                    return cast(
+                        AlgorithmDefinition,
+                        json.loads(zip_file.read(zip_info.filename).decode("utf8")),
+                    )
     raise MalformedAlgorithmException(f"Algorithm Definition {algo_def_filename} not in any Jars: {jars}")
 
 
