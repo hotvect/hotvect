@@ -62,9 +62,9 @@ registration must supply `absolute_s3_path`; algorithm registration likewise sup
 
 ## Immutability
 
-Treat algorithm IDs, parameter IDs, and their paths as immutable. The online repository retains factories by algorithm
-ID and reuses instances by algorithm ID plus parameter ID. Replacing bytes under an existing identity can produce
-different behavior across already-running and newly-started processes.
+Treat algorithm IDs, parameter IDs, and their paths as immutable. The online repository reuses live artifacts by
+algorithm identity and live graphs by parameter identity and effective dependencies. Replacing bytes under an existing
+identity can produce different behavior across already-running and newly-started processes.
 
 Publish changed bytes under a new identity, verify the new runtime, and update selection metadata through the release
 workflow.

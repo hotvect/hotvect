@@ -25,7 +25,7 @@ to determine which framework modules it was compiled and packaged with.
 
 | Component | Usually supplied by |
 | --- | --- |
-| `hv` (plus `hv-ext` and `hv-exp` compatibility executables), pipeline orchestration | Installed `hotvect` Python package |
+| `hv` (plus the `hv-ext` compatibility executable), pipeline orchestration | Installed `hotvect` Python package |
 | Offline, serve, and demo JARs | Bundled with that Python package |
 | `hotvect-api` and runner utilities | Runtime or application |
 | `hotvect-core` and backend implementations | Algorithm JAR |

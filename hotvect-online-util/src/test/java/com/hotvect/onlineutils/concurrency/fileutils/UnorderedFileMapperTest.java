@@ -3,7 +3,10 @@ package com.hotvect.onlineutils.concurrency.fileutils;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import com.google.common.collect.ImmutableList;
 import com.google.common.hash.Hashing;
+import com.google.common.base.Throwables;
+import com.google.common.util.concurrent.Uninterruptibles;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import java.io.BufferedWriter;
 import java.io.File;
@@ -15,13 +18,19 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.*;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.function.Function;
 import java.util.stream.LongStream;
 import java.util.stream.Stream;
+import java.util.zip.ZipException;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -82,6 +91,51 @@ class UnorderedFileMapperTest {
             tempDir.toFile().delete();
         }
 
+    }
+
+    @Test
+    void readerFailureWaitsForInFlightTransformation(@TempDir Path tempDir) throws Exception {
+        Path input = Files.writeString(tempDir.resolve("input.txt"), "1\n2\n");
+        Path brokenInput = Files.writeString(tempDir.resolve("broken.txt.gz"), "not gzip");
+        CountDownLatch interrupted = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        Function<String, List<ByteBuffer>> transformation = record -> {
+            try {
+                release.await();
+            } catch (InterruptedException failure) {
+                interrupted.countDown();
+                // Model an algorithm call that cannot return immediately when interrupted.
+                Uninterruptibles.awaitUninterruptibly(release);
+                Thread.currentThread().interrupt();
+            }
+            return List.of(ByteBuffer.wrap(record.getBytes(StandardCharsets.UTF_8)));
+        };
+        UnorderedFileMapper<String> mapper = UnorderedFileMapper.builder(
+                        List.of(input.toFile(), brokenInput.toFile()),
+                        tempDir.resolve("output").toFile(),
+                        transformation)
+                .meterRegistry(mr)
+                .readerThreads(1)
+                .readQueueSize(1)
+                .nThreads(1)
+                .batchSize(1)
+                .numberOfShards(1)
+                .extension(".txt")
+                .build();
+
+        try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            var mapping = executor.submit(mapper);
+            try {
+                assertTrue(interrupted.await(10, TimeUnit.SECONDS));
+                assertThrows(TimeoutException.class, () -> mapping.get(100, TimeUnit.MILLISECONDS));
+                release.countDown();
+                ExecutionException failure = assertThrows(
+                        ExecutionException.class, () -> mapping.get(10, TimeUnit.SECONDS));
+                assertInstanceOf(ZipException.class, Throwables.getRootCause(failure));
+            } finally {
+                release.countDown();
+            }
+        }
     }
 
     @Test

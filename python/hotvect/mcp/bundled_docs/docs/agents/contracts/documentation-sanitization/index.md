@@ -56,7 +56,6 @@ DOC_SURFACES=(
   README.md
   CHANGELOG.md
   hotvect-algorithm-demo/README.md
-  hotvect-algorithm-serve/README.md
   examples
   python/hotvect/mcp/bundled_docs/docs
 )

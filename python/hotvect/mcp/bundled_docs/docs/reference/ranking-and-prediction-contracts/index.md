@@ -186,7 +186,7 @@ The algorithm must consistently return `ThemedTopKResponse` when it exposes the 
 
 `hv algorithm serve` accepts one raw decoder-compatible example but returns a serving/debug projection rather than the offline
 prediction row. Ranker decisions are in final rank order under `decisions`, rewards are omitted, display metadata may
-be added, and the selected algorithm, parameter, runtime, and optional EMS variant identities are attached.
+be added, and the selected algorithm, parameter, and runtime identities are attached.
 
 Do not use the local-server JSON shape as the offline evaluator input. See
-[Local algorithm server and debugger](../../components/local-algorithm-server/index.md#http-contract) for that API.
+[Local algorithm server and debugger](../../components/local-algorithm-server/index.md) for that API.

@@ -26,8 +26,8 @@ use this section to understand what you just executed.
 
 An **algorithm package** is the versioned implementation package: executable code, an embedded definition, and any
 packaged assets. A training or preparation run may add a separate **parameter package** containing trained model files
-or generated runtime data. Tools and host applications load the selected packages to construct an `AlgorithmInstance`,
-then call its public decision interface.
+or generated runtime data. Tools and host applications load the selected packages to construct and own an
+`AlgorithmGraph`, then call its root algorithm's public decision interface.
 
 These names describe responsibilities rather than file extensions. The current algorithm-package format is a JVM JAR,
 which can also carry assets and integrations for Python or native runtimes. The current parameter-package format is a

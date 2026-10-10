@@ -17,7 +17,7 @@ The goal is not merely to run every command. It is to preserve enough identity a
 - which runtime handled a local or online decision;
 - which online result belongs to that variant.
 
-Hotvect supplies the local workflow, package contracts, EMS client integration, and read-only inspection CLI. The
+Hotvect supplies the local workflow, package contracts, EMS client integration, and typed operator CLI. The
 standalone EMS service supplies the server; artifact publication and EMS mutations remain authorized remote operations.
 Those boundaries are marked explicitly below.
 
@@ -217,28 +217,30 @@ The algorithm ID and parameter ID are the join keys used later by EMS metadata, 
 
     In the deployed EMS control plane, register the algorithm and parameter records, create or update a variant that
     references their exact identities, attach it to the intended slot and experiment, and apply the approved ramp-up.
-    Use the authorized EMS UI, API, or automation for your environment. `hv ems` cannot do this: it is intentionally
-    read-only. Starting or ramping an experiment changes live assignment and requires the normal operational approval.
+    Use typed `hv exp` commands with `--reason`: `algorithm create`, `algorithm parameter create`,
+    `experiment create`, `variant algorithm`, and `experiment ramp-up`. When EMS requires dual approval, the
+    command creates a server-stored request. Another operator reviews and applies it in EMS UI; use `approval get`
+    for CLI inspection. Follow the [dual-approved EMS mutations guide](../ems-dual-approval/index.md).
 
 ## 5. Read back what EMS will serve
 
-Do not rely on the mutation request alone. Read the deployed control-plane state back through `hv ems`:
+Do not rely on the mutation request alone. Read the deployed control-plane state back through `hv exp`:
 
 ```bash
-hv ems slot get --slot-name "$EMS_SLOT" | jq .
-hv ems experiment get --experiment-id "$EXPERIMENT_ID" | jq .
-hv ems experiment rampup-log --experiment-id "$EXPERIMENT_ID" | jq .
-hv ems algorithm list-in-use --slot-name "$EMS_SLOT" | jq .
+hv exp slot get --slot-name "$EMS_SLOT" | jq .
+hv exp experiment get --experiment-id "$EXPERIMENT_ID" | jq .
+hv exp experiment rampup-log --experiment-id "$EXPERIMENT_ID" | jq .
+hv exp algorithm list-in-use --slot-name "$EMS_SLOT" | jq .
 ```
 
 Use the algorithm identity returned by EMS to inspect its definition and available parameters:
 
 ```bash
-hv ems algorithm get \
+hv exp algorithm get \
   --algorithm-name "$ALGORITHM_NAME" \
   --algorithm-version "$CANDIDATE_VERSION" | jq .
 
-hv ems algorithm parameter list \
+hv exp algorithm parameter list \
   --algorithm-name "$ALGORITHM_NAME" \
   --algorithm-version "$CANDIDATE_VERSION" | jq .
 ```
@@ -246,52 +248,28 @@ hv ems algorithm parameter list \
 Verify the slot, experiment state, variant allocation, algorithm ID, parameter ID, and published artifact locations.
 Stop if they do not resolve to the packages accepted in the previous steps.
 
-## 6. Exercise the EMS-selected runtime locally
+## 6. Exercise the EMS-selected runtime in the containing application
 
-`hv algorithm serve` can use the same EMS selection and repository-loading path for local debugging. The assignment key is
-deterministic, so use a key known to select the variant you intend to inspect:
+Run the containing application's integration test or development deployment with the candidate EMS project and slot.
+Use a deterministic assignment key known to select the variant, send a representative request, and inspect the
+application's algorithm and variant metadata. Match the algorithm, parameter, runtime, and EMS variant identities to
+the values read with `hv exp`.
 
-```bash
-export EMS_TOKEN='<bearer-token>'
-
-hv algorithm serve \
-  --ems-url "$EMS_URL" \
-  --ems-slot "$EMS_SLOT" \
-  --ems-assignment-key "$EMS_ASSIGNMENT_KEY" \
-  --port 8080
-```
-
-This connects to EMS and downloads published artifacts. It is an external read with local execution, not a production
-deployment. `EMS_TOKEN` is the default bearer-token environment variable; use `--ems-token-env <NAME>` when your
-environment exposes it under another name.
-
-In another shell, inspect the selected runtime before sending a representative request:
-
-```bash
-curl --fail --silent http://127.0.0.1:8080/api/metadata | jq .
-
-curl --fail --silent \
-  --header 'Content-Type: application/json' \
-  --data @/path/to/request.json \
-  http://127.0.0.1:8080/predict | jq .
-```
-
-The metadata and prediction response identify the algorithm, parameters, runtime, and EMS variant used. Match those
-identities to the values read with `hv ems`. Use `--ui --source-path /path/to/examples` when a browser-based inspection
-is useful; it exercises the same local serving core.
+Use `hv algorithm serve` separately when you need to inspect the candidate JAR and parameter ZIP with recorded examples. It is a
+local algorithm debugger and does not reproduce the containing application's EMS integration.
 
 ## 7. Inspect attributed online results
 
 After the online evaluation pipeline has produced result partitions, discover the available analysis dates:
 
 ```bash
-hv ems experiment results list --experiment-id "$EXPERIMENT_ID" | jq .
+hv exp experiment results list --experiment-id "$EXPERIMENT_ID" | jq .
 ```
 
 Inspect one partition as decompressed JSONL:
 
 ```bash
-hv ems experiment results show \
+hv exp experiment results show \
   --experiment-id "$EXPERIMENT_ID" \
   --analysis-date 2000-01-15
 ```
@@ -299,7 +277,7 @@ hv ems experiment results show \
 Or download the retained partitions and manifest:
 
 ```bash
-hv ems experiment results download \
+hv exp experiment results download \
   --experiment-id "$EXPERIMENT_ID" \
   --analysis-date 2000-01-15 \
   --output-base-dir /path/to/online-results
@@ -316,9 +294,9 @@ The chain is complete when you can point to all of the following without inferri
 - release-candidate train result and baseline/candidate backtest results;
 - immutable algorithm and parameter package locations;
 - EMS variant, experiment, slot, allocation, and ramp-up history;
-- local EMS-backed serving metadata and one representative response;
+- containing-application EMS serving metadata and one representative response;
 - online result partition attributed to the same experiment and variant.
 
 For deeper detail, read [Configuration and experimentation](../../concepts/configuration-and-experimentation/index.md),
 [Train locally](../local-train/index.md), [Backtest locally](../local-backtest/index.md), and the
-[`hv ems` reference](../../reference/cli/index.md#hv-ems).
+[`hv exp` reference](../../reference/cli/index.md#hv-exp).

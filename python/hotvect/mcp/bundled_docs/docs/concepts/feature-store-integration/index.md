@@ -75,18 +75,27 @@ A feature-store client normally lives in the containing application, not the alg
 `AlgorithmInstance` and bind it under the dependency name declared by the algorithm:
 
 ```java
+import com.hotvect.api.algodefinition.AlgorithmDependencies;
+import com.hotvect.api.algodefinition.AlgorithmInstance;
+import com.hotvect.api.data.featurestore.FeatureStore;
+import java.util.Map;
+
 FeatureStore applicationFeatureStore = new ApplicationFeatureStore(client);
 
 AlgorithmInstance<FeatureStore> binding = AlgorithmInstance.externalAlgorithm(
         "feature-store",
+        FeatureStore.class,
         applicationFeatureStore);
 
-Map<String, AlgorithmInstance<?>> overrides = Map.of("feature-store", binding);
+AlgorithmDependencies bindings = new AlgorithmDependencies(
+        Map.of("feature-store", binding));
 ```
 
-The composite factory receives that named instance and supplies an algorithm-specific `FeatureStoreRetriever` to the
-generated ranking transformer. The retriever owns request-to-entity-key mapping, view selection, feature selection,
-and the policy for missing or failed values.
+Pass `bindings` as the application-dependency argument to direct `loadGraph(...)`, or register the same
+`FeatureStore.class` contract through `HotvectServingRuntime.Builder.dependency(...)` for EMS loading. The composite
+factory receives that named instance and supplies an algorithm-specific `FeatureStoreRetriever` to the generated
+ranking transformer. The retriever owns request-to-entity-key mapping, view selection, feature selection, and the
+policy for missing or failed values.
 
 The binding name must match the definition and factory lookup exactly. The Hotvect loader does not inspect a
 transformer and automatically discover or create a feature-store client.

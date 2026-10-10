@@ -1,12 +1,27 @@
 package com.hotvect.api.algodefinition;
 
+import com.google.common.reflect.TypeToken;
 import com.hotvect.api.algorithms.Algorithm;
 
+/** One constructed algorithm together with its declared type contract. */
 public record AlgorithmInstance<ALGO extends Algorithm>(
         AlgorithmDefinition algorithmDefinition,
         AlgorithmParameterMetadata algorithmParameterMetadata,
-        ALGO algorithm
-) implements AutoCloseable {
+        ALGO algorithm,
+        TypeToken<ALGO> algorithmType
+) {
+
+    /** Validates one constructed algorithm value. */
+    public AlgorithmInstance {
+        java.util.Objects.requireNonNull(algorithmDefinition, "algorithmDefinition must not be null");
+        java.util.Objects.requireNonNull(algorithm, "algorithm must not be null");
+        algorithmType = AlgorithmTypeContract.requireDeclared(algorithmType);
+        if (!algorithmType.getRawType().isInstance(algorithm)) {
+            throw new IllegalArgumentException(
+                    "Algorithm contract " + algorithmType
+                            + " is incompatible with implementation " + algorithm.getClass().getName());
+        }
+    }
 
     @Deprecated(forRemoval = true)
     public ALGO getAlgorithm() {
@@ -23,11 +38,6 @@ public record AlgorithmInstance<ALGO extends Algorithm>(
         return this.algorithmParameterMetadata;
     }
 
-    @Override
-    public void close() throws Exception {
-        this.algorithm.close();
-    }
-
     /**
      * Creates an AlgorithmInstance for external dependencies that are not hotvect algorithms.
      * This is a convenience method that creates both the AlgorithmDefinition and AlgorithmParameterMetadata
@@ -38,11 +48,23 @@ public record AlgorithmInstance<ALGO extends Algorithm>(
      * @param <T> the type of the external object
      * @return an AlgorithmInstance suitable for external dependencies
      */
-    public static <T extends Algorithm> AlgorithmInstance<T> externalAlgorithm(String algorithmName, T externalObject) {
+    public static <T extends Algorithm> AlgorithmInstance<T> externalAlgorithm(
+            String algorithmName,
+            TypeToken<T> algorithmType,
+            T externalObject) {
         return new AlgorithmInstance<>(
                 AlgorithmDefinition.externalAlgorithm(algorithmName),
                 AlgorithmParameterMetadata.externalAlgorithm(algorithmName),
-                externalObject
+                externalObject,
+                algorithmType
         );
+    }
+
+    /** Creates an external dependency with a concrete non-generic algorithm class contract. */
+    public static <T extends Algorithm> AlgorithmInstance<T> externalAlgorithm(
+            String algorithmName,
+            Class<T> algorithmType,
+            T externalObject) {
+        return externalAlgorithm(algorithmName, AlgorithmTypeContract.fromConcreteClass(algorithmType), externalObject);
     }
 }

@@ -21,7 +21,6 @@ import time
 import traceback
 import zipfile
 from collections import Counter
-from collections.abc import Mapping
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import asdict, dataclass, field
 from datetime import date, datetime, timedelta, timezone
@@ -44,7 +43,6 @@ from hotvect.algorithm_definition_overrides import (
     merge_algorithm_definition_override_fragments,
 )
 from hotvect.build_utils import parse_pom_xml
-from hotvect.dto import AlgorithmDefinition
 from hotvect.evaluation_criteria import load_builtin_policy
 from hotvect.experiment_management.hotvect_config import create_client_from_hotvect_config
 from hotvect.extra import config as hv_config
@@ -928,7 +926,7 @@ def _resolve_prod_default_date_matched_parameters(
     end_date = date.fromisoformat(str(requested_window["end_date"]))
     client = create_client_from_hotvect_config()
     matching_parameters: list[dict[str, str | datetime]] = []
-    for parameter in client.get_algorithm_parameters() or []:
+    for parameter in client.get_algorithm_parameters():
         algorithm_name = str(parameter.algorithm.algorithm_name).strip()
         algorithm_version = str(parameter.algorithm.algorithm_version).strip()
         if algorithm_name != str(control_resolution["algorithm"]) or algorithm_version != str(
@@ -1247,9 +1245,7 @@ class _PerformanceTestSpec:
     workload_mode: str
 
     @classmethod
-    def from_algorithm_definition(
-        cls, algorithm_definition: Mapping[str, Any], *, git_ref: str
-    ) -> "_PerformanceTestSpec":
+    def from_algorithm_definition(cls, algorithm_definition: dict[str, Any], *, git_ref: str) -> "_PerformanceTestSpec":
         execution_parameters = algorithm_definition.get("hotvect_execution_parameters")
         performance_test = (
             execution_parameters.get("performance-test") if isinstance(execution_parameters, dict) else None
@@ -1307,9 +1303,9 @@ class _PerformanceTestSpec:
 def _resolve_matched_performance_spec(
     *,
     control_ref: str,
-    control_definition: Mapping[str, Any],
+    control_definition: dict[str, Any],
     treatment_ref: str,
-    treatment_definition: Mapping[str, Any],
+    treatment_definition: dict[str, Any],
 ) -> _PerformanceTestSpec:
     control_spec = _PerformanceTestSpec.from_algorithm_definition(control_definition, git_ref=control_ref)
     treatment_spec = _PerformanceTestSpec.from_algorithm_definition(treatment_definition, git_ref=treatment_ref)
@@ -2429,8 +2425,8 @@ def _read_algorithm_definition_from_artifact(
     *,
     artifact: _BuiltRefArtifact,
     algorithm_name: str,
-    cache: dict[tuple[str, str], AlgorithmDefinition],
-) -> AlgorithmDefinition:
+    cache: dict[tuple[str, str], dict[str, Any]],
+) -> dict[str, Any]:
     cache_key = (str(artifact.jar_path), algorithm_name)
     if cache_key not in cache:
         cache[cache_key] = read_algorithm_definition_from_jar(
@@ -2440,13 +2436,13 @@ def _read_algorithm_definition_from_artifact(
     return cache[cache_key]
 
 
-def _encode_default_output_ordering(algorithm_definition: Mapping[str, Any]) -> str:
+def _encode_default_output_ordering(algorithm_definition: dict[str, Any]) -> str:
     train_decoder_parameters = algorithm_definition.get("train_decoder_parameters", {})
     ordering = str(train_decoder_parameters.get("ordering", ""))
     return "ordered" if ordering.lower() == "ordered" else "unordered"
 
 
-def _algorithm_dependency_names(algorithm_definition: Mapping[str, Any]) -> list[str]:
+def _algorithm_dependency_names(algorithm_definition: dict[str, Any]) -> list[str]:
     dependencies = algorithm_definition.get("dependencies")
     if dependencies is None:
         return []
@@ -2457,7 +2453,7 @@ def _algorithm_dependency_names(algorithm_definition: Mapping[str, Any]) -> list
     raise ValueError(f"Unsupported dependencies type in algorithm definition: {type(dependencies).__name__}")
 
 
-def _looks_like_trainable_algorithm_definition(algorithm_definition: Mapping[str, Any]) -> bool:
+def _looks_like_trainable_algorithm_definition(algorithm_definition: dict[str, Any]) -> bool:
     training_markers = (
         "training_command",
         "train_data_spec",
@@ -2468,7 +2464,7 @@ def _looks_like_trainable_algorithm_definition(algorithm_definition: Mapping[str
     return any(algorithm_definition.get(marker) is not None for marker in training_markers)
 
 
-def _test_data_s3_base_uri_from_algorithm_definition(algorithm_definition: Mapping[str, Any]) -> str | None:
+def _test_data_s3_base_uri_from_algorithm_definition(algorithm_definition: dict[str, Any]) -> str | None:
     test_data_spec = algorithm_definition.get("test_data_spec")
     if isinstance(test_data_spec, dict):
         s3_uri = test_data_spec.get("s3_uri")
@@ -2544,7 +2540,7 @@ def _discover_latest_contiguous_test_data_date(*, data_base_uri: str, days: int)
 
 
 def _resolve_automatic_offline_context(
-    *, root_definition: Mapping[str, Any], encode_definition: Mapping[str, Any], backtest_days: int
+    *, root_definition: dict[str, Any], encode_definition: dict[str, Any], backtest_days: int
 ) -> dict[str, Any]:
     data_base_uri = _test_data_s3_base_uri_from_algorithm_definition(
         root_definition
@@ -2564,7 +2560,7 @@ def _resolve_automatic_offline_context(
 
 
 def _dated_test_data_s3_uri_from_algorithm_definition(
-    algorithm_definition: Mapping[str, Any],
+    algorithm_definition: dict[str, Any],
     *,
     last_test_date: str,
 ) -> str | None:
@@ -2584,8 +2580,8 @@ def _dated_test_data_s3_uri_from_algorithm_definition(
 def _infer_encode_algorithm_name(
     *,
     control_artifact: _BuiltRefArtifact,
-    root_definition: Mapping[str, Any],
-    definition_cache: dict[tuple[str, str], AlgorithmDefinition],
+    root_definition: dict[str, Any],
+    definition_cache: dict[tuple[str, str], dict[str, Any]],
 ) -> str:
     root_algorithm_name = str(root_definition.get("algorithm_name") or control_artifact.artifact_name)
     dependency_names = _algorithm_dependency_names(root_definition)
@@ -2707,7 +2703,7 @@ def _derive_qa_run_execution_context(
     if version_collisions:
         updates["backtest_output_mode"] = "isolated_ref_outputs"
 
-    definition_cache: dict[tuple[str, str], AlgorithmDefinition] = {}
+    definition_cache: dict[tuple[str, str], dict[str, Any]] = {}
     root_definition = _read_algorithm_definition_from_artifact(
         artifact=control_artifact,
         algorithm_name=control_artifact.artifact_name,
@@ -5032,7 +5028,7 @@ def _execute_audit_parity_stage(
     control_artifact = _ensure_ref_artifact(
         cache=artifact_cache, run_dir=run_dir, scenario=scenario, git_ref=control_ref, role="control"
     )
-    definition_cache: dict[tuple[str, str], AlgorithmDefinition] = {}
+    definition_cache: dict[tuple[str, str], dict[str, Any]] = {}
     control_definition = _read_algorithm_definition_from_artifact(
         artifact=control_artifact,
         algorithm_name=control_algorithm_name,
@@ -5228,7 +5224,7 @@ def _execute_encode_parity_stage(
     control_artifact = _ensure_ref_artifact(
         cache=artifact_cache, run_dir=run_dir, scenario=scenario, git_ref=control_ref, role="control"
     )
-    definition_cache: dict[tuple[str, str], AlgorithmDefinition] = {}
+    definition_cache: dict[tuple[str, str], dict[str, Any]] = {}
     control_definition = _read_algorithm_definition_from_artifact(
         artifact=control_artifact,
         algorithm_name=control_algorithm_name,
@@ -5454,7 +5450,7 @@ def _execute_predict_parity_stage(
     control_artifact = _ensure_ref_artifact(
         cache=artifact_cache, run_dir=run_dir, scenario=scenario, git_ref=control_ref, role="control"
     )
-    definition_cache: dict[tuple[str, str], AlgorithmDefinition] = {}
+    definition_cache: dict[tuple[str, str], dict[str, Any]] = {}
     control_definition = _read_algorithm_definition_from_artifact(
         artifact=control_artifact,
         algorithm_name=algorithm_name,
@@ -5676,7 +5672,7 @@ def _execute_system_performance_stage(
     options = _SystemPerformanceOptions.from_mapping(system_performance_options)
     algorithm_name = str(execution_context["algorithm_name"])
     control_ref = scenario["refs"]["control"]["git_ref"]
-    definition_cache: dict[tuple[str, str], AlgorithmDefinition] = {}
+    definition_cache: dict[tuple[str, str], dict[str, Any]] = {}
     control_artifact = _ensure_ref_artifact(
         cache=artifact_cache, run_dir=run_dir, scenario=scenario, git_ref=control_ref, role="control"
     )
@@ -5687,7 +5683,7 @@ def _execute_system_performance_stage(
     )
     control_performance_spec = _PerformanceTestSpec.from_algorithm_definition(control_definition, git_ref=control_ref)
     treatment_artifacts: dict[str, _BuiltRefArtifact] = {}
-    treatment_definitions: dict[str, AlgorithmDefinition] = {}
+    treatment_definitions: dict[str, dict[str, Any]] = {}
     treatment_performance_specs: dict[str, _PerformanceTestSpec] = {}
     for treatment in scenario["refs"]["treatments"]:
         git_ref = treatment["git_ref"]
@@ -6182,6 +6178,7 @@ def _write_prod_default_control_backtest_override(
     override = merge_algorithm_definition_override_fragments(
         base_override,
         {"hotvect_execution_parameters": {"with_parameter": parameter["source"]}},
+        offline=True,
     )
     override_path = stage_dir / "prod_default_parameters" / dt / "control-backtest-override.json"
     override_path.parent.mkdir(parents=True, exist_ok=True)
@@ -6265,7 +6262,7 @@ def _execute_backtest_stage(
     treatment_performance_specs: dict[str, _PerformanceTestSpec] = {}
     control_algorithm_name = str(execution_context.get("algorithm_name") or control_artifact.artifact_name)
     if performance_spec_validation_required:
-        definition_cache: dict[tuple[str, str], AlgorithmDefinition] = {}
+        definition_cache: dict[tuple[str, str], dict[str, Any]] = {}
         control_definition = _read_algorithm_definition_from_artifact(
             artifact=control_artifact,
             algorithm_name=control_algorithm_name,

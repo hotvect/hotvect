@@ -16,7 +16,14 @@ deployment ownership from the EMS server repository.
 - Machine-readable source: [openapi.yaml](openapi.yaml)
 
 A deployed EMS instance remains authoritative for its own API identity, server URLs, OAuth scopes, and exact
-runtime contract. Refresh this static export from the generated EMS `api.yaml` whenever the server API changes:
+runtime contract.
+
+Hotvect's Python and Java EMS clients ignore additional response fields, including fields in nested
+objects, so additive server changes do not require a client upgrade. Known fields still follow this
+contract's validation rules. Ignored fields are not retained or sent back in requests.
+Python models used only for request bodies continue to reject unknown fields.
+
+Refresh this static export from the generated EMS `api.yaml` whenever the server API changes:
 
 ```shell
 cd python
@@ -1337,6 +1344,6 @@ Token URL: `https://auth.example.com/oauth2/token`
 
 | Scope | Description |
 | --- | --- |
-| `experiment-management-service.read_all` | Grants read access for experiment-management-service |
-| `experiment-management-service.write_all` | Grants write access for experiment-management-service |
+| `ems.read_all` | Grants read access for the Experiment Management Service |
+| `ems.write_all` | Grants write access for the Experiment Management Service |
 | `uid` | Provides the caller's user identity |

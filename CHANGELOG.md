@@ -2,8 +2,20 @@
 
 This changelog focuses on user-visible changes. For a complete history, see `git log`.
 
-## Unreleased from the 10.44.0 source line
+## Unreleased from the 10.46.2 source line
 
+- Performance sampling: continue past filtered input sweeps and consider records from the required additional files
+  even after reaching the candidate target, while keeping the retained sample bounded.
+- Composed offline execution: apply CLI overrides before checking effective execution settings across roots.
+- Offline prediction: permit algorithms without a reward factory when examples have no outcomes; labelled examples
+  still require a configured reward function.
+- State generation: allow generator-only definitions in the Python pipeline's `parameters` target without a dummy
+  runtime algorithm factory.
+- Offline prediction: capture active EMS state with `hv exp snapshot export` and replay only its pinned snapshot
+  document (or a synthetic document) with per-record assignment. Prediction no longer reads EMS or requires EMS
+  credentials, and records the snapshot URI in its metadata.
+- Offline prediction: run one fixed composite graph from a strict local composition document, without EMS assignment,
+  salts, shards, or variants.
 - Experiment management: document the standalone EMS control plane, deployment, domain model, and client boundaries in
   the Hotvect docsite while keeping the server implementation and release lifecycle in the EMS repository.
 - EMS clients: remove the deprecated campaign forced-assignment API and response field. User forced assignments remain
@@ -16,14 +28,16 @@ This changelog focuses on user-visible changes. For a complete history, see `git
 - Docs: add a guide for the offline pipeline stages (`generate-state`, `encode`, `train`, `predict`, `evaluate`, `performance-test`).
 - Security: remove `shell=True` usage from dependency inspection tooling and avoid shell execution in build helpers.
 - Algorithm definitions: reject self-dependencies (fail fast with a clear error).
+- Algorithm definitions: validate JAR-embedded definitions against the committed online contract before applying
+  offline overrides; `hyperparameter_version` is accepted only through an explicit offline override.
 - Java API: restore `score(ComputingRankingRequest)` on `ComputingBulkScorer`, including CatBoost feature-store response propagation, so downstream algorithms can use the score-first API again without rebuilding `BulkScoreResponse` manually.
 - CatBoost: standardize model parameter path resolution (and keep the decompression pipeline consistent).
 - Offline CLI: add unordered sharded `audit` output alongside sharded `predict`, and reject meaningless ordered multi-shard combinations.
 - Evaluation: speed up Python `evaluate` and allow one-shot SageMaker evaluation from cached prediction outputs.
 - CLI: rewire `hv serve` onto the unified algorithm server, add `hv serve --ui` for the browser debugger on the same backend, and add `hv worker serve` for worker-only HTTP debugging.
 - CLI: add `hv docs` for JSON-only bundled-doc lookup without MCP setup; default docs search to scan-based and keep SQLite indexing opt-in.
-- CLI: add the canonical `hv algorithm`, `hv qa`, `hv ems`, `hv config`, `hv metrics`, `hv results`, and `hv data`
-  command tree. Existing direct algorithm commands and the `hv-qa`, `hv-exp`, and migrated `hv-ext` commands remain
+- CLI: add the canonical `hv algorithm`, `hv qa`, `hv exp`, `hv config`, `hv metrics`, `hv results`, and `hv data`
+  command tree. Existing direct algorithm commands and the `hv-qa` and migrated `hv-ext` commands remain
   temporarily available and print a warning with the canonical replacement. `hv-ext compare-jsonl` and
   `hv-ext catboost-convert` remain low-level extension commands.
 - Python packaging: remove the unused Python-hosted full-algorithm LitServe stack and its dependency footprint. The

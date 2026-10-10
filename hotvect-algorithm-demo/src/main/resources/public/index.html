@@ -747,10 +747,11 @@
 			    let examplesAbort = null;
 			    let loadedExamples = [];
 			    let totalExamples = 0;
-			    let availableViews = [];
-			    let selectedViewIds = [];
-			    let lastRuns = [];
-			    let defaultSelectJsonPath = null;
+    let availableViews = [];
+    let selectedViewIds = [];
+    let lastRuns = [];
+    let appMetadata = null;
+    let defaultSelectJsonPath = null;
 			    const primaryQueryPath = '.shared.query';
 
 			    const matchesEl = document.getElementById('matches');
@@ -790,7 +791,6 @@
     const runtimeMetadataModalTitleEl = document.getElementById('runtimeMetadataModalTitle');
     const runtimeMetadataModalSubtitleEl = document.getElementById('runtimeMetadataModalSubtitle');
     const runtimeMetadataModalJsonEl = document.getElementById('runtimeMetadataModalJson');
-    let runtimeMetadataDetails = null;
     let runtimeMetadataAbort = null;
     let runtimeMetadataReturnFocus = null;
 
@@ -900,6 +900,7 @@
 		        const resp = await fetch('/api/metadata');
         const body = await resp.json();
         if (!resp.ok) return;
+        appMetadata = body;
         defaultSelectJsonPath = normalizeJsonPath(body.default_select_json_path);
         renderAppMetadata(body);
       } catch {
@@ -996,7 +997,7 @@
 	      container.appendChild(dot);
 	    }
 
-	    function renderAppMetadata(meta) {
+    function renderAppMetadata(meta) {
 	      const algo = meta && meta.algorithm ? meta.algorithm : {};
 	      const params = meta && meta.parameters ? meta.parameters : null;
 	      const allParts = [];
@@ -1072,8 +1073,23 @@
 
 	      if (algoLine) allParts.push(algoLine);
 	      if (paramLine) allParts.push(paramLine);
-	      appMetaEl.title = allParts.join(' | ');
-	    }
+      appMetaEl.title = allParts.join(' | ');
+    }
+
+    function renderSelectedBaselineMetadata() {
+      const baseline = availableViews.find(view => view.view_id === selectedViewIds[0]);
+      if (!baseline) return;
+      const runtimeMetadata = Array.isArray(appMetadata && appMetadata.runtimes)
+        ? appMetadata.runtimes.find(runtime => runtime.algorithm_runtime_id === baseline.algorithm_runtime_id)
+        : null;
+      renderAppMetadata(runtimeMetadata || {
+          algorithm: {
+            name: baseline.algorithm_name,
+            version: baseline.algorithm_version
+          },
+          parameters: baseline.parameter_id ? { parameter_id: baseline.parameter_id } : null
+        });
+    }
 
     function closeRuntimeMetadata() {
       if (runtimeMetadataAbort) {
@@ -1090,14 +1106,14 @@
       if (returnFocus && returnFocus.isConnected) returnFocus.focus();
     }
 
-    async function loadRuntimeMetadataDetails(signal) {
-      if (runtimeMetadataDetails) return runtimeMetadataDetails;
-      const resp = await fetch('/api/demo/runtime-metadata', { signal });
+    async function loadRuntimeMetadataDetails(algorithmRuntimeId, signal) {
+      const url = new URL('/api/demo/runtime-metadata', window.location.origin);
+      if (algorithmRuntimeId) url.searchParams.set('algorithm_runtime_id', algorithmRuntimeId);
+      const resp = await fetch(url, { signal });
       const body = await resp.json();
       if (!resp.ok) throw new Error(body && body.error ? body.error.message : `HTTP ${resp.status}`);
       if (!body || typeof body !== 'object') throw new Error('Invalid runtime metadata response');
-      runtimeMetadataDetails = body;
-      return runtimeMetadataDetails;
+      return body;
     }
 
     async function openRuntimeMetadata(kind, trigger) {
@@ -1109,6 +1125,8 @@
       runtimeMetadataReturnFocus = trigger;
       const isAlgorithm = kind === 'algorithm';
       const responseField = isAlgorithm ? 'effective_algorithm_definition' : 'parameter_metadata';
+      const baseline = availableViews.find(view => view.view_id === selectedViewIds[0]);
+      const algorithmRuntimeId = baseline ? baseline.algorithm_runtime_id : null;
 
       runtimeMetadataModalEl.classList.add('open');
       runtimeMetadataModalEl.setAttribute('aria-hidden', 'false');
@@ -1122,7 +1140,7 @@
       runtimeMetadataModalCloseEl.focus();
 
       try {
-        const details = await loadRuntimeMetadataDetails(controller.signal);
+        const details = await loadRuntimeMetadataDetails(algorithmRuntimeId, controller.signal);
         if (!Object.prototype.hasOwnProperty.call(details, responseField)) {
           throw new Error(`Runtime metadata response is missing ${responseField}`);
         }
@@ -1539,6 +1557,7 @@
         if (nextSelected.length === desiredCount) break;
       }
       selectedViewIds = nextSelected;
+      renderSelectedBaselineMetadata();
     }
 
     function renderComparisonColumns(runs) {
@@ -1606,6 +1625,7 @@
       const otherIndex = index === 0 ? 1 : 0;
       selectedViewIds[index] = nextViewId;
       if (selectedViewIds[otherIndex] === nextViewId) selectedViewIds[otherIndex] = previousViewId;
+      renderSelectedBaselineMetadata();
       lastRunSignature = null;
       updateRunButtonState();
       void runSelected();

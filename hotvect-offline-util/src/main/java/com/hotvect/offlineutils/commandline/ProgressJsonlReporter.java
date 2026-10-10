@@ -360,8 +360,14 @@ final class ProgressJsonlReporter implements AutoCloseable {
     ) {
         Map<String, Object> context = new LinkedHashMap<>();
         context.put("stage", stage);
-        context.put("algorithm_name", algorithmDefinition.algorithmId().algorithmName());
-        context.put("algorithm_version", algorithmDefinition.algorithmId().algorithmVersion());
+        if (opts.algorithmSource instanceof OfflineAlgorithmSource.Fixed fixed) {
+            context.put("composition", fixed.composition().getAbsolutePath());
+        } else if (opts.algorithmSource instanceof OfflineAlgorithmSource.Ems ems) {
+            context.put("ems_root_slot", ems.rootSlot());
+        } else {
+            context.put("algorithm_name", algorithmDefinition.algorithmId().algorithmName());
+            context.put("algorithm_version", algorithmDefinition.algorithmId().algorithmVersion());
+        }
         context.put("metadata_path", metadataDir.getAbsolutePath());
         context.put("destination_file", destinationFile(opts));
 

@@ -3,11 +3,44 @@ import json
 import re
 from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, cast
-
-from hotvect.dto import AlgorithmDefinition
+from typing import Any
 
 _PROTECTED_FIELDS = {"algorithm_name", "algorithm_version"}
+_ALGORITHM_DEFINITION_FIELDS = {
+    "algorithm_name",
+    "algorithm_version",
+    "hyperparameter_version",
+    "hotvect_version",
+    "dependencies",
+    "generator_factory_classname",
+    "decoder_factory_classname",
+    "transformer_factory_classname",
+    "vectorizer_factory_classname",
+    "reward_function_factory_classname",
+    "encoder_factory_classname",
+    "algorithm_factory_classname",
+    "transformer_parameters",
+    "vectorizer_parameters",
+    "train_decoder_parameters",
+    "test_decoder_parameters",
+    "algorithm_parameters",
+    "catboost_options",
+    "train_data_spec",
+    "test_data_spec",
+    "prediction_spec",
+    "performance_data_spec",
+    "train_data_prefix",
+    "test_data_prefix",
+    "number_of_training_days",
+    "training_lag_days",
+    "training_command",
+    "training_container",
+    "git_describe",
+    "source_data",
+    "state_output_filename",
+    "hotvect_execution_parameters",
+    "sagemaker_training_job_definition",
+}
 _ALGORITHM_ID_PATTERN = re.compile(r"^([\w\-_]+)(@[\w\-.]+)?$")
 _ALGORITHM_OVERRIDE_METADATA_FIELDS = frozenset({"supplied", "files", "fields", "reasons"})
 _ALGORITHM_OVERRIDE_METADATA_LIST_FIELDS = frozenset({"files", "fields", "reasons"})
@@ -22,9 +55,16 @@ def _normalize_dependency_name(algorithm_id: str) -> str:
     return match.group(1)
 
 
+def _normalize_dependency_override_name(algorithm_id: str, *, offline: bool) -> str:
+    child_name = _normalize_dependency_name(algorithm_id)
+    if not offline and child_name != algorithm_id:
+        raise ValueError(f"Dependency override key {algorithm_id} must be an unversioned dependency name")
+    return child_name
+
+
 def apply_algorithm_definition_override(
-    base_definition: AlgorithmDefinition, override: dict[str, Any] | None
-) -> AlgorithmDefinition:
+    base_definition: dict[str, Any], override: dict[str, Any] | None, *, offline: bool = False
+) -> dict[str, Any]:
     if override is None:
         return copy.deepcopy(base_definition)
     if not isinstance(base_definition, dict):
@@ -33,22 +73,35 @@ def apply_algorithm_definition_override(
         raise ValueError(f"Algorithm definition override must be a JSON object, got {type(override).__name__}")
 
     merged = copy.deepcopy(base_definition)
-    _merge_algorithm_definition_object(cast(dict[str, Any], merged), override, validate_dependencies_against_base=True)
+    _merge_algorithm_definition_object(
+        merged,
+        override,
+        validate_dependencies_against_base=True,
+        offline=offline,
+    )
     return merged
 
 
 def merge_algorithm_definition_override_fragments(
-    base_override: dict[str, Any] | None, extra_override: dict[str, Any] | None
+    base_override: dict[str, Any] | None,
+    extra_override: dict[str, Any] | None,
+    *,
+    offline: bool = False,
 ) -> dict[str, Any]:
-    merged = copy.deepcopy(base_override) if base_override else {}
+    merged = copy.deepcopy(base_override) if base_override is not None else {}
+    if not isinstance(merged, dict):
+        raise ValueError(
+            f"Base algorithm definition override fragment must be a JSON object, got {type(merged).__name__}"
+        )
+    _validate_override_fragment_dependency_scopes(merged, offline=offline)
     if extra_override is None:
         return merged
     if not isinstance(extra_override, dict):
         raise ValueError(
             f"Algorithm definition override fragment must be a JSON object, got {type(extra_override).__name__}"
         )
-    _merge_algorithm_definition_object(merged, extra_override, validate_dependencies_against_base=False)
-    return merged
+    _validate_override_fragment_dependency_scopes(extra_override, offline=offline)
+    return _merge_override_fragment_objects(merged, extra_override, offline=offline)
 
 
 def _override_field_paths(value: Any, prefix: str = "") -> list[str]:
@@ -130,27 +183,35 @@ def build_algorithm_override_metadata(
 
 
 def _merge_algorithm_definition_object(
-    target: dict[str, Any], patch: dict[str, Any], *, validate_dependencies_against_base: bool
+    target: dict[str, Any],
+    patch: dict[str, Any],
+    *,
+    validate_dependencies_against_base: bool,
+    offline: bool,
 ) -> None:
+    _validate_override_fields(target, patch)
     for field_name, patch_value in patch.items():
         if field_name in _PROTECTED_FIELDS:
-            _validate_protected_field(target, field_name, patch_value)
-            continue
+            raise ValueError(f"Algorithm definition override must not contain identity field: {field_name}")
         if field_name == "dependencies":
             _merge_dependencies(
-                target, patch_value, validate_dependencies_against_base=validate_dependencies_against_base
+                target,
+                patch_value,
+                validate_dependencies_against_base=validate_dependencies_against_base,
+                offline=offline,
             )
         else:
             _merge_generic_field(target, field_name, patch_value)
 
 
-def _validate_protected_field(target: dict[str, Any], field_name: str, patch_value: Any) -> None:
-    if patch_value is None:
-        raise ValueError(f"You may not delete {field_name}")
-
-    existing = target.get(field_name)
-    if existing != patch_value:
-        raise ValueError(f"You may not override {field_name}")
+def _validate_override_fields(target: dict[str, Any], patch: dict[str, Any]) -> None:
+    unknown = sorted(
+        field_name
+        for field_name in patch
+        if field_name not in target and field_name not in _ALGORITHM_DEFINITION_FIELDS
+    )
+    if unknown:
+        raise ValueError(f"Unknown algorithm definition override fields: {unknown}")
 
 
 def _merge_generic_field(target: dict[str, Any], field_name: str, patch_value: Any) -> None:
@@ -178,32 +239,79 @@ def _merge_generic_object(target: dict[str, Any], patch: dict[str, Any]) -> None
             target[field_name] = copy.deepcopy(patch_value)
 
 
-def _merge_dependencies(target: dict[str, Any], patch_value: Any, *, validate_dependencies_against_base: bool) -> None:
+def _merge_dependencies(
+    target: dict[str, Any],
+    patch_value: Any,
+    *,
+    validate_dependencies_against_base: bool,
+    offline: bool,
+) -> None:
     if not isinstance(patch_value, dict):
         raise ValueError("dependencies override must be a JSON object keyed by child algorithm name")
 
-    merged_dependencies = (
+    merged_dependencies: dict[str, tuple[str, dict[str, Any]]] = (
         _normalize_declared_dependencies(target.get("dependencies"))
         if validate_dependencies_against_base
-        else _normalize_override_fragment_dependencies(target.get("dependencies"))
+        else _normalize_override_fragment_dependencies(target.get("dependencies"), offline=offline)
     )
 
     for child_key, child_patch in patch_value.items():
-        child_name = _normalize_dependency_name(child_key)
+        child_name = _normalize_dependency_override_name(child_key, offline=offline)
         if validate_dependencies_against_base and child_name not in merged_dependencies:
             raise ValueError(f"Override references unknown dependency: {child_name}")
         if not isinstance(child_patch, dict):
             raise ValueError(f"Override for dependency {child_name} must be a JSON object")
+        if "scope" in child_patch:
+            raise ValueError(f"Override for dependency {child_name} must not declare scope")
 
-        merged_dependencies[child_name] = merge_algorithm_definition_override_fragments(
-            merged_dependencies.get(child_name, {}), child_patch
+        existing = merged_dependencies.get(child_name)
+        declaration_key, base_override = existing if existing is not None else (child_key, {})
+        is_static_shared = existing is not None and base_override.get("scope") == "shared"
+        if existing is not None and "scope" in base_override and child_patch and (not offline or not is_static_shared):
+            raise ValueError(f"Override for scoped dependency {child_name} must be empty")
+        if offline and is_static_shared:
+            base_override.pop("scope")
+            declaration_key = child_name
+        elif offline and existing is None:
+            declaration_key = child_name
+        merged_dependencies[child_name] = (
+            declaration_key,
+            _merge_override_fragment_objects(base_override, child_patch, offline=offline),
         )
 
-    target["dependencies"] = merged_dependencies
+    target["dependencies"] = {
+        declaration_key: declaration for declaration_key, declaration in merged_dependencies.values()
+    }
 
 
-def _normalize_declared_dependencies(base_dependencies: Any) -> dict[str, dict[str, Any]]:
-    normalized: dict[str, dict[str, Any]] = {}
+def _merge_override_fragment_objects(
+    base_override: dict[str, Any], extra_override: dict[str, Any], *, offline: bool
+) -> dict[str, Any]:
+    merged = copy.deepcopy(base_override)
+    _merge_algorithm_definition_object(
+        merged,
+        extra_override,
+        validate_dependencies_against_base=False,
+        offline=offline,
+    )
+    return merged
+
+
+def _validate_override_fragment_dependency_scopes(fragment: dict[str, Any], *, offline: bool) -> None:
+    dependencies = fragment.get("dependencies")
+    if not isinstance(dependencies, dict):
+        return
+    for child_key, child_override in dependencies.items():
+        if not isinstance(child_override, dict):
+            continue
+        child_name = _normalize_dependency_override_name(child_key, offline=offline)
+        if "scope" in child_override:
+            raise ValueError(f"Override for dependency {child_name} must not declare scope")
+        _validate_override_fragment_dependency_scopes(child_override, offline=offline)
+
+
+def _normalize_declared_dependencies(base_dependencies: Any) -> dict[str, tuple[str, dict[str, Any]]]:
+    normalized: dict[str, tuple[str, dict[str, Any]]] = {}
     if base_dependencies is None:
         return normalized
 
@@ -211,7 +319,10 @@ def _normalize_declared_dependencies(base_dependencies: Any) -> dict[str, dict[s
         for dependency in base_dependencies:
             if not isinstance(dependency, str):
                 raise ValueError(f"Dependency entries must be strings but found {dependency!r}")
-            normalized[_normalize_dependency_name(dependency)] = {}
+            child_name = _normalize_dependency_name(dependency)
+            if child_name in normalized:
+                raise ValueError(f"Dependency {dependency} is declared more than once")
+            normalized[child_name] = (dependency, {})
         return normalized
 
     if not isinstance(base_dependencies, dict):
@@ -221,22 +332,29 @@ def _normalize_declared_dependencies(base_dependencies: Any) -> dict[str, dict[s
         child_name = _normalize_dependency_name(child_key)
         if not isinstance(child_override, dict):
             raise ValueError(f"Embedded dependency override for {child_name} must be a JSON object")
-        normalized[child_name] = copy.deepcopy(child_override)
+        previous = normalized.get(child_name)
+        if previous is not None:
+            raise ValueError(
+                f"Dependencies {previous[0]} and {child_key} resolve to the same logical dependency name {child_name}"
+            )
+        normalized[child_name] = (child_key, copy.deepcopy(child_override))
     return normalized
 
 
-def _normalize_override_fragment_dependencies(base_dependencies: Any) -> dict[str, dict[str, Any]]:
-    normalized: dict[str, dict[str, Any]] = {}
+def _normalize_override_fragment_dependencies(
+    base_dependencies: Any, *, offline: bool
+) -> dict[str, tuple[str, dict[str, Any]]]:
+    normalized: dict[str, tuple[str, dict[str, Any]]] = {}
     if base_dependencies is None:
         return normalized
     if not isinstance(base_dependencies, dict):
         raise ValueError("dependencies override fragment must be a JSON object")
 
     for child_key, child_override in base_dependencies.items():
-        child_name = _normalize_dependency_name(child_key)
+        child_name = _normalize_dependency_override_name(child_key, offline=offline)
         if not isinstance(child_override, dict):
             raise ValueError(f"Embedded dependency override for {child_name} must be a JSON object")
-        normalized[child_name] = copy.deepcopy(child_override)
+        normalized[child_name] = (child_name if offline else child_key, copy.deepcopy(child_override))
     return normalized
 
 
@@ -253,10 +371,11 @@ def load_algorithm_definition_override_fragment(
         raise ValueError(
             f"--algorithm-override must be a JSON object, got {type(override).__name__}: {algorithm_override}"
         )
-    if "algorithm_name" in override:
+    identity_fields = sorted(_PROTECTED_FIELDS.intersection(override))
+    if identity_fields:
         raise ValueError(
             "--algorithm-override must be an override fragment, not a full algorithm definition. "
-            f"Remove algorithm_name from {algorithm_override!r}; the base definition is loaded from the "
+            f"Remove {', '.join(identity_fields)} from {algorithm_override!r}; the base definition is loaded from the "
             f"algorithm JAR for {algorithm_name!r} and the override is merged into it."
         )
     return override
@@ -266,7 +385,9 @@ def load_effective_algorithm_definition(
     algorithm_jar: str,
     algorithm_name: str,
     algorithm_override: str | None,
-) -> AlgorithmDefinition:
+    *,
+    offline: bool = False,
+) -> dict[str, Any]:
     from hotvect.utils import read_algorithm_definition_from_jar
 
     effective = read_algorithm_definition_from_jar(algorithm_name, Path(algorithm_jar))
@@ -274,7 +395,7 @@ def load_effective_algorithm_definition(
     if not override:
         return effective
 
-    effective = apply_algorithm_definition_override(effective, override)
+    effective = apply_algorithm_definition_override(effective, override, offline=offline)
     if effective.get("algorithm_name") != algorithm_name:
         raise ValueError(
             f"--algorithm-override changed algorithm_name to {effective.get('algorithm_name')}; this is not supported"
@@ -282,12 +403,10 @@ def load_effective_algorithm_definition(
     return effective
 
 
-def serialize_effective_algorithm_definition(
-    algorithm_definition: dict[str, Any] | AlgorithmDefinition,
-) -> dict[str, Any]:
+def serialize_effective_algorithm_definition(algorithm_definition: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(algorithm_definition, dict) or not algorithm_definition:
         raise ValueError("Effective algorithm definition must be a non-empty JSON object")
-    return cast(dict[str, Any], copy.deepcopy(algorithm_definition))
+    return copy.deepcopy(algorithm_definition)
 
 
 def parse_effective_algorithm_definition_payload(payload: Any) -> dict[str, Any]:

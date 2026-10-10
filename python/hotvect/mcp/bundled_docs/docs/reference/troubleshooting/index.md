@@ -231,14 +231,6 @@ confirm the same algorithm cache key, `parameter_version`, and cache mode.
 
 ## Prediction and parameter errors
 
-### `requires local state storage but this runtime only provides scratch storage`
-
-The selected definition declares `requires_local_state_storage: true`, but the repository downloader was created
-without a local-state root. Configure the containing application with separate scratch and local-state roots and use
-the `AlgorithmDownloader` constructor that accepts both. The current `hv algorithm serve` modes do not expose this capability, so
-use an application integration test for such an algorithm. Do not point the definition at scratch as an implicit
-fallback: runtime state has separate ownership and cleanup semantics.
-
 ### Required model entry missing from the parameters ZIP
 
 Inspect the archive:

@@ -246,7 +246,22 @@ class OptionsTest {
                 "--dest", "prediction"
         );
 
-        Assertions.assertNull(predict.parameters.parameters);
+        Assertions.assertNull(predict.algorithmSource.direct.parameters);
+    }
+
+    @Test
+    void performanceTestAcceptsFixedCompositionWithoutParameters() {
+        Main.PerformanceTestCommand performanceTest = new Main.PerformanceTestCommand();
+        CommandLine cmd = new CommandLine(performanceTest);
+
+        cmd.parseArgs(
+                "--composition", "composition.json",
+                "--source", "requests.jsonl"
+        );
+
+        Assertions.assertEquals(
+                new File("composition.json"),
+                performanceTest.algorithmSource.fixed.composition);
     }
 
     @Test

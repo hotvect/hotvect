@@ -43,7 +43,8 @@ hv
 │   ├── evaluate
 │   ├── criteria list|describe
 │   └── utils compare-predictions
-├── ems slot|experiment|default-variant|algorithm ...
+├── exp snapshot|slot|experiment|default-variant|algorithm|variant|forced-assignment ...
+│   └── approval get|list
 ├── docs list|search|read
 ├── config show|init
 ├── metrics compare-quality|compare-system|export|plot
@@ -57,7 +58,7 @@ container/runtime entrypoints.
 
 !!! note "Compatibility commands"
     Existing scripts continue to work with direct algorithm commands (`hv audit`, `hv train`, and so on) and the
-    `hv-qa`, `hv-exp`, and migrated `hv-ext` commands, but those invocations print a warning with their canonical
+    `hv-qa` and migrated `hv-ext` commands, but those invocations print a warning with their canonical
     replacement. New guides and the detailed references below use the canonical forms above. `hv-ext compare-jsonl`
     and `hv-ext catboost-convert` remain low-level extension commands without a replacement under `hv`.
     `hv-qa criteria evaluate` remains available only as a legacy diagnostic interface; ordinary QA workflows use
@@ -75,7 +76,7 @@ This is a lookup page, not a first-run tutorial. If Hotvect is new to you, run t
 - **`hv worker`**: Worker-runtime HTTP debugging utilities.
 - **`hv status`**: Monitor remote SageMaker jobs using lifecycle state and structured CloudWatch progress events.
 - **`hv qa`**: Durable release-quality validation and release-evidence decisions.
-- **`hv ems`**: Read-only Experiment Management System inspection and online-result retrieval.
+- **`hv exp`**: Experiment-management snapshots, inspection, online-result retrieval, and typed mutations subject to EMS approval.
 - **`hv docs`**: Search and read the bundled Hotvect docs as JSON.
 - **`hv config`**: Show or initialize `~/.hotvect/config.json`.
 - **`hv metrics`**: Compare, export, and plot evaluation and system metrics.
@@ -126,7 +127,7 @@ a child trains or a parent only evaluates.
 
 | Command | Works on | Notes |
 |---------|----------|-------|
-| `audit` | Algorithm with the relevant transformer | Requires a parameters ZIP; the current audit task rejects vectorizer-only definitions |
+| `audit` | Algorithm with the relevant transformer | Requires a parameter source directory or ZIP package; the current audit task rejects vectorizer-only definitions |
 | `encode` | Algorithm with the encoder | Produces training-library input; training may be a separate stage |
 | `generate-state` | Algorithms with state generation | Targets algorithms with `generator_factory_classname`. Can be at parent or child level depending on algorithm design. |
 | `train`, `predict`, `performance-test`, `backtest` | Outer or inner algorithm | An outer target prepares its declared dependency graph first |
@@ -319,9 +320,14 @@ Pass an explicit `--max-threads` to override that heuristic, or `--max-threads 0
 
 **SageMaker**: Supported via one-shot mode (`--sagemaker`). See [SageMaker one-shot mode](#sagemaker-one-shot-mode-auditpredictevaluateencodeperformance-test).
 
-**Local runtime state**: Performance tests make private runtime storage available under the JVM temporary directory.
-Directories are allocated lazily when an algorithm uses `LocalStateStorage`, and are not written to task metadata or
-output directories. Algorithms that depend on this capability must declare `requires_local_state_storage=true`.
+**Composed execution**: Performance tests can use the same fixed-composition document or pinned EMS snapshot as
+`predict`. This benchmarks the resolved runtime rather than rebuilding a separate local graph: every measured request
+enters the fixed runtime, and EMS requests also repeat local assignment from the record's assignment key before they
+invoke the selected graph. The same complete source is staged for one-shot SageMaker execution.
+
+**Local runtime state**: Offline prediction and performance tests make private runtime storage available beneath their
+scratch directory. Directories are allocated lazily when an algorithm uses `LocalStateStorage`, and are not written to
+task metadata or output directories.
 
 **Usage**:
 
@@ -329,17 +335,37 @@ output directories. Algorithms that depend on this capability must declare `requ
 hv algorithm performance-test --algorithm-jar <path_to_jar> --algorithm-name <algorithm_name> [options]
 ```
 
+To benchmark one explicitly selected graph, use the same composition document described under
+[predict](#4-predict):
+
+```bash
+hv algorithm performance-test \
+  --composition composition.json \
+  --source-path requests.jsonl
+```
+
+To benchmark a pinned EMS selection, supply the snapshot and the assignment-key location from each record:
+
+```bash
+hv algorithm performance-test \
+  --ems-slot product-ranking \
+  --ems-state ems-snapshot.json \
+  --assignment-key-json-pointer /shared/user_id \
+  --source-path requests.jsonl
+```
+
 **Options**: Same as the common Java command options (see Common Options section below).
 
 **Performance-test-only options**:
-- `--sample-pool-size`: Number of decoded requests to keep in the in-memory sample pool before measured repeats. This
-  separates "how many distinct requests are held in RAM" from `--samples`, which controls how many measured requests
-  are executed.
 - `--target-rps`: Fixed target requests/sec (best for comparing versions under identical load). Overrides `--target-throughput-fraction`.
 - `--target-throughput-fraction`: Fraction of warmup mean throughput to use as the target requests/sec when `--target-rps` is not set. Default: `0.8`. Set to `0` to disable pacing.
 - `--workload-mode {realtime,batch}`: Select which algorithm workload mode to benchmark. Default: `realtime`.
 - `--sample-pool-size`: Number of decoded candidate examples retained in memory for replay. This is separate from
   `--samples`, which controls the number of measured executions. Pin both when comparing runs.
+
+Sampling continues through filtered input until enough candidates are found or the files are exhausted. Its
+minimum-file coverage may expand the candidate pool beyond the oversampling target, but the retained replay pool
+remains bounded by `--sample-pool-size`. Empty files are inspected; they do not contribute examples.
 
 **Benchmarking methodology**: for reliable A/B latency claims, keep runtime and hardware fixed, pin both `--target-rps` and `--samples`, repeat independent jobs, and use statistical tests before calling a `p99`/`p999` regression. See [Reliable Performance Benchmarking](../../guides/performance-benchmarking/index.md).
 
@@ -379,11 +405,13 @@ for the encode invocation.
 
 ### 4. `predict`
 
-**Description**: Generate model predictions on test/validation data. Pass a parameter source directory or ZIP package
-when the algorithm requires one; stateless algorithms can predict without it. Output includes prediction scores and can
-be used for evaluation or serving.
+**Description**: Generate model predictions on test/validation data. Local single-algorithm mode takes a parameter
+source directory or ZIP package when needed; fixed-composition mode selects each parameter archive in its composition
+document; and EMS mode selects parameters from EMS. Output includes prediction scores and can be used for evaluation or
+serving.
 
-**SageMaker**: Supported via one-shot mode (`--sagemaker`). See [SageMaker one-shot mode](#sagemaker-one-shot-mode-auditpredictevaluateencodeperformance-test).
+**SageMaker**: One-shot mode (`--sagemaker`) supports direct, fixed-composition, and EMS prediction. See
+[SageMaker one-shot mode](#sagemaker-one-shot-mode-auditpredictevaluateencodeperformance-test).
 
 **Usage**:
 
@@ -391,9 +419,95 @@ be used for evaluation or serving.
 hv algorithm predict --algorithm-jar <path_to_jar> --algorithm-name <algorithm_name> [options]
 ```
 
+To run one fixed composite graph without EMS assignment, put the selected artifacts and slot bindings in a local
+composition document:
+
+```bash
+hv algorithm predict \
+  --composition composition.json \
+  --source-path requests.jsonl \
+  --dest-path predictions
+```
+
+```json
+{
+  "root": "product-ranker@1.2.3",
+  "algorithms": {
+    "product-ranker@1.2.3": {
+      "jar_uri": "file:///artifacts/product-ranker.jar",
+      "parameter": {
+        "uri": "file:///artifacts/ranker-p42.zip"
+      }
+    },
+    "feature-encoder@2.0.0": {
+      "jar_uri": "s3://example-bucket/feature-encoder.jar"
+    }
+  },
+  "slot_bindings": {
+    "feature-encoder-slot": "feature-encoder@2.0.0"
+  }
+}
+```
+
+`root` names a catalog algorithm, and each catalog key is an exact `algorithm-name@version`. A catalog entry
+selects one JAR and, optionally, one parameter archive; Hotvect reads the parameter identity from
+`algorithm-parameters.json` inside that archive. Each `slot_bindings` entry selects the one algorithm for the
+slot-backed dependency with that same name. For example,
+`feature-encoder-slot` must be declared as `"feature-encoder-slot": {"scope": "slot"}` in a reachable definition.
+Private and static shared dependencies remain declarations inside their owning JARs. The document accepts `file://`
+and `s3://` artifact URIs and rejects missing, unknown, unused, ambiguous, or cyclic bindings. For SageMaker execution,
+Hotvect uploads local artifacts and stages a rewritten immutable document containing S3 URIs. It deliberately has no
+EMS state, salt, shards, variants, or assignment key. Use repeatable `--domain-model-jar` when its artifacts need
+application-owned domain classes.
+
+To reproduce EMS routing over an offline data set, first capture the active state from the configured EMS endpoint:
+
+```bash
+hv exp snapshot export \
+  --root-slot product-ranking \
+  --output ems-snapshot.json
+```
+
+Then pass that pinned document to prediction together with the record's real assignment key:
+
+```bash
+hv algorithm predict \
+  --ems-slot product-ranking \
+  --ems-state ems-snapshot.json \
+  --assignment-key-json-pointer /shared/user_id \
+  --source-path requests.jsonl \
+  --dest-path predictions
+```
+
+`hv exp snapshot export` uses the normal configured EMS endpoint, token-provider command, and timeouts. It recursively
+discovers every reachable slot using the same artifact and graph rules as prediction, records the canonical active
+slot payloads, and atomically creates a strict document. Its provenance records the source URI, requested root,
+capture timestamps, and that per-slot reads are independently fetched rather than a provider-side transaction.
+The current EMS API does not provide a replay-complete historical contract, so `--as-of` capture is intentionally not
+available.
+
+`hv algorithm predict` never calls EMS, reads EMS configuration, or needs EMS credentials. It consumes only the
+pinned `--ems-state` document, records its URI and SHA-256 in prediction metadata, and performs assignment and
+invocation per record. EMS prediction supports local and one-shot SageMaker execution for Ranker, TopK, and ThemedTopK
+roots. For SageMaker execution, Hotvect uploads local artifacts and stages a rewritten immutable snapshot containing
+S3 URIs. EMS mode cannot be combined with direct algorithm or parameter options. Use repeatable `--domain-model-jar`
+options when captured artifacts share application-owned domain classes. The document must contain exactly the slots
+reachable from the requested root—no missing or unrelated slots—and capture provenance, when present, must name that
+same root. A hand-authored synthetic state document follows the same strict format and can be used for tests or
+hypothetical configurations. Prediction metadata orders `ems_compositions` deterministically by runtime identity and
+the complete EMS selection, so equivalent results do not vary with concurrent-map iteration order.
+
 **Options**: Same as the common Java command options (see Common Options section below).
 
 **Additional Options**:
+- `--composition`: Select one fixed composite graph from a strict local document containing `root`, `algorithms`, and
+  `slot_bindings`; artifact and parameter selections belong in that document. It is mutually exclusive with EMS and
+  local root-algorithm options.
+- `--ems-slot`: Reproduce the configuration rooted at this EMS slot from `--ems-state`.
+- `--ems-state`: Required pinned local EMS active-state snapshot document.
+- `--assignment-key-json-pointer`: Locate each input record's EMS assignment key.
+- `--domain-model-jar`: Add a parent-loaded domain-model JAR for direct, EMS, or fixed-composition artifacts; repeat
+  as needed.
 - `--log-features`: Enable feature logging during prediction for debugging composite algorithms (optional; v10+).
 - `--include-feature-store-responses`: Include feature-store responses in output rows under
   `additional_properties.__feature_store_responses`. Use it for a small debug sample, not routine backtests.
@@ -797,15 +911,14 @@ hv algorithm generate-state --algorithm-jar my_algorithm.jar --algorithm-name ex
 
 **Description**: Serve the **full algorithm** over HTTP for local debugging. This runs the Java algorithm runtime, so
 request decoding, feature extraction, algorithm wiring, and output formatting happen in the JVM. It does not reproduce
-the containing application's request adapter or operational behavior. Headless mode uses the minimal
-`hotvect-algorithm-serve` JAR; add `--ui` to use the Demo UI extension on the same serving core.
+the containing application's request adapter or operational behavior. Both headless and UI modes use
+`hotvect-algorithm-demo`, which owns the local HTTP lifecycle and offline example execution.
 
 **Usage**:
 
 ```bash
-hv algorithm serve --algorithm-jar <path_to_jar> --algorithm-name <algorithm_name> --parameter-path <params_zip> --port <port> [options]
+hv algorithm serve --algorithm-jar <path_to_jar> --algorithm-name <algorithm_name> --parameter-path <parameter-source-or.zip> --port <port> [options]
 hv algorithm serve --local-runtime-config <local_runtimes.json> --port <port> [options]
-hv algorithm serve --ems-url <url> --ems-slot <slot> --port <port> [options]
 ```
 
 **Required Options**:
@@ -814,22 +927,12 @@ hv algorithm serve --ems-url <url> --ems-slot <slot> --port <port> [options]
 **Required in single-runtime local mode**:
 - `--algorithm-jar`: Path to the algorithm JAR.
 - `--algorithm-name`: Algorithm name (matches algorithm definition).
-- `--parameter-path`: Path to parameters ZIP from training.
+- `--parameter-path`: Path to the parameter source directory or ZIP package from training.
 
 **Alternative local runtime config**:
 - `--local-runtime-config`: Path to a JSON file with one or more local runtimes. Each runtime entry uses `algorithm_jar`, `algorithm_name`, optional `algorithm_override`, and `parameter_path`.
 - `--local-runtime-config` is mutually exclusive with the single-runtime `--algorithm-jar` / `--algorithm-name` / `--parameter-path` flags.
 - `--local-runtime-config` rejects unknown JSON fields and resolves relative runtime paths relative to the config file location.
-
-**Remote metadata mode**:
-
-- `--ems-url` and `--ems-slot` load selected algorithm metadata from a configured EMS endpoint instead of a local JAR.
-- This mode requires both flags and rejects `--algorithm-jar`, `--algorithm-name`, `--parameter-path`,
-  `--algorithm-override`, and `--local-runtime-config`.
-- `--ems-assignment-key` controls variant assignment; `--ems-token-env` names the environment variable that carries the
-  bearer token.
-- `--ems-scratch-dir`, `--ems-refresh-period-seconds`, `--ems-connect-timeout-seconds`, and
-  `--ems-read-timeout-seconds` control local download and refresh behavior when the defaults are not appropriate.
 
 **Optional Options**:
 - `--host`: Host/interface to bind to (default: `127.0.0.1`).
@@ -843,32 +946,27 @@ hv algorithm serve --ems-url <url> --ems-slot <slot> --port <port> [options]
 - `--startup-timeout-seconds`: Maximum time to wait for `/health` before the CLI fails startup (default: `120`).
 
 **Runtime defaults**:
-- Local artifact modes construct algorithms with `BATCH` workload mode and `OFFLINE` input semantics. EMS mode uses the
-  repository's `REALTIME` and `ONLINE` context. Both remain local-debug server modes.
-- Neither current mode configures the optional runtime-local state-storage root required by definitions with
-  `requires_local_state_storage: true`.
+- Local artifact modes construct algorithms with `BATCH` workload mode and `OFFLINE` input semantics.
+- The debugger supplies lazy runtime-local state beneath the system temporary directory's `algorithm-state` directory.
 - `hv algorithm serve` injects `-XX:MaxRAMPercentage=80` when you do not pass an explicit heap cap (`-Xmx...` or `-XX:MaxRAMPercentage=...`).
 - `hv algorithm serve` also injects `-XX:+ExitOnOutOfMemoryError` unless that exact flag is already present.
 - Extra JVM args must be passed after an explicit `--` separator (for example `hv algorithm serve ... -- -Xmx4g`). Use an explicit heap flag when you want to take control of heap sizing.
 
 **Endpoints**:
 - `GET /health`
-- `GET /api/health`
 - `GET /api/metadata`
-- `GET /api/config`
 - `POST /predict`
 
 In local multi-runtime mode, `POST /predict` also accepts `algorithm_runtime_id` as a query parameter to pick a specific loaded runtime.
 
-With `--ui`, the same process also exposes the interactive UI routes.
+With `--ui`, the same process also exposes the interactive UI routes:
 
-- `POST /api/run` keeps raw runtime execution and accepts `algorithm_runtime_id`.
-- The browser UI uses these routes:
-  - `GET /api/demo/examples`
-  - `GET /api/demo/examples/{example_index}`
-  - `POST /api/demo/run`
-  - `POST /api/demo/compare`
-  - `POST /api/demo/predict`
+- `GET /api/demo/examples`
+- `GET /api/demo/examples/{example_index}`
+- `POST /api/demo/run`
+- `POST /api/demo/compare`
+- `POST /api/demo/predict`
+
 - With `--local-runtime-config`, the UI exposes one algorithm comparison view per `algorithm_runtime_id`.
 - Compare-mode defaults prefer algorithm output against the preferred recorded view, then the first available recorded
   view, then another runtime.
@@ -967,7 +1065,8 @@ Most Java-based commands (audit, performance-test, encode, predict, generate-sta
 - `--dest-path`: Destination path for the operation output (optional, auto-generated if not specified). For `encode`, `predict`, and `audit`, this is a **directory** containing `part-*<ext>` files. Ordered `predict` and ordered `audit` produce a single `part-00000.jsonl`.
 - `--parameter-path`: Path to the trained model parameter source directory or ZIP package. `audit`,
   `performance-test`, and full `serve` accept either form. `worker serve` requires a ZIP package. The option is
-  optional for `predict` (required only by algorithms that need parameters) and `encode`.
+  optional for `predict` and `encode`, and required only when the selected local algorithm needs parameters. Fixed
+  compositions and EMS snapshots select parameters themselves.
 - `--dest-schema-path`: Path where the feature schema description will be saved (optional, used in encoding operations).
 - `--samples`: Number of samples to process, useful for testing with smaller datasets (optional).
 - `--max-threads`: Max worker threads for Hotvect Java execution. For `hv algorithm performance-test`, if omitted, `hv` defaults to `2` threads on machines with `>=4` physical cores (else `1`). Pass an explicit value to override, or `0` to avoid passing `--max-threads` and let the JAR decide.
@@ -980,6 +1079,11 @@ Most Java-based commands (audit, performance-test, encode, predict, generate-sta
 - `--target-rps`: Performance-test only. Fixed target requests/sec (optional).
 - `--target-throughput-fraction`: Performance-test only. Fraction of warmup mean throughput to use as target requests/sec (optional; default `0.8`, `0` disables pacing).
 - JVM passthrough: for Java wrapper commands, extra JVM args must follow an explicit `--` separator. Example: `hv algorithm predict ... -- -Xmx8g -Dfoo=bar`.
+
+For fixed-composition and pinned-EMS execution, roots must agree on the effective settings consumed by the task.
+Explicit CLI values override embedded defaults before that consistency check. Task-specific settings take precedence
+over shared execution defaults where supported; absent and empty task configuration objects are equivalent.
+Unresolved conflicts, including differing performance-test workload modes, fail before algorithm construction.
 
 Choose exactly one heap cap: `-Xmx...` or `-XX:MaxRAMPercentage=...`. Passing both (or repeating either style)
 fails fast; when neither is set, Hotvect uses `-XX:MaxRAMPercentage=80`.
@@ -1010,8 +1114,8 @@ and returns after submission.
 - `--training-image`: Training image override (`AlgorithmSpecification.TrainingImage`). This is the highest-precedence image setting. Prefer committed `sagemaker_training_job_definition.AlgorithmSpecification.TrainingImage` or an algorithm override JSON for reproducible image changes.
 - `--source-s3-uri`: **(required)** S3 prefix to mount as the `source` channel.
 - `--parameter-s3-uri`: S3 URI to a parameters ZIP (typically from `s3_uri_predict_parameters_zip` in a prior
-  SageMaker train/backtest run). It is required for `audit` and `performance-test`, optional for `predict` and
-  `encode`, and not used by `evaluate`.
+  SageMaker train/backtest run). It is required for direct-source `audit`, optional for direct-source `predict`,
+  `performance-test`, and `encode`, and not used by fixed-composition, EMS, or `evaluate` sources.
 - `hv algorithm evaluate --sagemaker`: point `--source-s3-uri` at a cached prediction file or part-file directory prefix. Reusing a prior `predict` output is the easiest way to benchmark `evaluate` without paying the `predict` cost again.
 - `--job-parallelism`: Parallelize SageMaker execution across `N` shard jobs. Available only for `audit`, `predict`, and
   `encode`.
@@ -1021,6 +1125,13 @@ and returns after submission.
   a single job, which already returns after submission; for a parallel run, it skips waiting/finalization.
 - `--compression`: only for **parallel** `predict` and `audit` runs (`--job-parallelism > 1`). It accepts `none`
   (default) or `gzip`; single-job submissions and `encode` reject non-default compression.
+
+One-shot execution requires a versioned Hotvect image tag at least as new as `10.41.1`. Direct algorithm sources use
+the original separate JAR/definition protocol with images `10.41.1` through `10.48.x`, and use the offline-source
+manifest protocol with images `10.49.0` and newer. Fixed-composition and EMS sources require `10.49.0` or newer.
+Unversioned tags such as `latest`, digest-only references, and versions older than `10.41.1` are rejected before
+submission. Image precedence remains template < algorithm definition/override < explicit `--training-image`; Hotvect
+validates the final image after applying that precedence.
 
 **Parallel one-shot rules**:
 
@@ -1665,60 +1776,75 @@ hv data dependencies download --name example_training_data --local-dir ./trainin
   --sample-ratio 0.01
 ```
 
-## `hv ems`
+## `hv exp`
 
-`hv ems` is a small, **read-only** CLI for inspecting an experiment-management service,
-such as slots, experiments, algorithms, algorithm parameters, and online evaluation results.
-
-`hv-exp` remains available for existing scripts and prints a warning to use `hv ems`.
+`hv exp` inspects an experiment-management service and provides 10 typed business mutations for experiments,
+algorithms, parameters, variants, and forced assignments. On a deployment that requires dual approval, each protected
+write creates an EMS approval record automatically. It also inspects and downloads online evaluation results and
+exports reusable active-state snapshots. Slot creation and salt refresh are excluded from the CLI.
 
 ### Usage
 
 ```bash
-hv ems <subcommand> [options]
+hv exp <subcommand> [options]
 ```
 
 Examples:
 
 ```bash
-hv ems slot list
-hv ems slot get --slot-name my-slot
-hv ems experiment list --slot-name my-slot
-hv ems experiment results list --experiment-id 42
-hv ems experiment results show --experiment-id 42 --analysis-date 2000-01-15
-hv ems experiment results download --experiment-id 42
-hv ems algorithm list-active
-hv ems algorithm list-in-use
-hv ems algorithm list-in-use --slot-name my-slot
+hv exp snapshot export --root-slot my-slot --output ./ems-snapshot.json
+hv exp slot list
+hv exp slot get --slot-name my-slot
+hv exp experiment list --slot-name my-slot
+hv exp experiment results list --experiment-id 42
+hv exp experiment results show --experiment-id 42 --analysis-date 2000-01-15
+hv exp experiment results download --experiment-id 42
+hv exp algorithm list-active
+hv exp algorithm list-in-use
+hv exp algorithm list-in-use --slot-name my-slot
 ```
 
 ### Command map
 
-All `hv ems` commands emit JSON. Start with the narrowest query that answers the question; these operations are
-read-only and make no experiment-management changes.
+Inspection and execution results emit JSON. Start with the narrowest query that answers the question. Commands marked
+**approval when enabled** are sent directly first; after EMS requires approval, the CLI registers the operation and
+returns its server-generated approval UUID.
+Use `hv exp approval get <id>` to inspect the server record. Review and apply the request in EMS UI.
 
 | Need | Command | Required selector |
 | --- | --- | --- |
-| Discover slots | `hv ems slot list` | — |
-| Inspect one slot’s default variant and active experiments | `hv ems slot get` | `--slot-name` |
-| List experiments, optionally in one slot | `hv ems experiment list` | optional `--slot-name` |
-| Inspect one experiment | `hv ems experiment get` | `--experiment-id` |
-| Read an experiment’s ramp-up history | `hv ems experiment rampup-log` | `--experiment-id` |
-| List default variants | `hv ems default-variant list` | optional `--slot-name` |
-| List all or active algorithms | `hv ems algorithm list` / `list-active` | optional `--slot-name` |
-| Find algorithms actually in use | `hv ems algorithm list-in-use` | optional `--slot-name` |
-| Read one algorithm definition | `hv ems algorithm get` | `--algorithm-name`, `--algorithm-version` |
-| List an algorithm’s parameter versions | `hv ems algorithm parameter list` | `--algorithm-name`, `--algorithm-version` |
-| Read one parameter artifact record | `hv ems algorithm parameter get` | `--algorithm-parameter-id` |
-| Inspect/download online evaluation partitions | `hv ems experiment results <list|show|download>` | `--experiment-id` |
+| Export active state reachable from a root slot | `hv exp snapshot export` | `--root-slot`, `--output`; optional repeatable `--domain-model-jar` |
+| Discover slots | `hv exp slot list` | — |
+| Inspect one slot’s default variant and active experiments | `hv exp slot get` | `--slot-name` |
+| List experiments, optionally in one slot | `hv exp experiment list` | optional `--slot-name` |
+| Inspect one experiment | `hv exp experiment get` | `--experiment-id` |
+| Read an experiment’s ramp-up history | `hv exp experiment rampup-log` | `--experiment-id` |
+| Create an experiment **(approval when enabled)** | `hv exp experiment create` | `--slot-name`, `--spec-file`, `--reason` |
+| Set experiment ramp-up **(approval when enabled)** | `hv exp experiment ramp-up` | `--experiment-id`, `--percentage`, `--reason` |
+| Terminate an experiment **(approval when enabled)** | `hv exp experiment terminate` | `--experiment-id`, `--reason` |
+| List default variants | `hv exp default-variant list` | optional `--slot-name` |
+| List all or active algorithms | `hv exp algorithm list` / `list-active` | optional `--slot-name` |
+| Find algorithms actually in use | `hv exp algorithm list-in-use` | optional `--slot-name` |
+| Read one algorithm definition | `hv exp algorithm get` | `--algorithm-name`, `--algorithm-version` |
+| Create an algorithm **(approval when enabled)** | `hv exp algorithm create` | `--spec-file`, `--reason` |
+| Change algorithm state **(approval when enabled)** | `hv exp algorithm state` | algorithm identifiers, `--state`, `--reason` |
+| Promote an algorithm **(approval when enabled)** | `hv exp algorithm promote` | slot and algorithm identifiers; `--reason` |
+| List an algorithm’s parameter versions | `hv exp algorithm parameter list` | `--algorithm-name`, `--algorithm-version` |
+| Read one parameter artifact record | `hv exp algorithm parameter get` | `--algorithm-parameter-id` |
+| Register a parameter artifact **(approval when enabled)** | `hv exp algorithm parameter create` | `--spec-file`, `--reason` |
+| Change a variant’s algorithm **(approval when enabled)** | `hv exp variant algorithm` | `--variant-id`, algorithm identifiers, `--reason` |
+| Set/delete a forced assignment **(approval when enabled)** | `hv exp forced-assignment set|delete` | slot/user selectors, plus variant for `set`; `--reason` |
+| Inspect/download online evaluation partitions | `hv exp experiment results <list|show|download>` | `--experiment-id` |
+| Inspect a stored request | `hv exp approval get` | approval UUID |
+| List pending requests or approval history | `hv exp approval list` | optional `--since` ISO-8601 timestamp with timezone |
 
 ```bash
 # Inspect an experiment and its current algorithm definition
-hv ems experiment get --experiment-id 42
-hv ems algorithm get --algorithm-name my-algorithm --algorithm-version 1.2.3
+hv exp experiment get --experiment-id 42
+hv exp algorithm get --algorithm-name my-algorithm --algorithm-version 1.2.3
 
 # Discover parameter records for that algorithm
-hv ems algorithm parameter list \
+hv exp algorithm parameter list \
   --algorithm-name my-algorithm \
   --algorithm-version 1.2.3
 ```
@@ -1734,14 +1860,14 @@ Usage:
 
 ```bash
 # all slots
-hv ems algorithm list-in-use
+hv exp algorithm list-in-use
 
 # a single slot
-hv ems algorithm list-in-use --slot-name my-slot
+hv exp algorithm list-in-use --slot-name my-slot
 ```
 
-Output is JSON and includes per-algorithm `in_use_by` entries with source details
-(`default_variant` or `active_experiment`), plus slot/variant/experiment identifiers.
+Output is JSON and includes per-algorithm `in_use_by` entries with the active slot and variant identifiers reported by
+EMS's dedicated active-variant index.
 
 ### `experiment results`
 
@@ -1755,16 +1881,16 @@ Usage:
 
 ```bash
 # list available analysis dates
-hv ems experiment results list --experiment-id 42
+hv exp experiment results list --experiment-id 42
 
 # stream one analysis date to stdout (decompressed JSONL)
-hv ems experiment results show --experiment-id 42 --analysis-date 2000-01-15
+hv exp experiment results show --experiment-id 42 --analysis-date 2000-01-15
 
 # download one analysis date
-hv ems experiment results download --experiment-id 42 --analysis-date 2000-01-15
+hv exp experiment results download --experiment-id 42 --analysis-date 2000-01-15
 
 # download all available analysis dates for the experiment
-hv ems experiment results download --experiment-id 42
+hv exp experiment results download --experiment-id 42
 ```
 
 `list` returns JSON with available `analysis_date` values and part counts. `show` writes the selected partition to
@@ -1781,14 +1907,14 @@ The S3 base prefix must come either from `--s3-base-prefix` or from
 
 ### Authentication and configuration
 
-By default, `hv ems` reads experiment-management settings from `~/.hotvect/config.json` under the
+By default, `hv exp` reads experiment-management settings from `~/.hotvect/config.json` under the
 `experiment_management` section (see the config reference). Pass `--config-path <file>` before the subcommand to use a
 different complete Hotvect config for that invocation.
 
 You can also override the URL, token provider, and request timeouts on the command line:
 
 ```bash
-hv ems \
+hv exp \
   --config-path ./hotvect-config.json \
   --url https://experiments.example.com \
   --token-provider-command "printenv EXAMPLE_TOKEN" \
@@ -1798,8 +1924,27 @@ hv ems \
   slot list
 ```
 
-If no timeout overrides are provided, `hv ems` uses the values from `~/.hotvect/config.json` when present, and
+If no timeout overrides are provided, `hv exp` uses the values from `~/.hotvect/config.json` when present, and
 otherwise uses a 5 second connect timeout and a 15 second read timeout.
+
+### Approval inspection
+
+Use `hv exp approval get <approval-id>` after a typed mutation returns `"status": "approval_requested"` to inspect the
+exact stored operation. EMS derives requester and reviewer identities from OAuth `uid` and enforces independent
+approval, expiry, and one-time consumption.
+
+```bash
+hv exp approval get <approval-id>
+hv exp approval list
+hv exp approval list --since 2000-10-01T00:00:00+02:00
+```
+
+`list` returns pending requests. With a timezone-aware `--since`, it returns all statuses created since that timestamp,
+including approved, executed, rejected, and expired records.
+
+Use EMS UI for approval, execution and retries, rejection, and emergency requests. Failed writes roll back approval
+consumption, so the recorded reviewer can retry the stored operation there until expiry. Changed request fields
+require a new typed request. See the [dual-approved EMS mutations guide](../../guides/ems-dual-approval/index.md).
 
 ## Output and ordering notes
 

@@ -149,8 +149,8 @@ This workflow proves that the selected artifacts can load, the offline decoder c
 algorithm can produce a result in the local debug runtime. It does not prove that a containing application's request
 adapter, live dependencies, concurrency, or failure behavior are correct.
 
-The browser process also exposes `GET /health`, `GET /api/health`, `GET /api/metadata`, `GET /api/config`, and
-`POST /predict`. For headless debugging, omit `--ui` and the UI-specific source and metadata flags. Local artifact mode
+The browser process also exposes `GET /health`, `GET /api/metadata`, and `POST /predict`. For headless debugging, omit
+`--ui` and the UI-specific source and metadata flags. Local artifact mode
 uses a batch/offline execution context; production execution remains a Java application integration.
 
 Next, [embed Hotvect in a Java application](../application-integration/index.md) or use

@@ -88,7 +88,6 @@ public abstract class Task extends VerboseCallable<Map<String, Object>> {
         try {
 
             Map<String, Object> metadata = perform();
-            metadata.put("algorithm_jar", offlineTaskContext.options().algorithmJar);
             metadata.put("task_type", this.getClass().getSimpleName());
             metadata.put("metadata_location", offlineTaskContext.options().metadataLocation.toString());
             if(offlineTaskContext.options().destinationFile != null){
@@ -97,11 +96,15 @@ public abstract class Task extends VerboseCallable<Map<String, Object>> {
             if (!mappingsMode) {
                 metadata.put("source_file", offlineTaskContext.options().sourceFiles.toString());
             }
-            metadata.put("algorithm_name", offlineTaskContext.algorithmDefinition().algorithmId().algorithmName());
-            metadata.put("algorithm_version", offlineTaskContext.algorithmDefinition().algorithmId().algorithmVersion());
-            metadata.put("algorithm_definition", offlineTaskContext.algorithmDefinition().toString());
-            if (offlineTaskContext.options().parameters != null) {
-                metadata.put("parameters", offlineTaskContext.options().parameters);
+            if (offlineTaskContext.source() instanceof OfflineTaskContext.DirectRuntime direct) {
+                OfflineAlgorithmSource.Direct algorithmSource = direct.algorithmSource();
+                metadata.put("algorithm_jar", algorithmSource.algorithmJar());
+                metadata.put("algorithm_name", offlineTaskContext.algorithmDefinition().algorithmId().algorithmName());
+                metadata.put("algorithm_version", offlineTaskContext.algorithmDefinition().algorithmId().algorithmVersion());
+                metadata.put("algorithm_definition", offlineTaskContext.algorithmDefinition().toString());
+                if (algorithmSource.parameters() != null) {
+                    metadata.put("parameters", algorithmSource.parameters());
+                }
             }
             metadata.put("max_memory_usage", maxHeapMemoryUsage.get());
             return metadata;

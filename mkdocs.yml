@@ -105,6 +105,7 @@ nav:
           - Operations and state transitions: components/experiment-management-operations/index.md
           - Traffic assignment and ramp-up: components/experiment-assignment/index.md
           - Clients and operator tools: components/ems-clients-and-tools/index.md
+          - Dual-approved EMS mutations: guides/ems-dual-approval/index.md
           - Deploy EMS: guides/experiment-management-server/index.md
   - Agent workflow:
       - Overview: agents/index.md

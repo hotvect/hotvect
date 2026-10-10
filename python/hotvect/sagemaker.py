@@ -29,13 +29,18 @@ from hotvect.algorithm_definition_overrides import (
 from hotvect.benchmark_contract import build_benchmark_contract
 from hotvect.evaluation import evaluation
 from hotvect.jvm_args import normalize_pipeline_jvm_options
+from hotvect.offline_source_manifest import OFFLINE_SOURCE_MANIFEST_HYPERPARAMETER
 from hotvect.pyhotvect import AlgorithmPipeline, AlgorithmPipelineContext
 from hotvect.s3_utils import download_json_from_s3, join_s3_uri, normalize_s3_prefix_uri, require_s3_uri
 from hotvect.s3_utils import upload_directory_to_s3 as _shared_upload_directory_to_s3
 from hotvect.s3_utils import upload_file_to_s3 as _shared_upload_file_to_s3
 from hotvect.s3_utils import upload_json_to_s3 as _shared_upload_json_to_s3
 from hotvect.sagemaker_config import HOTVECT_PREFERRED_INSTANCE_TYPES_KEY, HOTVECT_SUBMISSION_OPTIONS_KEY
-from hotvect.sagemaker_contracts import ALGO_DEF_S3_URI_HYPERPARAMETER, PREDICT_PARAMETERS_ZIP_HYPERPARAMETER
+from hotvect.sagemaker_contracts import (
+    ALGO_DEF_S3_URI_HYPERPARAMETER,
+    HOTVECT_INSTANCE_TYPE_HYPERPARAMETER,
+    PREDICT_PARAMETERS_ZIP_HYPERPARAMETER,
+)
 from hotvect.utils import get_boto_session_after_assuming_role
 
 SAGEMAKER_TAR_INCLUDE_METADATA_ENV_VARIABLE = "SAGEMAKER_TAR_INCLUDE_METADATA"
@@ -655,6 +660,107 @@ class SagemakerTrainingExecutor:
             raise HotvectSagemakerError(
                 f"Couldn't retrieve the job {self.training_job_name}. Are you sure the job was created/run?"
             )
+
+
+class OneShotSagemakerExecutor:
+    """Submit an already-materialized one-shot job without rebuilding an AlgorithmPipeline."""
+
+    _normalize_instance_type_list = staticmethod(SagemakerTrainingExecutor._normalize_instance_type_list)
+    _normalize_instance_type_preferences = SagemakerTrainingExecutor._normalize_instance_type_preferences
+
+    def __init__(
+        self,
+        *,
+        training_job_definition: t.Dict[str, t.Any],
+        output_slug: str,
+        role_arn_to_assume: t.Optional[str] = None,
+    ) -> None:
+        self.training_job_definition = copy.deepcopy(training_job_definition)
+        self._instance_type_fallbacks = self._normalize_instance_type_preferences()
+        session = get_boto_session_after_assuming_role(role_arn_to_assume) if role_arn_to_assume else boto3.Session()
+        try:
+            self._s3_client: S3Client = session.client("s3")
+            self._sagemaker_client: SageMakerClient = session.client("sagemaker")
+        except NoRegionError as error:
+            raise ValueError(
+                "AWS region is not configured. Set `AWS_DEFAULT_REGION` (or `AWS_REGION`), "
+                "or configure a default region in your AWS profile (e.g. in ~/.aws/config)."
+            ) from error
+
+        output_prefix = join_s3_uri(
+            self.training_job_definition["OutputDataConfig"]["S3OutputPath"],
+            self.training_job_name,
+            output_slug,
+        )
+        hyperparameters = self.training_job_definition.setdefault("HyperParameters", {})
+        hyperparameters["s3_uri_result_file"] = join_s3_uri(output_prefix, "result.json")
+        hyperparameters["s3_uri_metadata"] = join_s3_uri(output_prefix, "metadata")
+        hyperparameters["s3_uri_python_log_file"] = join_s3_uri(output_prefix, "hotvect_python.log")
+
+    @property
+    def training_job_name(self) -> str:
+        return self.training_job_definition["TrainingJobName"]
+
+    @property
+    def hyperparameters(self) -> t.Dict[str, str]:
+        return self.training_job_definition["HyperParameters"]
+
+    @property
+    def sagemaker_output_s3_path(self) -> str:
+        return join_s3_uri(
+            self.training_job_definition["OutputDataConfig"]["S3OutputPath"],
+            self.training_job_name,
+        )
+
+    @property
+    def s3_client(self) -> S3Client:
+        return self._s3_client
+
+    def run(self) -> CreateTrainingJobResponseTypeDef:
+        return self._create_training_job_with_instance_fallbacks()
+
+    def _create_training_job_with_instance_fallbacks(self) -> CreateTrainingJobResponseTypeDef:
+        current_instance_type = self.training_job_definition["ResourceConfig"]["InstanceType"]
+        attempt_instance_types = [current_instance_type, *self._instance_type_fallbacks]
+
+        for attempt_index, instance_type in enumerate(attempt_instance_types):
+            self.training_job_definition["ResourceConfig"]["InstanceType"] = instance_type
+            if HOTVECT_INSTANCE_TYPE_HYPERPARAMETER in self.hyperparameters:
+                self.hyperparameters[HOTVECT_INSTANCE_TYPE_HYPERPARAMETER] = instance_type
+            if attempt_index > 0:
+                logger.warning(
+                    "Retrying SageMaker job %s with fallback instance type %s after ResourceLimitExceeded",
+                    self.training_job_name,
+                    instance_type,
+                )
+            self._upload_effective_training_job_definition()
+            try:
+                return self._sagemaker_client.create_training_job(**self.training_job_definition)
+            except ClientError as error:
+                error_code = error.response.get("Error", {}).get("Code")
+                if error_code != "ResourceLimitExceeded" or attempt_index == len(attempt_instance_types) - 1:
+                    raise
+        raise AssertionError("Unreachable: retry loop exhausted without returning or raising")
+
+    def _upload_effective_training_job_definition(self) -> None:
+        _upload_json_to_s3(
+            self.training_job_definition,
+            join_s3_uri(self.hyperparameters["s3_uri_metadata"], EFFECTIVE_TRAINING_JOB_DEFINITION_BASENAME),
+            self._s3_client,
+            fail_fast=True,
+            default=str,
+        )
+
+    def build_submission_manifest(self, submission_response: CreateTrainingJobResponseTypeDef) -> t.Dict[str, t.Any]:
+        return {
+            "training_job_name": self.training_job_name,
+            "training_job_arn": submission_response.get("TrainingJobArn"),
+            "submission_status": "submitted",
+            "sagemaker_output_s3_path": self.sagemaker_output_s3_path,
+            "s3_uri_result_file": self.hyperparameters["s3_uri_result_file"],
+            "s3_uri_metadata": self.hyperparameters["s3_uri_metadata"],
+            "offline_source_manifest_s3_uri": self.hyperparameters.get(OFFLINE_SOURCE_MANIFEST_HYPERPARAMETER),
+        }
 
 
 class SagemakerAlgorithmPipelineRebuilder:

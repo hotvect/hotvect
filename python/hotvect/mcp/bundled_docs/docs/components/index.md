@@ -42,7 +42,7 @@ flowchart TB
 
     subgraph host["Containing serving application"]
         hostApi["Serving application API"] --> runtime["Hotvect online runtime"]
-        runtime --> loaded["Loaded AlgorithmInstance"]
+        runtime --> loaded["Owned algorithm graph"]
     end
 
     upstream["Upstream application"] -->|"application-owned API"| hostApi

@@ -35,7 +35,6 @@ def test_evaluation_function_dict_supports_name_and_arguments(tmp_path: Path, mo
     _write_test_jar(tmp_path / "algo.jar", algo_name=algo_name, algo_def=jar_def)
 
     override_def = {
-        "algorithm_name": "test-algo",
         "hotvect_execution_parameters": {
             "evaluation_function": {"name": "test_eval", "arguments": {"alpha": 123}},
         },
@@ -78,7 +77,6 @@ def test_evaluation_function_dict_requires_name(tmp_path: Path) -> None:
     _write_test_jar(tmp_path / "algo.jar", algo_name=algo_name, algo_def=jar_def)
 
     override_def = {
-        "algorithm_name": algo_name,
         "hotvect_execution_parameters": {
             "evaluation_function": {"arguments": {"alpha": 123}},
         },

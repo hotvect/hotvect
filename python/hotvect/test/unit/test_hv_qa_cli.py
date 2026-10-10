@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+from hotvect.experiment_management.models import SlotActiveInfo
 from hotvect.qa import cli as qa_cli
 from hotvect.qa.commands.run import _BuiltRefArtifact, _compare_backtest_outputs, _compare_complete_qa_metrics
 from hotvect.qa.planning import prod_default_facts_from_slot_active_info
@@ -133,19 +134,26 @@ def test_hv_qa_start_rejects_control_and_prod_default_slot_together() -> None:
     assert "not allowed with argument --control" in result.stderr
 
 
-def test_validation_plan_can_identify_prod_default_from_hv_exp_slot_payload() -> None:
+def test_validation_plan_can_identify_prod_default_from_canonical_slot_payload() -> None:
     facts = prod_default_facts_from_slot_active_info(
         slot_name="example-slot",
-        active_info={
-            "default_variant": {
-                "variant_id": 2115,
-                "created_at": "2000-05-18T08:16:16Z",
-                "algorithm": {
-                    "algorithm_name": "example-ranking-algorithm",
-                    "algorithm_version": "18.5.11",
+        active_info=SlotActiveInfo.model_validate(
+            {
+                "slot_salt": "example-salt",
+                "total_number_of_shards": 100,
+                "default_variant": {
+                    "variant_id": 2115,
+                    "created_at": "2000-05-18T08:16:16Z",
+                    "algorithm": {
+                        "algorithm_name": "example-ranking-algorithm",
+                        "algorithm_version": "18.5.11",
+                        "absolute_s3_algorithm_jar_path": "s3://example-bucket/ranking-algorithm.jar",
+                    },
                 },
+                "experiments": [],
+                "user_forced_assignments": [],
             }
-        },
+        ),
     )
 
     assert facts == {
@@ -155,6 +163,18 @@ def test_validation_plan_can_identify_prod_default_from_hv_exp_slot_payload() ->
         "created_at": "2000-05-18T08:16:16Z",
         "slot_name": "example-slot",
     }
+
+
+def test_validation_plan_rejects_missing_default_algorithm() -> None:
+    with pytest.raises(ValueError, match="default_variant algorithm must be an object"):
+        prod_default_facts_from_slot_active_info(
+            slot_name="example-slot",
+            active_info={
+                "default_variant": {
+                    "variant_id": 1,
+                }
+            },
+        )
 
 
 def test_hv_qa_criteria_list_and_evaluate() -> None:

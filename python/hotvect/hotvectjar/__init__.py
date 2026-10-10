@@ -71,5 +71,4 @@ def find_hotvect_jar(pattern: str, *, jar_dir: Path | None = None) -> Path:
 
 
 HOTVECT_JAR_PATH = find_hotvect_jar("hotvect-offline-util-*-jar-with-dependencies.jar").absolute()
-HOTVECT_ALGORITHM_SERVE_JAR_PATH = find_hotvect_jar("hotvect-algorithm-serve-*-jar-with-dependencies.jar").absolute()
 HOTVECT_ALGORITHM_DEMO_JAR_PATH = find_hotvect_jar("hotvect-algorithm-demo-*-jar-with-dependencies.jar").absolute()

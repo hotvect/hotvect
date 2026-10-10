@@ -8,7 +8,6 @@ from hotvect.experiment_management.client import (
     DEFAULT_CONNECT_TIMEOUT_SECONDS,
     DEFAULT_READ_TIMEOUT_SECONDS,
     ExperimentManagementClient,
-    ExperimentManagementConnection,
 )
 from hotvect.extra import config as hv_config
 
@@ -135,10 +134,9 @@ def create_client_from_hotvect_config(
     cfg = load_experiment_management_hotvect_config(config=config)
     provider = CommandTokenProvider(command=cfg.token_provider_command, ttl_seconds=cfg.token_provider_ttl_ms / 1000.0)
     auth = TokenProviderAuth(provider)
-    conn = ExperimentManagementConnection(
-        environment=url_override or cfg.url,
+    return ExperimentManagementClient(
+        base_url=url_override or cfg.url,
+        auth=auth,
         connect_timeout=cfg.connect_timeout_seconds,
         read_timeout=cfg.read_timeout_seconds,
-        bearer_auth=auth,
     )
-    return ExperimentManagementClient(conn)

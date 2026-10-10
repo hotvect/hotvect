@@ -19,7 +19,7 @@ import software.amazon.awssdk.services.s3.S3AsyncClient;
 import software.amazon.awssdk.services.s3.S3Uri;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 
-public class S3AlgorithmDownloadClient implements AlgorithmDownloadClient, AutoCloseable {
+public class S3AlgorithmDownloadClient implements AlgorithmDownloadClient {
     private static final Logger LOG = LoggerFactory.getLogger(S3AlgorithmDownloadClient.class);
 
     private final S3AsyncClient s3Client;

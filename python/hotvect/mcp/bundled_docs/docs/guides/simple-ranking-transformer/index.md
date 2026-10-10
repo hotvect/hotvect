@@ -160,7 +160,22 @@ public final class CandidateFeatures {
 
 `SharedContext` exposes the shared object and any feature-store responses returned by the retriever supplied by the
 algorithm factory. A feature that needs a child algorithm can declare an `@InjectAlgorithm` parameter; that dependency
-then becomes a typed constructor argument on the generated transformer.
+then becomes a typed constructor argument on the generated transformer:
+
+```java
+@InjectAlgorithm("candidate-scorers") Policy policy
+```
+
+The parameter must be a concrete algorithm type, and the dependency must resolve exactly one algorithm. Its composite
+factory supplies the constructor argument with `dependencies.only("candidate-scorers")`.
+
+For a parameterized injected type, the generated transformer exposes the exact token needed by the factory. For
+example, an injected `GenericPolicy<List<String>> policy` produces a public
+`ALGORITHM_DEPENDENCY_CANDIDATESCORERS_TYPE` constant, and the factory calls
+`dependencies.only("candidate-scorers", CandidateFeatureTransformer.ALGORITHM_DEPENDENCY_CANDIDATESCORERS_TYPE)`.
+This supplies the expected generic contract without asking algorithm authors to duplicate a `TypeToken` expression.
+The lookup rejects incompatible algorithm interfaces and fully resolved generic contracts; unresolved generic factory
+arguments are allowed without verifying their compatibility.
 
 ## 3. Declare the ordered outputs
 
@@ -197,7 +212,7 @@ class an explicit name makes the factory wiring easy to read.
 
 ```java
 import com.fasterxml.jackson.databind.JsonNode;
-import com.hotvect.api.algodefinition.AlgorithmInstance;
+import com.hotvect.api.algodefinition.AlgorithmDependencies;
 import com.hotvect.api.algodefinition.ranking.CompositeRankingTransformerFactory;
 import com.hotvect.api.algodefinition.ranking.RankingTransformer;
 import com.hotvect.api.data.Namespace;
@@ -228,16 +243,7 @@ public final class CandidateTransformerFactory
             ExecutionContext executionContext,
             Optional<JsonNode> hyperparameters,
             Map<String, InputStream> parameters,
-            Map<String, AlgorithmInstance<?>> dependencies) {
-        return newTransformer();
-    }
-
-    @Override
-    @SuppressWarnings("removal")
-    public RankingTransformer<RequestContext, Candidate> apply(
-            Optional<JsonNode> hyperparameters,
-            Map<String, InputStream> parameters,
-            Map<String, AlgorithmInstance<?>> dependencies) {
+            AlgorithmDependencies dependencies) {
         return newTransformer();
     }
 
@@ -251,8 +257,8 @@ public final class CandidateTransformerFactory
 This example has no feature-store views, so its retriever returns an empty map. Supply the application-owned
 `FeatureStoreRetriever<RequestContext, Candidate>` when feature methods consume feature-store responses.
 
-`create(...)` is the execution-context-aware factory method. The current factory interface still requires the
-deprecated `apply(...)` method as well, so both paths delegate to one constructor helper.
+`create(...)` is the composite factory method. If the feature methods declare injected algorithms, use the supplied
+`AlgorithmDependencies` to pass the generated transformer's typed constructor arguments.
 
 ## 5. Compile and inspect the generated evidence
 

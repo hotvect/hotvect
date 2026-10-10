@@ -1055,7 +1055,7 @@ wheels = [
 
 [[package]]
 name = "hotvect"
-version = "10.55.0"
+version = "11.2.4"
 source = { editable = "." }
 dependencies = [
     { name = "boto3" },

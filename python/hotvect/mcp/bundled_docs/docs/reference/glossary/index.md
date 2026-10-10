@@ -34,7 +34,7 @@ Use these definitions when a guide or log assumes Hotvect vocabulary.
 | **Experiment** | Configuration that assigns part of a slot's shards and ramp-up to one or more runtime variants. |
 | **Execution context** | Pair of workload mode (`REALTIME` or `BATCH`) and input semantic (`ONLINE` or `OFFLINE`) supplied to factories. |
 | **Feature** | Named value produced by transformation code for model input or downstream computation. |
-| **Hyperparameters** | Pre-training choices that affect how parameters are produced. An optional hyperparameter version participates in artifact identity. |
+| **Hyperparameters** | Choices evaluated under an optional offline hyperparameter version. Accepted values must be committed under a new algorithm version before online use. |
 | **Local-state storage** | Runtime capability that allocates an opaque private filesystem directory for an algorithm instance. It is separate from offline generated state and from a parameter package; the algorithm owns cleanup. |
 | **Outer algorithm** | Public entrypoint targeted by a caller or top-level workflow. It can compose child algorithms. |
 | **Outcome** | Observation associated with a past decision, used for training or evaluation. |

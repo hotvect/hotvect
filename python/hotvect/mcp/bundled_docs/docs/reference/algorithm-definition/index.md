@@ -70,14 +70,16 @@ Every definition needs:
 - `algorithm_version`
 - at least one construction entry point: `algorithm_factory_classname` or `generator_factory_classname`
 
-That last rule describes the Java definition reader. The current Python `AlgorithmPipeline` additionally requires
-`algorithm_factory_classname`, including for a definition with `generator_factory_classname`. In a state-producing
-component, the generator creates files offline; when that component is loaded as a runtime child, the algorithm factory
-is the construction entry point for its packaged result.
+Generator-only definitions work with `hv algorithm generate-state` and with the Python pipeline's `parameters` target
+(`hv algorithm train --target parameters`). Targets that need runtime execution still require
+`algorithm_factory_classname`. In a state-producing component, the generator creates files offline; when that component
+is loaded as a runtime child, the algorithm factory is the construction entry point for its packaged result.
 
 There is no single list of factories required for every algorithm. Hotvect resolves a definition first and validates
 stage-specific wiring when that stage runs. For example, `encode` needs decoder, transformer/vectorizer, reward, and
 encoder factories; a simple algorithm embedded directly in Java may need only its algorithm factory.
+Prediction of unlabelled examples does not require a reward factory. When an example contains a non-null outcome,
+prediction requires `reward_function_factory_classname` to produce its reward; missing configuration is an error.
 
 ## Factory fields
 
@@ -107,7 +109,7 @@ These fields control orchestration rather than Java class construction:
 | Field | Meaning |
 |---|---|
 | `dependencies` | Named child algorithms, optionally with embedded definition overrides |
-| `hyperparameter_version` | Optional stable label included in artifact paths and runtime identity for one configuration line |
+| `hyperparameter_version` | Offline-override-only experiment label included in artifact paths and runtime identity; JAR-embedded definitions and live EMS serving reject it |
 | `hotvect_version` | Framework version provenance used by compatibility-sensitive lifecycle behavior and reports |
 | `train_data_spec` | Training input declaration; `data_prefix` selects the local data directory and optional properties describe remote input |
 | `test_data_spec` | Historical test input used by the evaluate target |
@@ -117,7 +119,6 @@ These fields control orchestration rather than Java class construction:
 | `training_command` | Jinja2 template executed by the train stage; its presence makes the definition trainable |
 | `source_data` | Named inputs for a state-producing definition |
 | `state_output_filename` | Optional relative file or directory to package as generated state |
-| `requires_local_state_storage` | Boolean declaration that the runtime must offer private writable filesystem storage while constructing this algorithm |
 | `hotvect_execution_parameters` | Hotvect orchestration controls such as stage enablement, caching, JVM flags, and performance-test settings |
 | `sagemaker_training_job_definition` | Algorithm-owned partial SageMaker training-job definition used for remote lifecycle execution |
 
@@ -138,44 +139,25 @@ Several similarly named concepts cross the definition and runtime boundary:
 | Trained/generated parameters | Parameter source directory or ZIP package under an algorithm-name directory | `Map<String, InputStream>` passed to parameterized factories |
 | `algorithm-parameters.json` | Parameter source directory or ZIP package under an algorithm-name directory | Read by Hotvect as artifact identity and provenance metadata |
 
+Within `algorithm-parameters.json`, `parameter_id` identifies the parameter artifact, `last_test_time` is the logical
+date anchoring the data used by the run, and `ran_at` records when that run began. Online shared-parameter selection
+orders by `last_test_time` first and uses `ran_at` only to distinguish reruns of the same logical date.
+
 Changing definition JSON does not mutate an existing parameter package. Supplying a parameter source directory or ZIP
 package also does not activate the override that produced it; the runtime definition comes from the JAR plus the
 override explicitly applied for that load or run.
 
 ## Runtime-local state storage
 
-Set `requires_local_state_storage` to `true` only when the constructed algorithm must materialize runtime files outside
-its parameter source—for example, when a library requires a filesystem path rather than an input stream:
+Hotvect always supplies `LocalStateStorage` while it constructs an algorithm. The runtime creates no directory unless
+the factory calls `allocateDirectory()`, which returns an existing, empty, private, absolute directory. The runtime owns
+the path layout, so algorithm code must treat it as opaque.
 
-```json
-{
-  "algorithm_name": "example-file-backed-model",
-  "algorithm_version": "1.0.0",
-  "requires_local_state_storage": true,
-  "algorithm_factory_classname": "org.example.FileBackedModelFactory"
-}
-```
-
-The value must be a JSON boolean. Missing or `false` means the algorithm does not require this capability. When it is
-`true`, a containing runtime must configure a local-state root and the factory must require the supplied
-`LocalStateStorage`. Repository loading enforces the declaration before it downloads the parameter package; direct
-`AlgorithmInstanceFactory` loading passes `Optional.empty()` when no root was configured, so the algorithm factory must
-reject that missing capability itself. Calling `allocateDirectory()` returns an existing, empty, private, absolute
-directory. The runtime owns its name and layout, so algorithm code must treat the path as opaque.
-
-The declaration is local to the definition that contains it; Hotvect does not recursively aggregate this field from
-dependency definitions. If any transitive dependency in a downloadable algorithm bundle requires local-state storage,
-the outer downloadable definition must also set `requires_local_state_storage` to `true`. This lets a repository host
-admit the complete bundle and select its parameter-download storage before constructing or loading its dependencies. A
-child declaration alone does not advertise the outer bundle's requirement.
-
-The allocated directory is runtime state, not generated offline state and not part of the parameter package. Ownership
-transfers to the factory or constructed algorithm: remove it if construction fails, or remove it from
-`Algorithm.close()` after successful construction. A runtime may delay cleanup until an old instance is no longer
-reachable so in-flight requests can finish.
-
-The current `hv algorithm serve` implementations do not configure a local-state root. Use a containing application integration
-that supplies one when testing or running a definition with this requirement.
+Containing runtimes derive the default state root from their scratch directory as `scratch/algorithm-state`; direct
+factory construction uses the system temporary directory unless the caller provides an explicit root. The allocated
+directory is runtime state, not generated offline state and not part of the parameter package. Ownership transfers to
+the factory or constructed algorithm: remove it if construction fails, or remove it from `Algorithm.close()` after
+successful construction.
 
 ## Dependencies
 
@@ -189,6 +171,9 @@ Use an array when children need no embedded overrides:
   ]
 }
 ```
+
+Array entries are private dependencies. A private dependency must use an unversioned name because its immediate parent
+artifact supplies the child definition.
 
 Use an object when a child needs a definition patch:
 
@@ -205,7 +190,48 @@ Use an object when a child needs a definition patch:
 }
 ```
 
-Object keys are child algorithm names and every value must be an object. The Python lifecycle recursively prepares
+Use an exact version for a shared dependency. The version selects its canonical provider and allows several published
+versions of the same algorithm name to coexist:
+
+```json
+{
+  "dependencies": {
+    "example-normalizer@2.0.0": {
+      "scope": "shared"
+    }
+  }
+}
+```
+
+A shared declaration requires the version and permits no override fields. A slot-backed dependency uses its dependency
+key as the EMS slot name, must match the EMS slot-name grammar `[a-z0-9-]+`, and must not declare an algorithm version:
+
+```json
+{
+  "dependencies": {
+    "candidate-scorers": {
+      "scope": "slot"
+    }
+  }
+}
+```
+
+A slot-backed dependency must not occur inside a shared algorithm, even through a private child. Shared algorithms
+have one `name@version` runtime identity across root compositions, while slot selections belong to a particular root
+composition.
+
+Here `candidate-scorers` is both the dependency name passed to the factory and the EMS slot read and assigned by the
+runtime. Stage 2 requires an EMS variant to select exactly one algorithm. Use
+`dependencies.only("candidate-scorers")` to receive it; the return type is inferred from the composite factory code.
+
+To validate the algorithm contract eagerly during composition, pass a fully concrete Guava `TypeToken`, such as
+`new TypeToken<BulkScorer<Query, Candidate>>() {}`. It preserves and validates every nested type argument.
+
+The `@version` suffix belongs only to a shared dependency and is not part of the dependency name passed to a factory.
+Dependency lookup never includes a version. The examples above are requested as `example-rules`, `example-normalizer`,
+and `candidate-scorers` respectively.
+
+Object keys are child algorithm references and every value must be an object. The Python lifecycle recursively prepares
 children before the parent. At runtime, Hotvect resolves the same names into `AlgorithmInstance` values passed to a
 composite factory. Dependencies must form an acyclic graph; indirect cycles recurse during preparation or loading
 rather than representing a valid composition.
@@ -217,8 +243,11 @@ An override file is a fragment, not a second complete definition. Its merge rule
 - objects merge recursively;
 - scalar and array values replace the base value;
 - `null` deletes an ordinary field;
-- `algorithm_name` and `algorithm_version` cannot be changed or deleted;
-- `dependencies` must be an object keyed by a child already declared by the base definition;
+- `algorithm_name` and `algorithm_version` must not appear in an override fragment;
+- `dependencies` must be an object keyed by an unversioned child name already declared by the base definition;
+- an `@version` suffix belongs only to the base shared declaration and is rejected on override keys;
+- a dependency override cannot add, remove, or change its `scope` policy; a `shared` or `slot` declaration's override
+  object must be empty;
 - overriding one child preserves its siblings.
 
 For example:
@@ -350,63 +379,6 @@ when rendering `training_command`.
   "training_command": "{{ python_executable }} -m example_trainer --input {{ encoded_data_file_path }} --output {{ parameter_output_path }} --cutoff {{ last_test_time.strftime('%Y-%m-%d') }}"
 }
 ```
-
-### Python helpers for training artifacts
-
-Trainers can import the shared DTOs from `hotvect.dto` and read materialized metadata with `hotvect.utils`:
-
-```python
-from hotvect.dto import AlgorithmDefinition, DependencyStateMetadata
-from hotvect.utils import hotvect_algorithm_definition, hotvect_state_dependency_metadata
-
-definition: AlgorithmDefinition = hotvect_algorithm_definition(algorithm_definition_path)
-dependencies: dict[str, DependencyStateMetadata] = hotvect_state_dependency_metadata(algorithm_definition_path)
-encoder_metadata = dependencies["feature-ordinal-encoder"]["generate_state_metadata"]
-```
-
-Both readers accept strings or filesystem paths and preserve all JSON fields. The DTOs are ordinary dictionaries
-with type annotations, without a Hydra or OmegaConf dependency. They describe the trainer's fields rather than
-validate the complete algorithm-definition schema.
-
-The definition DTOs share a parent contract and separate the algorithm roles:
-
-| DTO | Parent | Additional fields |
-|---|---|---|
-| `InputDataSpec` | `TypedDict` | Required data prefix; optional S3 location |
-| `PredictionDataSpec` | `InputDataSpec` | Required partition window and output URI template |
-| `StateSourceDataSpec` | `InputDataSpec` | Optional source partition window |
-| `AlgorithmDefinition` | `TypedDict` | Required identity and runtime factory; optional hyperparameter version, framework/source provenance, execution settings and direct dependencies |
-| `TrainableAlgorithmDefinition` | `AlgorithmDefinition` | Required training command; optional training window, training/evaluation inputs, decoder settings and prediction spec |
-| `StateAlgorithmDefinition` | `AlgorithmDefinition` | Required generator factory and source inputs; optional state output path |
-
-`train_data_spec` uses `InputDataSpec`, containing the required `data_prefix` and optional `s3_uri`.
-Training windows remain on `TrainableAlgorithmDefinition`. Each named `source_data` entry uses
-`StateSourceDataSpec`, which adds `number_of_days` and `lag_days` for dated state inputs. A state
-definition can omit `state_output_filename`; the pipeline then writes state into the algorithm's
-parameter-source directory.
-
-`hotvect_algorithm_definition` returns the parent type. Code that knows the algorithm's role can use
-`typing.cast` to annotate the corresponding subtype. Any algorithm can declare `dependencies`, so they are on the parent type.
-
-`read_algorithm_definition_from_jar` and the effective-definition loaders return `AlgorithmDefinition`.
-The pipeline's effective and committed definitions, backtest resolution, and QA artifact caches use this
-shared contract. Training and state consumers use the specialized DTOs where they read role-specific fields.
-`TrainableAlgorithmDefinition.prediction_spec` uses `PredictionDataSpec` for the dated input window and
-output URI. SageMaker execution settings belong to the parent contract because shared job setup consumes them
-across pipeline tasks. Override fragments stay partial dictionaries, and `apply_algorithm_definition_override`
-takes and returns `AlgorithmDefinition`. These annotations add no runtime validation and preserve additional
-JSON fields. Local casts express the caller's role assumptions; they do not validate the complete DTO contract.
-
-Dependency lookup requires the definition path layout
-`<metadata-base>/<algorithm>@<version>[-<hyperparameter-version>]/<parameter-version>/algorithm_definition.json`
-and the `algorithm_dependencies.json` that the pipeline writes next to it, mapping each direct dependency to its
-slug. It reads only those dependencies from `<metadata-base>/<dependency-slug>/<parameter-version>/generate-state/metadata.json`.
-It does not search other runs or recurse into transitive
-dependencies. Missing metadata produces an empty dictionary for that dependency; available metadata exposes
-`generate_state_metadata_path` and the complete `generate_state_metadata` object. Invalid JSON fails immediately;
-metadata is expected to be a JSON object, without runtime type validation.
-
-The callables can also be registered as OmegaConf resolvers by the trainer's application.
 
 ## `hotvect_execution_parameters`
 

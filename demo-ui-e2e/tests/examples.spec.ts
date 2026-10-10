@@ -5,7 +5,7 @@ test.describe('example browsing', () => {
     await page.goto('/');
     await expect(page.locator('#matches .match').first()).toBeVisible();
 
-    const api = await (await page.request.get('/api/examples?limit=500')).json();
+    const api = await (await page.request.get('/api/demo/examples?limit=100')).json();
     const shown = (api.examples as Array<unknown>).length;
 
     await expect(page.locator('#matchesTitle')).toContainText('Examples (');
@@ -16,7 +16,7 @@ test.describe('example browsing', () => {
 
   test('filters examples by id or request preview', async ({ page }) => {
     await page.goto('/');
-    const api = await (await page.request.get('/api/examples?limit=500')).json();
+    const api = await (await page.request.get('/api/demo/examples?limit=100')).json();
     const examples = api.examples as Array<{ example_id: string }>;
     expect(examples.length).toBeGreaterThan(0);
 

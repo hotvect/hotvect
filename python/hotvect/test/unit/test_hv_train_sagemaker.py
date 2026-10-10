@@ -171,7 +171,7 @@ def test_train_command_remote_uses_override_payload_and_applies_job_overrides(mo
         lambda **_kwargs: {
             "TrainingJobName": "train-job",
             "RoleArn": "arn:aws:iam::123456789012:role/TestRole",
-            "OutputDataConfig": {"S3OutputPath": "s3://bucket/output"},
+            "OutputDataConfig": {"S3OutputPath": "s3://example-bucket/output"},
             "AlgorithmSpecification": {"TrainingImage": "training-image", "TrainingInputMode": "FastFile"},
             "HyperParameters": {},
             "InputDataConfig": [],
@@ -191,7 +191,7 @@ def test_train_command_remote_uses_override_payload_and_applies_job_overrides(mo
         data_base_dir=str(tmp_path / "data"),
         output_base_dir=None,
         role_arn="arn:aws:iam::123456789012:role/TestRole",
-        s3_output_base="s3://bucket/output",
+        s3_output_base="s3://example-bucket/output",
         instance_type="ml.m5.large",
         volume_gb=None,
         max_runtime_seconds=None,

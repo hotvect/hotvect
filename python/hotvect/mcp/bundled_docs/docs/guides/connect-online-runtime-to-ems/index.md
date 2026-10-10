@@ -1,13 +1,12 @@
 ---
 title: Connect an online runtime to EMS
-description: Embed hotvect-online-util in a Java serving application, refresh released runtimes from EMS, and assign requests locally
+description: Embed HotvectServingRuntime in an application-owned Java service
 tags: [serving, integration, ems, online, java]
 difficulty: advanced
 prerequisites:
-  - A deployed EMS endpoint and read credential
-  - Read access to the registered artifact locations
+  - A deployed EMS endpoint exposing slot state
+  - Read access to the registered algorithm and parameter artifacts
   - Writable scratch storage in the serving application
-  - A stable assignment key chosen by the application owner
 related_docs:
   - ../../components/ems-runtime-client/index.md
   - ../../components/experiment-management-service/index.md
@@ -17,238 +16,124 @@ related_docs:
 
 # Connect an online runtime to EMS
 
-This guide adds EMS-backed runtime selection to a containing Java serving application. The application embeds
-`hotvect-online-util`, reads control state from a separately deployed EMS endpoint, downloads selected JAR and parameter
-artifacts, and executes the selected algorithm locally.
+`HotvectServingRuntime` owns the EMS client, runtime-wide graph refresh, local variant assignment, algorithm downloads,
+request-scoped invocation, and loaded-algorithm lifecycle. The application owns its request schema, touchpoint routing,
+assignment-key extraction, response mapping, event publication, and shutdown lifecycle.
 
-The serving application does not embed the EMS server and does not call EMS for every request.
+EMS is not called for each inference. One runtime owns one refresh scheduler. Startup and each background cycle read
+every configured root slot, discover any named dependency slots from the candidate definitions, and then prepare the
+complete reachable graph before activating it locally:
 
-## Runtime flow
-
-```mermaid
-sequenceDiagram
-    participant App as Serving application
-    participant EMS as EMS deployment
-    participant Store as Artifact storage
-    participant Algorithm as Loaded algorithm
-
-    App->>EMS: Initial slot-state refresh
-    EMS-->>App: Default and active variants
-    App->>Store: Download missing JARs and parameters
-    Store-->>App: Artifact bytes
-    App->>App: Install immutable serving snapshot
-    loop Each application request
-        App->>App: Assign variant locally
-        App->>Algorithm: Execute typed decision API
-        Algorithm-->>App: Decision
-    end
-    App->>EMS: Periodic refresh
+```text
+GET /slots/{slot}/defaultVariantAndActiveExperiments
 ```
 
-## 1. Add the online runtime dependency
+## Declare root slots
 
-Add `hotvect-online-util` to the containing serving application:
+The application declares its globally named root slots, accepted algorithm contracts, and touchpoints directly on the
+runtime. Each root slot carries one complete, fully resolved Guava `TypeToken`, such as
+`new TypeToken<Ranker<PdpShared, Article>>() {}`. The runtime validates the algorithm interface and every nested type
+argument as one contract. Startup or refresh rejects an EMS candidate whose loaded root does not satisfy it.
+Root-slot names use the same lower-case EMS grammar as dependency slots (`[a-z0-9-]+`), and each must route at least
+one non-blank application touchpoint.
 
-```groovy
-dependencies {
-    implementation "com.hotvect:hotvect-online-util:${hotvectVersion}"
-}
-```
+## Own the runtime with the application lifecycle
 
-or:
-
-```xml
-<dependency>
-  <groupId>com.hotvect</groupId>
-  <artifactId>hotvect-online-util</artifactId>
-  <version>${hotvect.version}</version>
-</dependency>
-```
-
-Use the same Hotvect version as the algorithm packages selected for this application. The application also owns its
-logging, Jackson, Guava, AWS SDK, HTTP server, and public contract dependencies.
-
-Do not add or copy the EMS server implementation; it is built and deployed from the dedicated EMS repository.
-
-## 2. Configure the external dependencies
-
-The serving application needs:
-
-| Setting | Purpose |
-| --- | --- |
-| EMS base URL | Root URL of the deployed control plane |
-| EMS token supplier | Read credential refreshed by the application's identity integration |
-| Connect and read timeouts | Bound control-plane startup and refresh calls |
-| Slot names | Decision surfaces this process is prepared to serve |
-| Refresh period | Maximum intended interval between successful state reads |
-| Scratch directory | Temporary JAR and parameter downloads |
-| Optional local-state root | Private materialized state for algorithms that declare the capability |
-| Artifact-store client | Read access to every path registered for the configured slots |
-
-The EMS token and artifact-store credentials are separate capabilities. EMS returns metadata; the artifact-store client
-downloads the bytes. `applicationS3Client()`, `tokenProvider`, and later application-owned bindings are placeholders for
-the containing application's infrastructure.
-
-## 3. Build one shared algorithm repository
-
-Create one `AlgorithmRepository` for the application and share it across all slots:
+Build one runtime at application startup and close it on shutdown:
 
 ```java
-import com.hotvect.onlineutils.experimentmanagement.algodownload.AlgorithmDownloader;
-import com.hotvect.onlineutils.experimentmanagement.algodownload.AlgorithmRepository;
-import com.hotvect.onlineutils.experimentmanagement.algodownload.S3AlgorithmDownloadClient;
-import java.nio.file.Path;
-import java.util.Optional;
-import software.amazon.awssdk.services.s3.S3AsyncClient;
-
-S3AsyncClient s3Client = applicationS3Client();
-var downloadClient = new S3AlgorithmDownloadClient(s3Client);
-var downloader = new AlgorithmDownloader(
-        downloadClient,
-        Path.of("/var/run/application/hotvect-scratch"),
-        Optional.of(Path.of("/var/lib/application/hotvect-state")),
-        ServingApplication.class.getClassLoader(),
-        true);
-
-var algorithmRepository = new AlgorithmRepository(downloader);
-```
-
-The final `true` enables strict algorithm-version checking. Use an empty optional local-state root only when no selected
-algorithm declares `requires_local_state_storage: true`.
-
-The application that creates `S3AsyncClient` keeps it alive while refreshes can occur and closes it during shutdown.
-
-## 4. Bind application-owned capabilities
-
-When an algorithm depends on an application-provided capability, bind it once when creating the repository:
-
-```java
-import com.hotvect.api.algodefinition.AlgorithmInstance;
-import java.util.Map;
-
-AlgorithmInstance<?> featureStoreBinding = AlgorithmInstance.externalAlgorithm(
-        "feature-store",
-        applicationFeatureStore);
-
-var algorithmRepository = new AlgorithmRepository(
-        downloader,
-        Map.of("feature-store", featureStoreBinding));
-```
-
-The dependency name must match the algorithm definition. The containing application remains responsible for the bound
-object's transport, credentials, timeouts, metrics, failures, and lifecycle.
-
-## 5. Create the EMS client and manager
-
-```java
-import com.hotvect.onlineutils.experimentmanagement.experimentation.DefaultExperimentationManager;
-import com.hotvect.onlineutils.experimentmanagement.httpclient.ExperimentManagementServiceClient;
+import com.google.common.reflect.TypeToken;
+import com.hotvect.api.algorithms.Ranker;
+import com.hotvect.api.data.featurestore.FeatureStore;
+import com.hotvect.onlineutils.serving.HotvectServingRuntime;
+import com.hotvect.onlineutils.serving.ServingSlot;
 import java.net.URI;
+import java.nio.file.Path;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.Set;
 
-var emsClient = new ExperimentManagementServiceClient(
-        URI.create("https://experiments.example.com"),
-        Duration.ofSeconds(5),
-        Duration.ofSeconds(10),
-        tokenProvider::currentToken);
-
-var experimentationManager = new DefaultExperimentationManager(
-        algorithmRepository,
-        Duration.ofMinutes(5),
-        emsClient,
-        Set.of("example-slot"));
+HotvectServingRuntime runtime = HotvectServingRuntime.builder()
+        .ems(URI.create("https://experiments.example.com"))
+        .slot(ServingSlot.builder(
+                        "pdp-ranking",
+                        new TypeToken<Ranker<PdpShared, Article>>() {})
+                .touchpoints(Set.of("pdp"))
+                .build())
+        .slot(ServingSlot.builder(
+                        "catalog",
+                        new TypeToken<Ranker<CatalogShared, Article>>() {})
+                .touchpoints(Set.of("catalog"))
+                .build())
+        .scratchDirectory(Path.of("/var/run/application/hotvect-scratch"))
+        .localStateRoot(Path.of("/var/lib/application/hotvect-state"))
+        .refreshPeriod(Duration.ofMinutes(5))
+        .tokenSupplier(tokenProvider::currentToken)
+        .dependency("feature-store", FeatureStore.class, applicationFeatureStore)
+        .build();
 ```
 
-One manager may own several configured slots. It shares the repository and EMS client while maintaining a separate
-refresher and immutable snapshot for each slot.
+`build()` completes the initial slot reads and algorithm downloads before it returns. The optional named dependencies
+are application-owned and remain open when the runtime closes. `dependency(...)` always receives the dependency's
+contract: use a `Class` for a non-generic interface such as `FeatureStore`, or a concrete `TypeToken` when the
+interface carries type arguments. `localStateRoot(...)` is optional; without it Hotvect uses
+`scratchDirectory(...)/algorithm-state`. Scratch files remain under `scratchDirectory(...)`.
 
-## 6. Load initial state before accepting traffic
+## Invoke and log
+
+Invoke each configured application touchpoint locally with the request's stable assignment key:
 
 ```java
-experimentationManager.startAsync().awaitRunning();
+import com.hotvect.api.algorithms.Ranker;
+import com.hotvect.api.data.ranking.RankingResponse;
+import com.hotvect.onlineutils.serving.AlgorithmExecution;
+import com.hotvect.onlineutils.serving.AlgorithmSelection;
+
+AlgorithmExecution<RankingResponse<Article>> execution = runtime.invoke(
+        "pdp",
+        assignmentKey,
+        request);
+
+RankingResponse<Article> response = execution.result();
+AlgorithmSelection selection = execution.selection();
 ```
 
-Startup reads every configured slot and resolves all algorithms referenced by its default variant and active
-experiments. The manager reaches `RUNNING` only after all initial snapshots are complete.
+The runtime selects and invokes the algorithm while keeping its immutable generation reachable for the complete call.
+The algorithm is never returned as a caller-owned handle. The application publishes its own event schema;
+`AlgorithmSelection` supplies the root slot, variant assignments, and algorithm identity.
+Invocation uses immutable in-memory snapshots, so this path does not call EMS or artifact storage.
 
-If the EMS call, artifact download, identity validation, dependency binding, or algorithm construction fails, startup
-fails. Do not mark the application ready without a serving snapshot unless the application has an explicit independent
-mode that does not use those slots.
+The general `TopKRequest` overload returns `TopKResponse` for both `TopK` and `ThemedTopK` touchpoints. Applications can
+pattern-match that response, or call `invokeThemedTopK(...)` for a statically typed `ThemedTopKResponse`; the latter
+rejects a plain `TopK` touchpoint.
 
-When several slots are configured, startup and explicit `refreshAllNow()` process them sequentially. There is no global
-atomic swap across slots.
+## Monitor the active generation
 
-## 7. Assign and execute locally
-
-For each application request, supply the slot and the stable assignment key chosen for that product surface:
+A refresh that fails, or that returns a candidate violating a declared slot contract, is rejected and the previous
+complete generation keeps serving. This is deliberate: a bad EMS state never partially replaces the live graph. The
+cost is that the runtime can serve a frozen generation indefinitely while every request still succeeds.
 
 ```java
-import com.hotvect.onlineutils.experimentmanagement.models.VariantConfiguration;
+ServingRuntimeStatus status = runtime.status();
 
-VariantConfiguration selected = experimentationManager.assignVariant(
-        "example-slot",
-        assignmentKey);
-
-int variantId = selected.variant().variantId();
-var algorithmInstance = selected.algorithmInstance();
-var algorithm = algorithmInstance.algorithm();
+Duration activationAge = Duration.between(status.activatedAt(), Instant.now());
+ServingRefreshFailure failure = status.lastFailure();
 ```
 
-The assignment reads only the current in-memory snapshot. It applies explicit user assignment, shard selection,
-experiment and variant allocation, and ramp-up rules locally.
+`status.generation()` and `status.activatedAt()` identify the locally active graph; `activationAge` is the signal to
+alert on. `lastFailure()` reports the latest rejected complete candidate without exposing classloader, artifact, or
+graph internals. Call `runtime.refreshNow()` only when an operator explicitly needs a complete refresh; it never
+refreshes one slot in isolation.
 
-Cast and call the selected algorithm through the typed contract expected by the containing application. Include the
-variant, algorithm, and parameter identities in request attribution and observability so an online decision can be
-connected to its release and experiment.
-
-Keep a strong reference to the selected `AlgorithmInstance` for as long as its algorithm is used. Do not close a
-repository-returned instance per request.
-
-## 8. Expose refresh health
-
-Later refreshes preserve the last successfully installed snapshot when an EMS read or artifact resolution fails. The
-application should expose at least:
-
-- the update time of the current snapshot for each slot;
-- the last refresh failure time and cause;
-- the selected default and active runtime identities;
-- artifact scratch and local-state capacity;
-- whether the initial refresh completed.
-
-`DefaultExperimentationManager` exposes the current snapshot but not structured last-failure details through its public
-manager interface. Its per-slot refresher logs background failures. If the application requires exact last-failure data
-on a health endpoint, make that an explicit part of its refresher integration rather than claiming the default manager
-already exposes it.
-
-Define a staleness threshold and decide how it affects readiness, alerts, and traffic. Continuing with the last known
-snapshot is not the same as a successful refresh and should remain observable.
-
-## 9. Shut down in ownership order
-
-```java
-experimentationManager.close();
-emsClient.close();
-downloadClient.close();
-s3Client.close();
-```
-
-Stop the manager before closing clients it may use during refresh. Close application-owned dependency bindings according
-to their own lifecycle.
+The local activation boundary does not make EMS reads transactional: the runtime reads EMS slots independently while
+constructing the candidate, then either publishes that entire candidate in this JVM or retains the previous one.
 
 ## Verification checklist
 
-Before enabling traffic, verify:
-
-- the application depends on `hotvect-online-util`, not the EMS server;
-- each configured slot performs a successful initial refresh;
-- both default and active experiment artifacts load with strict version validation;
-- the application can read every registered artifact path;
-- assignment is stable for a fixed key and changes only under the expected control-plane rules;
-- request execution performs no EMS or artifact-store network call;
-- refresh failures retain the previous snapshot and are visible in health and alerts;
-- application-provided dependencies are exercised in an integration test;
-- shutdown stops refreshers before closing clients.
-
-Continue with [Online runtime integration](../../architecture/online-runtime/index.md) for loading and
-class ownership details.
+- every public touchpoint maps to exactly one declared slot;
+- each slot declares the complete algorithm invocation type;
+- the initial build loads default and active experiment artifacts before readiness;
+- invocation for a fixed assignment key is stable and performs no control-plane call;
+- runtime generation and activation age are monitored and alert before a frozen generation reaches production impact;
+- the application event includes the selected identities;
+- shutdown closes the runtime before application-owned dependencies close.

@@ -36,9 +36,9 @@ An **algorithm record** identifies a named, versioned algorithm JAR and its immu
 **algorithm-parameter record** identifies a parameter package and its immutable location. Multiple parameter versions
 can belong to one algorithm version.
 
-The active slot response resolves each variant to its algorithm and the latest registered parameter record for that
-algorithm version. Consequently, every algorithm used by a slot must have a registered parameter record, including an
-explicit package for algorithms that do not learn a model.
+For an algorithm whose parameter mode is `REQUIRED`, the active slot response resolves each variant to its algorithm
+and the latest registered parameter record for that algorithm version. A parameterless algorithm has parameter mode
+`NONE` and omits both parameter fields.
 
 A variant does not pin a parameter ID. Registering a newer parameter therefore changes the runtime resolved for every
 variant using that algorithm version after clients refresh. See
@@ -90,9 +90,8 @@ shard history so operators can reconstruct how allocation changed over time.
 
 ## Salts and forced assignments
 
-The active **slot salt** participates in every deterministic assignment hash. Refreshing it intentionally redistributes
-non-forced traffic across shards, variants, and ramp-up buckets. Salt refresh is therefore an operational event and can
-be disabled by deployment configuration.
+The active **slot salt** participates in every deterministic assignment hash. Changing it redistributes non-forced
+traffic across shards, variants, and ramp-up buckets. EMS disables salt refresh by default.
 
 A **user forced assignment** maps one stable assignment key to a variant in the slot. It has precedence over normal
 shard, allocation, and ramp-up rules and is intended for explicit verification or tightly controlled operational use.

@@ -82,7 +82,7 @@ A comprehensive CLI suite for evaluating and comparing model performance:
 ### Release QA (`hv qa`)
 `hv qa` automates objective-driven control-versus-treatment validation for agentic engineering loops:
 - `hv qa candidate start`, `hv qa candidate resume`, and `hv qa candidate status`: Manage staged QA runs.
-- `hv qa candidate start --prod-default-of-slot-as-control <slot>`: Resolve the current `hv ems` prod default once at start
+- `hv qa candidate start --prod-default-of-slot-as-control <slot>`: Resolve the current `hv exp` prod default once at start
   time and freeze it into the QA run.
 - `hv qa evaluate`: Judge an existing proof directory using the `<proof-dir>/<dt>/control/result.json` and
   `<proof-dir>/<dt>/treatment/result.json` convention; it requires at least two paired dates.

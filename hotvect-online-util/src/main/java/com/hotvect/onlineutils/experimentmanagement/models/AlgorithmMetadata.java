@@ -10,14 +10,15 @@ public record AlgorithmMetadata(
         String absoluteS3AlgorithmJarPath,
         String absoluteS3AlgorithmParameterPath) {
     public AlgorithmMetadata {
-        if ((latestAlgorithmParameter == null) != (absoluteS3AlgorithmParameterPath == null)) {
-            throw new IllegalArgumentException(
-                    "Algorithm parameter ID and path must either both be present or both be absent");
+        if (latestAlgorithmParameter != null && latestAlgorithmParameter.isBlank()) {
+            throw new IllegalArgumentException("Algorithm parameter ID must be nonblank when present");
         }
-        if (latestAlgorithmParameter != null
-                && (latestAlgorithmParameter.isBlank() || absoluteS3AlgorithmParameterPath.isBlank())) {
+        if (absoluteS3AlgorithmParameterPath != null && absoluteS3AlgorithmParameterPath.isBlank()) {
+            throw new IllegalArgumentException("Algorithm parameter path must be nonblank when present");
+        }
+        if (latestAlgorithmParameter != null && absoluteS3AlgorithmParameterPath == null) {
             throw new IllegalArgumentException(
-                    "Algorithm parameter ID and path must be nonblank when present");
+                    "Algorithm parameter ID requires an algorithm parameter path");
         }
     }
 
@@ -30,13 +31,22 @@ public record AlgorithmMetadata(
     }
 
     public String latestAlgorithmParameterFileName() {
-        if (!hasParameter()) {
-            throw new IllegalStateException("Parameterless algorithm has no parameter archive");
-        }
         return Path.of(absoluteS3AlgorithmParameterPath).getFileName().toString();
     }
 
     public boolean hasParameter() {
-        return latestAlgorithmParameter != null;
+        return absoluteS3AlgorithmParameterPath != null;
+    }
+
+    public AlgorithmMetadata withParameterId(String parameterId) {
+        if (!hasParameter()) {
+            throw new IllegalStateException("Cannot set a parameter ID without a parameter path");
+        }
+        return new AlgorithmMetadata(
+                algorithmName,
+                algorithmVersion,
+                parameterId,
+                absoluteS3AlgorithmJarPath,
+                absoluteS3AlgorithmParameterPath);
     }
 }

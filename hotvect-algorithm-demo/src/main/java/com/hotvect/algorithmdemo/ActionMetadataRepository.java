@@ -2,10 +2,9 @@ package com.hotvect.algorithmdemo;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.hotvect.algorithmserver.ActionMetadataLookup;
-import com.hotvect.algorithmserver.ActionMetadataLookup.ActionMetadata;
-import com.hotvect.algorithmserver.ContractViolationException;
-import com.hotvect.algorithmserver.JsonFieldSupport;
+import com.hotvect.algorithmdemo.ActionMetadataLookup.ActionMetadata;
+import com.hotvect.serve.ContractViolationException;
+import com.hotvect.serve.JsonFieldSupport;
 import com.google.common.collect.Iterables;
 import org.sqlite.SQLiteDataSource;
 

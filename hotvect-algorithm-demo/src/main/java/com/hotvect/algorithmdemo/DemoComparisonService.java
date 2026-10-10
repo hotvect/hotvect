@@ -1,17 +1,12 @@
 package com.hotvect.algorithmdemo;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import com.hotvect.algorithmserver.ActionMetadataLookup;
-import com.hotvect.algorithmserver.ActionMetadataJsonSupport;
-import com.hotvect.algorithmserver.AlgorithmServerApp;
-import com.hotvect.algorithmserver.ContractViolationException;
-import com.hotvect.algorithmserver.DecodedOnlineCandidate;
-import com.hotvect.algorithmserver.JsonFieldSupport;
-import com.hotvect.algorithmserver.JsonInStringSupport;
+import com.hotvect.serve.ServeApplication;
+import com.hotvect.serve.ContractViolationException;
+import com.hotvect.serve.JsonFieldSupport;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -25,15 +20,20 @@ import java.util.Set;
 final class DemoComparisonService {
     private static final ObjectMapper OM = new ObjectMapper();
 
-    private final AlgorithmServerApp app;
+    private final ServeApplication app;
     private final ActionMetadataRepository actionMetadata;
+    private final OfflineExampleExecutor offlineExamples;
 
-    DemoComparisonService(AlgorithmServerApp app, ActionMetadataRepository actionMetadata) {
+    DemoComparisonService(
+            ServeApplication app,
+            ActionMetadataRepository actionMetadata,
+            OfflineExampleExecutor offlineExamples) {
         this.app = Objects.requireNonNull(app);
         this.actionMetadata = Objects.requireNonNull(actionMetadata);
+        this.offlineExamples = Objects.requireNonNull(offlineExamples);
     }
 
-    ExampleViewData exampleViewData(ObjectNode exampleNode) throws JsonProcessingException {
+    ExampleViewData exampleViewData(ObjectNode exampleNode) throws Exception {
         Objects.requireNonNull(exampleNode);
         List<ViewDefinition> algorithmViews = algorithmViews();
         List<OnlineCandidate> onlineCandidates = buildOnlineCandidates(exampleNode, referenceOnlineRuntime(algorithmViews));
@@ -45,7 +45,7 @@ final class DemoComparisonService {
                 defaultViewIds(views));
     }
 
-    ArrayNode comparisonViewDefinitions(ObjectNode exampleNode) throws JsonProcessingException {
+    ArrayNode comparisonViewDefinitions(ObjectNode exampleNode) throws Exception {
         return exampleViewData(exampleNode).views();
     }
 
@@ -53,7 +53,6 @@ final class DemoComparisonService {
             ObjectNode exampleNode,
             ExamplesRepository.ExampleRecord exampleRecord,
             List<String> requestedViewIds) throws Exception {
-        JsonInStringSupport.collapseVirtualJsonFields(exampleNode);
         String expectedExampleId = JsonFieldSupport.nonEmptyStringField(exampleNode, "example_id").orElse(null);
 
         List<ViewDefinition> algorithmViews = algorithmViews();
@@ -86,9 +85,11 @@ final class DemoComparisonService {
     }
 
     ObjectNode projectResponse(ObjectNode exampleNode, String algorithmRuntimeIdOrNull) throws Exception {
-        JsonInStringSupport.collapseVirtualJsonFields(exampleNode);
         String expectedExampleId = JsonFieldSupport.nonEmptyStringField(exampleNode, "example_id").orElse(null);
-        ObjectNode run = app.runExample(exampleNode, expectedExampleId, algorithmRuntimeIdOrNull);
+        ObjectNode run = offlineExamples.runExample(
+                exampleNode,
+                expectedExampleId,
+                algorithmRuntimeIdOrNull);
         fillDecisionMetadataFallbacks(run);
         return demoResponseFromRun(run, exampleNode);
     }
@@ -207,8 +208,10 @@ final class DemoComparisonService {
         return List.copyOf(views);
     }
 
-    private List<OnlineCandidate> buildOnlineCandidates(ObjectNode exampleNode, ViewDefinition runtime) throws JsonProcessingException {
-        List<DecodedOnlineCandidate> decoded = app.decodeOnlineCandidates(
+    private List<OnlineCandidate> buildOnlineCandidates(
+            ObjectNode exampleNode,
+            ViewDefinition runtime) throws Exception {
+        List<DecodedOnlineCandidate> decoded = offlineExamples.decodeOnlineCandidates(
                 OM.writeValueAsString(exampleNode),
                 runtime == null ? null : runtime.selectionAlgorithmRuntimeIdOrNull());
         return onlineCandidatesFromDecoded(decoded);
@@ -228,10 +231,16 @@ final class DemoComparisonService {
             throw new ContractViolationException("Unknown view_id", viewId);
         }
         if ("online".equals(view.kind())) {
-            app.runExample(exampleNode, expectedExampleId, view.selectionAlgorithmRuntimeIdOrNull());
+            offlineExamples.runExample(
+                    exampleNode,
+                    expectedExampleId,
+                    view.selectionAlgorithmRuntimeIdOrNull());
             return onlineRun(view, onlineCandidates);
         }
-        ObjectNode response = app.runExample(exampleNode, expectedExampleId, view.selectionAlgorithmRuntimeIdOrNull());
+        ObjectNode response = offlineExamples.runExample(
+                exampleNode,
+                expectedExampleId,
+                view.selectionAlgorithmRuntimeIdOrNull());
         fillDecisionMetadataFallbacks(response);
         response.put("view_id", view.viewId());
         response.put("kind", "algorithm");

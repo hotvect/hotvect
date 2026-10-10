@@ -20,14 +20,13 @@ depends on class ownership and the exact API and artifact path in use. There is 
 See [Version compatibility](../version-compatibility/index.md) and validate the smallest command that exercises your
 required path.
 
-### What is the difference between `hv`, `hv-ext`, and `hv-exp`?
+### What is the difference between `hv` and `hv-ext`?
 
-- `hv` is the canonical human CLI: use `hv algorithm ...`, `hv qa ...`, `hv ems ...`, `hv docs ...`, `hv config ...`, and its metrics, results, comparison, conversion, and data-dependency commands.
+- `hv` is the canonical human CLI: use `hv algorithm ...`, `hv qa ...`, `hv exp ...`, `hv docs ...`, `hv config ...`, and its metrics, results, comparison, conversion, and data-dependency commands.
 - `hv-ext compare-jsonl` and `hv-ext catboost-convert` are retained low-level extension commands. Other `hv-ext`
   commands remain available temporarily but print a warning with their canonical `hv` replacement.
-- `hv-exp` remains available temporarily and prints a warning to use the read-only `hv ems ...` surface.
 
-All are installed with the Hotvect Python package. Use `hv --help` on the installed checkout for the canonical command
+Both are installed with the Hotvect Python package. Use `hv --help` on the installed checkout for the canonical command
 tree.
 
 ### Does `hv algorithm backtest` need `~/.hotvect/config.json` when I pass every directory flag?

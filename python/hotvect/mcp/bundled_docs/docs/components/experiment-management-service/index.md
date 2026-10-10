@@ -77,7 +77,8 @@ Those boundaries keep the control plane independent of the latency-sensitive req
 
 ## Server source and deployment
 
-The Spring Boot server implementation stays in the EMS server repository.
+The Spring Boot server implementation stays in the
+EMS server repository.
 That repository contains the persistence model, Flyway migrations, repositories, services, controllers, security,
 OpenAPI generation, executable server JAR, container definition, and delivery configuration.
 
@@ -183,6 +184,13 @@ Coordinate upgrades across:
 
 Deploy the server before requiring a newly introduced API from clients. Preserve existing runtime read
 contracts unless the client rollout is explicitly coordinated.
+
+The released EMS active-slot response contains one required `algorithm` object per variant. It does not include
+slot roles or plural algorithm selections. A parameterless algorithm omits both its parameter ID and parameter path.
+Multi-algorithm slot selection belongs to Stage 3 and is not represented by this contract.
+
+Deploy EMS before Hotvect clients that require this released contract. The change is intentionally not a dual-shape
+reader rollout: an incompatible response is rejected rather than normalized.
 
 ## Operational checks
 
