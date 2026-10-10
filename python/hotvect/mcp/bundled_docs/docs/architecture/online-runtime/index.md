@@ -126,8 +126,8 @@ ramp-up rules. The result selects an exact algorithm identity and, for parameter
 it does not change the loading contract described above.
 
 The configured EMS endpoint is deployed from the standalone EMS repository. A serving application depends on
-`hotvect-online-util`, not the server. `hv exp` is the read-only inspection CLI; the containing application exercises
-the client path in its own integration tests and deployments.
+`hotvect-online-util`, not the server. `hv exp` provides inspection and typed control-plane mutations with EMS
+approval; the containing application exercises the runtime client path in its own integration tests and deployments.
 
 Read [EMS runtime client, refresh, and assignment](../../components/ems-runtime-client/index.md) for this component,
 [EMS control plane](../../components/experiment-management-service/index.md) for the server boundary, or

@@ -6,8 +6,7 @@ import java.util.concurrent.ForkJoinPool;
 import java.util.function.Consumer;
 
 /**
- * Spliterator that emits list subranges as batches and splits until the remaining size is
- * below {@code batchSize}.
+ * Spliterator that emits list subranges as batches and splits at batch boundaries.
  */
 public final class ListBatchingSpliterator<T> implements Spliterator<List<T>> {
     private static final int MIN_BATCH_SIZE = 4;
@@ -23,6 +22,17 @@ public final class ListBatchingSpliterator<T> implements Spliterator<List<T>> {
         this(source, 0, source.size());
     }
 
+    public ListBatchingSpliterator(List<T> source, int batchSize) {
+        this(source, 0, source.size(), validateBatchSize(batchSize));
+    }
+
+    private ListBatchingSpliterator(List<T> source, int origin, int fence, int batchSize) {
+        this.source = source;
+        this.index = origin;
+        this.fence = fence;
+        this.batchSize = batchSize;
+    }
+
     private ListBatchingSpliterator(List<T> source, int origin, int fence) {
         this.source = source;
         this.index = origin;
@@ -33,7 +43,7 @@ public final class ListBatchingSpliterator<T> implements Spliterator<List<T>> {
     @Override
     public void forEachRemaining(Consumer<? super List<T>> action) {
         while (index < fence) {
-            int end = Math.min(index + batchSize, fence);
+            int end = index + Math.min(batchSize, fence - index);
             action.accept(source.subList(index, end));
             index = end;
         }
@@ -42,26 +52,32 @@ public final class ListBatchingSpliterator<T> implements Spliterator<List<T>> {
     @Override
     public boolean tryAdvance(Consumer<? super List<T>> action) {
         if (index >= fence) return false;
-        
-        int end = Math.min(index + batchSize, fence);
+
+        int end = index + Math.min(batchSize, fence - index);
         action.accept(source.subList(index, end));
         index = end;
-        
+
         return true;
     }
 
     @Override
     public Spliterator<List<T>> trySplit() {
         int remaining = fence - index;
-        if (remaining <= batchSize) return null;
-        
-        int lo = index, mid = (lo + fence) >>> 1;
-        return (lo >= mid) ? null : new ListBatchingSpliterator<>(source, lo, index = mid);
+        long remainingBatches = estimateSize();
+        if (remainingBatches <= 1) return null;
+
+        long prefixBatchCount = remainingBatches / 2;
+        int prefixSize = (int) Math.min(remaining, prefixBatchCount * batchSize);
+        int splitIndex = index + prefixSize;
+        int origin = index;
+        index = splitIndex;
+        return new ListBatchingSpliterator<>(source, origin, splitIndex, batchSize);
     }
 
     @Override
     public long estimateSize() {
-        return (fence - index + batchSize - 1) / batchSize;
+        int remaining = fence - index;
+        return remaining / batchSize + (remaining % batchSize == 0 ? 0 : 1);
     }
 
     @Override
@@ -74,9 +90,16 @@ public final class ListBatchingSpliterator<T> implements Spliterator<List<T>> {
 
         int targetBatchCount = parallelism * BATCHES_PER_THREAD;
 
-        int batchSize = (listSize + targetBatchCount - 1) / targetBatchCount;
+        int batchSize = listSize / targetBatchCount + (listSize % targetBatchCount == 0 ? 0 : 1);
         if (batchSize < MIN_BATCH_SIZE) return MIN_BATCH_SIZE;
 
         return Math.min(batchSize, MAX_BATCH_SIZE);
+    }
+
+    private static int validateBatchSize(int batchSize) {
+        if (batchSize <= 0) {
+            throw new IllegalArgumentException("batchSize must be positive");
+        }
+        return batchSize;
     }
 }

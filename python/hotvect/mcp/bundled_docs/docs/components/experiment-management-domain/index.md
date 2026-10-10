@@ -90,9 +90,8 @@ shard history so operators can reconstruct how allocation changed over time.
 
 ## Salts and forced assignments
 
-The active **slot salt** participates in every deterministic assignment hash. Refreshing it intentionally redistributes
-non-forced traffic across shards, variants, and ramp-up buckets. Salt refresh is therefore an operational event and can
-be disabled by deployment configuration.
+The active **slot salt** participates in every deterministic assignment hash. Changing it redistributes non-forced
+traffic across shards, variants, and ramp-up buckets. EMS disables salt refresh by default.
 
 A **user forced assignment** maps one stable assignment key to a variant in the slot. It has precedence over normal
 shard, allocation, and ramp-up rules and is intended for explicit verification or tightly controlled operational use.

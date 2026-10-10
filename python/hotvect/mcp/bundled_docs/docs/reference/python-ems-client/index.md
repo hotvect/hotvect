@@ -7,9 +7,11 @@ tags: [reference, python, ems, experimentation]
 # Python EMS client
 
 `hotvect.experiment_management` provides a synchronous typed client for a configured Experiment Management Service
-(EMS) endpoint. Its models and internal operation surface are generated bindings; it is not an EMS release artifact or
+(EMS) endpoint. Its models and internal operation surface are generated bindings for the
+[EMS server API](../ems-server-api/index.md); it is not an EMS release artifact or
 server. Every variant has one required `algorithm`; plural algorithm selections and slot roles are not part of this
-contract. Missing and unknown response fields are rejected.
+contract. Missing required fields and malformed known fields are rejected. Additional response fields are ignored,
+including fields in nested objects, so additive EMS changes do not require a client upgrade.
 
 ## Create a client
 
@@ -45,12 +47,27 @@ methods to generated internals. Requests raise the normal `requests` HTTP except
 | Variants and assignment history | `get_variants`, `get_variant`, `get_active_variants`, `get_variant_algorithm_logs`, `get_user_forced_assignments`, `get_user_forced_assignment` |
 | Shards | `get_shards`, `get_shard`, `get_shard_logs` |
 
-`hv exp` exposes the inspection subset as JSON and additionally handles configured online-result partitions. Prefer it
-for shell workflows so a read task cannot accidentally call a mutation method.
+`hv exp` exposes inspection as JSON, handles configured online-result partitions, and provides typed mutation
+commands with an EMS approval workflow. Prefer those commands for operator shell workflows.
+
+`get_algorithm(name, version)` returns `AlgorithmWithLatestParameter`. Its `latest_algorithm_parameter` field is
+always present: either an `AlgorithmParameterSummary` containing `algorithm_parameter_id` and
+`absolute_s3_algorithm_parameter_path`, or `None`. `parameter_mode` distinguishes an untrained `REQUIRED` algorithm
+from a `NONE` algorithm. Use `get_latest_algorithm_parameter` when the full parameter record is needed; it returns
+`None` for `NONE` algorithms and raises an HTTP error when a `REQUIRED` algorithm has no parameter yet.
+
+This contract requires a compatible EMS release that serves the registration responses described above.
+Existing EMS clients retain the single-algorithm response shape; algorithm writers still need the coordinated
+parameter-mode migration described in the EMS server release notes.
 
 ## Mutation surface
 
-These calls change configured control-plane state:
+These calls change configured control-plane state. The library methods send native requests and propagate EMS errors,
+including `428 Precondition Required`; they do not register or replay approval requests. Use the
+[`hv exp` approval workflow](../../guides/ems-dual-approval/index.md) to request and inspect protected writes, then
+review and apply them in EMS UI.
+Its operator inputs follow the defaults and constraints of the EMS release that supports dual approval, while these generated library models remain pinned to the
+released contract described above.
 
 | Change | Methods |
 | --- | --- |
@@ -78,6 +95,17 @@ Use the canonical generated request models: `AlgorithmCreate`, `AlgorithmParamet
 `ExperimentVariantInput`, `AlgorithmPatch`, `ChangeRampUpPercentageInput`, `UserForcedAssignmentInput`, and
 `VariantUpdateAlgorithmInput`. Construct a model
 explicitly so Pydantic validates it against the pinned EMS schema before it reaches EMS.
+
+Models used only for requests reject unknown fields. Models also used for responses, such as `AlgorithmParameter`
+and its nested `Algorithm`, ignore additional fields. Ignored fields are not retained or sent back to EMS.
+For example, the `last_test_time` field added in a later EMS release is accepted in responses but is not used or written by
+this client version.
+
+`AlgorithmParameter.algorithm` contains the plain `Algorithm` fields. When starting from `get_algorithm`, construct
+that value with `Algorithm.model_validate(result.model_dump(exclude={"latest_algorithm_parameter"}))`.
+The SageMaker training entrypoint performs this projection before registering a trained parameter and validates
+the saved `AlgorithmParameter` returned by EMS. Generated operations serialize request models in JSON mode,
+including timestamp fields from the GET response.
 
 Mutation-specific values remain inside their generated request models:
 
@@ -126,7 +154,8 @@ proof of state.
 - The client does not publish JAR or parameter ZIP bytes.
 - It does not perform Java runtime assignment; the serving runtime consumes the slot snapshot and assigns locally.
 - It does not add retry or traffic policy around requests.
-- `hv exp` is intentionally read-only even though this library also exposes mutation methods.
+- `hv exp` provides typed mutations and a server-stored approval workflow; native library mutation methods leave
+  approval handling to their caller.
 
 See [Configuration and experimentation](../../concepts/configuration-and-experimentation/index.md),
 [`hv exp`](../cli/index.md#hv-exp), and

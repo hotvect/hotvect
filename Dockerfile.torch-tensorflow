@@ -3,4 +3,9 @@ ARG HOTVECT_BASE_IMAGE=hotvect:latest
 FROM ${HOTVECT_BASE_IMAGE}
 
 # Install TensorFlow into the torch image (keeps torch deps intact).
-RUN uv pip install -p /opt/hotvect/.venv/bin/python "tensorflow==2.16.2"
+# The base image includes OpenTelemetry packages which require protobuf < 6.
+# Constrain protobuf here because this independent overlay resolution otherwise
+# selects protobuf 7, which makes the resulting environment inconsistent.
+RUN uv pip install -p /opt/hotvect/.venv/bin/python \
+    "tensorflow==2.20.0" "tensorboard==2.20.0" "protobuf>=5,<6" \
+    && uv pip check -p /opt/hotvect/.venv/bin/python

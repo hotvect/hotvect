@@ -49,9 +49,9 @@ Hotvect distinguishes five values:
 Parameterless algorithms use `NA` as the parameter component of `ParameterizedAlgorithmId`.
 
 Direct `AlgorithmInstanceFactory` use and the EMS serving runtime can both load a parameterless algorithm without a
-parameter package. EMS expresses that selection by omitting both the parameter ID and parameter path. The current local
-`hv algorithm serve` command still requires a parameter path. The Python lifecycle normally packages a
-predict-parameters ZIP for every non-state pipeline, including a parameterless algorithm.
+parameter source. EMS expresses that selection by omitting both the parameter ID and parameter path. The current local
+`hv algorithm serve` command still requires a parameter path. The Python lifecycle assembles a local parameter source
+for each pipeline and materializes a ZIP only for the `parameters` target, cache persistence, or publication.
 
 Do not confuse the Hotvect framework version with the algorithm version. The framework version identifies the APIs,
 runner, and Python tooling; the algorithm version identifies one algorithm-package line.

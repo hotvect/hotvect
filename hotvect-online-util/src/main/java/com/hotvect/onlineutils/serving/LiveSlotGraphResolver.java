@@ -74,15 +74,33 @@ final class LiveSlotGraphResolver extends AbstractScheduledService implements Au
             String assignmentKey,
             Function<? super ALGORITHM, ? extends RESULT> invocation) {
         try (RetainedResource.Lease<ServingSnapshot> lease = acquireSnapshot()) {
-            ServingSnapshot snapshot = lease.resource();
-            PreparedComposition selected = snapshot.select(rootSlot.name(), assignmentKey);
-            AlgorithmRepository.CachedAlgorithmGraph rootGraph = selected.rootGraph();
-            AlgorithmSelection selection = AlgorithmSelection.from(rootSlot.name(), selected);
-            @SuppressWarnings("unchecked")
-            ALGORITHM algorithm = (ALGORITHM) rootGraph.instance().algorithm();
-            RESULT result = invocation.apply(algorithm);
-            return new AlgorithmExecution<>(result, selection);
+            return invokeSelected(rootSlot, lease.resource().select(rootSlot.name(), assignmentKey), invocation);
         }
+    }
+
+    <ALGORITHM extends Algorithm, RESULT> AlgorithmExecution<RESULT> invokeVariant(
+            ServingSlot rootSlot,
+            String assignmentKey,
+            String rootVariantId,
+            Function<? super ALGORITHM, ? extends RESULT> invocation) {
+        try (RetainedResource.Lease<ServingSnapshot> lease = acquireSnapshot()) {
+            return invokeSelected(
+                    rootSlot,
+                    lease.resource().selectForcedRootVariant(rootSlot.name(), assignmentKey, rootVariantId),
+                    invocation);
+        }
+    }
+
+    private static <ALGORITHM extends Algorithm, RESULT> AlgorithmExecution<RESULT> invokeSelected(
+            ServingSlot rootSlot,
+            PreparedComposition selected,
+            Function<? super ALGORITHM, ? extends RESULT> invocation) {
+        AlgorithmRepository.CachedAlgorithmGraph rootGraph = selected.rootGraph();
+        AlgorithmSelection selection = AlgorithmSelection.from(rootSlot.name(), selected);
+        @SuppressWarnings("unchecked")
+        ALGORITHM algorithm = (ALGORITHM) rootGraph.instance().algorithm();
+        RESULT result = invocation.apply(algorithm);
+        return new AlgorithmExecution<>(result, selection);
     }
 
     ServingRuntimeStatus status() {

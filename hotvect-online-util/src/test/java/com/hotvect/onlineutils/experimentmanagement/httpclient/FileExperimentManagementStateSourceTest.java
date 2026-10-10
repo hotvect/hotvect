@@ -16,22 +16,24 @@ class FileExperimentManagementStateSourceTest {
     Path tempDir;
 
     @Test
-    void readsExactActiveSlotPayloadsFromOneImmutableDocument() throws Exception {
+    void readsActiveSlotPayloadsWithAdditionalFieldsFromOneImmutableDocument() throws Exception {
         Path state = tempDir.resolve("ems-state.json");
         Files.writeString(state, """
                 {
                   "slots": {
                     "product-ranking": {
+                      "future_slot_field": true,
                       "slot_salt": "ranking-salt",
                       "total_number_of_shards": 100,
                       "default_variant": {
                         "variant_id": 1,
                         "algorithm": {
+                          "future_algorithm_field": {"value": 1},
                           "algorithm_name": "default-ranker",
                           "algorithm_version": "1.0.0",
                           "absolute_s3_algorithm_jar_path": "file:///tmp/default-ranker.jar"
                         },
-                        "created_at": "2026-04-11T10:15:30Z",
+                        "created_at": "2000-04-11T10:15:30Z",
                         "is_default": true
                       },
                       "experiments": [{
@@ -46,12 +48,12 @@ class FileExperimentManagementStateSourceTest {
                             "absolute_s3_algorithm_jar_path": "file:///tmp/treatment-ranker.jar",
                             "absolute_s3_algorithm_parameter_path": "file:///tmp/parameter-2.zip"
                           },
-                          "created_at": "2026-04-11T10:15:30Z",
+                          "created_at": "2000-04-11T10:15:30Z",
                           "shard_allocation_ratio": 100
                         }],
                         "ramp_up_percentage": 50,
-                        "shards": [{"shard_id": 1, "created_at": "2026-04-11T10:15:30Z"}],
-                        "created_at": "2026-04-11T10:15:30Z"
+                        "shards": [{"shard_id": 1, "created_at": "2000-04-11T10:15:30Z"}],
+                        "created_at": "2000-04-11T10:15:30Z"
                       }],
                       "user_forced_assignments": [{"user_id": "forced-user", "variant_id": 2}]
                     }
@@ -60,9 +62,9 @@ class FileExperimentManagementStateSourceTest {
                     "schema_version": 1,
                     "source_uri": "https://ems.example",
                     "requested_root_slot": "product-ranking",
-                    "capture_started_at": "2026-04-11T10:15:00Z",
-                    "capture_completed_at": "2026-04-11T10:16:00Z",
-                    "slot_captured_at": {"product-ranking": "2026-04-11T10:15:30Z"},
+                    "capture_started_at": "2000-04-11T10:15:00Z",
+                    "capture_completed_at": "2000-04-11T10:16:00Z",
+                    "slot_captured_at": {"product-ranking": "2000-04-11T10:15:30Z"},
                     "read_consistency": "independently_fetched_per_slot_non_transactional"
                   }
                 }
@@ -106,9 +108,9 @@ class FileExperimentManagementStateSourceTest {
                     "schema_version": 1,
                     "source_uri": "https://ems.example",
                     "requested_root_slot": "product-ranking",
-                    "capture_started_at": "2026-04-11T10:15:00Z",
-                    "capture_completed_at": "2026-04-11T10:16:00Z",
-                    "slot_captured_at": {"product-ranking": "2026-04-11T10:15:30Z"},
+                    "capture_started_at": "2000-04-11T10:15:00Z",
+                    "capture_completed_at": "2000-04-11T10:16:00Z",
+                    "slot_captured_at": {"product-ranking": "2000-04-11T10:15:30Z"},
                     "read_consistency": "independently_fetched_per_slot_non_transactional"
                   }
                 }
@@ -144,7 +146,7 @@ class FileExperimentManagementStateSourceTest {
                           "algorithm_version": "1.0.0",
                           "absolute_s3_algorithm_jar_path": "file:///tmp/default-ranker.jar"
                         },
-                        "created_at": "2026-04-11T10:15:30Z",
+                        "created_at": "2000-04-11T10:15:30Z",
                         "is_default": true
                       },
                       "experiments": [],

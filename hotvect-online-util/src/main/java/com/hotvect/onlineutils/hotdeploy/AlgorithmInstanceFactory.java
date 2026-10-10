@@ -22,6 +22,7 @@ import com.hotvect.api.execution.ExecutionContext;
 import com.hotvect.api.execution.InputSemantic;
 import com.hotvect.api.transformation.AuditableTransformer;
 import com.hotvect.api.transformation.CompositeTransformerFactory;
+import com.hotvect.onlineutils.hotdeploy.util.AlgorithmParameterSource;
 import com.hotvect.onlineutils.hotdeploy.util.AlgorithmUtils;
 import com.hotvect.onlineutils.hotdeploy.util.MalformedAlgorithmException;
 import com.hotvect.utils.AlgorithmDefinitionOverrideUtils;
@@ -41,7 +42,6 @@ import java.util.Optional;
 import java.util.TreeMap;
 import java.util.function.BiFunction;
 import java.util.function.Supplier;
-import java.util.zip.ZipFile;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -590,8 +590,8 @@ public class AlgorithmInstanceFactory extends HotvectFactory implements AutoClos
             if (parameterFile == null) {
                 return construction.construct(ImmutableMap.of());
             }
-            try (ZipFile file = new ZipFile(parameterFile)) {
-                return construction.construct(AlgorithmUtils.extractParameters(algorithmDefinition.algorithmId(), file));
+            try (AlgorithmParameterSource parameterSource = AlgorithmParameterSource.open(parameterFile)) {
+                return construction.construct(parameterSource.readParameters(algorithmDefinition.algorithmId()));
             }
         } catch (MalformedAlgorithmException error) {
             throw error;

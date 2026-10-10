@@ -9,7 +9,6 @@ from urllib.parse import quote
 from pydantic import BaseModel, TypeAdapter
 
 from .models import (
-    Algorithm,
     AlgorithmCreate,
     AlgorithmParameter,
     AlgorithmPatch,
@@ -50,7 +49,7 @@ class _GeneratedEmsOperations:
         body: BaseModel | None = None,
         params: dict[str, Any] | None = None,
     ) -> Any:
-        payload = body.model_dump(by_alias=True, exclude_none=True) if body is not None else None
+        payload = body.model_dump(mode="json", by_alias=True, exclude_none=True) if body is not None else None
         response = self._send_request(method=method, endpoint=endpoint, params=params, body=payload)
         response.raise_for_status()
         return response.json() if response.text else None
@@ -243,7 +242,7 @@ class _GeneratedEmsOperations:
             "GET",
             f"/algorithms/{quote(str(algorithm_name), safe='')}/{quote(str(algorithm_version), safe='')}",
         )
-        return TypeAdapter(Algorithm).validate_python(payload)
+        return TypeAdapter(AlgorithmWithLatestParameter).validate_python(payload)
 
     def operation_patch(
         self,
@@ -381,6 +380,17 @@ class _GeneratedEmsOperations:
         )
         return TypeAdapter(list[ExperimentRampUpLog]).validate_python(payload)
 
+    def operation_list_by_experiment_id(
+        self,
+        slot_name: str,
+        experiment_id: int,
+    ) -> Any:
+        payload = self._request(
+            "GET",
+            f"/slots/{quote(str(slot_name), safe='')}/experimentRampUpLog/experiments/{quote(str(experiment_id), safe='')}",
+        )
+        return TypeAdapter(list[ExperimentRampUpLog]).validate_python(payload)
+
     def operation_get_default_variant_and_active_experiments(
         self,
         slot_name: str,
@@ -400,6 +410,8 @@ class _GeneratedEmsOperations:
             "GET",
             f"/algorithms/{quote(str(algorithm_name), safe='')}/{quote(str(algorithm_version), safe='')}/latest-algorithm-parameter",
         )
+        if payload is None:
+            return None
         return TypeAdapter(AlgorithmParameter).validate_python(payload)
 
     def operation_list_active_with_variants(

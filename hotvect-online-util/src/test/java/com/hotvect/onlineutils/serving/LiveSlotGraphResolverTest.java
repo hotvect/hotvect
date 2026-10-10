@@ -35,6 +35,7 @@ import com.hotvect.onlineutils.experimentmanagement.models.AlgorithmMetadata;
 import com.hotvect.onlineutils.experimentmanagement.models.Experiment;
 import com.hotvect.onlineutils.experimentmanagement.models.Shard;
 import com.hotvect.onlineutils.experimentmanagement.models.Slot;
+import com.hotvect.onlineutils.experimentmanagement.models.UserForcedAssignment;
 import com.hotvect.onlineutils.experimentmanagement.models.Variant;
 import com.hotvect.onlineutils.hotdeploy.AlgorithmArtifactProvider;
 import com.hotvect.onlineutils.hotdeploy.AlgorithmGraph;
@@ -890,6 +891,86 @@ class LiveSlotGraphResolverTest {
         }
     }
 
+    @Test
+    void requestRootOverrideKeepsEmsAssignmentsAndReportsTheSelectedGraph() throws Exception {
+        ArtifactFixture artifacts = artifacts();
+        Instant createdAt = Instant.parse("2000-01-01T00:00:00Z");
+        Slot root = new Slot(
+                "root-salt",
+                100,
+                new Variant(1, artifacts.root(), createdAt, false, true, 100),
+                List.of(new Experiment(
+                        9,
+                        "targeted-test",
+                        List.of(new Variant(7, artifacts.root(), createdAt, false, false, 100)),
+                        100,
+                        List.of())),
+                List.of(new UserForcedAssignment("customer-1", 7)));
+        Slot policy = new Slot(
+                "policy-salt",
+                100,
+                new Variant(2, artifacts.childA(), createdAt, false, true, 100),
+                List.of(new Experiment(
+                        10,
+                        "policy-test",
+                        List.of(new Variant(3, artifacts.childA(), createdAt, false, false, 100)),
+                        100,
+                        List.of())),
+                List.of(new UserForcedAssignment("customer-1", 3)));
+        MutableEmsClient emsClient = new MutableEmsClient(Map.of(
+                "root-slot", root,
+                "policy-slot", policy));
+        AlgorithmRepository repository = repository(
+                new DefinitionBackedDownloader(tempDir, artifacts.definitions()));
+        LiveSlotGraphResolver resolver = new LiveSlotGraphResolver(
+                Map.of("root-slot", servingSlot("root-slot", "search")),
+                repository,
+                emsClient,
+                Duration.ofMinutes(1));
+
+        try {
+            resolver.refreshNow();
+
+            AlgorithmExecution<Boolean> ordinary = invokeRanker(resolver, "root-slot", "search", "customer-2");
+            AlgorithmExecution<Boolean> emsForced = invokeRanker(resolver, "root-slot", "search", "customer-1");
+            AlgorithmExecution<Boolean> requestForced = resolver.invokeVariant(
+                    servingSlot("root-slot", "search"),
+                    "customer-1",
+                    "1",
+                    (Ranker<String, String> ranker) -> true);
+            AlgorithmExecution<Boolean> treatment = resolver.invokeVariant(
+                    servingSlot("root-slot", "search"),
+                    "customer-2",
+                    "7",
+                    (Ranker<String, String> ranker) -> true);
+
+            assertEquals("1", rootVariantId(ordinary));
+            assertEquals("2", ordinary.selection().assignments().get("policy-slot").variantId());
+            assertEquals("7", rootVariantId(emsForced));
+            assertEquals("3", emsForced.selection().assignments().get("policy-slot").variantId());
+            assertEquals("1", rootVariantId(requestForced));
+            assertEquals(
+                    Map.of(
+                            "root-slot", new SlotAssignment("1", parameterizedAlgorithm("root")),
+                            "policy-slot", new SlotAssignment("3", parameterizedAlgorithm("child-a"))),
+                    requestForced.selection().assignments());
+            assertEquals("7", rootVariantId(treatment));
+            assertEquals("2", treatment.selection().assignments().get("policy-slot").variantId());
+            assertEquals(emsForced.selection(), invokeRanker(
+                    resolver, "root-slot", "search", "customer-1").selection());
+            IllegalArgumentException error = assertThrows(
+                    IllegalArgumentException.class,
+                    () -> resolver.invokeVariant(
+                            servingSlot("root-slot", "search"),
+                            "customer-1",
+                            "99",
+                            (Ranker<String, String> ranker) -> true));
+            assertEquals("Forced variant ID 99 is not active for root slot root-slot", error.getMessage());
+        } finally {
+            close(resolver, repository, emsClient);
+        }
+    }
+
     private MutableEmsClient multiRootEmsClient(ArtifactFixture artifacts) {
         return new MutableEmsClient(Map.of(
                 "root-slot", rootSlot(artifacts.root()),
@@ -949,7 +1030,7 @@ class LiveSlotGraphResolverTest {
             int index,
             AlgorithmMetadata defaultAlgorithm,
             AlgorithmMetadata experimentAlgorithm) {
-        Instant createdAt = Instant.parse("2026-01-01T00:00:00Z");
+        Instant createdAt = Instant.parse("2000-01-01T00:00:00Z");
         return new Slot(
                 slotName + "-salt",
                 2,
@@ -1086,7 +1167,7 @@ class LiveSlotGraphResolverTest {
         return new Slot(
                 "root-salt",
                 100,
-                new Variant(variantId, root, Instant.parse("2026-01-01T00:00:00Z"), false, true, 100),
+                new Variant(variantId, root, Instant.parse("2000-01-01T00:00:00Z"), false, true, 100),
                 List.of(),
                 List.of());
     }
@@ -1098,7 +1179,7 @@ class LiveSlotGraphResolverTest {
                 new Variant(
                         2,
                         child,
-                        Instant.parse("2026-01-01T00:00:00Z"),
+                        Instant.parse("2000-01-01T00:00:00Z"),
                         false,
                         true,
                         100),
@@ -1107,7 +1188,7 @@ class LiveSlotGraphResolverTest {
     }
 
     private static Slot unorderedExperimentSlot(AlgorithmMetadata childA, AlgorithmMetadata childB) {
-        Instant createdAt = Instant.parse("2026-01-01T00:00:00Z");
+        Instant createdAt = Instant.parse("2000-01-01T00:00:00Z");
         return new Slot(
                 "root-salt",
                 1,

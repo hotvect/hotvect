@@ -18,6 +18,7 @@ import com.hotvect.api.data.topk.TopKResponse;
 import com.hotvect.onlineutils.experimentmanagement.algodownload.AlgorithmDownloadClient;
 import com.hotvect.onlineutils.experimentmanagement.httpclient.ExperimentManagementServiceClient;
 import com.hotvect.onlineutils.experimentmanagement.models.AlgorithmMetadata;
+import com.hotvect.onlineutils.experimentmanagement.models.Experiment;
 import com.hotvect.onlineutils.experimentmanagement.models.Slot;
 import com.hotvect.onlineutils.experimentmanagement.models.Variant;
 import java.io.IOException;
@@ -45,7 +46,7 @@ class HotvectServingRuntimeBuilderTest {
     void buildsLoadsArtifactsAndClosesOwnedClients() throws Exception {
         ArtifactFixture artifact = createArtifactFixture();
         RecordingDownloadClient downloadClient = new RecordingDownloadClient(artifact);
-        RecordingEmsClient emsClient = new RecordingEmsClient(slot(artifact.metadata()), false);
+        RecordingEmsClient emsClient = new RecordingEmsClient(slotWithTargetedVariant(artifact.metadata()), false);
 
         try (HotvectServingRuntime runtime = runtimeBuilder(emsClient, downloadClient).build()) {
             ServingRuntimeStatus initialStatus = runtime.status();
@@ -64,6 +65,17 @@ class HotvectServingRuntimeBuilderTest {
             assertEquals(
                     "1",
                     execution.selection().assignments().get("root-slot").variantId());
+            assertEquals(
+                    "2",
+                    runtime.invoke("search", "customer-1", "2", request)
+                            .selection().assignments().get("root-slot").variantId());
+            IllegalArgumentException missingVariant = assertThrows(
+                    IllegalArgumentException.class,
+                    () -> runtime.invoke("search", "customer-1", "99", request));
+            assertEquals("Forced variant ID 99 is not active for root slot root-slot", missingVariant.getMessage());
+            assertThrows(
+                    IllegalArgumentException.class,
+                    () -> runtime.invoke("search", "customer-1", "unknown-variant", request));
             AlgorithmExecution<RankingResponse<String>> secondExecution = runtime.invoke(
                     "search",
                     "customer-1",
@@ -114,7 +126,7 @@ class HotvectServingRuntimeBuilderTest {
     void invokesTopKRequestsDirectly() throws Exception {
         ArtifactFixture artifact = createTopKArtifactFixture(false);
         RecordingDownloadClient downloadClient = new RecordingDownloadClient(artifact);
-        RecordingEmsClient emsClient = new RecordingEmsClient(slot(artifact.metadata()), false);
+        RecordingEmsClient emsClient = new RecordingEmsClient(slotWithTargetedVariant(artifact.metadata()), false);
 
         try (HotvectServingRuntime runtime = runtimeBuilder(
                 emsClient,
@@ -123,7 +135,7 @@ class HotvectServingRuntimeBuilderTest {
                 .build()) {
             TopKRequest<String> request = new TopKRequest<>(
                     "request-1",
-                    Instant.parse("2026-01-01T00:00:00Z"),
+                    Instant.parse("2000-01-01T00:00:00Z"),
                     "shared",
                     10);
 
@@ -134,6 +146,17 @@ class HotvectServingRuntimeBuilderTest {
 
             assertEquals(List.of(), execution.result().decisions());
             assertEquals("root-slot", execution.selection().rootSlot());
+            assertEquals("1", execution.selection().assignments().get("root-slot").variantId());
+            assertEquals(
+                    "2",
+                    runtime.<String, String>invoke("recommendations", "customer-1", "2", request)
+                            .selection().assignments().get("root-slot").variantId());
+            assertEquals("1", runtime.<String, String>invoke("recommendations", "customer-1", request)
+                    .selection().assignments().get("root-slot").variantId());
+            IllegalArgumentException missingVariant = assertThrows(
+                    IllegalArgumentException.class,
+                    () -> runtime.<String, String>invoke("recommendations", "customer-1", "99", request));
+            assertEquals("Forced variant ID 99 is not active for root slot root-slot", missingVariant.getMessage());
 
             IllegalArgumentException failure = assertThrows(
                     IllegalArgumentException.class,
@@ -148,7 +171,7 @@ class HotvectServingRuntimeBuilderTest {
     void invokesThemedTopKThroughGeneralAndTypedApis() throws Exception {
         ArtifactFixture artifact = createTopKArtifactFixture(true);
         RecordingDownloadClient downloadClient = new RecordingDownloadClient(artifact);
-        RecordingEmsClient emsClient = new RecordingEmsClient(slot(artifact.metadata()), false);
+        RecordingEmsClient emsClient = new RecordingEmsClient(slotWithTargetedVariant(artifact.metadata()), false);
 
         try (HotvectServingRuntime runtime = runtimeBuilder(
                 emsClient,
@@ -157,7 +180,7 @@ class HotvectServingRuntimeBuilderTest {
                 .build()) {
             TopKRequest<String> request = new TopKRequest<>(
                     "request-1",
-                    Instant.parse("2026-01-01T00:00:00Z"),
+                    Instant.parse("2000-01-01T00:00:00Z"),
                     "shared",
                     10);
 
@@ -176,6 +199,19 @@ class HotvectServingRuntimeBuilderTest {
             assertEquals("action-list-1", response.getActionListId());
             assertEquals("sale", response.getActionListMetadata().get("theme"));
             assertEquals(response, themedExecution.result());
+            assertEquals("1", themedExecution.selection().assignments().get("root-slot").variantId());
+            AlgorithmExecution<ThemedTopKResponse<String>> forced = runtime.invokeThemedTopK(
+                    "recommendations", "customer-1", "2", request);
+            assertEquals(
+                    response,
+                    forced.result());
+            assertEquals("2", forced.selection().assignments().get("root-slot").variantId());
+            assertEquals("1", runtime.<String, String>invokeThemedTopK("recommendations", "customer-1", request)
+                    .selection().assignments().get("root-slot").variantId());
+            IllegalArgumentException missingVariant = assertThrows(
+                    IllegalArgumentException.class,
+                    () -> runtime.invokeThemedTopK("recommendations", "customer-1", "99", request));
+            assertEquals("Forced variant ID 99 is not active for root slot root-slot", missingVariant.getMessage());
         }
     }
 
@@ -188,7 +224,7 @@ class HotvectServingRuntimeBuilderTest {
         try (HotvectServingRuntime runtime = runtimeBuilder(emsClient, downloadClient).build()) {
             TopKRequest<String> request = new TopKRequest<>(
                     "request-1",
-                    Instant.parse("2026-01-01T00:00:00Z"),
+                    Instant.parse("2000-01-01T00:00:00Z"),
                     "shared",
                     10);
 
@@ -350,6 +386,21 @@ class HotvectServingRuntimeBuilderTest {
                 List.of());
     }
 
+    private static Slot slotWithTargetedVariant(AlgorithmMetadata metadata) {
+        Instant createdAt = Instant.parse("2000-01-01T00:00:00Z");
+        return new Slot(
+                "test-salt",
+                100,
+                new Variant(1, metadata, createdAt, false, true, 100),
+                List.of(new Experiment(
+                        9,
+                        "targeted-test",
+                        List.of(new Variant(2, metadata, createdAt, false, false, 100)),
+                        100,
+                        List.of())),
+                List.of());
+    }
+
     private ArtifactFixture createArtifactFixture() throws Exception {
         return createArtifactFixture(
                 "builder-ranker",
@@ -496,7 +547,7 @@ class HotvectServingRuntimeBuilderTest {
                       "algorithm_name": "%s",
                       "algorithm_version": "1",
                       "parameter_id": "parameters-1",
-                      "ran_at": "2026-01-01T00:00:00Z"
+                      "ran_at": "2000-01-01T00:00:00Z"
                     }
                     """.formatted(algorithmName).getBytes());
             output.closeEntry();

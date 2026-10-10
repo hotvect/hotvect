@@ -72,20 +72,26 @@ hv algorithm train \
   --target evaluate
 ```
 
-Select the resulting TopK parameter package by its exact algorithm and parameter identities:
+Select the resulting TopK parameter source by its exact algorithm and parameter identities:
 
 ```bash
-PARAMETERS="$OUTPUT/example-product-search-topk@$ALGORITHM_VERSION/last_test_date_2000-01-03/example-product-search-topk@$ALGORITHM_VERSION@last_test_date_2000-01-03.parameters.zip"
-test -f "$PARAMETERS"
+PARAMETERS="$OUTPUT/example-product-search-topk@$ALGORITHM_VERSION/last_test_date_2000-01-03.parameters"
+test -d "$PARAMETERS"
 test -f "$OUTPUT/metadata/example-product-search-topk@$ALGORITHM_VERSION/last_test_date_2000-01-03/result.json"
 ```
 
-The run writes generated search-index files plus scorer, Ranker, and TopK parameter packages, predictions, evaluation
-metadata, and logs. The outer TopK ZIP embeds the prepared child state and model. Inspect that composition directly:
+The run writes generated search-index files plus scorer, Ranker, and TopK parameter artifacts, predictions, evaluation
+metadata, and logs. The `evaluate` target leaves these as a namespaced directory rather than a ZIP; local serving reads
+that directory directly. Inspect the composition of prepared algorithms:
 
 ```bash
-unzip -l "$PARAMETERS"
+ls "$PARAMETERS"
 ```
+
+Each subdirectory is one algorithm namespace, so the outer TopK source carries the prepared child state and model
+alongside its own parameters. Local serving reads this source directly. If you later publish the evaluated algorithm,
+package this saved directory at the publication step; see
+[Change to a live experiment](../change-to-live-experiment/index.md#4-prepare-the-two-packages-for-publication).
 
 These outputs remain separate from the algorithm package because trained or generated state can change without
 rebuilding the implementation.

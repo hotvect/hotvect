@@ -3,10 +3,12 @@
 
 package com.hotvect.onlineutils.experimentmanagement.generated;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import java.util.Objects;
 
-/** Wire model generated from the pinned direct Stage 2 EMS contract. */
+/** Wire model generated from the pinned released EMS contract. */
+@JsonIgnoreProperties(ignoreUnknown = true)
 public record SlotActiveInfoUserForcedAssignmentResponse(
         @JsonProperty(value = "user_id", required = true) String userId,
         @JsonProperty(value = "variant_id", required = true) Integer variantId

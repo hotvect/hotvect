@@ -49,6 +49,37 @@ class SimpleRankingTransformerBackendGenerationTest {
     }
 
     @Test
+    void configuresGeneratedListBatchingSpliterator() throws IOException {
+        String generated = compileFixtureWithBatchSize("""
+                {
+                  "transformer_parameters": {
+                    "features": ["price"]
+                  }
+                }
+                """);
+
+        assertTrue(generated.contains("private final int batchSize;"));
+        assertTrue(generated.contains("int batchSize"));
+        assertTrue(generated.contains("this.batchSize = 8"));
+        assertTrue(generated.contains("if (batchSize < 0)"));
+        assertTrue(generated.contains("? new ListBatchingSpliterator<>(actions)"));
+        assertTrue(generated.contains(": new ListBatchingSpliterator<>(actions, batchSize)"));
+    }
+
+    @Test
+    void preservesAdaptiveBatchingByDefault() throws IOException {
+        String generated = compileFixture("""
+                {
+                  "transformer_parameters": {
+                    "features": ["price"]
+                  }
+                }
+                """);
+
+        assertTrue(generated.contains("this.batchSize = 0"));
+    }
+
+    @Test
     void generatesTensorFlowFeatureNamespacesWithMixedInferenceAndExplicitTypes() throws IOException {
         String generated = compileFixture("""
                 {
@@ -506,18 +537,19 @@ class SimpleRankingTransformerBackendGenerationTest {
 
     private CompileResult compile(String algorithmDefinition, String backendClass, boolean includeSourceOnlyBackend)
             throws IOException {
-        return compile(algorithmDefinition, backendClass, includeSourceOnlyBackend, defaultFeatureSource());
+        return compile(algorithmDefinition, backendClass, includeSourceOnlyBackend, defaultFeatureSource(), null);
     }
 
     private CompileResult compileWithFeatures(String algorithmDefinition, String featureSource) throws IOException {
-        return compile(algorithmDefinition, CATBOOST_BACKEND, false, featureSource);
+        return compile(algorithmDefinition, CATBOOST_BACKEND, false, featureSource, null);
     }
 
     private CompileResult compile(
             String algorithmDefinition,
             String backendClass,
             boolean includeSourceOnlyBackend,
-            String featureSource) throws IOException {
+            String featureSource,
+            Integer batchSize) throws IOException {
         Path sourceDir = tempDir.resolve("src");
         Path generatedDir = tempDir.resolve("generated");
         Path classesDir = tempDir.resolve("classes");
@@ -550,6 +582,7 @@ class SimpleRankingTransformerBackendGenerationTest {
 
         Path spec = packageDir.resolve("GeneratedTransformerFactory.java");
         String backendArgument = backendClass == null ? "" : "        backend = " + backendClass + ",\n";
+        String batchSizeArgument = batchSize == null ? "" : "        batchSize = " + batchSize + ",\n";
         Files.writeString(spec, """
                 package example;
 
@@ -561,11 +594,12 @@ class SimpleRankingTransformerBackendGenerationTest {
                         actionType = String.class,
                         features = {TestFeatures.class},
                 %s\
+                %s\
                         algorithmDefinitionResource = "algorithm-definition.json"
                 )
                 public final class GeneratedTransformerFactory {
                 }
-                """.formatted(backendArgument), StandardCharsets.UTF_8);
+                """.formatted(batchSizeArgument, backendArgument), StandardCharsets.UTF_8);
 
         JavaCompiler compiler = ToolProvider.getSystemJavaCompiler();
         assertNotNull(compiler, "JDK compiler is required for annotation-processor tests");
@@ -599,6 +633,12 @@ class SimpleRankingTransformerBackendGenerationTest {
 
     private String compileFixture(String algorithmDefinition, String backendClass) throws IOException {
         CompileResult result = compile(algorithmDefinition, backendClass);
+        assertTrue(result.success(), result.diagnostics());
+        return Files.readString(result.generatedDir().resolve("example").resolve("GeneratedTransformer.java"));
+    }
+
+    private String compileFixtureWithBatchSize(String algorithmDefinition) throws IOException {
+        CompileResult result = compile(algorithmDefinition, CATBOOST_BACKEND, false, defaultFeatureSource(), 8);
         assertTrue(result.success(), result.diagnostics());
         return Files.readString(result.generatedDir().resolve("example").resolve("GeneratedTransformer.java"));
     }

@@ -16,28 +16,30 @@ def _make_run_all_pipeline(tmp_path: Path):
     pipeline.algorithm_name = "algo"
     pipeline.algorithm_version = "55.7.0"
     pipeline.hyper_parameter_version = ""
-    pipeline.parameter_version = "last_test_date_2026-02-17"
-    pipeline.last_test_time = datetime(2026, 2, 17, tzinfo=timezone.utc)
-    pipeline.ran_at = "2026-02-17T00:00:00Z"
+    pipeline.parameter_version = "last_test_date_2000-02-17"
+    pipeline.last_test_time = datetime(2000, 2, 17, tzinfo=timezone.utc)
+    pipeline.ran_at = "2000-02-17T00:00:00Z"
     pipeline.hyperparameter_slug = MagicMock(return_value="algo@55.7.0")
     pipeline.clean = MagicMock()
     pipeline.cache_path = MagicMock(return_value=str(tmp_path / "cache"))
     pipeline._pipe_python_logs_to_metadata_dir = MagicMock(return_value=contextlib.nullcontext())
     pipeline._write_algorithm_definition = MagicMock(return_value=str(tmp_path / "algo-definition.json"))
-    pipeline.available_predict_parameter_cache_path = MagicMock(return_value=str(tmp_path / "params.zip"))
+    pipeline.available_predict_parameter_cache_path = MagicMock(return_value=None)
+    pipeline.available_encode_parameter_cache_path = MagicMock(return_value=None)
     pipeline._step_predict_parameter = MagicMock()
     pipeline.generate_states = MagicMock(return_value={"ok": True})
     pipeline.test_data_paths = MagicMock(return_value=[str(tmp_path / "test.jsonl")])
     pipeline.prediction_data_paths = MagicMock(return_value=[str(tmp_path / "predict.jsonl")])
     pipeline._require_prediction_spec = MagicMock(
-        return_value={"data_prefix": "predict", "output_uri": "s3://bucket/out"}
+        return_value={"data_prefix": "predict", "output_uri": "s3://example-bucket/out"}
     )
-    pipeline._prediction_dates = MagicMock(return_value=[datetime(2026, 2, 17, tzinfo=timezone.utc).date()])
-    pipeline.prediction_output_uri = MagicMock(return_value="s3://bucket/out/dt=2026-02-17/")
+    pipeline._prediction_dates = MagicMock(return_value=[datetime(2000, 2, 17, tzinfo=timezone.utc).date()])
+    pipeline.prediction_output_uri = MagicMock(return_value="s3://example-bucket/out/dt=2000-02-17/")
     pipeline._write_data = MagicMock()
     pipeline.metadata_path = MagicMock(return_value=str(tmp_path / "metadata"))
     pipeline.output_path = MagicMock(return_value=str(tmp_path / "output"))
     pipeline.predict_parameter_file_path = MagicMock(return_value=str(tmp_path / "params.zip"))
+    pipeline.parameter_source_path = MagicMock(return_value=str(tmp_path / "output.parameters"))
     pipeline.algorithm_is_state = False
     pipeline.should_train = MagicMock(return_value=False)
     pipeline.execute_performance_test = True
@@ -53,7 +55,38 @@ def _make_run_all_pipeline(tmp_path: Path):
     )
     pipeline._step_encode_test_data = MagicMock(side_effect=lambda result: result.update({"encode_test": {"ok": True}}))
     pipeline._step_execute_audit = MagicMock(side_effect=lambda result: result.update({"audit": {"ok": True}}))
+    pipeline._materialized_parameter_packages = set()
     return pipeline
+
+
+@pytest.mark.parametrize("target", ["parameters", "predict", "evaluate"])
+def test_predict_parameter_cache_reuses_dependency_source(tmp_path: Path, monkeypatch, target: str) -> None:
+    from hotvect import pyhotvect as pyhotvect_module
+
+    pipeline = _make_run_all_pipeline(tmp_path)
+    pipeline.available_predict_parameter_cache_path.return_value = str(tmp_path / "params.zip")
+    dependency_pipeline = MagicMock()
+    dependency_pipeline._target_when_used_as_dependency.return_value = "parameters"
+    pipeline.dependency_pipelines = {"dep": dependency_pipeline}
+
+    monkeypatch.setattr(pyhotvect_module, "clean_dir", MagicMock())
+
+    result = pipeline.run_all(target=target)
+
+    dependency_pipeline.run_all.assert_called_once_with(
+        clean=False,
+        target="parameters",
+        materialize_parameter_package=False,
+        _reuse_parameter_source=True,
+    )
+    pipeline._step_predict_parameter.assert_called_once_with(
+        result, materialize_parameter_package=(target == "parameters")
+    )
+    assert result["dependencies"]["dep"] == dependency_pipeline.run_all.return_value
+    if target == "parameters":
+        pipeline._step_predict.assert_not_called()
+    else:
+        pipeline._step_predict.assert_called_once_with(result, target)
 
 
 def test_run_all_rejects_unsupported_algorithm_override_metadata(tmp_path: Path):
@@ -99,6 +132,26 @@ def test_run_all_persists_total_time(tmp_path: Path, monkeypatch) -> None:
     assert "total_time" in written_result["timing_info_sec"]
 
 
+def test_encode_cache_reuses_ancestor_parameters_but_still_encodes(tmp_path: Path, monkeypatch) -> None:
+    from hotvect import pyhotvect as pyhotvect_module
+
+    pipeline = _make_run_all_pipeline(tmp_path)
+    pipeline.should_train.return_value = True
+    pipeline._step_encode_parameter = MagicMock()
+    pipeline._step_encode = MagicMock()
+    pipeline._step_train = MagicMock()
+    monkeypatch.setattr(pyhotvect_module, "clean_dir", MagicMock())
+
+    result = pipeline.run_all(target="encode-cache", _reuse_parameter_source=True)
+
+    pipeline.available_predict_parameter_cache_path.assert_not_called()
+    pipeline.available_encode_parameter_cache_path.assert_not_called()
+    pipeline._step_encode_parameter.assert_not_called()
+    pipeline._step_encode.assert_called_once_with(result)
+    pipeline._step_train.assert_not_called()
+    pipeline._step_predict_parameter.assert_not_called()
+
+
 def test_dependency_preparation_uses_parameters_target_by_default(tmp_path: Path, monkeypatch) -> None:
     from hotvect import pyhotvect as pyhotvect_module
 
@@ -116,11 +169,12 @@ def test_dependency_preparation_uses_parameters_target_by_default(tmp_path: Path
     dependency_pipeline.run_all.assert_called_once_with(
         clean=False,
         target="parameters",
-        prepare_raw_state_for_parent_packaging=False,
+        materialize_parameter_package=False,
+        _reuse_parameter_source=False,
     )
 
 
-def test_dependency_preparation_requests_raw_state_for_state_dependencies(tmp_path: Path, monkeypatch) -> None:
+def test_dependency_preparation_does_not_materialize_state_parameter_package(tmp_path: Path, monkeypatch) -> None:
     from hotvect import pyhotvect as pyhotvect_module
 
     pipeline = _make_run_all_pipeline(tmp_path)
@@ -137,33 +191,8 @@ def test_dependency_preparation_requests_raw_state_for_state_dependencies(tmp_pa
     dependency_pipeline.run_all.assert_called_once_with(
         clean=False,
         target="parameters",
-        prepare_raw_state_for_parent_packaging=True,
-    )
-
-
-def test_dependency_preparation_requests_raw_state_packaging_for_pinned_state_dependencies(
-    tmp_path: Path, monkeypatch
-) -> None:
-    from hotvect import pyhotvect as pyhotvect_module
-
-    pipeline = _make_run_all_pipeline(tmp_path)
-    dependency_pipeline = MagicMock()
-    dependency_pipeline.algorithm_definition = {
-        "hotvect_execution_parameters": {"with_parameter": "s3://bucket/child.zip"}
-    }
-    dependency_pipeline.algorithm_is_state = "generator_factory_classname"
-    dependency_pipeline._target_when_used_as_dependency = MagicMock(return_value="parameters")
-    dependency_pipeline.run_all = MagicMock(return_value={"ok": True})
-    pipeline.dependency_pipelines = {"dep": dependency_pipeline}
-
-    monkeypatch.setattr(pyhotvect_module, "clean_dir", MagicMock())
-
-    pipeline.run_all(clean=False)
-
-    dependency_pipeline.run_all.assert_called_once_with(
-        clean=False,
-        target="parameters",
-        prepare_raw_state_for_parent_packaging=True,
+        materialize_parameter_package=False,
+        _reuse_parameter_source=False,
     )
 
 
@@ -184,7 +213,8 @@ def test_dependency_preparation_uses_inferred_dependency_target(tmp_path: Path, 
     dependency_pipeline.run_all.assert_called_once_with(
         clean=False,
         target="evaluate",
-        prepare_raw_state_for_parent_packaging=False,
+        materialize_parameter_package=False,
+        _reuse_parameter_source=False,
     )
 
 
@@ -206,11 +236,12 @@ def test_dependency_preparation_uses_encode_cache_target_for_encode_cache_root(t
     dependency_pipeline.run_all.assert_called_once_with(
         clean=False,
         target="encode-cache",
-        prepare_raw_state_for_parent_packaging=False,
+        materialize_parameter_package=False,
+        _reuse_parameter_source=False,
     )
 
 
-def test_encode_cache_root_prepares_state_dependency_for_parent_packaging(tmp_path: Path, monkeypatch) -> None:
+def test_encode_cache_root_prepares_state_dependency_as_parameter_source(tmp_path: Path, monkeypatch) -> None:
     from hotvect import pyhotvect as pyhotvect_module
 
     pipeline = _make_run_all_pipeline(tmp_path)
@@ -228,7 +259,8 @@ def test_encode_cache_root_prepares_state_dependency_for_parent_packaging(tmp_pa
     dependency_pipeline.run_all.assert_called_once_with(
         clean=False,
         target="parameters",
-        prepare_raw_state_for_parent_packaging=True,
+        materialize_parameter_package=False,
+        _reuse_parameter_source=False,
     )
 
 
@@ -253,7 +285,8 @@ def test_dependency_preparation_uses_evaluate_target_for_hotvect_9_training_imag
     dependency_pipeline.run_all.assert_called_once_with(
         clean=False,
         target="evaluate",
-        prepare_raw_state_for_parent_packaging=False,
+        materialize_parameter_package=False,
+        _reuse_parameter_source=False,
     )
 
 
@@ -281,86 +314,16 @@ def test_parameters_target_skips_inference_without_resolving_test_data(tmp_path:
     assert result["audit"] == {"skipped": "Because target was parameters"}
 
 
-def test_state_dependency_preparation_hydrates_predict_parameter_cache_and_skips_zip(
-    tmp_path: Path, monkeypatch
-) -> None:
-    import zipfile
-
-    from hotvect import pyhotvect as pyhotvect_module
-
-    pipeline = _make_run_all_pipeline(tmp_path)
-    pipeline.algorithm_definition = {"state_output_filename": "state.jsonl"}
-    pipeline.algorithm_is_state = "generator_factory_classname"
-    cached_zip = tmp_path / "params.zip"
-    with zipfile.ZipFile(cached_zip, "w") as zf:
-        zf.writestr("algo/algorithm-parameters.json", "{}")
-        zf.writestr("algo/state.jsonl", "{}\n")
-    pipeline.available_predict_parameter_cache_path = MagicMock(return_value=str(cached_zip))
-
-    monkeypatch.setattr(pyhotvect_module, "clean_dir", MagicMock())
-
-    result = pipeline.run_all(clean=False, target="parameters", prepare_raw_state_for_parent_packaging=True)
-
-    pipeline.available_predict_parameter_cache_path.assert_called_once()
-    pipeline.generate_states.assert_not_called()
-    pipeline._step_predict_parameter.assert_not_called()
-    assert (tmp_path / "output" / "state.jsonl").read_text(encoding="utf-8") == "{}\n"
-    assert result["package_predict_params"]["package"] is None
-    assert (str(tmp_path / "output" / "state.jsonl"), "algo/state.jsonl") in result["package_predict_params"]["sources"]
-    assert result["timing_info_sec"]["package_predict_params"] >= 0.0
-
-
-def test_state_dependency_preparation_hydrates_with_parameter_cache_when_packaging_skip_requested(
-    tmp_path: Path, monkeypatch
-) -> None:
-    import zipfile
-
-    from hotvect import pyhotvect as pyhotvect_module
-
-    pipeline = _make_run_all_pipeline(tmp_path)
-    pipeline.algorithm_definition = {
-        "state_output_filename": "state.jsonl",
-        "hotvect_execution_parameters": {"with_parameter": "s3://bucket/child.zip"},
-    }
-    pipeline.algorithm_is_state = "generator_factory_classname"
-    cached_zip = tmp_path / "child.zip"
-    with zipfile.ZipFile(cached_zip, "w") as zf:
-        zf.writestr("algo/algorithm-parameters.json", "{}")
-        zf.writestr("algo/state.jsonl", "{}\n")
-    pipeline.available_predict_parameter_cache_path = MagicMock(return_value=str(cached_zip))
-
-    monkeypatch.setattr(pyhotvect_module, "clean_dir", MagicMock())
-
-    result = pipeline.run_all(clean=False, target="parameters", prepare_raw_state_for_parent_packaging=True)
-
-    pipeline.available_predict_parameter_cache_path.assert_called_once()
-    pipeline.generate_states.assert_not_called()
-    pipeline._step_predict_parameter.assert_not_called()
-    assert (tmp_path / "output" / "state.jsonl").read_text(encoding="utf-8") == "{}\n"
-    assert result["package_predict_params"]["package"] is None
-
-
-def test_prepare_raw_state_for_parent_packaging_requires_parameters_target(tmp_path: Path, monkeypatch) -> None:
-    from hotvect import pyhotvect as pyhotvect_module
-
-    pipeline = _make_run_all_pipeline(tmp_path)
-    pipeline.algorithm_is_state = "generator_factory_classname"
-
-    monkeypatch.setattr(pyhotvect_module, "clean_dir", MagicMock())
-
-    with pytest.raises(ValueError, match="requires target='parameters'"):
-        pipeline.run_all(clean=False, prepare_raw_state_for_parent_packaging=True)
-
-
-def test_prepare_raw_state_for_parent_packaging_requires_state_algorithm(tmp_path: Path, monkeypatch) -> None:
+def test_parameters_target_materializes_the_requested_parameter_package(tmp_path: Path, monkeypatch) -> None:
     from hotvect import pyhotvect as pyhotvect_module
 
     pipeline = _make_run_all_pipeline(tmp_path)
 
     monkeypatch.setattr(pyhotvect_module, "clean_dir", MagicMock())
 
-    with pytest.raises(ValueError, match="only supported for state algorithms"):
-        pipeline.run_all(clean=False, target="parameters", prepare_raw_state_for_parent_packaging=True)
+    result = pipeline.run_all(clean=False, target="parameters")
+
+    pipeline._step_predict_parameter.assert_called_once_with(result, materialize_parameter_package=True)
 
 
 def test_encode_cache_target_does_not_skip_encode_when_predict_parameter_cache_exists(
@@ -447,7 +410,7 @@ def test_run_all_records_benchmark_contract_for_performance_test(tmp_path: Path,
     result = pipeline.run_all(clean=False)
 
     assert result["benchmark_contract"] == {
-        "parameter_path": str(tmp_path / "params.zip"),
+        "parameter_path": str(tmp_path / "output.parameters"),
         "source_paths": [str(tmp_path / "test.jsonl")],
         "samples": 1000,
         "sample_pool_size": 250,

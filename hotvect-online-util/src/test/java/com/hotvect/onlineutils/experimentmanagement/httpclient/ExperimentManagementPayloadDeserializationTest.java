@@ -4,8 +4,10 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.exc.MismatchedInputException;
-import com.fasterxml.jackson.databind.exc.UnrecognizedPropertyException;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.hotvect.onlineutils.experimentmanagement.models.Slot;
 import java.io.IOException;
 import org.junit.jupiter.api.Test;
@@ -44,7 +46,7 @@ class ExperimentManagementPayloadDeserializationTest {
                       "algorithm_version": "1.0.0",
                       "absolute_s3_algorithm_jar_path": "s3://bucket/parameterless.jar"
                     },
-                    "created_at": "2026-04-11T10:15:30Z"
+                    "created_at": "2000-04-11T10:15:30Z"
                   },
                   "experiments": [],
                   "user_forced_assignments": []
@@ -82,30 +84,47 @@ class ExperimentManagementPayloadDeserializationTest {
     }
 
     @Test
-    void rejectsPluralAlgorithmsWireProperty() {
+    void ignoresAdditionalAlgorithmsWireProperty() throws IOException {
         String payload = slotActiveInfoPayload().replace(
                 """
-                    "created_at": "2026-04-11T10:15:30Z",
+                    "created_at": "2000-04-11T10:15:30Z",
                 """,
                 """
                     "algorithms": [],
-                    "created_at": "2026-04-11T10:15:30Z",
+                    "created_at": "2000-04-11T10:15:30Z",
                 """);
 
-        assertThrows(
-                UnrecognizedPropertyException.class,
-                () -> ExperimentManagementServiceClient.decodeSlotState(payload));
+        assertEquals(
+                ExperimentManagementServiceClient.decodeSlotStateDocument(slotActiveInfoPayload()),
+                ExperimentManagementServiceClient.decodeSlotStateDocument(payload));
     }
 
     @Test
-    void rejectsUnexpectedWireProperties() {
+    void ignoresAdditionalWirePropertiesAtEveryLevel() throws IOException {
+        JsonNode payload = new ObjectMapper().readTree(slotActiveInfoPayload());
+        addFutureFields(payload);
+
+        assertEquals(
+                ExperimentManagementServiceClient.decodeSlotStateDocument(slotActiveInfoPayload()),
+                ExperimentManagementServiceClient.decodeSlotStateDocument(payload.toString()));
+    }
+
+    @Test
+    void rejectsMalformedKnownWireProperty() {
         String payload = slotActiveInfoPayload().replace(
-                "\"slot_salt\": \"salt-1\"",
-                "\"slot_salt\": \"salt-1\", \"unexpected\": true");
+                "\"total_number_of_shards\": 100",
+                "\"total_number_of_shards\": {}, \"future_field\": true");
 
         assertThrows(
-                UnrecognizedPropertyException.class,
+                MismatchedInputException.class,
                 () -> ExperimentManagementServiceClient.decodeSlotState(payload));
+    }
+
+    private static void addFutureFields(JsonNode node) {
+        node.forEach(ExperimentManagementPayloadDeserializationTest::addFutureFields);
+        if (node instanceof ObjectNode object) {
+            object.putObject("future_field").put("value", 1);
+        }
     }
 
     @Test
@@ -133,7 +152,7 @@ class ExperimentManagementPayloadDeserializationTest {
                       "absolute_s3_algorithm_jar_path": "s3://bucket/singleton-default.jar",
                       "absolute_s3_algorithm_parameter_path": "s3://bucket/singleton-default.zip"
                     },
-                    "created_at": "2026-04-11T10:15:30Z",
+                    "created_at": "2000-04-11T10:15:30Z",
                     "is_control": true,
                     "is_default": true,
                     "shard_allocation_ratio": 100
@@ -152,18 +171,18 @@ class ExperimentManagementPayloadDeserializationTest {
                             "absolute_s3_algorithm_jar_path": "s3://bucket/singleton-experiment.jar",
                             "absolute_s3_algorithm_parameter_path": "s3://bucket/singleton-experiment.zip"
                           },
-                          "created_at": "2026-04-11T10:15:30Z",
+                          "created_at": "2000-04-11T10:15:30Z",
                           "is_control": false,
                           "is_default": false,
                           "shard_allocation_ratio": 100
                         }
                       ],
                       "ramp_up_percentage": 50,
-                      "shards": [],
-                      "created_at": "2026-04-11T10:15:30Z"
+                      "shards": [{"shard_id": 1, "created_at": "2000-04-11T10:15:30Z"}],
+                      "created_at": "2000-04-11T10:15:30Z"
                     }
                   ],
-                  "user_forced_assignments": []
+                  "user_forced_assignments": [{"user_id": "user-1", "variant_id": 7}]
                 }
                 """;
     }

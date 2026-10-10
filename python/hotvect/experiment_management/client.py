@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import datetime
 from typing import Any
 
@@ -8,7 +9,6 @@ from requests.auth import AuthBase
 
 from ._generated_operations import _GeneratedEmsOperations
 from .models import (
-    Algorithm,
     AlgorithmCreate,
     AlgorithmParameter,
     AlgorithmPatch,
@@ -41,7 +41,7 @@ DEFAULT_READ_TIMEOUT_SECONDS = 15.0
 
 
 class ExperimentManagementClient:
-    """Synchronous typed client for a configured EMS endpoint."""
+    """Synchronous typed client for the pinned released EMS contract."""
 
     def __init__(
         self,
@@ -83,6 +83,27 @@ class ExperimentManagementClient:
             timeout=(self._connect_timeout, self._read_timeout),
         )
 
+    def make_raw_request(
+        self,
+        *,
+        method: str,
+        endpoint: str,
+        body: bytes,
+        headers: Mapping[str, str],
+    ) -> requests.Response:
+        """Send a request whose path, query, and body bytes must stay bound to an approval record."""
+        if not endpoint.startswith("/"):
+            raise ValueError(f"EMS endpoint must start with '/': {endpoint}")
+        return requests.request(
+            method=method,
+            url=self._base_url + endpoint,
+            data=body,
+            headers=headers,
+            auth=self._auth,
+            timeout=(self._connect_timeout, self._read_timeout),
+            allow_redirects=False,
+        )
+
     def get_experiment(self, slot_name: str, experiment_id: int) -> Experiment:
         return self._operations.operation_get_one_2(slot_name, experiment_id)
 
@@ -107,10 +128,10 @@ class ExperimentManagementClient:
     def get_algorithms(self) -> list[AlgorithmWithLatestParameter]:
         return self._operations.operation_list_1()
 
-    def get_algorithm(self, algorithm_name: str, algorithm_version: str) -> Algorithm:
+    def get_algorithm(self, algorithm_name: str, algorithm_version: str) -> AlgorithmWithLatestParameter:
         return self._operations.operation_get_one(algorithm_name, algorithm_version)
 
-    def get_latest_algorithm_parameter(self, algorithm_name: str, algorithm_version: str) -> AlgorithmParameter:
+    def get_latest_algorithm_parameter(self, algorithm_name: str, algorithm_version: str) -> AlgorithmParameter | None:
         return self._operations.operation_get_latest_algorithm_parameter(algorithm_name, algorithm_version)
 
     def get_active_algorithms(self) -> list[AlgorithmWithLatestParameter]:

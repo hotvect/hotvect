@@ -1,10 +1,14 @@
 import importlib.util
+import json
 import sys
 from importlib.machinery import SourceFileLoader
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 
-from hotvect.experiment_management import Algorithm
+import pytest
+import requests
+
+from hotvect.experiment_management import ExperimentManagementClient
 
 
 def _load_entrypoint_module(monkeypatch):
@@ -77,48 +81,44 @@ def test_train_uses_experiment_management_updater_agent(monkeypatch):
     assert captured["uploaded"] is True
 
 
-def test_ems_parameter_update_uses_canonical_algorithm_parameter(monkeypatch):
+@pytest.mark.parametrize("parameter_state", ["without-parameter", "with-parameter"])
+def test_ems_parameter_update_uses_canonical_algorithm_parameter(monkeypatch, parameter_state):
     module = _load_entrypoint_module(monkeypatch)
-    captured = {}
+    fixtures = Path(__file__).parent / "fixtures" / "ems_registration"
+    algorithm = json.loads((fixtures / f"algorithm-get-{parameter_state}.json").read_text())
+    saved_parameter = json.loads((fixtures / "algorithm-parameters-create.json").read_text())
+    captured = []
 
-    class FakeClient:
-        def get_algorithm(self, algorithm_name, algorithm_version):
-            captured["lookup"] = (algorithm_name, algorithm_version)
-            return Algorithm(
-                algorithm_name=algorithm_name,
-                algorithm_version=algorithm_version,
-                absolute_s3_jar_path="s3://example-bucket/algorithm.jar",
-                algorithm_training_image_name="algorithm:1.0.0",
-                parameter_mode="REQUIRED",
-            )
+    def fake_send(self, request, **kwargs):
+        captured.append(request)
+        response = requests.Response()
+        response.status_code = 200 if request.method == "GET" else 201
+        response._content = json.dumps(algorithm if request.method == "GET" else saved_parameter).encode()
+        response.request = request
+        return response
 
-        def create_algorithm_parameter(self, parameter):
-            captured["parameter"] = parameter
+    monkeypatch.setattr(requests.Session, "send", fake_send)
 
     updater = module.ExperimentManagementUpdaterAgent.__new__(module.ExperimentManagementUpdaterAgent)
     updater._algorithm_pipeline = SimpleNamespace(
-        algorithm_name="algorithm",
-        algorithm_version="1.0.0",
-        parameter_version="parameter-1",
+        algorithm_name="jar_name",
+        algorithm_version="v2",
+        parameter_version="trained-parameter",
     )
-    updater._output_s3_path = "s3://example-bucket/output"
-    updater._experiment_management_client = FakeClient()
+    updater._output_s3_path = "s3://example-bucket"
+    updater._experiment_management_client = ExperimentManagementClient(
+        base_url="https://ems.example", auth=requests.auth.HTTPBasicAuth("test", "test")
+    )
 
     updater._update_parameter_in_ems()
 
-    assert captured["lookup"] == ("algorithm", "1.0.0")
-    assert captured["parameter"].model_dump() == {
-        "algorithm_parameter_id": "parameter-1",
-        "algorithm": {
-            "algorithm_name": "algorithm",
-            "algorithm_version": "1.0.0",
-            "state": None,
-            "absolute_s3_jar_path": "s3://example-bucket/algorithm.jar",
-            "created_at": None,
-            "algorithm_training_image_name": "algorithm:1.0.0",
-            "parameter_mode": "REQUIRED",
-        },
+    assert [(request.method, request.url) for request in captured] == [
+        ("GET", "https://ems.example/algorithms/jar_name/v2"),
+        ("POST", "https://ems.example/algorithm-parameters"),
+    ]
+    assert json.loads(captured[1].body) == {
+        "algorithm_parameter_id": "trained-parameter",
+        "algorithm": {key: value for key, value in algorithm.items() if key != "latest_algorithm_parameter"},
         "evaluation_results": "",
-        "created_at": None,
-        "absolute_s3_path": "s3://example-bucket/output/parameter-1.parameters.zip",
+        "absolute_s3_path": "s3://example-bucket/trained-parameter.parameters.zip",
     }

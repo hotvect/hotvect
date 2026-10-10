@@ -1,6 +1,5 @@
 package com.hotvect.onlineutils.experimentmanagement.httpclient;
 
-import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.google.common.net.HttpHeaders;
@@ -28,8 +27,7 @@ import org.slf4j.LoggerFactory;
 public class ExperimentManagementServiceClient implements ExperimentManagementStateSource {
     private static final Logger LOG = LoggerFactory.getLogger(ExperimentManagementServiceClient.class);
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper()
-            .registerModule(new JavaTimeModule())
-            .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, true);
+            .registerModule(new JavaTimeModule());
 
     private final HttpClient client;
     private final Supplier<String> tokenSupplier;
@@ -76,7 +74,7 @@ public class ExperimentManagementServiceClient implements ExperimentManagementSt
         return slot;
     }
 
-    /** Fetches the strict active-slot payload for archival in an offline snapshot. */
+    /** Fetches the known active-slot fields for archival in an offline snapshot. */
     public SlotActiveInfo getDefaultVariantAndActiveExperimentsDocument(final String slotName)
             throws IOException, InterruptedException {
         final HttpResponse<String> response =

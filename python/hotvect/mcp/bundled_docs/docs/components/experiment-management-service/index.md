@@ -6,6 +6,7 @@ related_docs:
   - ../ems-runtime-client/index.md
   - ../artifact-publication-and-storage/index.md
   - ../../concepts/configuration-and-experimentation/index.md
+  - ../../guides/experiment-management-server/index.md
 ---
 
 # Experiment management
@@ -25,6 +26,8 @@ Use the component documentation according to the question you are answering:
   behavior, promotion, experiment lifecycle, mutation side effects, endpoints, and audit history.
 - [Traffic assignment and ramp-up](../experiment-assignment/index.md): how those resources select a variant.
 - [Clients and operator tools](../ems-clients-and-tools/index.md): Java, Python, CLI, and OpenAPI surfaces.
+- [Deploy EMS](../../guides/experiment-management-server/index.md): standalone application, PostgreSQL, configuration,
+  migrations, authentication, and operations.
 
 ## Position in the system
 
@@ -74,10 +77,17 @@ Those boundaries keep the control plane independent of the latency-sensitive req
 
 ## Server source and deployment
 
-The deployment owner maintains the EMS server implementation, persistence model, migrations, security, OpenAPI
-generation, executable runtime, and delivery configuration. Hotvect does not publish or embed that server. Its runtime
-and operator clients consume the deployed contract while source ownership, versioning, database evolution, and
-deployment remain outside this repository.
+The Spring Boot server implementation stays in the
+EMS server repository.
+That repository contains the persistence model, Flyway migrations, repositories, services, controllers, security,
+OpenAPI generation, executable server JAR, container definition, and delivery configuration.
+
+Hotvect does not publish or embed the server. The documentation lives here because Hotvect's runtime and operator
+clients consume the EMS contract and because experiment selection is part of the algorithm lifecycle. Source ownership,
+versioning, database evolution, and deployment remain with the EMS repository.
+
+Read [Deploy the Experiment Management Service](../../guides/experiment-management-server/index.md) for the standalone
+service workflow.
 
 ## PostgreSQL and migrations
 
@@ -175,11 +185,11 @@ Coordinate upgrades across:
 Deploy the server before requiring a newly introduced API from clients. Preserve existing runtime read
 contracts unless the client rollout is explicitly coordinated.
 
-The direct Stage 2 active-slot response contains one required `algorithm` object per variant. It does not include
+The released EMS active-slot response contains one required `algorithm` object per variant. It does not include
 slot roles or plural algorithm selections. A parameterless algorithm omits both its parameter ID and parameter path.
 Multi-algorithm slot selection belongs to Stage 3 and is not represented by this contract.
 
-Deploy EMS before Hotvect clients that require this direct contract. The change is intentionally not a dual-shape
+Deploy EMS before Hotvect clients that require this released contract. The change is intentionally not a dual-shape
 reader rollout: an incompatible response is rejected rather than normalized.
 
 ## Operational checks
@@ -195,4 +205,5 @@ At minimum, verify:
 - backup and restore ownership is documented;
 - online runtimes have separate read credentials and artifact-store read access.
 
-Continue with [Runtime client, refresh, and assignment](../ems-runtime-client/index.md) for the serving side.
+Continue with [Deploy EMS](../../guides/experiment-management-server/index.md) for implementation or
+[Runtime client, refresh, and assignment](../ems-runtime-client/index.md) for the serving side.

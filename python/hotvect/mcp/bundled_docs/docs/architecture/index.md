@@ -69,8 +69,8 @@ Java runtime embedded by an application.
     </div>
     <div class="hv-system-map__down">↓</div>
     <div class="hv-system-map__node">
-      <strong><code>hv exp</code> inspection</strong>
-      <small>read-only configuration and online results</small>
+      <strong><code>hv exp</code> operations</strong>
+      <small>inspection · online results · mutation requests</small>
     </div>
     <div class="hv-system-map__output">
       <span>OUTPUT</span>
@@ -107,10 +107,10 @@ Java runtime embedded by an application.
 </div>
 
 The offline plane produces packages and evidence but does not serve requests. An organization publishes packages
-through its own path and may run a separately deployed EMS server to keep selection metadata; `hv exp` only reads that
-state. The
-online plane is always the containing application. It can load already selected local artifacts directly, or resolve
-an EMS assignment through the repository, then construct and retain an algorithm graph. It may invoke explicit Python
+through its own path and may run a separately deployed EMS server to keep selection metadata; `hv exp` inspects and
+requests changes to that state for review and execution in EMS UI. The online plane is always the containing application. It can load already
+selected local artifacts directly, or resolve an EMS assignment through the repository, then construct and retain an
+algorithm graph. It may invoke explicit Python
 or native integrations behind the graph's root algorithm. When EMS is used, EMS and the artifact store are not in the per-request
 scoring path after the serving snapshot is loaded.
 

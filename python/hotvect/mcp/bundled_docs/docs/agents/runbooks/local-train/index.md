@@ -12,7 +12,7 @@ Train one algorithm locally and leave a reusable parameters artifact plus a run 
 
 | Inputs | Command | Artifacts | Verify |
 | --- | --- | --- | --- |
-| Algorithm JAR/name, local data, output directory, test date | `hv algorithm train` | predict-parameters ZIP, `result.json`, `hv.log` | Exit code `0`; `result.json` records the stages that ran or were skipped |
+| Algorithm JAR/name, local data, output directory, test date | `hv algorithm train` | parameter source, optional predict-parameters ZIP, `result.json`, `hv.log` | Exit code `0`; `result.json` records the stages that ran or were skipped |
 
 Use this to train one local algorithm. Use [`hv algorithm backtest`](../local-backtest/index.md) when you need to compare git
 references or multiple historical dates.
@@ -80,7 +80,8 @@ Look for:
 - Exit code `0`
 - `$OUTPUT_BASE_DIR/metadata/<algorithm_id>/<parameter_version>/result.json`
 - `$OUTPUT_BASE_DIR/metadata/<algorithm_id>/<parameter_version>/hv.log`
-- A packaged predict-parameters ZIP under the run output
+- A parameter source next to the run output
+- A predict-parameters ZIP when the target, cache, or publication requires one
 
 Read `result.json` before reporting success: it is the authoritative record of which stages ran, reused cache, or
 were skipped.

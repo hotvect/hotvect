@@ -95,9 +95,9 @@ Not every algorithm uses every stage. A parameterless rules algorithm can skip t
 may only generate and package state. A composite can prepare several children before constructing its outer artifact.
 
 Prediction, evaluation, and performance testing then load the algorithm package and, when that path requires it, the
-parameter package. Their outputs are evidence about that exact runtime identity; they are not new deployable
-algorithms. The Python lifecycle normally still produces a predict-parameters ZIP for a non-state pipeline even when
-it contains only metadata or packaged child artifacts.
+parameter source. Their outputs are evidence about that exact runtime identity; they are not new deployable algorithms.
+The Python lifecycle uses a source directory locally and creates a predict-parameters ZIP only when it must persist or
+publish that artifact.
 
 ## 5. Load the algorithm in an application
 

@@ -53,7 +53,7 @@ def test_sagemaker_pipeline_is_uploaded_to_s3() -> None:
     executor = SagemakerTrainingExecutor.__new__(SagemakerTrainingExecutor)
     executor._s3_client = MagicMock()
     executor.training_job_definition = {
-        "HyperParameters": {"s3_uri_metadata": "s3://bucket/output/bt-demo/algo/metadata"}
+        "HyperParameters": {"s3_uri_metadata": "s3://example-bucket/output/bt-demo/algo/metadata"}
     }
     executor.algorithm_pipeline = SimpleNamespace(
         last_test_time=date(2000, 1, 1),
@@ -98,7 +98,7 @@ def test_sagemaker_pipeline_is_uploaded_to_s3() -> None:
         "ran_at": "2000-01-01T12:00:00+00:00",
     }
     assert executor.hyperparameters[ALGO_PIPELINE_S3_URI_HYPERPARAMETER] == (
-        "s3://bucket/output/bt-demo/algo/metadata/" + ALGO_PIPELINE_S3_BASENAME
+        "s3://example-bucket/output/bt-demo/algo/metadata/" + ALGO_PIPELINE_S3_BASENAME
     )
     put_object_kwargs = executor._s3_client.put_object.call_args.kwargs
     payload = json.loads(put_object_kwargs["Body"])
@@ -133,7 +133,7 @@ def test_sagemaker_pipeline_supports_large_payloads() -> None:
     executor = SagemakerTrainingExecutor.__new__(SagemakerTrainingExecutor)
     executor._s3_client = MagicMock()
     executor.training_job_definition = {
-        "HyperParameters": {"s3_uri_metadata": "s3://bucket/output/bt-demo/algo/metadata"},
+        "HyperParameters": {"s3_uri_metadata": "s3://example-bucket/output/bt-demo/algo/metadata"},
     }
     executor.algorithm_pipeline = SimpleNamespace(
         last_test_time=date(2000, 1, 1),
@@ -171,11 +171,11 @@ def test_sagemaker_pipeline_supports_large_payloads() -> None:
     executor._add_algorithm_pipeline_as_hyperparameter()
 
     assert executor.hyperparameters[ALGO_PIPELINE_S3_URI_HYPERPARAMETER] == (
-        "s3://bucket/output/bt-demo/algo/metadata/" + ALGO_PIPELINE_S3_BASENAME
+        "s3://example-bucket/output/bt-demo/algo/metadata/" + ALGO_PIPELINE_S3_BASENAME
     )
     executor._s3_client.put_object.assert_called_once()
     put_object_kwargs = executor._s3_client.put_object.call_args.kwargs
-    assert put_object_kwargs["Bucket"] == "bucket"
+    assert put_object_kwargs["Bucket"] == "example-bucket"
     assert put_object_kwargs["Key"] == "output/bt-demo/algo/metadata/pipeline.json"
     assert json.loads(put_object_kwargs["Body"])["params"] == expected_payload
     assert put_object_kwargs["ContentType"] == "application/json"
@@ -188,9 +188,9 @@ def test_sagemaker_pipeline_context_includes_split_queue_lengths() -> None:
     executor = SagemakerTrainingExecutor.__new__(SagemakerTrainingExecutor)
     executor._s3_client = MagicMock()
     executor.training_job_definition = {
-        "HyperParameters": {"s3_uri_metadata": "s3://bucket/output/bt-demo/algo/metadata"}
+        "HyperParameters": {"s3_uri_metadata": "s3://example-bucket/output/bt-demo/algo/metadata"}
     }
-    executor._partition_cache_channel_names_by_root = {"s3://bucket/cache/algo@1.2.3": "hotvect_partition_cache_0"}
+    executor._partition_cache_channel_names_by_root = {"s3://example-bucket/cache/algo@1.2.3": "hotvect_partition_cache_0"}
     executor.algorithm_pipeline = SimpleNamespace(
         last_test_time=date(2000, 1, 1),
         parameter_version="pv",
@@ -219,7 +219,7 @@ def test_sagemaker_pipeline_context_includes_split_queue_lengths() -> None:
     assert payload["write_queue_length"] == 17
     assert payload["batch_size"] == 11
     assert "sagemaker_training_job_name" not in payload
-    assert payload["partition_cache_channels"] == {"s3://bucket/cache/algo@1.2.3": "hotvect_partition_cache_0"}
+    assert payload["partition_cache_channels"] == {"s3://example-bucket/cache/algo@1.2.3": "hotvect_partition_cache_0"}
 
 
 def test_sagemaker_pipeline_context_includes_benchmark_contract() -> None:
@@ -235,23 +235,23 @@ def test_sagemaker_pipeline_context_includes_benchmark_contract() -> None:
     executor._partition_cache_channel_names_by_root = {}
     executor.training_job_definition = {
         "TrainingJobName": "bt-demo",
-        "OutputDataConfig": {"S3OutputPath": "s3://bucket/output"},
+        "OutputDataConfig": {"S3OutputPath": "s3://example-bucket/output"},
         "AlgorithmSpecification": {"TrainingImage": "training-image"},
         "ResourceConfig": {"InstanceType": "ml.c7i.2xlarge"},
         "InputDataConfig": [
             {
                 "ChannelName": "test-data",
-                "DataSource": {"S3DataSource": {"S3Uri": "s3://bucket/test-data/"}},
+                "DataSource": {"S3DataSource": {"S3Uri": "s3://example-bucket/test-data/"}},
             },
             {
                 "ChannelName": f"{PARTITION_CACHE_CHANNEL_PREFIX}0",
-                "DataSource": {"S3DataSource": {"S3Uri": "s3://bucket/cache/algo/partitions/encode/"}},
+                "DataSource": {"S3DataSource": {"S3Uri": "s3://example-bucket/cache/algo/partitions/encode/"}},
             },
         ],
         "HyperParameters": {
-            "s3_uri_metadata": "s3://bucket/output/bt-demo/algo/metadata",
-            "s3_uri_result_file": "s3://bucket/output/bt-demo/algo/result.json",
-            PREDICT_PARAMETERS_ZIP_HYPERPARAMETER: "s3://bucket/output/bt-demo/algo/params.zip",
+            "s3_uri_metadata": "s3://example-bucket/output/bt-demo/algo/metadata",
+            "s3_uri_result_file": "s3://example-bucket/output/bt-demo/algo/result.json",
+            PREDICT_PARAMETERS_ZIP_HYPERPARAMETER: "s3://example-bucket/output/bt-demo/algo/params.zip",
         },
     }
     executor.algorithm_pipeline = SimpleNamespace(
@@ -278,16 +278,16 @@ def test_sagemaker_pipeline_context_includes_benchmark_contract() -> None:
 
     payload = json.loads(executor._s3_client.put_object.call_args.kwargs["Body"])["context"]
     assert payload["benchmark_contract"] == {
-        "parameter_s3_uri": "s3://bucket/output/bt-demo/algo/params.zip",
+        "parameter_s3_uri": "s3://example-bucket/output/bt-demo/algo/params.zip",
         "instance_type": "ml.c7i.2xlarge",
         "training_image": "training-image",
         "max_threads": 8,
-        "input_channels": {"test-data": "s3://bucket/test-data/"},
+        "input_channels": {"test-data": "s3://example-bucket/test-data/"},
         "output_prefixes": {
-            "metadata": "s3://bucket/output/bt-demo/algo/metadata",
-            "result": "s3://bucket/output/bt-demo/algo/result.json",
-            "predict_parameters": "s3://bucket/output/bt-demo/algo/params.zip",
-            "sagemaker_output": "s3://bucket/output/bt-demo",
+            "metadata": "s3://example-bucket/output/bt-demo/algo/metadata",
+            "result": "s3://example-bucket/output/bt-demo/algo/result.json",
+            "predict_parameters": "s3://example-bucket/output/bt-demo/algo/params.zip",
+            "sagemaker_output": "s3://example-bucket/output/bt-demo",
         },
     }
 
@@ -307,7 +307,7 @@ def test_sagemaker_adds_fastfile_partition_cache_channel_when_cache_exists() -> 
         _uses_prebuilt_parameters=lambda: False,
         _uses_encode_partition_cache=lambda: True,
         _cache_refresh_enabled=lambda: False,
-        _cache_algorithm_root=lambda: "s3://bucket/cache/algo@1.2.3",
+        _cache_algorithm_root=lambda: "s3://example-bucket/cache/algo@1.2.3",
         dependency_pipelines={},
     )
 
@@ -316,11 +316,11 @@ def test_sagemaker_adds_fastfile_partition_cache_channel_when_cache_exists() -> 
     assert executor.training_job_definition["InputDataConfig"] == [
         _partition_cache_channel(
             f"{PARTITION_CACHE_CHANNEL_PREFIX}0",
-            "s3://bucket/cache/algo@1.2.3/partitions/encode/",
+            "s3://example-bucket/cache/algo@1.2.3/partitions/encode/",
         )
     ]
     assert executor._partition_cache_channel_names_by_root == {
-        "s3://bucket/cache/algo@1.2.3": f"{PARTITION_CACHE_CHANNEL_PREFIX}0"
+        "s3://example-bucket/cache/algo@1.2.3": f"{PARTITION_CACHE_CHANNEL_PREFIX}0"
     }
 
 
@@ -339,14 +339,14 @@ def test_sagemaker_adds_fastfile_partition_cache_channel_for_dependency() -> Non
         _uses_prebuilt_parameters=lambda: False,
         _uses_encode_partition_cache=lambda: True,
         _cache_refresh_enabled=lambda: False,
-        _cache_algorithm_root=lambda: "s3://bucket/cache/child@1.2.3",
+        _cache_algorithm_root=lambda: "s3://example-bucket/cache/child@1.2.3",
         dependency_pipelines={},
     )
     executor.algorithm_pipeline = SimpleNamespace(
         _uses_prebuilt_parameters=lambda: False,
         _uses_encode_partition_cache=lambda: False,
         _cache_refresh_enabled=lambda: False,
-        _cache_algorithm_root=lambda: "s3://bucket/cache/parent@1.2.3",
+        _cache_algorithm_root=lambda: "s3://example-bucket/cache/parent@1.2.3",
         dependency_pipelines={"child": child_pipeline},
     )
 
@@ -355,7 +355,7 @@ def test_sagemaker_adds_fastfile_partition_cache_channel_for_dependency() -> Non
     assert executor.training_job_definition["InputDataConfig"] == [
         _partition_cache_channel(
             f"{PARTITION_CACHE_CHANNEL_PREFIX}0",
-            "s3://bucket/cache/child@1.2.3/partitions/encode/",
+            "s3://example-bucket/cache/child@1.2.3/partitions/encode/",
         )
     ]
 
@@ -372,14 +372,14 @@ def test_sagemaker_adds_fastfile_partition_cache_channels_for_multiple_roots() -
         _uses_prebuilt_parameters=lambda: False,
         _uses_encode_partition_cache=lambda: True,
         _cache_refresh_enabled=lambda: False,
-        _cache_algorithm_root=lambda: "s3://bucket/cache/child-a@1.2.3",
+        _cache_algorithm_root=lambda: "s3://example-bucket/cache/child-a@1.2.3",
         dependency_pipelines={},
     )
     child_b = SimpleNamespace(
         _uses_prebuilt_parameters=lambda: False,
         _uses_encode_partition_cache=lambda: True,
         _cache_refresh_enabled=lambda: False,
-        _cache_algorithm_root=lambda: "s3://bucket/cache/child-b@1.2.3",
+        _cache_algorithm_root=lambda: "s3://example-bucket/cache/child-b@1.2.3",
         dependency_pipelines={},
     )
     executor.algorithm_pipeline = SimpleNamespace(
@@ -395,16 +395,16 @@ def test_sagemaker_adds_fastfile_partition_cache_channels_for_multiple_roots() -
     assert executor.training_job_definition["InputDataConfig"] == [
         _partition_cache_channel(
             f"{PARTITION_CACHE_CHANNEL_PREFIX}0",
-            "s3://bucket/cache/child-a@1.2.3/partitions/encode/",
+            "s3://example-bucket/cache/child-a@1.2.3/partitions/encode/",
         ),
         _partition_cache_channel(
             f"{PARTITION_CACHE_CHANNEL_PREFIX}1",
-            "s3://bucket/cache/child-b@1.2.3/partitions/encode/",
+            "s3://example-bucket/cache/child-b@1.2.3/partitions/encode/",
         ),
     ]
     assert executor._partition_cache_channel_names_by_root == {
-        "s3://bucket/cache/child-a@1.2.3": f"{PARTITION_CACHE_CHANNEL_PREFIX}0",
-        "s3://bucket/cache/child-b@1.2.3": f"{PARTITION_CACHE_CHANNEL_PREFIX}1",
+        "s3://example-bucket/cache/child-a@1.2.3": f"{PARTITION_CACHE_CHANNEL_PREFIX}0",
+        "s3://example-bucket/cache/child-b@1.2.3": f"{PARTITION_CACHE_CHANNEL_PREFIX}1",
     }
 
 
@@ -417,7 +417,7 @@ def test_sagemaker_fails_when_partition_cache_channel_already_exists() -> None:
         "InputDataConfig": [
             _partition_cache_channel(
                 f"{PARTITION_CACHE_CHANNEL_PREFIX}existing",
-                "s3://bucket/other/",
+                "s3://example-bucket/other/",
             )
         ]
     }
@@ -426,7 +426,7 @@ def test_sagemaker_fails_when_partition_cache_channel_already_exists() -> None:
         _uses_prebuilt_parameters=lambda: False,
         _uses_encode_partition_cache=lambda: True,
         _cache_refresh_enabled=lambda: False,
-        _cache_algorithm_root=lambda: "s3://bucket/cache/algo@1.2.3",
+        _cache_algorithm_root=lambda: "s3://example-bucket/cache/algo@1.2.3",
         dependency_pipelines={},
     )
 
@@ -446,7 +446,7 @@ def test_sagemaker_skips_partition_cache_channel_when_cache_is_empty() -> None:
         _uses_prebuilt_parameters=lambda: False,
         _uses_encode_partition_cache=lambda: True,
         _cache_refresh_enabled=lambda: False,
-        _cache_algorithm_root=lambda: "s3://bucket/cache/algo@1.2.3",
+        _cache_algorithm_root=lambda: "s3://example-bucket/cache/algo@1.2.3",
         dependency_pipelines={},
     )
 
@@ -466,7 +466,7 @@ def test_sagemaker_skips_partition_cache_channel_when_cache_refresh_is_enabled()
         _uses_prebuilt_parameters=lambda: False,
         _uses_encode_partition_cache=lambda: True,
         _cache_refresh_enabled=lambda: True,
-        _cache_algorithm_root=lambda: "s3://bucket/cache/algo@1.2.3",
+        _cache_algorithm_root=lambda: "s3://example-bucket/cache/algo@1.2.3",
         dependency_pipelines={},
     )
 
@@ -548,13 +548,13 @@ def test_sagemaker_predict_accepts_s3_prediction_output_uri() -> None:
     executor.algorithm_pipeline = SimpleNamespace(
         run_target="predict",
         algorithm_name="demo-algo",
-        prediction_output_uri=lambda: "s3://bucket/predictions/dt=2026-01-01/",
+        prediction_output_uri=lambda: "s3://example-bucket/predictions/dt=2000-01-01/",
     )
 
     executor._fail_if_prediction_output_uri_is_not_s3_for_sagemaker()
 
 
-def test_sagemaker_skips_predict_parameters_zip_hyperparameter_when_pipeline_wont_publish_zip() -> None:
+def test_sagemaker_skips_predict_parameters_zip_hyperparameter_for_encode_cache_target() -> None:
     _ensure_offline_util_jar_present()
     from hotvect.sagemaker import PREDICT_PARAMETERS_ZIP_HYPERPARAMETER, SagemakerTrainingExecutor
 
@@ -562,10 +562,10 @@ def test_sagemaker_skips_predict_parameters_zip_hyperparameter_when_pipeline_won
     executor.training_job_definition = {
         "HyperParameters": {},
         "TrainingJobName": "demo-job",
-        "OutputDataConfig": {"S3OutputPath": "s3://bucket/output"},
+        "OutputDataConfig": {"S3OutputPath": "s3://example-bucket/output"},
     }
     executor.algorithm_pipeline = SimpleNamespace(
-        should_publish_predict_parameters_zip=lambda: False,
+        run_target="encode-cache",
         predict_parameter_file_path=lambda: "/tmp/unused.parameters.zip",
         hyperparameter_slug=lambda: "demo-slug",
     )
@@ -575,7 +575,7 @@ def test_sagemaker_skips_predict_parameters_zip_hyperparameter_when_pipeline_won
     assert PREDICT_PARAMETERS_ZIP_HYPERPARAMETER not in executor.hyperparameters
 
 
-def test_sagemaker_adds_predict_parameters_zip_hyperparameter_when_pipeline_publishes_zip(tmp_path) -> None:
+def test_sagemaker_adds_predict_parameters_zip_hyperparameter_for_publishable_target(tmp_path) -> None:
     _ensure_offline_util_jar_present()
     from hotvect.sagemaker import PREDICT_PARAMETERS_ZIP_HYPERPARAMETER, SagemakerTrainingExecutor
 
@@ -585,10 +585,10 @@ def test_sagemaker_adds_predict_parameters_zip_hyperparameter_when_pipeline_publ
     executor.training_job_definition = {
         "HyperParameters": {},
         "TrainingJobName": "demo-job",
-        "OutputDataConfig": {"S3OutputPath": "s3://bucket/output"},
+        "OutputDataConfig": {"S3OutputPath": "s3://example-bucket/output"},
     }
     executor.algorithm_pipeline = SimpleNamespace(
-        should_publish_predict_parameters_zip=lambda: True,
+        run_target="evaluate",
         predict_parameter_file_path=lambda: str(zip_path),
         hyperparameter_slug=lambda: "demo-slug",
     )
@@ -596,7 +596,7 @@ def test_sagemaker_adds_predict_parameters_zip_hyperparameter_when_pipeline_publ
     executor._add_s3_uri_predict_parameters_zip()
 
     assert executor.hyperparameters[PREDICT_PARAMETERS_ZIP_HYPERPARAMETER] == (
-        "s3://bucket/output/demo-job/demo-slug/predict-parameters.zip"
+        "s3://example-bucket/output/demo-job/demo-slug/predict-parameters.zip"
     )
 
 
@@ -606,10 +606,10 @@ def test_sagemaker_rebuilder_fails_when_advertised_predict_parameters_zip_is_mis
 
     rebuilder = SagemakerAlgorithmPipelineRebuilder.__new__(SagemakerAlgorithmPipelineRebuilder)
     rebuilder.sagemaker_env = SimpleNamespace(
-        hyperparameters={PREDICT_PARAMETERS_ZIP_HYPERPARAMETER: "s3://bucket/output/predict-parameters.zip"}
+        hyperparameters={PREDICT_PARAMETERS_ZIP_HYPERPARAMETER: "s3://example-bucket/output/predict-parameters.zip"}
     )
     rebuilder.algorithm_pipeline = SimpleNamespace(
-        predict_parameter_file_path=lambda: str(tmp_path / "missing.parameters.zip")
+        materialize_predict_parameter_package=lambda: str(tmp_path / "missing.parameters.zip")
     )
     rebuilder._s3_client = object()
 
@@ -635,16 +635,19 @@ def test_sagemaker_rebuilder_uploads_predict_parameters_zip_fail_fast(monkeypatc
 
     rebuilder = SagemakerAlgorithmPipelineRebuilder.__new__(SagemakerAlgorithmPipelineRebuilder)
     rebuilder.sagemaker_env = SimpleNamespace(
-        hyperparameters={PREDICT_PARAMETERS_ZIP_HYPERPARAMETER: "s3://bucket/output/predict-parameters.zip"}
+        hyperparameters={PREDICT_PARAMETERS_ZIP_HYPERPARAMETER: "s3://example-bucket/output/predict-parameters.zip"}
     )
-    rebuilder.algorithm_pipeline = SimpleNamespace(predict_parameter_file_path=lambda: str(local_zip))
+    materialize_parameter_package = MagicMock(return_value=str(local_zip))
+    rebuilder.algorithm_pipeline = SimpleNamespace(materialize_predict_parameter_package=materialize_parameter_package)
     rebuilder._s3_client = object()
 
     rebuilder._maybe_upload_predict_parameters_zip()
 
+    materialize_parameter_package.assert_called_once_with()
+
     assert uploaded == {
         "local_file_path": str(local_zip),
-        "s3_target_uri": "s3://bucket/output/predict-parameters.zip",
+        "s3_target_uri": "s3://example-bucket/output/predict-parameters.zip",
         "s3_client": rebuilder._s3_client,
         "fail_fast": True,
     }
@@ -717,8 +720,8 @@ def test_sagemaker_rebuilder_passes_materialized_algorithm_definition_dict(monke
     rebuilder = SagemakerAlgorithmPipelineRebuilder.__new__(SagemakerAlgorithmPipelineRebuilder)
     rebuilder.sagemaker_env = SimpleNamespace(
         hyperparameters={
-            "s3_uri_algorithm_jar": "s3://bucket/demo-algo.jar",
-            ALGO_PIPELINE_S3_URI_HYPERPARAMETER: "s3://bucket/output/pipeline.json",
+            "s3_uri_algorithm_jar": "s3://example-bucket/demo-algo.jar",
+            ALGO_PIPELINE_S3_URI_HYPERPARAMETER: "s3://example-bucket/output/pipeline.json",
         }
     )
     rebuilder._s3_client = object()
@@ -812,8 +815,8 @@ def test_sagemaker_rebuilder_loads_pipeline_from_s3(monkeypatch) -> None:
     rebuilder = SagemakerAlgorithmPipelineRebuilder.__new__(SagemakerAlgorithmPipelineRebuilder)
     rebuilder.sagemaker_env = SimpleNamespace(
         hyperparameters={
-            "s3_uri_algorithm_jar": "s3://bucket/demo-algo.jar",
-            ALGO_PIPELINE_S3_URI_HYPERPARAMETER: "s3://bucket/output/bt-demo/algo/metadata/pipeline.json",
+            "s3_uri_algorithm_jar": "s3://example-bucket/demo-algo.jar",
+            ALGO_PIPELINE_S3_URI_HYPERPARAMETER: "s3://example-bucket/output/bt-demo/algo/metadata/pipeline.json",
         }
     )
     rebuilder._s3_client = object()
@@ -826,7 +829,7 @@ def test_sagemaker_rebuilder_loads_pipeline_from_s3(monkeypatch) -> None:
 
     rebuilder.rebuild_algorithm_pipeline()
 
-    assert download_calls == ["s3://bucket/output/bt-demo/algo/metadata/pipeline.json"]
+    assert download_calls == ["s3://example-bucket/output/bt-demo/algo/metadata/pipeline.json"]
     assert seen_context_payload == [{}]
     assert seen["algorithm_definition"] == full_definition
     assert seen["algorithm_pipeline_context"] == "context"
@@ -871,7 +874,7 @@ def test_sagemaker_rebuilder_rejects_invalid_pipeline_payload(monkeypatch, paylo
     monkeypatch.setattr(sagemaker_module, "download_json_from_s3", lambda *_args: payload)
     rebuilder = SagemakerAlgorithmPipelineRebuilder.__new__(SagemakerAlgorithmPipelineRebuilder)
     rebuilder.sagemaker_env = SimpleNamespace(
-        hyperparameters={ALGO_PIPELINE_S3_URI_HYPERPARAMETER: "s3://bucket/metadata/pipeline.json"}
+        hyperparameters={ALGO_PIPELINE_S3_URI_HYPERPARAMETER: "s3://example-bucket/metadata/pipeline.json"}
     )
     rebuilder._s3_client = object()
 
@@ -883,7 +886,7 @@ def test_sagemaker_rebuilder_requires_complete_pipeline_params() -> None:
     from hotvect.sagemaker import SagemakerAlgorithmPipelineRebuilder
 
     rebuilder = SagemakerAlgorithmPipelineRebuilder.__new__(SagemakerAlgorithmPipelineRebuilder)
-    rebuilder.sagemaker_env = SimpleNamespace(hyperparameters={"s3_uri_algorithm_jar": "s3://bucket/algo.jar"})
+    rebuilder.sagemaker_env = SimpleNamespace(hyperparameters={"s3_uri_algorithm_jar": "s3://example-bucket/algo.jar"})
     rebuilder._download_algorithm_jar = lambda *_args: None
     rebuilder._get_algorithm_definition = lambda *_args: {
         "algorithm_name": "demo-algo",
@@ -968,8 +971,77 @@ def test_sagemaker_rebuilder_maps_partition_cache_channels_to_mount_paths(monkey
     context = rebuilder._rebuild_algorithm_pipeline_context(
         tmp_path / "algo.jar",
         {
-            "partition_cache_channels": {"s3://bucket/cache/algo@1.2.3": "hotvect_partition_cache_0"},
+            "partition_cache_channels": {"s3://example-bucket/cache/algo@1.2.3": "hotvect_partition_cache_0"},
         },
     )
 
-    assert context.partition_cache_base_paths == {"s3://bucket/cache/algo@1.2.3": channel_dir}
+    assert context.partition_cache_base_paths == {"s3://example-bucket/cache/algo@1.2.3": channel_dir}
+
+
+def _publication_rebuilder(hyperparameters: dict, run_target: str):
+    from hotvect.sagemaker import SagemakerAlgorithmPipelineRebuilder
+
+    rebuilder = SagemakerAlgorithmPipelineRebuilder.__new__(SagemakerAlgorithmPipelineRebuilder)
+    rebuilder.sagemaker_env = SimpleNamespace(hyperparameters=hyperparameters)
+    rebuilder.algorithm_pipeline = SimpleNamespace(run_target=run_target)
+    return rebuilder
+
+
+@pytest.mark.parametrize("publication_hyperparameter", ["s3_uri_predict_parameters_zip", "should_update_ems_parameter"])
+def test_encode_cache_target_rejects_predict_parameter_publication(publication_hyperparameter: str) -> None:
+    _ensure_offline_util_jar_present()
+
+    rebuilder = _publication_rebuilder({publication_hyperparameter: "s3://example-bucket/out.zip"}, "encode-cache")
+
+    with pytest.raises(ValueError, match="not supported with run target 'encode-cache'"):
+        rebuilder._check_parameter_publication_is_supported()
+
+
+@pytest.mark.parametrize(
+    "hyperparameters,run_target",
+    [
+        ({}, "encode-cache"),
+        ({"s3_uri_predict_parameters_zip": "s3://example-bucket/out.zip"}, "evaluate"),
+        ({"should_update_ems_parameter": True}, "evaluate"),
+    ],
+)
+def test_parameter_publication_check_allows_supported_combinations(hyperparameters: dict, run_target: str) -> None:
+    _ensure_offline_util_jar_present()
+
+    _publication_rebuilder(hyperparameters, run_target)._check_parameter_publication_is_supported()
+
+
+@pytest.mark.parametrize(
+    "hyperparameters,expected",
+    [
+        ({}, None),
+        ({"s3_uri_predict_parameters_zip": "s3://example-bucket/out.zip"}, True),
+        ({"should_update_ems_parameter": True}, True),
+    ],
+)
+@pytest.mark.parametrize("run_target", ["parameters", "evaluate"])
+def test_run_all_materializes_package_only_when_publishing(
+    hyperparameters: dict, expected: bool | None, run_target: str
+) -> None:
+    _ensure_offline_util_jar_present()
+    from hotvect.sagemaker import SagemakerAlgorithmPipelineRebuilder
+
+    rebuilder = SagemakerAlgorithmPipelineRebuilder.__new__(SagemakerAlgorithmPipelineRebuilder)
+    rebuilder.sagemaker_env = SimpleNamespace(hyperparameters=hyperparameters, log_level=20)
+    run_all = MagicMock(return_value={"evaluate": {"ok": True}})
+    pipeline = SimpleNamespace(run_target=run_target, run_all=run_all)
+
+    rebuilder._check_mandatory_parameters = MagicMock()
+    rebuilder.rebuild_algorithm_pipeline = MagicMock(return_value=pipeline)
+    rebuilder._add_sagemaker_metadata_to_result_file = MagicMock()
+    rebuilder._upload_metadata_to_s3 = MagicMock()
+    rebuilder._maybe_upload_predict_parameters_zip = MagicMock()
+    rebuilder._save_result_file_to_s3 = MagicMock()
+    rebuilder._write_failure_reason_and_exit = MagicMock(side_effect=AssertionError("run must not fail"))
+
+    rebuilder.rebuild_pipeline_and_run()
+
+    run_all.assert_called_once_with(clean=False, materialize_parameter_package=expected)
+    # The package must exist before the metadata directory is shipped, so the published
+    # parameter metadata names the package rather than recording null.
+    rebuilder._write_failure_reason_and_exit.assert_not_called()

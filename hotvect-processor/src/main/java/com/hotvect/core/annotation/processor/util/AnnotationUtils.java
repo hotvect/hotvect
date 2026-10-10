@@ -44,6 +44,12 @@ public final class AnnotationUtils {
                 }
 
                 @Override
+                public T visitInt(int i, Void unused) {
+                    Integer value = i;
+                    return type.isInstance(value) ? type.cast(value) : defaultValue;
+                }
+
+                @Override
                 public T visitArray(List<? extends AnnotationValue> vals, Void unused) {
                     if (!List.class.isAssignableFrom(type)) {
                         return defaultValue;
