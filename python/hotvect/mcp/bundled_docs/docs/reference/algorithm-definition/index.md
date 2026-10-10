@@ -21,7 +21,7 @@ The definition is configuration, not executable code and not a trained model. Ke
 |---|---|---|
 | Algorithm definition | Identity, factory class names, data declarations, workflow settings | Versioned with the algorithm source |
 | Algorithm JAR | Java classes plus the embedded definition resource | Built once for an algorithm version |
-| Parameter ZIP | Trained or generated files plus parameter metadata | Produced or selected for a particular run |
+| Parameter source / ZIP package | Trained or generated files plus parameter metadata | Source directory used locally; ZIP created for cache or distribution |
 | Override fragment | A partial JSON patch applied to the embedded definition | Supplied for one environment or experiment |
 
 For the complete artifact model, see [Artifacts and identity](../../concepts/artifacts-and-identity/index.md).
@@ -98,7 +98,7 @@ When both a vectorizer and transformer are declared, the Java loader selects the
 choose one so that the construction path is unambiguous.
 
 The fields ending in `_parameters` above are optional JSON values from the definition. Despite the name, they are
-construction-time configuration; they are not files from the trained parameter ZIP.
+construction-time configuration; they are not files from the trained parameter source or ZIP package.
 
 ## Lifecycle and data fields
 
@@ -135,17 +135,17 @@ Several similarly named concepts cross the definition and runtime boundary:
 | `algorithm_parameters` | Definition JSON | `Optional<JsonNode>` passed to the algorithm factory |
 | `transformer_parameters` / `vectorizer_parameters` | Definition JSON | `Optional<JsonNode>` passed to the selected feature factory |
 | `train_decoder_parameters` / `test_decoder_parameters` | Definition JSON | `Optional<JsonNode>` passed to the decoder factory |
-| Trained/generated parameters | Parameter ZIP under an algorithm-name directory | `Map<String, InputStream>` passed to parameterized factories |
-| `algorithm-parameters.json` | Parameter ZIP under the algorithm-name directory | Read by Hotvect as artifact identity and provenance metadata |
+| Trained/generated parameters | Parameter source directory or ZIP package under an algorithm-name directory | `Map<String, InputStream>` passed to parameterized factories |
+| `algorithm-parameters.json` | Parameter source directory or ZIP package under an algorithm-name directory | Read by Hotvect as artifact identity and provenance metadata |
 
-Changing definition JSON does not mutate an existing parameter ZIP. Supplying a parameter ZIP also does not activate
-the override that produced it; the runtime definition comes from the JAR plus the override explicitly applied for that
-load or run.
+Changing definition JSON does not mutate an existing parameter package. Supplying a parameter source directory or ZIP
+package also does not activate the override that produced it; the runtime definition comes from the JAR plus the
+override explicitly applied for that load or run.
 
 ## Runtime-local state storage
 
 Set `requires_local_state_storage` to `true` only when the constructed algorithm must materialize runtime files outside
-its parameter ZIP—for example, when a library requires a filesystem path rather than an input stream:
+its parameter source—for example, when a library requires a filesystem path rather than an input stream:
 
 ```json
 {
@@ -337,13 +337,76 @@ Hotvect renders `training_command` as a Jinja2 template immediately before the t
 - `parameter_output_path`: location where the trainer must write its model files;
 - `scratch_dir`: scratch directory for the command;
 - `python_executable`: Python executable used by Hotvect;
-- `encode_parameter_path`: encode-parameters ZIP, including packaged child artifacts.
+- `encode_parameter_path`: encode-parameter source directory, including prepared child artifacts.
+- `last_test_time`: Python `datetime` representing the run's date at midnight UTC.
+
+The training template chooses the format passed to its trainer. Use `{{ last_test_time.strftime("%Y-%m-%d") }}`
+for a date, such as `2000-02-17`, or `{{ last_test_time.isoformat() }}` for `2000-02-17T00:00:00+00:00`.
+The pipeline continues to use date-only inputs, partitions, run paths, and metadata; this conversion happens only
+when rendering `training_command`.
 
 ```json
 {
-  "training_command": "{{ python_executable }} -m example_trainer --input {{ encoded_data_file_path }} --output {{ parameter_output_path }}"
+  "training_command": "{{ python_executable }} -m example_trainer --input {{ encoded_data_file_path }} --output {{ parameter_output_path }} --cutoff {{ last_test_time.strftime('%Y-%m-%d') }}"
 }
 ```
+
+### Python helpers for training artifacts
+
+Trainers can import the shared DTOs from `hotvect.dto` and read materialized metadata with `hotvect.utils`:
+
+```python
+from hotvect.dto import AlgorithmDefinition, DependencyStateMetadata
+from hotvect.utils import hotvect_algorithm_definition, hotvect_state_dependency_metadata
+
+definition: AlgorithmDefinition = hotvect_algorithm_definition(algorithm_definition_path)
+dependencies: dict[str, DependencyStateMetadata] = hotvect_state_dependency_metadata(algorithm_definition_path)
+encoder_metadata = dependencies["feature-ordinal-encoder"]["generate_state_metadata"]
+```
+
+Both readers accept strings or filesystem paths and preserve all JSON fields. The DTOs are ordinary dictionaries
+with type annotations, without a Hydra or OmegaConf dependency. They describe the trainer's fields rather than
+validate the complete algorithm-definition schema.
+
+The definition DTOs share a parent contract and separate the algorithm roles:
+
+| DTO | Parent | Additional fields |
+|---|---|---|
+| `InputDataSpec` | `TypedDict` | Required data prefix; optional S3 location |
+| `PredictionDataSpec` | `InputDataSpec` | Required partition window and output URI template |
+| `StateSourceDataSpec` | `InputDataSpec` | Optional source partition window |
+| `AlgorithmDefinition` | `TypedDict` | Required identity and runtime factory; optional hyperparameter version, framework/source provenance, execution settings and direct dependencies |
+| `TrainableAlgorithmDefinition` | `AlgorithmDefinition` | Required training command; optional training window, training/evaluation inputs, decoder settings and prediction spec |
+| `StateAlgorithmDefinition` | `AlgorithmDefinition` | Required generator factory and source inputs; optional state output path |
+
+`train_data_spec` uses `InputDataSpec`, containing the required `data_prefix` and optional `s3_uri`.
+Training windows remain on `TrainableAlgorithmDefinition`. Each named `source_data` entry uses
+`StateSourceDataSpec`, which adds `number_of_days` and `lag_days` for dated state inputs. A state
+definition can omit `state_output_filename`; the pipeline then writes state into the algorithm's
+parameter-source directory.
+
+`hotvect_algorithm_definition` returns the parent type. Code that knows the algorithm's role can use
+`typing.cast` to annotate the corresponding subtype. Any algorithm can declare `dependencies`, so they are on the parent type.
+
+`read_algorithm_definition_from_jar` and the effective-definition loaders return `AlgorithmDefinition`.
+The pipeline's effective and committed definitions, backtest resolution, and QA artifact caches use this
+shared contract. Training and state consumers use the specialized DTOs where they read role-specific fields.
+`TrainableAlgorithmDefinition.prediction_spec` uses `PredictionDataSpec` for the dated input window and
+output URI. SageMaker execution settings belong to the parent contract because shared job setup consumes them
+across pipeline tasks. Override fragments stay partial dictionaries, and `apply_algorithm_definition_override`
+takes and returns `AlgorithmDefinition`. These annotations add no runtime validation and preserve additional
+JSON fields. Local casts express the caller's role assumptions; they do not validate the complete DTO contract.
+
+Dependency lookup requires the definition path layout
+`<metadata-base>/<algorithm>@<version>[-<hyperparameter-version>]/<parameter-version>/algorithm_definition.json`
+and the `algorithm_dependencies.json` that the pipeline writes next to it, mapping each direct dependency to its
+slug. It reads only those dependencies from `<metadata-base>/<dependency-slug>/<parameter-version>/generate-state/metadata.json`.
+It does not search other runs or recurse into transitive
+dependencies. Missing metadata produces an empty dictionary for that dependency; available metadata exposes
+`generate_state_metadata_path` and the complete `generate_state_metadata` object. Invalid JSON fails immediately;
+metadata is expected to be a JSON object, without runtime type validation.
+
+The callables can also be registered as OmegaConf resolvers by the trainer's application.
 
 ## `hotvect_execution_parameters`
 
@@ -415,24 +478,20 @@ Classpath flags (`-cp` and `-classpath`) are rejected. Configure exactly one hea
 
 ### State output and packaging
 
-A definition with `generator_factory_classname` follows the state-producing lifecycle. Generated files are packaged
-into the predict-parameters ZIP by default.
+A definition with `generator_factory_classname` follows the state-producing lifecycle. Generated files are assembled
+in the predict-parameter source directory. Hotvect materializes that source as a ZIP when the `parameters` target,
+cache persistence, or publication requires one.
 
 ```json
 {
-  "state_output_filename": "state/id-mapping.json",
-  "hotvect_execution_parameters": {
-    "package_state_as_predict_parameters": true
-  }
+  "state_output_filename": "state/id-mapping.json"
 }
 ```
 
-- If `state_output_filename` is omitted, the algorithm output directory is the state root.
-- A configured path must be relative, remain below the output root, and exist when packaging begins.
-- A directory is packaged recursively.
-- A configured primary file is packaged with same-stem sidecars when present.
-- `package_state_as_predict_parameters` defaults to `true`. Setting it to `false` suppresses the standalone ZIP but
-  still writes parameter metadata for parent packaging.
+- If `state_output_filename` is omitted, the algorithm's parameter-source directory is the state root.
+- A configured path must be relative, remain below that directory, and exist when parameter metadata is written.
+- A directory becomes part of the source recursively.
+- A configured primary file includes same-stem sidecars when present.
 
 ### Performance-test controls
 

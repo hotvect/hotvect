@@ -95,9 +95,25 @@ public class AlgorithmDownloader {
     public AlgorithmInstance<?> loadAlgorithmInstance(AlgorithmMetadata algorithm,
             final AlgorithmInstanceFactory algorithmHolder,
             final Map<String, AlgorithmInstance<?>> dependencyOverrides) throws MalformedAlgorithmException {
+        final boolean requiresLocalStateStorage = algorithmHolder.requiresLocalStateStorage(algorithm.algorithmName());
+        if (requiresLocalStateStorage && featureStateRoot.isEmpty()) {
+            throw new UnsupportedRuntimeStorageException(
+                    "Algorithm " + algorithm.algorithmId()
+                            + " requires local state storage but this runtime only provides scratch storage; scratchRoot="
+                            + scratchDirectory);
+        }
+        if (!algorithm.hasParameter()) {
+            final long buildStartNanos = System.nanoTime();
+            final AlgorithmInstance<?> algorithmInstance =
+                    algorithmHolder.load(algorithm.algorithmName(), null, dependencyOverrides);
+            LOG.info("Constructed parameterless algorithm instance for {} in {} ms",
+                    algorithm.algorithmName(),
+                    TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - buildStartNanos));
+            return algorithmInstance;
+        }
         final String algoParameterName = algorithm.latestAlgorithmParameterFileName();
         final String randomPrefix = UUID.randomUUID().toString();
-        final Path parameterDirectory = parameterDirectory(algorithm, algorithmHolder);
+        final Path parameterDirectory = parameterDirectory(requiresLocalStateStorage);
         final Path downloadDestination = parameterDirectory.resolve(randomPrefix + "-" + algoParameterName);
         final Path partialDestination = downloadDestination.resolveSibling(downloadDestination.getFileName() + ".part");
         try {
@@ -125,16 +141,11 @@ public class AlgorithmDownloader {
         }
     }
 
-    private Path parameterDirectory(AlgorithmMetadata algorithm, AlgorithmInstanceFactory algorithmHolder) {
-        if (!algorithmHolder.requiresLocalStateStorage(algorithm.algorithmName())) {
+    private Path parameterDirectory(boolean requiresLocalStateStorage) {
+        if (!requiresLocalStateStorage) {
             return scratchDirectory;
         }
-        return featureStateRoot
-                .map(root -> root.resolve(DOWNLOADS_DIRECTORY))
-                .orElseThrow(() -> new UnsupportedRuntimeStorageException(
-                        "Algorithm " + algorithm.algorithmId()
-                                + " requires local state storage but this runtime only provides scratch storage; scratchRoot="
-                                + scratchDirectory));
+        return featureStateRoot.orElseThrow().resolve(DOWNLOADS_DIRECTORY);
     }
 
     private static void moveCompletedDownload(Path partialDestination, Path downloadDestination) throws IOException {

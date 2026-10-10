@@ -33,7 +33,10 @@ final class AlgorithmRuntimeProviders {
             require(opts.algorithmName != null && !opts.algorithmName.isBlank(), "--algorithm-name is required in local algorithm mode");
             require(opts.parameterPath != null, "--parameter-path is required in local algorithm mode");
             require(opts.algorithmJar.exists() && opts.algorithmJar.isFile(), "--algorithm-jar not found: %s", opts.algorithmJar.getAbsolutePath());
-            require(opts.parameterPath.exists() && opts.parameterPath.isFile(), "--parameter-path not found: %s", opts.parameterPath.getAbsolutePath());
+            require(
+                    opts.parameterPath.exists() && (opts.parameterPath.isFile() || opts.parameterPath.isDirectory()),
+                    "--parameter-path not found: %s",
+                    opts.parameterPath.getAbsolutePath());
             require(opts.emsScratchDir == null, "--ems-scratch-dir is only supported in EMS mode");
         }
     }

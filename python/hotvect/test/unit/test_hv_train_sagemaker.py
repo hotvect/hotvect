@@ -1,9 +1,13 @@
+import argparse
 import importlib.util
 import json
 import sys
 from importlib.machinery import SourceFileLoader
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import MagicMock
+
+import pytest
 
 
 def _load_hv_module():
@@ -25,6 +29,38 @@ def _recursive_update(target, patch):
             _recursive_update(target[key], value)
         else:
             target[key] = value
+
+
+@pytest.mark.parametrize("target", ["parameters", "predict", "evaluate"])
+def test_train_command_local_uses_pipeline_target(monkeypatch, tmp_path: Path, target):
+    from hotvect import pyhotvect
+
+    hv = _load_hv_module()
+    pipeline = MagicMock()
+    pipeline_factory = MagicMock(return_value=pipeline)
+    monkeypatch.setattr(pyhotvect, "AlgorithmPipeline", pipeline_factory)
+    parser = argparse.ArgumentParser()
+    command = hv.TrainCommand()
+    command.add_arguments(parser)
+    arguments = [
+        "--algorithm-name",
+        "example-algorithm",
+        "--algorithm-jar",
+        str(tmp_path / "algo.jar"),
+        "--last-test-time",
+        "2000-04-14",
+        "--data-base-dir",
+        str(tmp_path / "data"),
+        "--output-base-dir",
+        str(tmp_path / "output"),
+        "--target",
+        target,
+    ]
+
+    command.execute(parser.parse_args(arguments))
+
+    assert pipeline_factory.call_args.kwargs["run_target"] == target
+    pipeline.run_all.assert_called_once_with()
 
 
 def test_train_command_remote_uses_override_payload_and_applies_job_overrides(monkeypatch, tmp_path: Path):
@@ -151,7 +187,7 @@ def test_train_command_remote_uses_override_payload_and_applies_job_overrides(mo
         algorithm_jar=tmp_path / "algo.jar",
         algorithm_name="example-algorithm",
         algorithm_override=str(override_path),
-        last_test_time="2026-04-14",
+        last_test_time="2000-04-14",
         data_base_dir=str(tmp_path / "data"),
         output_base_dir=None,
         role_arn="arn:aws:iam::123456789012:role/TestRole",

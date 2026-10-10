@@ -28,8 +28,8 @@ import com.hotvect.api.execution.InputSemantic;
 import com.hotvect.api.execution.WorkloadMode;
 import com.hotvect.onlineutils.hotdeploy.AlgorithmInstanceFactory;
 import com.hotvect.onlineutils.hotdeploy.StrictChildFirstClassLoader;
+import com.hotvect.onlineutils.hotdeploy.util.AlgorithmParameterSource;
 import com.hotvect.onlineutils.hotdeploy.util.AlgorithmUtils;
-import com.hotvect.onlineutils.hotdeploy.util.ZipFiles;
 import com.hotvect.utils.AdditionalProperties;
 import com.hotvect.utils.AlgorithmDefinitionReader;
 import com.hotvect.utils.JsonUtils;
@@ -50,7 +50,6 @@ import java.util.Set;
 import java.util.SortedSet;
 import java.util.TreeSet;
 import java.util.function.Function;
-import java.util.zip.ZipFile;
 
 final class AlgorithmRuntime implements AutoCloseable {
     private static final Logger log = LoggerFactory.getLogger(AlgorithmRuntime.class);
@@ -147,9 +146,8 @@ final class AlgorithmRuntime implements AutoCloseable {
     private static JsonNode readAlgorithmParameterMetadataJson(
             AlgorithmDefinition algorithmDefinition,
             File parameterPath) throws IOException {
-        String entryName = algorithmDefinition.algorithmId().algorithmName() + "/algorithm-parameters.json";
-        try (ZipFile zipFile = new ZipFile(parameterPath);
-             InputStream input = ZipFiles.readFromZipByName(zipFile, entryName)) {
+        try (AlgorithmParameterSource parameterSource = AlgorithmParameterSource.open(parameterPath);
+             InputStream input = parameterSource.readMetadata(algorithmDefinition.algorithmId())) {
             return OM.readTree(input);
         }
     }

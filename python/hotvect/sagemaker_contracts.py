@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -9,6 +10,7 @@ from hotvect.algorithm_definition_overrides import (
     apply_algorithm_definition_override,
     load_effective_algorithm_definition,
 )
+from hotvect.dto import AlgorithmDefinition
 from hotvect.s3_utils import join_s3_uri
 from hotvect.text_data_files import is_text_data_file, list_part_text_data_files, list_text_data_files
 
@@ -293,7 +295,7 @@ class OneShotSagemakerHyperparameters:
 
 
 def build_parameter_pin_override(
-    algorithm_definition: dict[str, Any],
+    algorithm_definition: Mapping[str, Any],
     *,
     task: str,
     parameter_s3_uri: str | None,
@@ -317,7 +319,7 @@ def build_one_shot_effective_algorithm_definition(
     algorithm_override: str | None,
     task: str,
     parameter_s3_uri: str | None,
-) -> dict[str, Any]:
+) -> AlgorithmDefinition:
     effective_definition = load_effective_algorithm_definition(algorithm_jar, algorithm_name, algorithm_override)
     parameter_pin_override = build_parameter_pin_override(
         effective_definition,

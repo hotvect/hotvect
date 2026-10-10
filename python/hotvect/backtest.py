@@ -10,7 +10,7 @@ import tarfile
 import tempfile
 import time
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -28,6 +28,7 @@ from hotvect.algorithm_definition_overrides import (
     merge_algorithm_definition_override_fragments,
 )
 from hotvect.build_utils import clone_and_build_algorithm_jar
+from hotvect.dto import AlgorithmDefinition
 from hotvect.jvm_args import normalize_pipeline_jvm_options
 from hotvect.pyhotvect import AlgorithmPipeline, AlgorithmPipelineContext, DataDependency
 from hotvect.sagemaker_config import (
@@ -229,7 +230,7 @@ def legacy_sagemaker_params_to_overrides(params: dict[str, Any] | None) -> dict[
     return overrides or None
 
 
-def apply_training_container(job_definition: dict[str, Any], algorithm_definition: dict[str, Any]) -> None:
+def apply_training_container(job_definition: dict[str, Any], algorithm_definition: Mapping[str, Any]) -> None:
     """
     Apply the legacy algorithm definition training_container to the SageMaker TrainingImage.
 
@@ -246,7 +247,7 @@ def apply_training_container(job_definition: dict[str, Any], algorithm_definitio
 
 def apply_algorithm_sagemaker_job_configuration(
     job_definition: dict[str, Any],
-    algorithm_definition: dict[str, Any],
+    algorithm_definition: Mapping[str, Any],
 ) -> None:
     """
     Apply SageMaker job settings declared by an algorithm definition layer.
@@ -274,6 +275,7 @@ def _apply_algorithm_pipeline_sagemaker_job_configuration(
 ) -> None:
     job_definition.setdefault("AlgorithmSpecification", {}).setdefault("TrainingInputMode", "FastFile")
 
+    algorithm_definition_layers: list[tuple[str, Mapping[str, Any]]]
     if algorithm_pipeline.algorithm_definition_override is None:
         algorithm_definition_layers = [("algorithm definition", algorithm_pipeline.algorithm_definition)]
     else:
@@ -408,7 +410,7 @@ class BacktestPipeline:
         self,
         algorithm_spec: AlgorithmSpec,
         algorithm_definition_override: dict[str, Any],
-    ) -> dict[str, Any]:
+    ) -> AlgorithmDefinition:
         if algorithm_definition_override is not None and (
             "algorithm_name" in algorithm_definition_override.keys()
             or "algorithm_version" in algorithm_definition_override.keys()

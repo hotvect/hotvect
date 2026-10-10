@@ -96,7 +96,7 @@ final class LocalRuntimeCatalog implements AutoCloseable {
                 "--algorithm-jar not found: %s",
                 absolutePathOrNull(algorithmJar));
         ValidationSupport.requireArgument(
-                parameterPath != null && parameterPath.exists() && parameterPath.isFile(),
+                parameterPath != null && parameterPath.exists() && (parameterPath.isFile() || parameterPath.isDirectory()),
                 "--parameter-path not found: %s",
                 absolutePathOrNull(parameterPath));
         if (algorithmOverride != null) {

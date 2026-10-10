@@ -3,7 +3,9 @@ import json
 import re
 from collections.abc import Iterable
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
+
+from hotvect.dto import AlgorithmDefinition
 
 _PROTECTED_FIELDS = {"algorithm_name", "algorithm_version"}
 _ALGORITHM_ID_PATTERN = re.compile(r"^([\w\-_]+)(@[\w\-.]+)?$")
@@ -21,8 +23,8 @@ def _normalize_dependency_name(algorithm_id: str) -> str:
 
 
 def apply_algorithm_definition_override(
-    base_definition: dict[str, Any], override: dict[str, Any] | None
-) -> dict[str, Any]:
+    base_definition: AlgorithmDefinition, override: dict[str, Any] | None
+) -> AlgorithmDefinition:
     if override is None:
         return copy.deepcopy(base_definition)
     if not isinstance(base_definition, dict):
@@ -31,7 +33,7 @@ def apply_algorithm_definition_override(
         raise ValueError(f"Algorithm definition override must be a JSON object, got {type(override).__name__}")
 
     merged = copy.deepcopy(base_definition)
-    _merge_algorithm_definition_object(merged, override, validate_dependencies_against_base=True)
+    _merge_algorithm_definition_object(cast(dict[str, Any], merged), override, validate_dependencies_against_base=True)
     return merged
 
 
@@ -264,7 +266,7 @@ def load_effective_algorithm_definition(
     algorithm_jar: str,
     algorithm_name: str,
     algorithm_override: str | None,
-) -> dict[str, Any]:
+) -> AlgorithmDefinition:
     from hotvect.utils import read_algorithm_definition_from_jar
 
     effective = read_algorithm_definition_from_jar(algorithm_name, Path(algorithm_jar))
@@ -280,10 +282,12 @@ def load_effective_algorithm_definition(
     return effective
 
 
-def serialize_effective_algorithm_definition(algorithm_definition: dict[str, Any]) -> dict[str, Any]:
+def serialize_effective_algorithm_definition(
+    algorithm_definition: dict[str, Any] | AlgorithmDefinition,
+) -> dict[str, Any]:
     if not isinstance(algorithm_definition, dict) or not algorithm_definition:
         raise ValueError("Effective algorithm definition must be a non-empty JSON object")
-    return copy.deepcopy(algorithm_definition)
+    return cast(dict[str, Any], copy.deepcopy(algorithm_definition))
 
 
 def parse_effective_algorithm_definition_payload(payload: Any) -> dict[str, Any]:

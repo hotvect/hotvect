@@ -22,6 +22,7 @@ import com.hotvect.api.execution.ExecutionContext;
 import com.hotvect.api.transformation.AuditableTransformer;
 import com.hotvect.api.transformation.CompositeTransformerFactory;
 import com.hotvect.onlineutils.hotdeploy.util.AlgorithmUtils;
+import com.hotvect.onlineutils.hotdeploy.util.AlgorithmParameterSource;
 import com.hotvect.onlineutils.hotdeploy.util.MalformedAlgorithmException;
 import com.hotvect.utils.AlgorithmDefinitionReader;
 import com.hotvect.utils.AlgorithmDefinitionOverrideUtils;
@@ -38,7 +39,6 @@ import java.util.Optional;
 import java.util.function.BiFunction;
 import java.util.function.Function;
 import java.util.stream.Collectors;
-import java.util.zip.ZipFile;
 
 import static com.google.common.base.Preconditions.checkState;
 import static java.util.stream.Collectors.toMap;
@@ -178,8 +178,8 @@ public class AlgorithmInstanceFactory extends HotvectFactory implements Algorith
                     AlgorithmDefinition algoDefWithResolvedDeps = withResolvedDependencies(algorithmDefinition, dependenciesWithOverrides);
                     return new AlgorithmInstance<>(algoDefWithResolvedDeps, parameterMetadata, algo);
                 } else {
-                    try (ZipFile file = new ZipFile(parameterFile)) {
-                        Map<String, InputStream> parameters = AlgorithmUtils.extractParameters(algorithmDefinition.algorithmId(), file);
+                    try (AlgorithmParameterSource parameterSource = AlgorithmParameterSource.open(parameterFile)) {
+                        Map<String, InputStream> parameters = parameterSource.readParameters(algorithmDefinition.algorithmId());
                         ALGO algo = algoFactory.create(
                                 executionContext(),
                                 localStateStorage(algorithmDefinition),
@@ -265,8 +265,8 @@ public class AlgorithmInstanceFactory extends HotvectFactory implements Algorith
                             algorithmDefinition.algorithmParameter());
                     return new AlgorithmInstance<>(algorithmDefinition, algorithmParameterMetadata, algorithm);
                 } else {
-                    try (ZipFile file = new ZipFile(parameterFile)) {
-                        Map<String, InputStream> parameters = AlgorithmUtils.extractParameters(algorithmDefinition.algorithmId(), file);
+                    try (AlgorithmParameterSource parameterSource = AlgorithmParameterSource.open(parameterFile)) {
+                        Map<String, InputStream> parameters = parameterSource.readParameters(algorithmDefinition.algorithmId());
                         var algorithm = nonCompositeStateFactory.create(
                                 executionContext(),
                                 localStateStorage(algorithmDefinition),
@@ -289,8 +289,8 @@ public class AlgorithmInstanceFactory extends HotvectFactory implements Algorith
             if (parameterFile == null) {
                 return instantiateParameterizedAlgorithm(algorithmDefinition, dependency, algorithmFactory, ImmutableMap.of());
             } else {
-                try (ZipFile file = new ZipFile(parameterFile)) {
-                    Map<String, InputStream> parameters = AlgorithmUtils.extractParameters(algorithmDefinition.algorithmId(), file);
+                try (AlgorithmParameterSource parameterSource = AlgorithmParameterSource.open(parameterFile)) {
+                    Map<String, InputStream> parameters = parameterSource.readParameters(algorithmDefinition.algorithmId());
                     return instantiateParameterizedAlgorithm(algorithmDefinition, dependency, algorithmFactory, parameters);
                 }
             }
@@ -357,8 +357,8 @@ public class AlgorithmInstanceFactory extends HotvectFactory implements Algorith
             Map<String, InputStream> parameters = ImmutableMap.of();
             return doLoadParameterizedDependency(algorithmDefinition, parameterFile, dependencyFactory, hyperparameter, parameters, dependencyOverrides);
         } else {
-            try (ZipFile file = new ZipFile(parameterFile)) {
-                Map<String, InputStream> parameters = AlgorithmUtils.extractParameters(algorithmDefinition.algorithmId(), file);
+            try (AlgorithmParameterSource parameterSource = AlgorithmParameterSource.open(parameterFile)) {
+                Map<String, InputStream> parameters = parameterSource.readParameters(algorithmDefinition.algorithmId());
                 return doLoadParameterizedDependency(algorithmDefinition, parameterFile, dependencyFactory, hyperparameter, parameters, dependencyOverrides);
             } catch (IOException e) {
                 throw new MalformedAlgorithmException(e);

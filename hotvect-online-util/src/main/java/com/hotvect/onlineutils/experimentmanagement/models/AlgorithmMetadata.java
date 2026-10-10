@@ -9,6 +9,18 @@ public record AlgorithmMetadata(
         String latestAlgorithmParameter,
         String absoluteS3AlgorithmJarPath,
         String absoluteS3AlgorithmParameterPath) {
+    public AlgorithmMetadata {
+        if ((latestAlgorithmParameter == null) != (absoluteS3AlgorithmParameterPath == null)) {
+            throw new IllegalArgumentException(
+                    "Algorithm parameter ID and path must either both be present or both be absent");
+        }
+        if (latestAlgorithmParameter != null
+                && (latestAlgorithmParameter.isBlank() || absoluteS3AlgorithmParameterPath.isBlank())) {
+            throw new IllegalArgumentException(
+                    "Algorithm parameter ID and path must be nonblank when present");
+        }
+    }
+
     public String algorithmJarFileName() {
         return Path.of(absoluteS3AlgorithmJarPath).getFileName().toString();
     }
@@ -18,6 +30,13 @@ public record AlgorithmMetadata(
     }
 
     public String latestAlgorithmParameterFileName() {
+        if (!hasParameter()) {
+            throw new IllegalStateException("Parameterless algorithm has no parameter archive");
+        }
         return Path.of(absoluteS3AlgorithmParameterPath).getFileName().toString();
+    }
+
+    public boolean hasParameter() {
+        return latestAlgorithmParameter != null;
     }
 }

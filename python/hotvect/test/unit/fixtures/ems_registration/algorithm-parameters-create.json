@@ -1,0 +1,15 @@
+{
+  "algorithm_parameter_id": "trained-parameter",
+  "algorithm": {
+    "algorithm_name": "jar_name",
+    "algorithm_version": "v2",
+    "state": "NEW",
+    "absolute_s3_jar_path": "s3://bucket/dir/jar_name-v2.jar",
+    "created_at": "2000-09-17T06:23:12.406006Z",
+    "algorithm_training_image_name": "registry.example.com/example/jar_name:v2",
+    "parameter_mode": "REQUIRED"
+  },
+  "evaluation_results": "{}",
+  "created_at": "2000-09-17T06:23:12.417407Z",
+  "absolute_s3_path": "s3://bucket/trained-parameter.parameters.zip"
+}

@@ -555,7 +555,7 @@ def test_sagemaker_predict_accepts_s3_prediction_output_uri() -> None:
     executor._fail_if_prediction_output_uri_is_not_s3_for_sagemaker()
 
 
-def test_sagemaker_skips_predict_parameters_zip_hyperparameter_when_pipeline_wont_publish_zip() -> None:
+def test_sagemaker_skips_predict_parameters_zip_hyperparameter_for_encode_cache_target() -> None:
     _ensure_offline_util_jar_present()
     from hotvect.sagemaker import PREDICT_PARAMETERS_ZIP_HYPERPARAMETER, SagemakerTrainingExecutor
 
@@ -566,7 +566,7 @@ def test_sagemaker_skips_predict_parameters_zip_hyperparameter_when_pipeline_won
         "OutputDataConfig": {"S3OutputPath": "s3://bucket/output"},
     }
     executor.algorithm_pipeline = SimpleNamespace(
-        should_publish_predict_parameters_zip=lambda: False,
+        run_target="encode-cache",
         predict_parameter_file_path=lambda: "/tmp/unused.parameters.zip",
         hyperparameter_slug=lambda: "demo-slug",
     )
@@ -576,7 +576,7 @@ def test_sagemaker_skips_predict_parameters_zip_hyperparameter_when_pipeline_won
     assert PREDICT_PARAMETERS_ZIP_HYPERPARAMETER not in executor.hyperparameters
 
 
-def test_sagemaker_adds_predict_parameters_zip_hyperparameter_when_pipeline_publishes_zip(tmp_path) -> None:
+def test_sagemaker_adds_predict_parameters_zip_hyperparameter_for_publishable_target(tmp_path) -> None:
     _ensure_offline_util_jar_present()
     from hotvect.sagemaker import PREDICT_PARAMETERS_ZIP_HYPERPARAMETER, SagemakerTrainingExecutor
 
@@ -589,7 +589,7 @@ def test_sagemaker_adds_predict_parameters_zip_hyperparameter_when_pipeline_publ
         "OutputDataConfig": {"S3OutputPath": "s3://bucket/output"},
     }
     executor.algorithm_pipeline = SimpleNamespace(
-        should_publish_predict_parameters_zip=lambda: True,
+        run_target="evaluate",
         predict_parameter_file_path=lambda: str(zip_path),
         hyperparameter_slug=lambda: "demo-slug",
     )
@@ -610,7 +610,7 @@ def test_sagemaker_rebuilder_fails_when_advertised_predict_parameters_zip_is_mis
         hyperparameters={PREDICT_PARAMETERS_ZIP_HYPERPARAMETER: "s3://bucket/output/predict-parameters.zip"}
     )
     rebuilder.algorithm_pipeline = SimpleNamespace(
-        predict_parameter_file_path=lambda: str(tmp_path / "missing.parameters.zip")
+        materialize_predict_parameter_package=lambda: str(tmp_path / "missing.parameters.zip")
     )
     rebuilder._s3_client = object()
 
@@ -638,10 +638,13 @@ def test_sagemaker_rebuilder_uploads_predict_parameters_zip_fail_fast(monkeypatc
     rebuilder.sagemaker_env = SimpleNamespace(
         hyperparameters={PREDICT_PARAMETERS_ZIP_HYPERPARAMETER: "s3://bucket/output/predict-parameters.zip"}
     )
-    rebuilder.algorithm_pipeline = SimpleNamespace(predict_parameter_file_path=lambda: str(local_zip))
+    materialize_parameter_package = MagicMock(return_value=str(local_zip))
+    rebuilder.algorithm_pipeline = SimpleNamespace(materialize_predict_parameter_package=materialize_parameter_package)
     rebuilder._s3_client = object()
 
     rebuilder._maybe_upload_predict_parameters_zip()
+
+    materialize_parameter_package.assert_called_once_with()
 
     assert uploaded == {
         "local_file_path": str(local_zip),
@@ -974,3 +977,72 @@ def test_sagemaker_rebuilder_maps_partition_cache_channels_to_mount_paths(monkey
     )
 
     assert context.partition_cache_base_paths == {"s3://bucket/cache/algo@1.2.3": channel_dir}
+
+
+def _publication_rebuilder(hyperparameters: dict, run_target: str):
+    from hotvect.sagemaker import SagemakerAlgorithmPipelineRebuilder
+
+    rebuilder = SagemakerAlgorithmPipelineRebuilder.__new__(SagemakerAlgorithmPipelineRebuilder)
+    rebuilder.sagemaker_env = SimpleNamespace(hyperparameters=hyperparameters)
+    rebuilder.algorithm_pipeline = SimpleNamespace(run_target=run_target)
+    return rebuilder
+
+
+@pytest.mark.parametrize("publication_hyperparameter", ["s3_uri_predict_parameters_zip", "should_update_ems_parameter"])
+def test_encode_cache_target_rejects_predict_parameter_publication(publication_hyperparameter: str) -> None:
+    _ensure_offline_util_jar_present()
+
+    rebuilder = _publication_rebuilder({publication_hyperparameter: "s3://bucket/out.zip"}, "encode-cache")
+
+    with pytest.raises(ValueError, match="not supported with run target 'encode-cache'"):
+        rebuilder._check_parameter_publication_is_supported()
+
+
+@pytest.mark.parametrize(
+    "hyperparameters,run_target",
+    [
+        ({}, "encode-cache"),
+        ({"s3_uri_predict_parameters_zip": "s3://bucket/out.zip"}, "evaluate"),
+        ({"should_update_ems_parameter": True}, "evaluate"),
+    ],
+)
+def test_parameter_publication_check_allows_supported_combinations(hyperparameters: dict, run_target: str) -> None:
+    _ensure_offline_util_jar_present()
+
+    _publication_rebuilder(hyperparameters, run_target)._check_parameter_publication_is_supported()
+
+
+@pytest.mark.parametrize(
+    "hyperparameters,expected",
+    [
+        ({}, None),
+        ({"s3_uri_predict_parameters_zip": "s3://bucket/out.zip"}, True),
+        ({"should_update_ems_parameter": True}, True),
+    ],
+)
+@pytest.mark.parametrize("run_target", ["parameters", "evaluate"])
+def test_run_all_materializes_package_only_when_publishing(
+    hyperparameters: dict, expected: bool | None, run_target: str
+) -> None:
+    _ensure_offline_util_jar_present()
+    from hotvect.sagemaker import SagemakerAlgorithmPipelineRebuilder
+
+    rebuilder = SagemakerAlgorithmPipelineRebuilder.__new__(SagemakerAlgorithmPipelineRebuilder)
+    rebuilder.sagemaker_env = SimpleNamespace(hyperparameters=hyperparameters, log_level=20)
+    run_all = MagicMock(return_value={"evaluate": {"ok": True}})
+    pipeline = SimpleNamespace(run_target=run_target, run_all=run_all)
+
+    rebuilder._check_mandatory_parameters = MagicMock()
+    rebuilder.rebuild_algorithm_pipeline = MagicMock(return_value=pipeline)
+    rebuilder._add_sagemaker_metadata_to_result_file = MagicMock()
+    rebuilder._upload_metadata_to_s3 = MagicMock()
+    rebuilder._maybe_upload_predict_parameters_zip = MagicMock()
+    rebuilder._save_result_file_to_s3 = MagicMock()
+    rebuilder._write_failure_reason_and_exit = MagicMock(side_effect=AssertionError("run must not fail"))
+
+    rebuilder.rebuild_pipeline_and_run()
+
+    run_all.assert_called_once_with(clean=False, materialize_parameter_package=expected)
+    # The package must exist before the metadata directory is shipped, so the published
+    # parameter metadata names the package rather than recording null.
+    rebuilder._write_failure_reason_and_exit.assert_not_called()

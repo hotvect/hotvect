@@ -15,8 +15,9 @@ related_docs:
 EMS mutations change the control-plane state that online runtimes will install on a later refresh. They do not upload
 artifacts, retrain an algorithm, or synchronously update every serving process.
 
-Use the Python client from reviewed automation when possible. The endpoint map below explains the server behavior;
-the deployment owner's generated OpenAPI document remains authoritative for endpoint, payload, and response schemas.
+Use the Python client from reviewed automation when possible. The endpoint map below explains the server behavior; the
+[bundled EMS server API reference](../../reference/ems-server-api/index.md) contains the complete exported endpoint,
+payload, and response schema. The generated document from the deployed wrapper remains authoritative for that version.
 
 ## Release an algorithm runtime
 

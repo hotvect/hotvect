@@ -20,6 +20,7 @@ from .models import (
     AlgorithmSpec,
     AlgorithmState,
     AlgorithmStateLog,
+    AlgorithmsWithVariantsDTO,
     AlgorithmWithActiveVariantsResponse,
     AlgorithmWithLatestParameter,
     AlgorithmWithLatestParameterSpec,
@@ -48,6 +49,7 @@ from .models import (
 
 __all__ = [
     "Algorithm",
+    "AlgorithmsWithVariantsDTO",
     "AlgorithmName",
     "AlgorithmParameter",
     "AlgorithmParameterSpec",

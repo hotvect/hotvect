@@ -7,7 +7,7 @@ java -cp target/hotvect-algorithm-serve-*-jar-with-dependencies.jar \
   com.hotvect.algorithmserver.Main \
   --algorithm-jar /path/to/algorithm.jar \
   --algorithm-name <algorithm_name> \
-  --parameter-path /path/to/parameters.zip
+  --parameter-path /path/to/parameters
 ```
 
 Or load multiple local runtimes from JSON:
@@ -20,6 +20,9 @@ java -cp target/hotvect-algorithm-serve-*-jar-with-dependencies.jar \
 
 `--local-runtime-config` is strict: unknown JSON fields are rejected, and relative file paths are resolved relative to
 the config file location.
+
+`--parameter-path` accepts either a local parameter source directory or a ZIP package. Use a directory for local
+debugging; ZIP packages remain the portable distribution format.
 
 This module intentionally excludes demo-only dependencies such as SQLite caching and static UI assets. The browser UI lives in `hotvect-algorithm-demo` as an extension on top of this server.
 

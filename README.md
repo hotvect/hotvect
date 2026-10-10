@@ -86,6 +86,52 @@ commands. New algorithm commands use `hv algorithm <operation>` (for example, `h
 and the older direct algorithm commands remain available temporarily and print a migration warning. `hv algorithm serve`
 and `hv worker serve` are local debugging tools; production use embeds the online runtime in a containing application.
 
+## Locally test training Docker images
+
+Run these commands from the repository root. They build the images in the same dependency order as the CI pipeline: the Hotvect
+base image, CPU PyTorch image, then the CPU PyTorch+TensorFlow image. The base image includes the bundled JARs under
+`python/hotvect/hotvectjar`, so rebuild and refresh them before testing a Java change:
+
+```bash
+mvn package -DskipTests
+python3 python/scripts/copy_jar.py
+```
+
+If your build environment needs a specific Docker network to reach a package index, add `--network=<name>` to each
+`docker build` command below, or set `DOCKER_NETWORK=<name>` when using the helper script.
+
+```bash
+docker build --platform=linux/amd64 \
+  -t hotvect:base-test .
+
+docker build --platform=linux/amd64 \
+  -f Dockerfile.torch \
+  -t hotvect:cpu-torch-test \
+  --build-arg HOTVECT_BASE_IMAGE=hotvect:base-test \
+  --build-arg HOTVECT_TORCH_BACKEND=cpu .
+
+docker build --platform=linux/amd64 \
+  -f Dockerfile.torch-tensorflow \
+  -t hotvect:cpu-torch-tensorflow-test \
+  --build-arg HOTVECT_BASE_IMAGE=hotvect:cpu-torch-test .
+```
+
+Validate the final image's resolved environment:
+
+```bash
+docker run --rm --platform=linux/amd64 --entrypoint sh hotvect:cpu-torch-tensorflow-test \
+  -c 'uv pip check -p /opt/hotvect/.venv/bin/python'
+```
+
+For the complete base, TensorFlow, CPU PyTorch, and CPU PyTorch+TensorFlow sequence, use the helper instead:
+
+```bash
+scripts/docker-build-images-local.sh
+```
+
+On an ARM host, `--platform=linux/amd64` runs the Linux image under emulation. Use the build and `uv pip check` to
+validate dependency resolution; framework import smoke tests are more reliable on a native Linux AMD64 host.
+
 ## Project boundaries
 
 Hotvect owns the algorithm contract, artifact loading, feature/runtime integration, and offline lifecycle for one

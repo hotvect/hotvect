@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
+from typing import Literal
 
 from pydantic import AliasChoices, BaseModel, Field
 
@@ -11,6 +12,7 @@ class AlgorithmSpec(BaseModel):
     algorithm_version: str
     absolute_s3_jar_path: str
     algorithm_training_image_name: str
+    parameter_mode: Literal["REQUIRED", "NONE"] | None = None
 
 
 class AlgorithmState(Enum):
@@ -38,6 +40,7 @@ class Algorithm(BaseModel):
     absolute_s3_jar_path: str
     created_at: datetime
     algorithm_training_image_name: str
+    parameter_mode: Literal["REQUIRED", "NONE"]
 
 
 class AlgorithmParameter(BaseModel):
@@ -72,6 +75,7 @@ class AlgorithmWithLatestParameter(BaseModel):
     absolute_s3_jar_path: str
     created_at: datetime
     algorithm_training_image_name: str
+    parameter_mode: Literal["REQUIRED", "NONE"]
     latest_algorithm_parameter: AlgorithmWithLatestParameterSpec | None
 
 
@@ -87,15 +91,20 @@ class VariantInfoForActiveAlgorithms(BaseModel):
     slot_name: str
 
 
-class AlgorithmWithActiveVariantsResponse(BaseModel):
+class AlgorithmsWithVariantsDTO(BaseModel):
     algorithm_name: str
     algorithm_version: str
     state: str
     absolute_s3_jar_path: str
     created_at: datetime
     algorithm_training_image_name: str
+    parameter_mode: Literal["REQUIRED", "NONE"]
     latest_algorithm_parameter: AlgorithmParameter | None
     variants: list[VariantInfoForActiveAlgorithms]
+
+
+class AlgorithmWithActiveVariantsResponse(BaseModel):
+    algorithms: list[AlgorithmsWithVariantsDTO]
 
 
 class Experiment(BaseModel):
@@ -171,9 +180,9 @@ class SlotSalt(BaseModel):
 class SlotActiveInfoAlgorithmResponse(BaseModel):
     algorithm_name: str
     algorithm_version: str
-    latest_algorithm_parameter: str
+    latest_algorithm_parameter: str | None = None
     absolute_s3_algorithm_jar_path: str
-    absolute_s3_algorithm_parameter_path: str
+    absolute_s3_algorithm_parameter_path: str | None = None
 
 
 class SlotActiveInfoShardResponse(BaseModel):

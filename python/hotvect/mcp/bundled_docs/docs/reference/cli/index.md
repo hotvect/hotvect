@@ -277,14 +277,15 @@ hv docs read guides/docs-mcp/index.md
 ### 1. `audit`
 
 **Description**: Generate human-readable audit data showing feature transformations and calculations. Audit requires the
-predict-parameters ZIP used by the algorithm, then writes readable JSONL for debugging and comparison.
+predict-parameter source directory or ZIP package used by the algorithm, then writes readable JSONL for debugging and
+comparison.
 
 **SageMaker**: Supported via one-shot mode (`--sagemaker`). See [SageMaker one-shot mode](#sagemaker-one-shot-mode-auditpredictevaluateencodeperformance-test).
 
 **Usage**:
 
 ```bash
-hv algorithm audit --algorithm-jar <path_to_jar> --algorithm-name <algorithm_name> --parameter-path <predict-parameters.zip> [options]
+hv algorithm audit --algorithm-jar <path_to_jar> --algorithm-name <algorithm_name> --parameter-path <parameter-source-or.zip> [options]
 ```
 
 **Options**: Same as the common Java command options (see Common Options section below).
@@ -378,9 +379,9 @@ for the encode invocation.
 
 ### 4. `predict`
 
-**Description**: Generate model predictions on test/validation data. Pass a parameter ZIP when the algorithm requires
-one; stateless algorithms can predict without it. Output includes prediction scores and can be used for evaluation or
-serving.
+**Description**: Generate model predictions on test/validation data. Pass a parameter source directory or ZIP package
+when the algorithm requires one; stateless algorithms can predict without it. Output includes prediction scores and can
+be used for evaluation or serving.
 
 **SageMaker**: Supported via one-shot mode (`--sagemaker`). See [SageMaker one-shot mode](#sagemaker-one-shot-mode-auditpredictevaluateencodeperformance-test).
 
@@ -964,8 +965,9 @@ Most Java-based commands (audit, performance-test, encode, predict, generate-sta
 - `--metadata-path`: Directory where operation artifacts are written (optional, auto-generated if not specified). Files include `metadata.json`, `hv.log`, `hotvect-offline-utils.log`, and `stdout-stderr.log`.
 - `--source-path`: Path to the input data source for the operation (optional for some commands).
 - `--dest-path`: Destination path for the operation output (optional, auto-generated if not specified). For `encode`, `predict`, and `audit`, this is a **directory** containing `part-*<ext>` files. Ordered `predict` and ordered `audit` produce a single `part-00000.jsonl`.
-- `--parameter-path`: Path to the trained model parameter ZIP. Required for `audit`, `performance-test`, `serve`, and
-  `worker serve`; optional for `predict` (required only by algorithms that need parameters) and `encode`.
+- `--parameter-path`: Path to the trained model parameter source directory or ZIP package. `audit`,
+  `performance-test`, and full `serve` accept either form. `worker serve` requires a ZIP package. The option is
+  optional for `predict` (required only by algorithms that need parameters) and `encode`.
 - `--dest-schema-path`: Path where the feature schema description will be saved (optional, used in encoding operations).
 - `--samples`: Number of samples to process, useful for testing with smaller datasets (optional).
 - `--max-threads`: Max worker threads for Hotvect Java execution. For `hv algorithm performance-test`, if omitted, `hv` defaults to `2` threads on machines with `>=4` physical cores (else `1`). Pass an explicit value to override, or `0` to avoid passing `--max-threads` and let the JAR decide.

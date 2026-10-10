@@ -45,9 +45,9 @@ Hotvect distinguishes four values:
 Parameterless algorithms use `NA` as the parameter component of `AlgorithmRuntimeIdentity`.
 
 Support for omitting the parameter package depends on the execution surface. Direct `AlgorithmInstanceFactory` use can
-pass no parameter file. The current application `AlgorithmRepository` requires a nonempty parameter ID and downloads
-a ZIP. The Python lifecycle normally packages a predict-parameters ZIP for every non-state pipeline, including a
-parameterless algorithm.
+pass no parameter source. The current application `AlgorithmRepository` requires a nonempty parameter ID and downloads
+a ZIP. The Python lifecycle assembles a local parameter source for each pipeline and materializes a ZIP only for the
+`parameters` target, cache persistence, or publication.
 
 Do not confuse the Hotvect framework version with the algorithm version. The framework version identifies the APIs,
 runner, and Python tooling; the algorithm version identifies one algorithm-package line.

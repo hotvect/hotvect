@@ -115,7 +115,12 @@ hv algorithm train \
 ```
 
 `evaluate` prepares parameters, predicts the historical test slice, evaluates it, and normally runs the configured
-performance test. Start at the generated `result.json` and read the stage outcomes rather than assuming every optional
+performance test. The prepared parameters remain in a namespaced source directory, including on cache hits.
+Keep that directory with the run evidence until publication. Hotvect creates ZIPs automatically for
+`--target parameters`, configured cache writes, and SageMaker/EMS publication. For an external publication workflow,
+step 4 packages the saved source from this evaluation without rerunning training or state generation.
+
+Start at the generated `result.json` and read the stage outcomes rather than assuming every optional
 stage ran:
 
 ```bash
@@ -165,29 +170,40 @@ When the change needs an automated, objective-driven control-versus-treatment re
 EMS mutation. That guide adds paired multi-day quality, optional parity, and controlled system-performance gates;
 this guide resumes at the external release boundary after the evidence is accepted.
 
-## 4. Identify the two packages
+## 4. Prepare the two packages for publication
 
 The release is not just “the model.” Record the exact algorithm package that carries code and its embedded definition,
-and the exact parameter package produced for it:
+and the parameter source used by the accepted evaluation. Read the source path from that run's result:
 
 ```bash
-export PARAMETER_PACKAGE="$(one_file \
-  "$TRAIN_OUTPUT/$ALGORITHM_NAME@$CANDIDATE_VERSION" \
-  "$ALGORITHM_NAME@$CANDIDATE_VERSION@*.parameters.zip")"
-
+export PARAMETER_SOURCE="$(jq -er '.package_predict_params.source' "$TRAIN_RESULT")"
 test -f "$ALGORITHM_JAR"
-test -f "$PARAMETER_PACKAGE"
-
-printf 'algorithm package: %s\n' "$ALGORITHM_JAR"
-printf 'parameter package: %s\n' "$PARAMETER_PACKAGE"
+test -d "$PARAMETER_SOURCE"
+jq . "$PARAMETER_SOURCE/$ALGORITHM_NAME/algorithm-parameters.json"
 ```
 
-Inspect the parameter manifest and retain the train/backtest evidence alongside the candidate review:
+At the publication step, have your artifact pipeline archive the contents of that directory. For example, this local
+packaging command creates a ZIP beside the saved source, with the algorithm namespaces at the archive root:
 
 ```bash
+export PARAMETER_PACKAGE="${PARAMETER_SOURCE}.zip"
+python - <<'PY'
+import os
+import shutil
+
+source = os.environ["PARAMETER_SOURCE"]
+shutil.make_archive(source, "zip", root_dir=source)
+PY
+
+test -f "$PARAMETER_PACKAGE"
+printf 'algorithm package: %s\n' "$ALGORITHM_JAR"
+printf 'parameter package: %s\n' "$PARAMETER_PACKAGE"
 unzip -p "$PARAMETER_PACKAGE" \
   "$ALGORITHM_NAME/algorithm-parameters.json" | jq .
 ```
+
+This packages the exact evaluated files, whether they were trained in this run or loaded from cache. Retain the
+train/backtest evidence alongside the candidate review and keep the source directory unchanged until packaging completes.
 
 The algorithm ID and parameter ID are the join keys used later by EMS metadata, serving metadata, and online results.
 

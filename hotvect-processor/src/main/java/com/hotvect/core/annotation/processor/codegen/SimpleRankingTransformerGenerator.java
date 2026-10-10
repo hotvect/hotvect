@@ -178,8 +178,10 @@ public final class SimpleRankingTransformerGenerator {
             typeBuilder.addField(FieldSpec.builder(TypeName.get(algorithmDependency.type()), algorithmDependency.fieldName(),
                     Modifier.PRIVATE, Modifier.FINAL).build());
         }
+        typeBuilder.addField(FieldSpec.builder(TypeName.INT, "batchSize", Modifier.PRIVATE, Modifier.FINAL).build());
 
-        typeBuilder.addMethod(buildPrimaryConstructor(featureStoreRetrieverType, algorithmDependencies));
+        typeBuilder.addMethod(buildPrimaryConstructor(featureStoreRetrieverType, algorithmDependencies, false, spec.batchSize()));
+        typeBuilder.addMethod(buildPrimaryConstructor(featureStoreRetrieverType, algorithmDependencies, true, 0));
 
         typeBuilder.addMethod(buildTransformStream(sharedType, actionType, sharedContext, rankingRequest,
                 featureStoreResponse));
@@ -382,7 +384,9 @@ public final class SimpleRankingTransformerGenerator {
 
 
     private MethodSpec buildPrimaryConstructor(TypeName featureStoreRetrieverType,
-                                              Map<String, AlgorithmDependency> algorithmDependencies) {
+                                              Map<String, AlgorithmDependency> algorithmDependencies,
+                                              boolean configurable,
+                                              int defaultBatchSize) {
         MethodSpec.Builder ctor = MethodSpec.constructorBuilder()
                 .addModifiers(Modifier.PUBLIC)
                 .addParameter(featureStoreRetrieverType, "featureStoreRetriever");
@@ -391,6 +395,14 @@ public final class SimpleRankingTransformerGenerator {
             ctor.addParameter(TypeName.get(algorithmDependency.type()), algorithmDependency.fieldName());
             ctor.addStatement("this.$L = $L", algorithmDependency.fieldName(), algorithmDependency.fieldName());
         }
+        if (configurable) {
+            ctor.addParameter(TypeName.INT, "batchSize");
+            ctor.beginControlFlow("if (batchSize < 0)");
+            ctor.addStatement("throw new $T($S)", IllegalArgumentException.class,
+                    "batchSize must be zero or positive");
+            ctor.endControlFlow();
+        }
+        ctor.addStatement("this.batchSize = $L", configurable ? "batchSize" : defaultBatchSize);
         return ctor.build();
     }
 
@@ -462,10 +474,12 @@ public final class SimpleRankingTransformerGenerator {
         method.endControlFlow();
         method.addStatement("SharedValues sharedValues = computeSharedValues(context)");
         CodeBlock.Builder chain = CodeBlock.builder();
-        chain.add("$T batchStream = $T.stream(new $T<>(actions), false)\n",
+        chain.add("$T batchStream = $T.stream(batchSize == 0\n"
+                        + "        ? new $T<>(actions)\n"
+                        + "        : new $T<>(actions, batchSize), false)\n",
                 ParameterizedTypeName.get(ClassName.get("java.util.stream", "Stream"),
                         ParameterizedTypeName.get(ClassName.get(List.class), transformed)),
-                ClassName.get("java.util.stream", "StreamSupport"), listBatchingSpliterator);
+                ClassName.get("java.util.stream", "StreamSupport"), listBatchingSpliterator, listBatchingSpliterator);
         chain.add("        .map(batch -> {\n");
         chain.add("            $T transformedBatch = new $T<>(batch.size());\n",
                 ParameterizedTypeName.get(ClassName.get(List.class), transformed), ClassName.get(ArrayList.class));
@@ -728,6 +742,7 @@ public final class SimpleRankingTransformerGenerator {
         Map<String, AlgorithmDependency> dependencies = new LinkedHashMap<>();
         Set<String> usedFieldNames = new HashSet<>();
         usedFieldNames.add("featureStoreRetriever");
+        usedFieldNames.add("batchSize");
         boolean hasErrors = false;
 
         List<FeatureNode> ordered = new ArrayList<>(reachable);

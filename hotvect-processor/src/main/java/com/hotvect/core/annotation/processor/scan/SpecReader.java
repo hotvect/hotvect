@@ -35,7 +35,14 @@ public final class SpecReader {
         TypeMirror actionType = AnnotationUtils.getAnnotationValue(mirror, "actionType", TypeMirror.class, null);
         List<TypeMirror> featureClasses = AnnotationUtils.getAnnotationValue(mirror, "features", List.class, List.of());
         TypeMirror backend = AnnotationUtils.getAnnotationValue(mirror, "backend", TypeMirror.class, null);
+        Integer batchSize = AnnotationUtils.getAnnotationValue(mirror, "batchSize", Integer.class, 0);
         String algorithmDefinitionResource = AnnotationUtils.getAnnotationValue(mirror, "algorithmDefinitionResource", String.class, "");
+
+        if (batchSize == null || batchSize < 0) {
+            context.messager().printMessage(Diagnostic.Kind.ERROR,
+                    "batchSize must be zero or a positive integer on @GenerateSimpleRankingTransformer.", element);
+            return null;
+        }
 
         AlgorithmDefinitionReader definitionReader = new AlgorithmDefinitionReader(context);
         List<FeatureSpec> outputFeatures = definitionReader.readOutputFeatures(element, algorithmDefinitionResource);
@@ -56,6 +63,6 @@ public final class SpecReader {
         }
 
         return new TransformerSpec(name, packageName, sharedType, actionType, featureClasses,
-                algorithmDefinitionResource, backend, outputFeatures);
+                algorithmDefinitionResource, backend, batchSize, outputFeatures);
     }
 }

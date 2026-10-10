@@ -39,7 +39,7 @@ class CompositeAlgorithmParameterStreamTest {
                       "algorithm_name": "composite-repro",
                       "algorithm_version": "1.0.0",
                       "parameter_id": "parameter-id",
-                      "ran_at": "2026-06-10T09:00:00Z"
+                      "ran_at": "2000-06-10T09:00:00Z"
                     }
                     """);
             writeEntry(out, "composite-repro/model.parameter", "expected-parameter");
@@ -68,6 +68,50 @@ class CompositeAlgorithmParameterStreamTest {
                 ExecutionContext.of(WorkloadMode.BATCH, InputSemantic.OFFLINE),
                 true
         ).load(definition, parameterZip.toFile(), ImmutableMap.of());
+
+        assertEquals("expected-parameter", instance.algorithm().parameter);
+    }
+
+    @Test
+    void compositeAlgorithmFactoryCanReadParameterSourceDirectory() throws Exception {
+        Path parameterSource = tempDir.resolve("parameters");
+        Path algorithmDirectory = Files.createDirectories(parameterSource.resolve("composite-repro"));
+        Files.writeString(
+                algorithmDirectory.resolve("algorithm-parameters.json"),
+                """
+                        {
+                          "algorithm_name": "composite-repro",
+                          "algorithm_version": "1.0.0",
+                          "parameter_id": "parameter-id",
+                          "ran_at": "2000-06-10T09:00:00Z"
+                        }
+                        """
+        );
+        Files.writeString(algorithmDirectory.resolve("model.parameter"), "expected-parameter");
+
+        AlgorithmDefinition definition = new AlgorithmDefinition(
+                JsonNodeFactory.instance.objectNode(),
+                new AlgorithmId("composite-repro", "1.0.0"),
+                ImmutableMap.of(),
+                ImmutableMap.of(),
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                StreamReadingCompositeFactory.class.getName(),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty()
+        );
+        AlgorithmInstance<ParameterEchoAlgorithm> instance = new AlgorithmInstanceFactory(
+                Thread.currentThread().getContextClassLoader(),
+                ExecutionContext.of(WorkloadMode.BATCH, InputSemantic.OFFLINE),
+                true
+        ).load(definition, parameterSource.toFile(), ImmutableMap.of());
 
         assertEquals("expected-parameter", instance.algorithm().parameter);
     }

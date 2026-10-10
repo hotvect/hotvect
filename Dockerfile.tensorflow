@@ -4,4 +4,6 @@ FROM ${HOTVECT_BASE_IMAGE}
 
 # Install TensorFlow into the existing hotvect venv.
 # Uses uv indexes configured in /opt/hotvect/pyproject.toml.
-RUN uv pip install -p /opt/hotvect/.venv/bin/python "tensorflow==2.16.2"
+RUN uv pip install -p /opt/hotvect/.venv/bin/python \
+    "tensorflow==2.20.0" "tensorboard==2.20.0" "protobuf>=5,<6" \
+    && uv pip check -p /opt/hotvect/.venv/bin/python
