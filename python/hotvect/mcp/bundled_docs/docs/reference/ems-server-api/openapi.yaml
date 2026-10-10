@@ -1,0 +1,1880 @@
+openapi: 3.1.0
+info:
+  title: Experiment Management Service
+  description: Backend service to manage experiment slots, variants, algorithms, and algorithm parameters.
+  version: 2.0.0
+servers:
+- url: https://ems.example
+  description: Example EMS deployment
+- url: http://localhost:8080
+  description: Local instance
+paths:
+  /slots/{slotName}/userForcedAssignments/{userId}:
+    get:
+      tags:
+      - User Forced Assignments
+      description: Retrieve one user forced assignment by user id for a specific slot
+      operationId: getOneByUserId
+      parameters:
+      - name: slotName
+        in: path
+        description: Slot Name
+        required: true
+        schema:
+          type: string
+        example: catalog
+      - name: userId
+        in: path
+        description: User Id
+        required: true
+        schema:
+          type: string
+        example: 12345678912345
+      responses:
+        "200":
+          description: User forced assignment retrieved for specified slot
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserForcedAssignment"
+        "404":
+          description: User forced assignment not found for specified slot
+          content:
+            application/json:
+              schema:
+                type: string
+      security:
+      - OAuth2:
+        - uid
+    put:
+      tags:
+      - User Forced Assignments
+      description: Add/update a user forced assignment in a specific slot
+      operationId: upsert
+      parameters:
+      - name: slotName
+        in: path
+        description: Slot Name
+        required: true
+        schema:
+          type: string
+        example: catalog
+      - name: userId
+        in: path
+        description: User Id
+        required: true
+        schema:
+          type: string
+        example: 12345678912345
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserForcedAssignmentInput"
+        required: true
+      responses:
+        "201":
+          description: User force assignment created for the specified slot and variant
+          content:
+            application/json:
+              schema:
+                type: object
+        "204":
+          description: User force assignment updated for the specified slot and variant
+          content:
+            application/json:
+              schema:
+                type: object
+        "404":
+          description: Variant not found for specified slot
+          content:
+            application/json:
+              schema:
+                type: string
+        "409":
+          description: Specified variant is not active
+          content:
+            application/json:
+              schema:
+                type: string
+      security:
+      - OAuth2:
+        - uid
+    delete:
+      tags:
+      - User Forced Assignments
+      description: Delete a user forced assignment in a specific slot for the specified
+        user id
+      operationId: delete
+      parameters:
+      - name: slotName
+        in: path
+        description: Slot Name
+        required: true
+        schema:
+          type: string
+        example: catalog
+      - name: userId
+        in: path
+        description: User Id
+        required: true
+        schema:
+          type: string
+        example: 12345678912345
+      responses:
+        "204":
+          description: User force assignment successfully deleted for the specified
+            slot and user id
+          content:
+            application/json:
+              schema:
+                type: object
+        "404":
+          description: User id not fount for specified slot
+          content:
+            application/json:
+              schema:
+                type: string
+      security:
+      - OAuth2:
+        - uid
+  /slots/{slotName}/experiments/{experimentId}/terminate:
+    put:
+      tags:
+      - Experiments
+      description: Terminate an experiment for a specific slot
+      operationId: terminate
+      parameters:
+      - name: slotName
+        in: path
+        description: Slot Name
+        required: true
+        schema:
+          type: string
+        example: catalog
+      - name: experimentId
+        in: path
+        description: Experiment Id
+        required: true
+        schema:
+          type: integer
+          format: int32
+        example: 1
+      responses:
+        "204":
+          description: Experiment terminated for specified slot
+          content:
+            '*/*':
+              schema:
+                type: object
+        "404":
+          description: Experiment not found for specified slot
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+      security:
+      - OAuth2:
+        - uid
+  /algorithms/{algorithmName}/{algorithmVersion}/promote:
+    put:
+      tags:
+      - Algorithms
+      description: Promote an algorithm for a specific slot
+      operationId: promote
+      parameters:
+      - name: algorithmName
+        in: path
+        description: Algorithm Name
+        required: true
+        schema:
+          type: string
+        example: sort-algorithm
+      - name: algorithmVersion
+        in: path
+        description: Algorithm Version
+        required: true
+        schema:
+          type: string
+        example: v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SlotInput"
+        required: true
+      responses:
+        "204":
+          description: Algorithm promoted for the specified slot
+          content:
+            '*/*':
+              schema:
+                type: object
+        "404":
+          description: Algorithm not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+      security:
+      - OAuth2:
+        - uid
+  /slots:
+    get:
+      tags:
+      - Slots
+      description: Retrieve a list of all slots
+      operationId: list
+      responses:
+        "200":
+          description: All slots retrieved
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Slot"
+      security:
+      - OAuth2:
+        - uid
+    post:
+      tags:
+      - Slots
+      description: Create a new slot
+      operationId: add
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SlotInput"
+        required: true
+      responses:
+        "201":
+          description: Slot created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Slot"
+      security:
+      - OAuth2:
+        - uid
+  /slots/{slotName}/experiments:
+    get:
+      tags:
+      - Experiments
+      description: Get all the experiments of a slot with variant details
+      operationId: getAll
+      parameters:
+      - name: slotName
+        in: path
+        description: Slot Name
+        required: true
+        schema:
+          type: string
+        example: catalog
+      responses:
+        "200":
+          description: Experiment list for the given slot.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SlotAllExperimentsWithVariantDetailsResponse"
+        "404":
+          description: Slot specified doesn't exit.
+          content:
+            application/json: {}
+      security:
+      - OAuth2:
+        - uid
+    post:
+      tags:
+      - Experiments
+      description: Add one single experiment in a specific slot
+      operationId: add_1
+      parameters:
+      - name: slotName
+        in: path
+        description: Slot Name
+        required: true
+        schema:
+          type: string
+        example: catalog
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExperimentCreate"
+        required: true
+      responses:
+        "201":
+          description: Experiment created for the specified slot
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Experiment"
+      security:
+      - OAuth2:
+        - uid
+  /algorithms:
+    get:
+      tags:
+      - Algorithms
+      description: Retrieve all algorithms
+      operationId: list_1
+      responses:
+        "200":
+          description: All algorithms retrieved
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AlgorithmWithLatestParameter"
+      security:
+      - OAuth2:
+        - uid
+    post:
+      tags:
+      - Algorithms
+      description: Add one single algorithm
+      operationId: add_2
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AlgorithmCreate"
+        required: true
+      responses:
+        "201":
+          description: Algorithm created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AlgorithmWithLatestParameter"
+      security:
+      - OAuth2:
+        - uid
+  /algorithm-parameters:
+    get:
+      tags:
+      - Algorithm Parameters
+      description: Retrieve all algorithm parameters
+      operationId: list_2
+      responses:
+        "200":
+          description: All algorithm parameters retrieved
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AlgorithmParameter"
+      security:
+      - OAuth2:
+        - uid
+    post:
+      tags:
+      - Algorithm Parameters
+      description: Add one single algorithm parameter
+      operationId: add_3
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AlgorithmParameter"
+        required: true
+      responses:
+        "201":
+          description: Algorithm parameter created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AlgorithmParameter"
+      security:
+      - OAuth2:
+        - uid
+  /slots/{slotName}/variants/{variantId}/updateAlgorithm:
+    patch:
+      tags:
+      - Variants
+      description: Update a variant's algorithm
+      operationId: updateAlgorithm
+      parameters:
+      - name: slotName
+        in: path
+        description: Slot Name
+        required: true
+        schema:
+          type: string
+        example: catalog
+      - name: variantId
+        in: path
+        description: Variant Id
+        required: true
+        schema:
+          type: integer
+          format: int32
+        example: 1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VariantUpdateAlgorithmInput"
+        required: true
+      responses:
+        "200":
+          description: Variant's algorithm updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Variant"
+        "404":
+          description: Specified algorithm not found
+          content:
+            application/json:
+              schema:
+                type: string
+        "409":
+          description: Specified algorithm does not have any algorithm parameters
+          content:
+            application/json:
+              schema:
+                type: string
+      security:
+      - OAuth2:
+        - uid
+  /slots/{slotName}/salts/refresh:
+    patch:
+      tags:
+      - Slots
+      description: Refresh a slot's salt
+      operationId: refreshSalt
+      parameters:
+      - name: slotName
+        in: path
+        description: Slot Name
+        required: true
+        schema:
+          type: string
+        example: catalog
+      responses:
+        "200":
+          description: Slot's salt refreshed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Slot"
+        "404":
+          description: Slot not found
+          content:
+            application/json:
+              schema:
+                type: string
+        "409":
+          description: Salt refreshing not enabled
+          content:
+            application/json:
+              schema:
+                type: string
+      security:
+      - OAuth2:
+        - uid
+  /slots/{slotName}/experiments/{experimentId}/changeRampUpPercentage:
+    patch:
+      tags:
+      - Experiments
+      description: Change an experiment's ramp up percentage
+      operationId: changeRampUpPercentage
+      parameters:
+      - name: slotName
+        in: path
+        description: Slot Name
+        required: true
+        schema:
+          type: string
+        example: catalog
+      - name: experimentId
+        in: path
+        description: Experiment Id
+        required: true
+        schema:
+          type: integer
+          format: int32
+        example: 1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChangeRampUpPercentageInput"
+        required: true
+      responses:
+        "200":
+          description: Experiment's ramp up percentage changed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Experiment"
+        "404":
+          description: Experiment not found for specified slot
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+      security:
+      - OAuth2:
+        - uid
+  /algorithms/{algorithmName}/{algorithmVersion}:
+    get:
+      tags:
+      - Algorithms
+      description: Retrieve algorithm by name and version
+      operationId: getOne
+      parameters:
+      - name: algorithmName
+        in: path
+        description: Algorithm Name
+        required: true
+        schema:
+          type: string
+        example: sort-algorithm
+      - name: algorithmVersion
+        in: path
+        description: Algorithm Version
+        required: true
+        schema:
+          type: string
+        example: v1
+      responses:
+        "200":
+          description: Algorithm retrieved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AlgorithmWithLatestParameter"
+        "404":
+          description: Algorithm not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+      security:
+      - OAuth2:
+        - uid
+    patch:
+      tags:
+      - Algorithms
+      description: Patch an algorithm
+      operationId: patch
+      parameters:
+      - name: algorithmName
+        in: path
+        description: Algorithm Name
+        required: true
+        schema:
+          type: string
+        example: sort-algorithm
+      - name: algorithmVersion
+        in: path
+        description: Algorithm Version
+        required: true
+        schema:
+          type: string
+        example: v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AlgorithmPatch"
+        required: true
+      responses:
+        "200":
+          description: Algorithm patched
+          content:
+            '*/*':
+              schema:
+                type: object
+        "404":
+          description: Algorithm not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "409":
+          description: Not possible to transition to the new state.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+      security:
+      - OAuth2:
+        - uid
+  /slots/{slotName}:
+    get:
+      tags:
+      - Slots
+      description: Retrieve a slot by name
+      operationId: getOneByName
+      parameters:
+      - name: slotName
+        in: path
+        description: Slot Name
+        required: true
+        schema:
+          type: string
+        example: catalog
+      responses:
+        "200":
+          description: Slot retrieved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Slot"
+        "404":
+          description: Slot not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+      security:
+      - OAuth2:
+        - uid
+  /slots/{slotName}/variants:
+    get:
+      tags:
+      - Variants
+      description: Retrieve a list of all variants for a specific slot
+      operationId: listAll
+      parameters:
+      - name: slotName
+        in: path
+        description: slot Name
+        required: true
+        schema:
+          type: string
+        example: catalog
+      responses:
+        "200":
+          description: All variants for specified slot retrieved
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Variant"
+      security:
+      - OAuth2:
+        - uid
+  /slots/{slotName}/variants/{variantId}:
+    get:
+      tags:
+      - Variants
+      description: Retrieve the variant with the specified ID
+      operationId: getVariant
+      parameters:
+      - name: slotName
+        in: path
+        description: slot Name
+        required: true
+        schema:
+          type: string
+        example: catalog
+      - name: variantId
+        in: path
+        description: Variant Id
+        required: true
+        schema:
+          type: integer
+          format: int32
+        example: 10
+      responses:
+        "200":
+          description: Variant details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Variant"
+      security:
+      - OAuth2:
+        - uid
+  /slots/{slotName}/variants/active:
+    get:
+      tags:
+      - Variants
+      description: Retrieve a list of active variants for a specific slot
+      operationId: listActive
+      parameters:
+      - name: slotName
+        in: path
+        description: slot Name
+        required: true
+        schema:
+          type: string
+        example: catalog
+      responses:
+        "200":
+          description: All non-terminated variants for specified slot retrieved
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Variant"
+      security:
+      - OAuth2:
+        - uid
+  /slots/{slotName}/variantAlgorithmLogs:
+    get:
+      tags:
+      - Variant Algorithm Logs
+      description: Retrieve a list of variant algorithm logs for a specific slot
+      operationId: listAllBySlot
+      parameters:
+      - name: slotName
+        in: path
+        description: Slot Name
+        required: true
+        schema:
+          type: string
+        example: catalog
+      responses:
+        "200":
+          description: All variant algorithm logs for the specified slot retrieved
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/VariantAlgorithmLog"
+      security:
+      - OAuth2:
+        - uid
+  /slots/{slotName}/userForcedAssignments:
+    get:
+      tags:
+      - User Forced Assignments
+      description: Retrieve a list of all user-based forced assignments for a specific
+        slot
+      operationId: listAllBySlot_1
+      parameters:
+      - name: slotName
+        in: path
+        description: Slot Name
+        required: true
+        schema:
+          type: string
+        example: catalog
+      responses:
+        "200":
+          description: All user-based forced assignments for specified slot retrieved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserForcedAssignmentResponse"
+      security:
+      - OAuth2:
+        - uid
+  /slots/{slotName}/shards:
+    get:
+      tags:
+      - Shards
+      description: Retrieve a list of shards for a specific slot
+      operationId: list_3
+      parameters:
+      - name: slotName
+        in: path
+        description: Slot Name
+        required: true
+        schema:
+          type: string
+        example: catalog
+      responses:
+        "200":
+          description: All shards retrieved for the specified slot
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Shard"
+      security:
+      - OAuth2:
+        - uid
+  /slots/{slotName}/shards/{shardId}:
+    get:
+      tags:
+      - Shards
+      description: Retrieve one single shard for a specific slot
+      operationId: getOne_1
+      parameters:
+      - name: slotName
+        in: path
+        description: Slot Name
+        required: true
+        schema:
+          type: string
+        example: catalog
+      - name: shardId
+        in: path
+        description: Shard Id
+        required: true
+        schema:
+          type: integer
+          format: int32
+        example: 1
+      responses:
+        "200":
+          description: Shard retrieved for specified slot
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Shard"
+        "404":
+          description: Shard not found for specified slot
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+      security:
+      - OAuth2:
+        - uid
+  /slots/{slotName}/shard-logs:
+    get:
+      tags:
+      - Shard Logs
+      description: Retrieve a list of shard logs for a specific slot
+      operationId: list_4
+      parameters:
+      - name: slotName
+        in: path
+        description: Slot Name
+        required: true
+        schema:
+          type: string
+        example: catalog
+      responses:
+        "200":
+          description: All shard logs for the specified slot retrieved
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ShardLog"
+      security:
+      - OAuth2:
+        - uid
+  /slots/{slotName}/salts:
+    get:
+      tags:
+      - Slots
+      description: Retrieve all salts for a specific slot
+      operationId: listSalts
+      parameters:
+      - name: slotName
+        in: path
+        description: Slot Name
+        required: true
+        schema:
+          type: string
+        example: catalog
+      responses:
+        "200":
+          description: All salts retrieved for specified slot
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SlotSalt"
+        "404":
+          description: Specified slot not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+      security:
+      - OAuth2:
+        - uid
+  /slots/{slotName}/experiments/{experimentId}:
+    get:
+      tags:
+      - Experiments
+      description: Retrieve one experiment for a specific slot
+      operationId: getOne_2
+      parameters:
+      - name: slotName
+        in: path
+        description: Slot Name
+        required: true
+        schema:
+          type: string
+        example: catalog
+      - name: experimentId
+        in: path
+        description: Experiment Id
+        required: true
+        schema:
+          type: integer
+          format: int32
+        example: 1
+      responses:
+        "200":
+          description: Experiment retrieved for specified slot
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Experiment"
+        "404":
+          description: Experiment not found for specified slot
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+      security:
+      - OAuth2:
+        - uid
+  /slots/{slotName}/experimentRampUpLog:
+    get:
+      tags:
+      - Experiment Ramp up Log
+      description: Retrieve a list of experiment and its rampup logs for a specific
+        slot
+      operationId: listAllByExperiment
+      parameters:
+      - name: slotName
+        in: path
+        description: slot
+        required: true
+        schema:
+          type: string
+        example: my-slot
+      responses:
+        "200":
+          description: All experiment ramp up logs for the specified experiment retrieved
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ExperimentRampUpLog"
+      security:
+      - OAuth2:
+        - uid
+  /slots/{slotName}/experimentRampUpLog/experiments/{experimentId}:
+    get:
+      tags:
+      - Experiment Ramp up Log
+      description: Retrieve ramp up logs for a specific experiment
+      operationId: listByExperimentId
+      parameters:
+      - name: slotName
+        in: path
+        description: slot
+        required: true
+        schema:
+          type: string
+        example: my-slot
+      - name: experimentId
+        in: path
+        description: experiment id
+        required: true
+        schema:
+          type: integer
+          format: int32
+        example: 1
+      responses:
+        "200":
+          description: All ramp up logs for the specified experiment retrieved
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ExperimentRampUpLog"
+      security:
+      - OAuth2:
+        - uid
+  /slots/{slotName}/defaultVariantAndActiveExperiments:
+    get:
+      tags:
+      - Slots
+      description: Retrieve all running experiments and the default variant for the
+        specified slot.
+      operationId: getDefaultVariantAndActiveExperiments
+      parameters:
+      - name: slotName
+        in: path
+        description: Slot Name
+        required: true
+        schema:
+          type: string
+        example: catalog
+      responses:
+        "200":
+          description: Active experiments and default variant retrieved for specified
+            slot
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SlotActiveInfo"
+        "404":
+          description: Slot not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+      security:
+      - OAuth2:
+        - uid
+  /algorithms/{algorithmName}/{algorithmVersion}/latest-algorithm-parameter:
+    get:
+      tags:
+      - Algorithms
+      description: Retrieve the latest algorithm parameter. Algorithms with parameter_mode=NONE
+        return no content.
+      operationId: getLatestAlgorithmParameter
+      parameters:
+      - name: algorithmName
+        in: path
+        description: Algorithm Name
+        required: true
+        schema:
+          type: string
+        example: sort-algorithm
+      - name: algorithmVersion
+        in: path
+        description: Algorithm Version
+        required: true
+        schema:
+          type: string
+        example: v1
+      responses:
+        "200":
+          description: Algorithm parameter retrieved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AlgorithmParameter"
+        "204":
+          description: The algorithm has parameter_mode=NONE; no parameter applies
+        "404":
+          description: "Algorithm not found, or a REQUIRED algorithm has no parameter"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+      security:
+      - OAuth2:
+        - uid
+  /algorithms/with-active-variants:
+    get:
+      tags:
+      - Algorithms
+      description: Retrieve a list of algorithms that have an active variant.
+      operationId: listActiveWithVariants
+      responses:
+        "200":
+          description: List of algorithms with the ids of its active variants.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AlgorithmWithActiveVariantsResponse"
+      security:
+      - OAuth2:
+        - uid
+  /algorithms/active:
+    get:
+      tags:
+      - Algorithms
+      description: Retrieve a list of active algorithms
+      operationId: listActive_1
+      responses:
+        "200":
+          description: All active algorithms retrieved
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AlgorithmWithLatestParameter"
+      security:
+      - OAuth2:
+        - uid
+  /algorithm-state-logs:
+    get:
+      tags:
+      - Algorithm State Logs
+      description: Retrieve all algorithm state logs
+      operationId: list_5
+      responses:
+        "200":
+          description: All algorithm state logs retrieved
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AlgorithmStateLog"
+      security:
+      - OAuth2:
+        - uid
+  /algorithm-parameters/{algorithmParameterId}:
+    get:
+      tags:
+      - Algorithm Parameters
+      description: Retrieve algorithm parameter by ID
+      operationId: getOne_3
+      parameters:
+      - name: algorithmParameterId
+        in: path
+        description: Algorithm Parameter Id
+        required: true
+        schema:
+          type: string
+        example: 2000-01-01
+      responses:
+        "200":
+          description: Algorithm parameter retrieved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AlgorithmParameter"
+        "404":
+          description: Algorithm parameter not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+      security:
+      - OAuth2:
+        - uid
+  /algorithm-parameters/by-algorithm/{algorithmName}/{algorithmVersion}:
+    get:
+      tags:
+      - Algorithm Parameters
+      description: Retrieve algorithm parameters for a specific algorithm
+      operationId: getByAlgorithm
+      parameters:
+      - name: algorithmName
+        in: path
+        description: Algorithm name
+        required: true
+        schema:
+          type: string
+      - name: algorithmVersion
+        in: path
+        description: Algorithm version
+        required: true
+        schema:
+          type: string
+      - name: top
+        in: query
+        description: Maximum number of results (optional)
+        required: false
+        schema:
+          type: integer
+          format: int32
+          exclusiveMinimum: 0
+      - name: minCreatedAt
+        in: query
+        description: Minimum creation date in ISO-8601 format (optional)
+        required: false
+        schema:
+          type: string
+          format: date-time
+      responses:
+        "200":
+          description: Algorithm parameters retrieved
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AlgorithmParameter"
+      security:
+      - OAuth2:
+        - uid
+components:
+  schemas:
+    UserForcedAssignmentInput:
+      type: object
+      description: User force assignment to be added
+      properties:
+        variant_id:
+          type: integer
+          format: int32
+      required:
+      - variant_id
+    Problem:
+      type: object
+      properties:
+        instance:
+          type: string
+          format: uri
+        type:
+          type: string
+          format: uri
+        parameters:
+          type: object
+          additionalProperties: {}
+        title:
+          type: string
+        detail:
+          type: string
+        status:
+          $ref: "#/components/schemas/StatusType"
+    StatusType:
+      type: object
+      properties:
+        statusCode:
+          type: integer
+          format: int32
+        reasonPhrase:
+          type: string
+    SlotInput:
+      type: object
+      description: Name of the slot to be created and number of shards allocated to
+        it
+      properties:
+        slot_name:
+          type: string
+          minLength: 1
+          pattern: "[a-z0-9-]+"
+        num_shards:
+          type: integer
+          format: int32
+          maximum: 100
+        algorithm_name:
+          type: string
+          minLength: 1
+        algorithm_version:
+          type: string
+          minLength: 1
+      required:
+      - algorithm_name
+      - algorithm_version
+      - num_shards
+      - slot_name
+    Slot:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+        created_at:
+          type: string
+          format: date-time
+        salts:
+          type: array
+          items:
+            type: string
+      required:
+      - name
+      - salts
+    SlotSalt:
+      type: object
+      properties:
+        salt:
+          type: string
+        slot:
+          $ref: "#/components/schemas/Slot"
+        created_at:
+          type: string
+          format: date-time
+        terminated_at:
+          type: string
+          format: date-time
+      required:
+      - slot
+    Algorithm:
+      type: object
+      properties:
+        algorithm_name:
+          type: string
+          minLength: 1
+        algorithm_version:
+          type: string
+          minLength: 1
+        state:
+          type: string
+        absolute_s3_jar_path:
+          type: string
+          minLength: 1
+        created_at:
+          type: string
+          format: date-time
+        algorithm_training_image_name:
+          type: string
+        parameter_mode:
+          type: string
+          enum:
+          - REQUIRED
+          - NONE
+      required:
+      - absolute_s3_jar_path
+      - algorithm_name
+      - algorithm_training_image_name
+      - algorithm_version
+      - parameter_mode
+    Experiment:
+      type: object
+      properties:
+        experiment_id:
+          type: integer
+          format: int32
+        experiment_name:
+          type: string
+          minLength: 1
+        created_at:
+          type: string
+          format: date-time
+        terminated_at:
+          type: string
+          format: date-time
+        variants:
+          type: array
+          items:
+            $ref: "#/components/schemas/Variant"
+        ramp_up_percentage:
+          type: integer
+          format: int32
+          maximum: 100
+      required:
+      - experiment_name
+      - ramp_up_percentage
+    Variant:
+      type: object
+      properties:
+        variant_id:
+          type: integer
+          format: int32
+        algorithm:
+          $ref: "#/components/schemas/Algorithm"
+        experiment:
+          $ref: "#/components/schemas/Experiment"
+        created_at:
+          type: string
+          format: date-time
+        terminated_at:
+          type: string
+          format: date-time
+        is_default:
+          type: boolean
+        is_control:
+          type: boolean
+        shard_allocation_ratio:
+          type: integer
+          format: int32
+      required:
+      - algorithm
+    ExperimentCreate:
+      type: object
+      description: Experiment to be added
+      properties:
+        variants:
+          type: array
+          items:
+            $ref: "#/components/schemas/ExperimentVariantInput"
+          maxItems: 2147483647
+          minItems: 1
+        experiment_name:
+          type: string
+          minLength: 1
+        number_of_shards:
+          type: integer
+          format: int32
+          maximum: 100
+        ramp_up_percentage:
+          type: integer
+          format: int32
+          maximum: 100
+      required:
+      - experiment_name
+      - number_of_shards
+      - ramp_up_percentage
+      - variants
+    ExperimentVariantInput:
+      type: object
+      properties:
+        algorithm_name:
+          type: string
+          minLength: 1
+        algorithm_version:
+          type: string
+          minLength: 1
+        is_control:
+          type: boolean
+        shard_allocation_ratio:
+          type: integer
+          format: int32
+      required:
+      - algorithm_name
+      - algorithm_version
+      - is_control
+      - shard_allocation_ratio
+    AlgorithmParameterSummary:
+      type: object
+      properties:
+        algorithm_parameter_id:
+          type: string
+        absolute_s3_algorithm_parameter_path:
+          type: string
+      required:
+      - absolute_s3_algorithm_parameter_path
+      - algorithm_parameter_id
+    AlgorithmWithLatestParameter:
+      type: object
+      properties:
+        algorithm_name:
+          type: string
+          minLength: 1
+        algorithm_version:
+          type: string
+          minLength: 1
+        state:
+          type: string
+        absolute_s3_jar_path:
+          type: string
+          minLength: 1
+        created_at:
+          type: string
+          format: date-time
+        algorithm_training_image_name:
+          type: string
+        parameter_mode:
+          type: string
+          enum:
+          - REQUIRED
+          - NONE
+        latest_algorithm_parameter:
+          anyOf:
+          - $ref: "#/components/schemas/AlgorithmParameterSummary"
+          - type: "null"
+      required:
+      - absolute_s3_jar_path
+      - algorithm_name
+      - algorithm_training_image_name
+      - algorithm_version
+      - latest_algorithm_parameter
+      - parameter_mode
+    AlgorithmCreate:
+      type: object
+      description: Algorithm to be added
+      properties:
+        algorithm_name:
+          type: string
+          maxLength: 255
+          minLength: 0
+        algorithm_version:
+          type: string
+          maxLength: 255
+          minLength: 0
+        absolute_s3_jar_path:
+          type: string
+          minLength: 1
+        algorithm_training_image_name:
+          type: string
+          maxLength: 255
+          minLength: 0
+        parameter_mode:
+          type: string
+          default: REQUIRED
+          description: Defaults to REQUIRED when omitted by legacy clients.
+          enum:
+          - REQUIRED
+          - NONE
+      required:
+      - absolute_s3_jar_path
+      - algorithm_name
+      - algorithm_training_image_name
+      - algorithm_version
+    AlgorithmParameter:
+      type: object
+      properties:
+        algorithm_parameter_id:
+          type: string
+        algorithm:
+          $ref: "#/components/schemas/Algorithm"
+        evaluation_results:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        absolute_s3_path:
+          type: string
+          minLength: 1
+      required:
+      - absolute_s3_path
+      - algorithm
+      - algorithm_parameter_id
+    VariantUpdateAlgorithmInput:
+      type: object
+      description: New algorithm name and version
+      properties:
+        algorithm_name:
+          type: string
+          minLength: 1
+        algorithm_version:
+          type: string
+          minLength: 1
+      required:
+      - algorithm_name
+      - algorithm_version
+    ChangeRampUpPercentageInput:
+      type: object
+      description: New ramp up percentage
+      properties:
+        new_ramp_up_percentage:
+          type: integer
+          format: int32
+          maximum: 100
+      required:
+      - new_ramp_up_percentage
+    AlgorithmPatch:
+      type: object
+      description: Updated Algorithm data
+      properties:
+        state:
+          type: string
+          pattern: ACTIVE|INACTIVE
+      required:
+      - state
+    VariantAlgorithmLog:
+      type: object
+      properties:
+        variant_algorithm_log_id:
+          type: integer
+          format: int32
+        variant:
+          $ref: "#/components/schemas/Variant"
+        algorithm:
+          $ref: "#/components/schemas/Algorithm"
+        created_at:
+          type: string
+          format: date-time
+      required:
+      - algorithm
+      - variant
+    UserForcedAssignment:
+      type: object
+      properties:
+        user_forced_assignment_id:
+          type: integer
+          format: int32
+        user_id:
+          type: string
+          minLength: 1
+        variant:
+          $ref: "#/components/schemas/Variant"
+        created_at:
+          type: string
+          format: date-time
+      required:
+      - user_id
+      - variant
+    UserForcedAssignmentResponse:
+      type: object
+      properties:
+        user_forced_assignments:
+          type: array
+          items:
+            $ref: "#/components/schemas/UserForcedAssignment"
+    Shard:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int32
+        shard_id:
+          type: integer
+          format: int32
+        experiment:
+          $ref: "#/components/schemas/Experiment"
+        created_at:
+          type: string
+          format: date-time
+      required:
+      - shard_id
+    ShardLog:
+      type: object
+      properties:
+        shard_log_id:
+          type: integer
+          format: int32
+        shard:
+          $ref: "#/components/schemas/Shard"
+        experiment:
+          $ref: "#/components/schemas/Experiment"
+        created_at:
+          type: string
+          format: date-time
+      required:
+      - shard
+    ExperimentWithVariantDetails:
+      type: object
+      properties:
+        experiment_id:
+          type: integer
+          format: int32
+        experiment_name:
+          type: string
+          minLength: 1
+        created_at:
+          type: string
+          format: date-time
+        terminated_at:
+          type: string
+          format: date-time
+        variants:
+          type: array
+          items:
+            $ref: "#/components/schemas/VariantBasicDetails"
+        ramp_up_percentage:
+          type: integer
+          format: int32
+      required:
+      - created_at
+      - experiment_id
+      - experiment_name
+      - ramp_up_percentage
+      - variants
+    SlotAllExperimentsWithVariantDetailsResponse:
+      type: object
+      properties:
+        slot_name:
+          type: string
+          minLength: 1
+        experiments:
+          type: array
+          items:
+            $ref: "#/components/schemas/ExperimentWithVariantDetails"
+      required:
+      - experiments
+      - slot_name
+    VariantBasicDetails:
+      type: object
+      properties:
+        variant_id:
+          type: integer
+          format: int32
+        algorithm:
+          $ref: "#/components/schemas/Algorithm"
+        is_default:
+          type: boolean
+        is_control:
+          type: boolean
+        shard_allocation_ratio:
+          type: integer
+          format: int32
+    ExperimentRampUpLog:
+      type: object
+      properties:
+        experiment_ramp_up_log_id:
+          type: integer
+          format: int32
+        experiment:
+          $ref: "#/components/schemas/Experiment"
+        terminated_at:
+          type: string
+          format: date-time
+        ramp_up_percentage:
+          type: integer
+          format: int32
+        created_at:
+          type: string
+          format: date-time
+      required:
+      - experiment
+      - ramp_up_percentage
+    SlotActiveInfo:
+      type: object
+      properties:
+        slot_salt:
+          type: string
+          minLength: 1
+        total_number_of_shards:
+          type: integer
+          format: int32
+        default_variant:
+          $ref: "#/components/schemas/SlotActiveInfoVariantResponse"
+        experiments:
+          type: array
+          items:
+            $ref: "#/components/schemas/SlotActiveInfoExperimentResponse"
+        user_forced_assignments:
+          type: array
+          items:
+            $ref: "#/components/schemas/SlotActiveInfoUserForcedAssignmentResponse"
+      required:
+      - default_variant
+      - experiments
+      - slot_salt
+      - total_number_of_shards
+      - user_forced_assignments
+    SlotActiveInfoAlgorithmResponse:
+      type: object
+      properties:
+        algorithm_name:
+          type: string
+          minLength: 1
+        algorithm_version:
+          type: string
+          minLength: 1
+        latest_algorithm_parameter:
+          type: string
+        absolute_s3_algorithm_jar_path:
+          type: string
+          minLength: 1
+        absolute_s3_algorithm_parameter_path:
+          type: string
+      required:
+      - absolute_s3_algorithm_jar_path
+      - algorithm_name
+      - algorithm_version
+    SlotActiveInfoExperimentResponse:
+      type: object
+      properties:
+        experiment_id:
+          type: integer
+          format: int32
+        experiment_name:
+          type: string
+          minLength: 1
+        variants:
+          type: array
+          items:
+            $ref: "#/components/schemas/SlotActiveInfoVariantResponse"
+        shards:
+          type: array
+          items:
+            $ref: "#/components/schemas/SlotActiveInfoShardResponse"
+        ramp_up_percentage:
+          type: integer
+          format: int32
+        created_at:
+          type: string
+          format: date-time
+      required:
+      - created_at
+      - experiment_id
+      - experiment_name
+      - ramp_up_percentage
+      - shards
+      - variants
+    SlotActiveInfoShardResponse:
+      type: object
+      properties:
+        shard_id:
+          type: integer
+          format: int32
+        created_at:
+          type: string
+          format: date-time
+      required:
+      - created_at
+      - shard_id
+    SlotActiveInfoUserForcedAssignmentResponse:
+      type: object
+      properties:
+        user_id:
+          type: string
+          minLength: 1
+        variant_id:
+          type: integer
+          format: int32
+      required:
+      - user_id
+      - variant_id
+    SlotActiveInfoVariantResponse:
+      type: object
+      properties:
+        variant_id:
+          type: integer
+          format: int32
+        algorithm:
+          $ref: "#/components/schemas/SlotActiveInfoAlgorithmResponse"
+        created_at:
+          type: string
+          format: date-time
+        is_default:
+          type: boolean
+        is_control:
+          type: boolean
+        shard_allocation_ratio:
+          type: integer
+          format: int32
+      required:
+      - algorithm
+      - created_at
+      - variant_id
+    AlgorithmWithActiveVariantsResponse:
+      type: object
+      properties:
+        algorithms:
+          type: array
+          items:
+            $ref: "#/components/schemas/AlgorithmsWithVariantsDTO"
+    AlgorithmsWithVariantsDTO:
+      type: object
+      properties:
+        algorithmName:
+          type: string
+        algorithmVersion:
+          type: string
+        state:
+          type: string
+        absoluteS3JarPath:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        algorithmTrainingImageName:
+          type: string
+        parameterMode:
+          type: string
+          enum:
+          - REQUIRED
+          - NONE
+        latestAlgorithmParameter:
+          $ref: "#/components/schemas/AlgorithmParameter"
+        variants:
+          type: array
+          items:
+            $ref: "#/components/schemas/VariantInfo"
+    VariantInfo:
+      type: object
+      properties:
+        variantId:
+          type: integer
+          format: int32
+        slotName:
+          type: string
+    AlgorithmStateLog:
+      type: object
+      properties:
+        algorithm_stage_log_id:
+          type: integer
+          format: int32
+        algorithm:
+          $ref: "#/components/schemas/Algorithm"
+        state:
+          type: string
+          minLength: 1
+        created_at:
+          type: string
+          format: date-time
+      required:
+      - algorithm
+      - state
+  securitySchemes:
+    OAuth2:
+      type: oauth2
+      flows:
+        clientCredentials:
+          tokenUrl: https://auth.example.com/oauth2/token
+          scopes:
+            ems.read_all: Grants read access for the Experiment Management Service
+            ems.write_all: Grants write access for the Experiment Management Service
+            uid: Provides the caller's user identity

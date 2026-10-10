@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 import boto3
 
@@ -19,7 +20,21 @@ from hotvect.experiment_management import (
     ExperimentManagementClient,
     TokenProviderAuth,
 )
+from hotvect.experiment_management.approval import (
+    NativeMutation,
+    approval_review,
+    get_approval_request,
+    json_mutation,
+    list_approval_requests,
+    register_approval_arguments,
+    submit_native_mutation,
+)
 from hotvect.experiment_management.hotvect_config import load_experiment_management_hotvect_config
+from hotvect.experiment_management.mutations import (
+    AlgorithmCreateInput,
+    AlgorithmParameterCreateInput,
+    ExperimentCreateInput,
+)
 from hotvect.experiment_management.online_results import OnlineEvaluationResultsStore
 from hotvect.extra import config as hv_config
 from hotvect.utils import get_boto_session_after_assuming_role, stream_output
@@ -180,6 +195,27 @@ def _resolve_slot_name_for_experiment_id(client: ExperimentManagementClient, *, 
     raise ValueError(f"Experiment id not found in any slot: {int(experiment_id)}")
 
 
+def _resolve_slot_name_for_variant_id(client: ExperimentManagementClient, *, variant_id: int) -> str:
+    slots = client.get_slots()
+    for slot in slots:
+        variants = client.get_variants(slot.name)
+        if any(int(variant.variant_id) == int(variant_id) for variant in variants):
+            return slot.name
+    raise ValueError(f"Variant id not found in any slot: {int(variant_id)}")
+
+
+def _path_component(value: str | int) -> str:
+    return quote(str(value), safe="")
+
+
+def _load_spec(path: Path, model_type: Any) -> Any:
+    return model_type.model_validate_json(path.read_text(encoding="utf-8"))
+
+
+def _print_json(value: dict[str, Any]) -> None:
+    print(json.dumps(value, indent=2))
+
+
 def _experiments_for_slot(client: ExperimentManagementClient, *, slot_name: str) -> list[dict[str, Any]]:
     experiments = client.get_experiments(slot_name)
     return [{"slot_name": slot_name, "experiment": e.model_dump(mode="json")} for e in experiments]
@@ -331,6 +367,20 @@ class ExperimentCommand:
         exp_rampup = exp_sub.add_parser("rampup-log", help="Get experiment ramp-up log")
         exp_rampup.add_argument("--experiment-id", type=int, required=True)
 
+        exp_create = exp_sub.add_parser("create", help="Create an experiment (approval required when enabled)")
+        exp_create.add_argument("--slot-name", required=True)
+        exp_create.add_argument("--spec-file", type=Path, required=True, help="Experiment definition JSON file")
+        exp_create.add_argument("--reason", required=True, help="Reason recorded for the approval request")
+
+        exp_ramp_up = exp_sub.add_parser("ramp-up", help="Set ramp-up percentage (approval required when enabled)")
+        exp_ramp_up.add_argument("--experiment-id", type=int, required=True)
+        exp_ramp_up.add_argument("--percentage", type=int, required=True)
+        exp_ramp_up.add_argument("--reason", required=True, help="Reason recorded for the approval request")
+
+        exp_terminate = exp_sub.add_parser("terminate", help="Terminate an experiment (approval required when enabled)")
+        exp_terminate.add_argument("--experiment-id", type=int, required=True)
+        exp_terminate.add_argument("--reason", required=True, help="Reason recorded for the approval request")
+
         exp_results = exp_sub.add_parser("results", help="Online evaluation result operations")
         exp_results_sub = exp_results.add_subparsers(
             dest="experiment_results_subcommand", required=True, metavar="<subcommand>"
@@ -403,6 +453,22 @@ class ExperimentCommand:
         algo_get.add_argument("--algorithm-name", required=True)
         algo_get.add_argument("--algorithm-version", required=True)
 
+        algo_create = algo_sub.add_parser("create", help="Create an algorithm (approval required when enabled)")
+        algo_create.add_argument("--spec-file", type=Path, required=True, help="Algorithm registration JSON file")
+        algo_create.add_argument("--reason", required=True, help="Reason recorded for the approval request")
+
+        algo_state = algo_sub.add_parser("state", help="Set algorithm state (approval required when enabled)")
+        algo_state.add_argument("--algorithm-name", required=True)
+        algo_state.add_argument("--algorithm-version", required=True)
+        algo_state.add_argument("--state", choices=("ACTIVE", "INACTIVE"), required=True)
+        algo_state.add_argument("--reason", required=True, help="Reason recorded for the approval request")
+
+        algo_promote = algo_sub.add_parser("promote", help="Promote an algorithm (approval required when enabled)")
+        algo_promote.add_argument("--slot-name", required=True)
+        algo_promote.add_argument("--algorithm-name", required=True)
+        algo_promote.add_argument("--algorithm-version", required=True)
+        algo_promote.add_argument("--reason", required=True, help="Reason recorded for the approval request")
+
         algo_param = algo_sub.add_parser("parameter", help="Algorithm parameter operations")
         algo_param_sub = algo_param.add_subparsers(dest="algorithm_parameter_subcommand", required=True)
 
@@ -413,14 +479,67 @@ class ExperimentCommand:
         algo_param_get = algo_param_sub.add_parser("get", help="Get algorithm parameter by id")
         algo_param_get.add_argument("--algorithm-parameter-id", required=True)
 
+        algo_param_create = algo_param_sub.add_parser(
+            "create", help="Register a parameter (approval required when enabled)"
+        )
+        algo_param_create.add_argument("--spec-file", type=Path, required=True, help="Parameter registration JSON file")
+        algo_param_create.add_argument("--reason", required=True, help="Reason recorded for the approval request")
+
+        variant = top.add_parser("variant", help="Variant operations")
+        variant_sub = variant.add_subparsers(dest="variant_subcommand", required=True, metavar="<subcommand>")
+        variant_algorithm = variant_sub.add_parser(
+            "algorithm", help="Change a variant's algorithm (approval required when enabled)"
+        )
+        variant_algorithm.add_argument("--variant-id", type=int, required=True)
+        variant_algorithm.add_argument("--algorithm-name", required=True)
+        variant_algorithm.add_argument("--algorithm-version", required=True)
+        variant_algorithm.add_argument("--reason", required=True, help="Reason recorded for the approval request")
+
+        forced_assignment = top.add_parser("forced-assignment", help="Forced-assignment operations")
+        forced_assignment_sub = forced_assignment.add_subparsers(
+            dest="forced_assignment_subcommand", required=True, metavar="<operation>"
+        )
+        forced_assignment_set = forced_assignment_sub.add_parser(
+            "set", help="Set a forced assignment (approval required when enabled)"
+        )
+        forced_assignment_set.add_argument("--slot-name", required=True)
+        forced_assignment_set.add_argument("--user-id", required=True)
+        forced_assignment_set.add_argument("--variant-id", type=int, required=True)
+        forced_assignment_set.add_argument("--reason", required=True, help="Reason recorded for the approval request")
+        forced_assignment_delete = forced_assignment_sub.add_parser(
+            "delete", help="Delete a forced assignment (approval required when enabled)"
+        )
+        forced_assignment_delete.add_argument("--slot-name", required=True)
+        forced_assignment_delete.add_argument("--user-id", required=True)
+        forced_assignment_delete.add_argument(
+            "--reason", required=True, help="Reason recorded for the approval request"
+        )
+
+        register_approval_arguments(top)
+
         return parser
 
-    def execute(self, args: Any) -> None:
+    def execute(self, args: Any) -> int:
+        if args.subcommand == "approval":
+            if args.approval_subcommand == "list":
+                _print_json(
+                    {
+                        "ok": True,
+                        "approvals": list_approval_requests(_create_client_from_args(args), since=args.since),
+                    }
+                )
+                return 0
+            if args.approval_subcommand == "get":
+                client = _create_client_from_args(args)
+                _print_json({"ok": True, "approval": approval_review(get_approval_request(client, args.approval_id))})
+                return 0
+            raise ValueError(f"Unknown approval subcommand: {args.approval_subcommand}")
+
         if args.subcommand == "snapshot":
             if args.snapshot_subcommand != "export":
                 raise ValueError(f"Unknown snapshot subcommand: {args.snapshot_subcommand}")
             _export_snapshot_from_args(args)
-            return
+            return 0
 
         if args.subcommand == "slot":
             client = _create_client_from_args(args)
@@ -428,13 +547,13 @@ class ExperimentCommand:
                 slots = client.get_slots()
                 out = {"ok": True, "slots": [s.model_dump(mode="json") for s in slots]}
                 print(json.dumps(out, indent=2))
-                return
+                return 0
 
             if args.slot_subcommand == "get":
                 info = client.get_default_variant_and_active_experiments(args.slot_name)
                 out = {"ok": True, "active_info": info.model_dump(mode="json")}
                 print(json.dumps(out, indent=2))
-                return
+                return 0
 
             raise ValueError(f"Unknown slot subcommand: {args.slot_subcommand}")
 
@@ -451,7 +570,7 @@ class ExperimentCommand:
                         "analysis_dates": store.list_analysis_dates(experiment_id=experiment_id),
                     }
                     print(json.dumps(out, indent=2))
-                    return
+                    return 0
 
                 if args.experiment_results_subcommand == "show":
                     analysis_date = _validate_analysis_date(str(args.analysis_date))
@@ -460,7 +579,7 @@ class ExperimentCommand:
                         analysis_date=analysis_date,
                         output_stream=sys.stdout.buffer,
                     )
-                    return
+                    return 0
 
                 if args.experiment_results_subcommand == "download":
                     analysis_date_raw = str(getattr(args, "analysis_date", "") or "").strip()
@@ -481,9 +600,48 @@ class ExperimentCommand:
                         "analysis_dates": download_result["analysis_dates"],
                     }
                     print(json.dumps(out, indent=2))
-                    return
+                    return 0
 
                 raise ValueError(f"Unknown experiment results subcommand: {args.experiment_results_subcommand}")
+
+            if args.experiment_subcommand == "create":
+                experiment = _load_spec(args.spec_file, ExperimentCreateInput)
+                mutation = json_mutation(
+                    method="POST",
+                    target=f"/slots/{_path_component(args.slot_name)}/experiments",
+                    payload=experiment.model_dump(mode="json"),
+                    reason=str(args.reason),
+                )
+                _print_json(submit_native_mutation(_create_client_from_args(args), mutation))
+                return 0
+
+            if args.experiment_subcommand == "ramp-up":
+                if not 0 <= args.percentage <= 100:
+                    raise ValueError("--percentage must be between 0 and 100.")
+                client = _create_client_from_args(args)
+                experiment_id = int(args.experiment_id)
+                slot_name = _resolve_slot_name_for_experiment_id(client, experiment_id=experiment_id)
+                mutation = json_mutation(
+                    method="PATCH",
+                    target=(f"/slots/{_path_component(slot_name)}/experiments/{experiment_id}/changeRampUpPercentage"),
+                    payload={"new_ramp_up_percentage": int(args.percentage)},
+                    reason=str(args.reason),
+                )
+                _print_json(submit_native_mutation(client, mutation))
+                return 0
+
+            if args.experiment_subcommand == "terminate":
+                client = _create_client_from_args(args)
+                experiment_id = int(args.experiment_id)
+                slot_name = _resolve_slot_name_for_experiment_id(client, experiment_id=experiment_id)
+                mutation = NativeMutation(
+                    method="PUT",
+                    target=f"/slots/{_path_component(slot_name)}/experiments/{experiment_id}/terminate",
+                    body=b"",
+                    reason=str(args.reason),
+                )
+                _print_json(submit_native_mutation(client, mutation))
+                return 0
 
             client = _create_client_from_args(args)
             if args.experiment_subcommand == "list":
@@ -498,7 +656,7 @@ class ExperimentCommand:
 
                 out = {"ok": True, "experiments": items}
                 print(json.dumps(out, indent=2))
-                return
+                return 0
 
             if args.experiment_subcommand == "get":
                 experiment_id = int(args.experiment_id)
@@ -510,7 +668,7 @@ class ExperimentCommand:
                     "experiment": experiment.model_dump(mode="json"),
                 }
                 print(json.dumps(out, indent=2))
-                return
+                return 0
 
             if args.experiment_subcommand == "rampup-log":
                 experiment_id = int(args.experiment_id)
@@ -524,7 +682,7 @@ class ExperimentCommand:
                     "experiment_ramp_up_log": [log.model_dump(mode="json") for log in filtered],
                 }
                 print(json.dumps(out, indent=2))
-                return
+                return 0
 
             raise ValueError(f"Unknown experiment subcommand: {args.experiment_subcommand}")
 
@@ -550,9 +708,99 @@ class ExperimentCommand:
 
             out = {"ok": True, "default_variants": defaults}
             print(json.dumps(out, indent=2))
-            return
+            return 0
+
+        if args.subcommand == "variant":
+            if args.variant_subcommand != "algorithm":
+                raise ValueError("Unknown variant command")
+            client = _create_client_from_args(args)
+            variant_id = int(args.variant_id)
+            slot_name = _resolve_slot_name_for_variant_id(client, variant_id=variant_id)
+            mutation = json_mutation(
+                method="PATCH",
+                target=f"/slots/{_path_component(slot_name)}/variants/{variant_id}/updateAlgorithm",
+                payload={
+                    "algorithm_name": str(args.algorithm_name),
+                    "algorithm_version": str(args.algorithm_version),
+                },
+                reason=str(args.reason),
+            )
+            _print_json(submit_native_mutation(client, mutation))
+            return 0
+
+        if args.subcommand == "forced-assignment":
+            target = f"/slots/{_path_component(args.slot_name)}/userForcedAssignments/{_path_component(args.user_id)}"
+            if args.forced_assignment_subcommand == "set":
+                mutation = json_mutation(
+                    method="PUT",
+                    target=target,
+                    payload={"variant_id": int(args.variant_id)},
+                    reason=str(args.reason),
+                )
+                _print_json(submit_native_mutation(_create_client_from_args(args), mutation))
+                return 0
+
+            if args.forced_assignment_subcommand == "delete":
+                mutation = NativeMutation(
+                    method="DELETE",
+                    target=target,
+                    body=b"",
+                    content_type="application/json",
+                    reason=str(args.reason),
+                )
+                _print_json(submit_native_mutation(_create_client_from_args(args), mutation))
+                return 0
+
+            raise ValueError(f"Unknown forced-assignment subcommand: {args.forced_assignment_subcommand}")
 
         if args.subcommand == "algorithm":
+            if args.algorithm_subcommand == "parameter" and args.algorithm_parameter_subcommand == "create":
+                parameter = _load_spec(args.spec_file, AlgorithmParameterCreateInput)
+                mutation = json_mutation(
+                    method="POST",
+                    target="/algorithm-parameters",
+                    payload=parameter.model_dump(mode="json", exclude_none=True),
+                    reason=str(args.reason),
+                )
+                _print_json(submit_native_mutation(_create_client_from_args(args), mutation))
+                return 0
+            if args.algorithm_subcommand == "create":
+                algorithm = _load_spec(args.spec_file, AlgorithmCreateInput)
+                mutation = json_mutation(
+                    method="POST",
+                    target="/algorithms",
+                    payload=algorithm.model_dump(mode="json", exclude_none=True),
+                    reason=str(args.reason),
+                )
+                _print_json(submit_native_mutation(_create_client_from_args(args), mutation))
+                return 0
+
+            if args.algorithm_subcommand == "state":
+                mutation = json_mutation(
+                    method="PATCH",
+                    target=(
+                        f"/algorithms/{_path_component(args.algorithm_name)}/"
+                        f"{_path_component(args.algorithm_version)}"
+                    ),
+                    payload={"state": str(args.state)},
+                    reason=str(args.reason),
+                )
+                _print_json(submit_native_mutation(_create_client_from_args(args), mutation))
+                return 0
+
+            if args.algorithm_subcommand == "promote":
+                mutation = json_mutation(
+                    method="PUT",
+                    target=(
+                        f"/algorithms/{_path_component(args.algorithm_name)}/"
+                        f"{_path_component(args.algorithm_version)}/promote"
+                    ),
+                    payload={"slot_name": str(args.slot_name)},
+                    reason=str(args.reason),
+                )
+                _print_json(submit_native_mutation(_create_client_from_args(args), mutation))
+                return 0
+
             client = _create_client_from_args(args)
             if args.algorithm_subcommand == "list":
                 slot_name = str(getattr(args, "slot_name", "") or "").strip()
@@ -567,7 +815,7 @@ class ExperimentCommand:
                     algos = [a for a in algos if (a.algorithm_name, a.algorithm_version) in allowed]
                 out = {"ok": True, "algorithms": [a.model_dump(mode="json") for a in algos]}
                 print(json.dumps(out, indent=2))
-                return
+                return 0
 
             if args.algorithm_subcommand == "list-active":
                 slot_name = str(getattr(args, "slot_name", "") or "").strip()
@@ -582,7 +830,7 @@ class ExperimentCommand:
                     algos = [a for a in algos if (a.algorithm_name, a.algorithm_version) in allowed]
                 out = {"ok": True, "algorithms": [a.model_dump(mode="json") for a in algos]}
                 print(json.dumps(out, indent=2))
-                return
+                return 0
 
             if args.algorithm_subcommand == "list-in-use":
                 slot_name = str(getattr(args, "slot_name", "") or "").strip()
@@ -636,13 +884,13 @@ class ExperimentCommand:
                     "algorithms": algorithms,
                 }
                 print(json.dumps(out, indent=2))
-                return
+                return 0
 
             if args.algorithm_subcommand == "get":
                 algo = client.get_algorithm(args.algorithm_name, args.algorithm_version)
                 out = {"ok": True, "algorithm": algo.model_dump(mode="json") if algo else None}
                 print(json.dumps(out, indent=2))
-                return
+                return 0
 
             if args.algorithm_subcommand == "parameter":
                 if args.algorithm_parameter_subcommand == "list":
@@ -660,13 +908,13 @@ class ExperimentCommand:
                         "algorithm_parameters": [p.model_dump(mode="json") for p in filtered],
                     }
                     print(json.dumps(out, indent=2))
-                    return
+                    return 0
 
                 if args.algorithm_parameter_subcommand == "get":
                     param = client.get_algorithm_parameter(str(args.algorithm_parameter_id))
                     out = {"ok": True, "algorithm_parameter": param.model_dump(mode="json") if param else None}
                     print(json.dumps(out, indent=2))
-                    return
+                    return 0
 
                 raise ValueError(f"Unknown algorithm parameter subcommand: {args.algorithm_parameter_subcommand}")
 

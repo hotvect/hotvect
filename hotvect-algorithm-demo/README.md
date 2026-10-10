@@ -16,7 +16,7 @@ Run the demo UI:
 java -jar target/hotvect-algorithm-demo-*-jar-with-dependencies.jar \
   --algorithm-jar /path/to/algorithm.jar \
   --algorithm-name <algorithm_name> \
-  --parameter-path /path/to/parameters.zip \
+  --parameter-path /path/to/parameters \
   --ui \
   --source-path /path/to/examples_dir \
   --action-metadata-path /path/to/action_metadata_dir \
@@ -39,12 +39,15 @@ Headless API-only mode uses the same demo executable without `--ui`:
 java -jar target/hotvect-algorithm-demo-*-jar-with-dependencies.jar \
   --algorithm-jar /path/to/algorithm.jar \
   --algorithm-name <algorithm_name> \
-  --parameter-path /path/to/parameters.zip \
+  --parameter-path /path/to/parameters \
   --max-request-mib 256
 ```
 
 `hotvect-algorithm-demo` owns local runtime loading, selection, identity, HTTP lifecycle, the recorded
 `ExampleDecoder` path, and the `POST /predict` debugging endpoint.
+
+`--parameter-path` accepts either a local parameter source directory or a ZIP package. Use the directory for local
+debugging; ZIP packages remain the portable distribution format.
 
 When `--local-runtime-config` contains multiple runtimes, the UI exposes one algorithm comparison view per
 `algorithm_runtime_id`. One available view renders one result column; two selected views render a side-by-side

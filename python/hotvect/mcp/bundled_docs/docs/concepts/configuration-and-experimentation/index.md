@@ -88,8 +88,9 @@ through the containing application's integration tests or development deployment
 
 ## Inspect EMS with `hv exp`
 
-`hv exp` is the current read-only command-line view of experiment configuration. It emits JSON and does not create,
-modify, ramp, or terminate experiments.
+`hv exp` provides a command-line view of experiment configuration and online results. It also exposes typed
+commands for 10 EMS business mutations. Writes require a reason and create an EMS approval request when the server
+requires dual approval.
 
 ```bash
 # See the default variant and active experiments in one slot
@@ -119,13 +120,14 @@ map and [Hotvect configuration](../../reference/config/index.md) for EMS connect
 | Embedded definitions, explicit overrides, and saved effective definitions | Available now |
 | Java EMS read client, state refresh, deterministic assignment, artifact loading, and runtime reuse | Available now |
 | Python EMS client models and API client | Available now; connects to a configured EMS server |
-| `hv exp` inspection CLI | Available now and intentionally read-only |
+| `hv exp` operator CLI | Inspection, snapshots, online results, and typed mutations with EMS approval |
 | EMS control-plane server and its persistence/API implementation | Available from the standalone EMS repository and deployed independently with PostgreSQL and OAuth integration |
 
 The Python `ExperimentManagementClient` contains read and mutation methods for a configured EMS endpoint, including
 algorithm and parameter registration, experiment lifecycle and ramp-up, default promotion, and forced assignments.
-Those methods remain clients; the server implementation stays in the separate EMS repository. `hv exp` deliberately
-exposes only the inspection subset.
+Those methods remain clients; the server implementation stays in the separate EMS repository. `hv exp` provides
+typed operator commands with the server-backed
+[dual-approval workflow](../../guides/ems-dual-approval/index.md).
 
 See the [Python EMS client reference](../../reference/python-ems-client/index.md) for the exact read/mutation boundary
 and authentication setup.

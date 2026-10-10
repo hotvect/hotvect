@@ -28,7 +28,7 @@ class AlgorithmUtilsTest {
                 "  \"algorithm_name\": \"my-algo\",\n" +
                 "  \"algorithm_version\": \"82.1.0\",\n" +
                 "  \"parameter_id\": \"p123\",\n" +
-                "  \"ran_at\": \"2026-01-24T00:00:00Z\"\n" +
+                "  \"ran_at\": \"2000-01-24T00:00:00Z\"\n" +
                 "}\n";
 
         try (ZipOutputStream zos = new ZipOutputStream(Files.newOutputStream(zipPath))) {
@@ -53,7 +53,7 @@ class AlgorithmUtilsTest {
                 "  \"algorithm_name\": \"my-algo\",\n" +
                 "  \"algorithm_version\": \"82.1.0\",\n" +
                 "  \"parameter_id\": \"p123\",\n" +
-                "  \"ran_at\": \"2026-01-24T00:00:00Z\"\n" +
+                "  \"ran_at\": \"2000-01-24T00:00:00Z\"\n" +
                 "}\n";
 
         try (ZipOutputStream zos = new ZipOutputStream(Files.newOutputStream(zipPath))) {
@@ -67,5 +67,28 @@ class AlgorithmUtilsTest {
                 () -> AlgorithmUtils.readAlgorithmParameterMetadata(expectedAlgorithmId, zipPath.toFile(), true)
         );
     }
-}
 
+    @Test
+    void readAlgorithmParameterMetadata_readsFromSourceDirectory() throws Exception {
+        AlgorithmId expectedAlgorithmId = new AlgorithmId("my-algo", "82.2.21");
+        Path sourceDirectory = Files.createDirectories(tmpDir.resolve("params").resolve("my-algo"));
+
+        Files.writeString(
+                sourceDirectory.resolve("algorithm-parameters.json"),
+                """
+                        {
+                          "algorithm_name": "my-algo",
+                          "algorithm_version": "82.1.0",
+                          "parameter_id": "p123",
+                          "ran_at": "2000-01-24T00:00:00Z"
+                        }
+                        """,
+                StandardCharsets.UTF_8
+        );
+
+        var md = AlgorithmUtils.readAlgorithmParameterMetadata(expectedAlgorithmId, sourceDirectory.getParent().toFile(), false);
+        assertEquals("my-algo", md.algorithmId().algorithmName());
+        assertEquals("82.1.0", md.algorithmId().algorithmVersion());
+        assertEquals("p123", md.parameterId());
+    }
+}

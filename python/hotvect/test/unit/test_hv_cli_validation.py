@@ -13,7 +13,7 @@ def _hv_bin_path() -> Path:
     return python_dir / "bin" / "hv"
 
 
-def _run_hv(*args: str, input_text: str | None = None) -> subprocess.CompletedProcess[str]:
+def _run_hv(*args: str) -> subprocess.CompletedProcess[str]:
     hv_bin = _hv_bin_path()
     python_dir = hv_bin.parent.parent
     return subprocess.run(
@@ -22,7 +22,6 @@ def _run_hv(*args: str, input_text: str | None = None) -> subprocess.CompletedPr
         capture_output=True,
         text=True,
         env=dict(os.environ, PYTHONPATH=str(python_dir)),
-        input=input_text,
     )
 
 
@@ -124,6 +123,43 @@ def test_hv_exp_and_config_namespaces_have_direct_help():
     assert "list" in exp_slot_help.stdout
     assert config_help.returncode == 0
     assert "hv config" in config_help.stdout
+
+
+def test_hv_exp_exposes_mutations_and_approval_inspection():
+    for path in (
+        ("experiment", "ramp-up"),
+        ("experiment", "terminate"),
+        ("algorithm", "state"),
+        ("algorithm", "parameter", "create"),
+        ("variant", "algorithm"),
+        ("approval", "get"),
+        ("approval", "list"),
+    ):
+        result = _run_hv("exp", *path, "--help")
+        assert result.returncode == 0, result.stderr
+        assert "usage: hv exp" in result.stdout
+    termination = _run_hv("exp", "experiment", "terminate", "--experiment-id", "42")
+    assert termination.returncode == 2
+    assert "--reason" in termination.stderr
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        ("slot", "create"),
+        ("slot", "salt", "refresh"),
+        ("approve",),
+        ("approve-and-execute",),
+        ("execute",),
+        ("reject",),
+        ("emergency-execute",),
+    ],
+)
+def test_hv_exp_rejects_excluded_commands(path):
+    result = _run_hv("exp", *path, "--help")
+
+    assert result.returncode == 2
+    assert "invalid choice" in result.stderr
 
 
 def test_hv_exposes_structured_utility_namespaces():
@@ -604,7 +640,7 @@ def test_hv_train_cache_refresh_uses_effective_cache_base_dir(tmp_path: Path):
             "--algorithm-jar",
             str(dummy_jar),
             "--last-test-time",
-            "2026-01-07",
+            "2000-01-07",
             "--data-base-dir",
             str(tmp_path),
             "--output-base-dir",

@@ -84,7 +84,8 @@ Confirm:
 - the selected algorithm and effective parameter version are expected;
 - dependency entries identify the prepared child artifacts;
 - each stage says whether it ran, reused output, or was skipped;
-- the predict-parameters ZIP exists when the lifecycle packages one;
+- the parameter source exists next to the run output;
+- the predict-parameters ZIP exists when the target, cache, or publication requires one;
 - evaluation or performance metadata exists only when those stages were requested and completed.
 
 Use `hv.log` for the high-level run and stage logs for a focused failure. A zero exit code proves that the requested

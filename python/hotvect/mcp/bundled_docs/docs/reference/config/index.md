@@ -98,6 +98,11 @@ Example:
 The timeout fields are optional. If omitted, Hotvect uses a 5 second connect timeout and a 15 second read timeout
 for service calls.
 
+Typed `hv exp` mutations and approval inspection use the same endpoint, token provider, and timeouts. Each operator uses
+their own credentials; EMS stores the canonical operation and derives requester and reviewer identities from OAuth
+`uid`. Review and apply requests in EMS UI. No local approval configuration is needed. See the
+[dual-approved EMS mutations guide](../../guides/ems-dual-approval/index.md).
+
 The `online_results.slots` mapping is optional unless you want to use `hv exp experiment results ...` without
 passing `--s3-base-prefix`. In that case, Hotvect resolves `experiment_id -> slot ->
 experiment_management.online_results.slots.<slot>.s3_base_prefix`.

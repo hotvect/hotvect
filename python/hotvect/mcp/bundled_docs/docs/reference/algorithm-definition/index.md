@@ -21,7 +21,7 @@ The definition is configuration, not executable code and not a trained model. Ke
 |---|---|---|
 | Algorithm definition | Identity, factory class names, data declarations, workflow settings | Versioned with the algorithm source |
 | Algorithm JAR | Java classes plus the embedded definition resource | Built once for an algorithm version |
-| Parameter ZIP | Trained or generated files plus parameter metadata | Produced or selected for a particular run |
+| Parameter source / ZIP package | Trained or generated files plus parameter metadata | Source directory used locally; ZIP created for cache or distribution |
 | Override fragment | A partial JSON patch applied to the embedded definition | Supplied for one environment or experiment |
 
 For the complete artifact model, see [Artifacts and identity](../../concepts/artifacts-and-identity/index.md).
@@ -100,7 +100,7 @@ When both a vectorizer and transformer are declared, the Java loader selects the
 choose one so that the construction path is unambiguous.
 
 The fields ending in `_parameters` above are optional JSON values from the definition. Despite the name, they are
-construction-time configuration; they are not files from the trained parameter ZIP.
+construction-time configuration; they are not files from the trained parameter source or ZIP package.
 
 ## Lifecycle and data fields
 
@@ -136,16 +136,16 @@ Several similarly named concepts cross the definition and runtime boundary:
 | `algorithm_parameters` | Definition JSON | `Optional<JsonNode>` passed to the algorithm factory |
 | `transformer_parameters` / `vectorizer_parameters` | Definition JSON | `Optional<JsonNode>` passed to the selected feature factory |
 | `train_decoder_parameters` / `test_decoder_parameters` | Definition JSON | `Optional<JsonNode>` passed to the decoder factory |
-| Trained/generated parameters | Parameter ZIP under an algorithm-name directory | `Map<String, InputStream>` passed to parameterized factories |
-| `algorithm-parameters.json` | Parameter ZIP under the algorithm-name directory | Read by Hotvect as artifact identity and provenance metadata |
+| Trained/generated parameters | Parameter source directory or ZIP package under an algorithm-name directory | `Map<String, InputStream>` passed to parameterized factories |
+| `algorithm-parameters.json` | Parameter source directory or ZIP package under an algorithm-name directory | Read by Hotvect as artifact identity and provenance metadata |
 
 Within `algorithm-parameters.json`, `parameter_id` identifies the parameter artifact, `last_test_time` is the logical
 date anchoring the data used by the run, and `ran_at` records when that run began. Online shared-parameter selection
 orders by `last_test_time` first and uses `ran_at` only to distinguish reruns of the same logical date.
 
-Changing definition JSON does not mutate an existing parameter ZIP. Supplying a parameter ZIP also does not activate
-the override that produced it; the runtime definition comes from the JAR plus the override explicitly applied for that
-load or run.
+Changing definition JSON does not mutate an existing parameter package. Supplying a parameter source directory or ZIP
+package also does not activate the override that produced it; the runtime definition comes from the JAR plus the
+override explicitly applied for that load or run.
 
 ## Runtime-local state storage
 
@@ -366,11 +366,17 @@ Hotvect renders `training_command` as a Jinja2 template immediately before the t
 - `parameter_output_path`: location where the trainer must write its model files;
 - `scratch_dir`: scratch directory for the command;
 - `python_executable`: Python executable used by Hotvect;
-- `encode_parameter_path`: encode-parameters ZIP, including packaged child artifacts.
+- `encode_parameter_path`: encode-parameter source directory, including prepared child artifacts.
+- `last_test_time`: Python `datetime` representing the run's date at midnight UTC.
+
+The training template chooses the format passed to its trainer. Use `{{ last_test_time.strftime("%Y-%m-%d") }}`
+for a date, such as `2000-02-17`, or `{{ last_test_time.isoformat() }}` for `2000-02-17T00:00:00+00:00`.
+The pipeline continues to use date-only inputs, partitions, run paths, and metadata; this conversion happens only
+when rendering `training_command`.
 
 ```json
 {
-  "training_command": "{{ python_executable }} -m example_trainer --input {{ encoded_data_file_path }} --output {{ parameter_output_path }}"
+  "training_command": "{{ python_executable }} -m example_trainer --input {{ encoded_data_file_path }} --output {{ parameter_output_path }} --cutoff {{ last_test_time.strftime('%Y-%m-%d') }}"
 }
 ```
 
@@ -444,24 +450,20 @@ Classpath flags (`-cp` and `-classpath`) are rejected. Configure exactly one hea
 
 ### State output and packaging
 
-A definition with `generator_factory_classname` follows the state-producing lifecycle. Generated files are packaged
-into the predict-parameters ZIP by default.
+A definition with `generator_factory_classname` follows the state-producing lifecycle. Generated files are assembled
+in the predict-parameter source directory. Hotvect materializes that source as a ZIP when the `parameters` target,
+cache persistence, or publication requires one.
 
 ```json
 {
-  "state_output_filename": "state/id-mapping.json",
-  "hotvect_execution_parameters": {
-    "package_state_as_predict_parameters": true
-  }
+  "state_output_filename": "state/id-mapping.json"
 }
 ```
 
-- If `state_output_filename` is omitted, the algorithm output directory is the state root.
-- A configured path must be relative, remain below the output root, and exist when packaging begins.
-- A directory is packaged recursively.
-- A configured primary file is packaged with same-stem sidecars when present.
-- `package_state_as_predict_parameters` defaults to `true`. Setting it to `false` suppresses the standalone ZIP but
-  still writes parameter metadata for parent packaging.
+- If `state_output_filename` is omitted, the algorithm's parameter-source directory is the state root.
+- A configured path must be relative, remain below that directory, and exist when parameter metadata is written.
+- A directory becomes part of the source recursively.
+- A configured primary file includes same-stem sidecars when present.
 
 ### Performance-test controls
 

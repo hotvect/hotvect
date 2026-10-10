@@ -8,30 +8,34 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class EmsModel(BaseModel):
-    """Strict base for models generated from the pinned EMS contract."""
+    """EMS wire model that validates known fields and ignores additional response fields."""
 
-    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+    model_config = ConfigDict(extra="ignore", populate_by_name=True)
 
 
 class UserForcedAssignmentInput(EmsModel):
+    model_config = ConfigDict(extra="forbid")
+
     variant_id: int
 
 
 class Problem(EmsModel):
-    title: str | None = None
-    detail: str | None = None
-    status: StatusType | None = None
     instance: str | None = None
     type: str | None = None
     parameters: dict[str, Any] | None = None
+    title: str | None = None
+    detail: str | None = None
+    status: StatusType | None = None
 
 
 class StatusType(EmsModel):
-    reason_phrase: str | None = Field(default=None, alias="reasonPhrase")
     status_code: int | None = Field(default=None, alias="statusCode")
+    reason_phrase: str | None = Field(default=None, alias="reasonPhrase")
 
 
 class SlotInput(EmsModel):
+    model_config = ConfigDict(extra="forbid")
+
     slot_name: str = Field(min_length=1, pattern="[a-z0-9-]+")
     num_shards: int = Field(le=100)
     algorithm_name: str = Field(min_length=1)
@@ -82,6 +86,8 @@ class Variant(EmsModel):
 
 
 class ExperimentCreate(EmsModel):
+    model_config = ConfigDict(extra="forbid")
+
     variants: list[ExperimentVariantInput] = Field(min_length=1, max_length=2147483647)
     experiment_name: str = Field(min_length=1)
     number_of_shards: int = Field(le=100)
@@ -89,18 +95,17 @@ class ExperimentCreate(EmsModel):
 
 
 class ExperimentVariantInput(EmsModel):
+    model_config = ConfigDict(extra="forbid")
+
     algorithm_name: str = Field(min_length=1)
     algorithm_version: str = Field(min_length=1)
     is_control: bool
     shard_allocation_ratio: int
 
 
-class AlgorithmParameter(EmsModel):
+class AlgorithmParameterSummary(EmsModel):
     algorithm_parameter_id: str
-    algorithm: Algorithm
-    evaluation_results: str | None = None
-    created_at: datetime | None = None
-    absolute_s3_path: str = Field(min_length=1)
+    absolute_s3_algorithm_parameter_path: str
 
 
 class AlgorithmWithLatestParameter(EmsModel):
@@ -111,27 +116,43 @@ class AlgorithmWithLatestParameter(EmsModel):
     created_at: datetime | None = None
     algorithm_training_image_name: str
     parameter_mode: Literal["REQUIRED", "NONE"]
-    latest_algorithm_parameter: AlgorithmParameter | None = None
+    latest_algorithm_parameter: AlgorithmParameterSummary | None
 
 
 class AlgorithmCreate(EmsModel):
+    model_config = ConfigDict(extra="forbid")
+
     algorithm_name: str = Field(min_length=0, max_length=255)
     algorithm_version: str = Field(min_length=0, max_length=255)
     absolute_s3_jar_path: str = Field(min_length=1)
     algorithm_training_image_name: str = Field(min_length=0, max_length=255)
-    parameter_mode: Literal["REQUIRED", "NONE"]
+    parameter_mode: Literal["REQUIRED", "NONE"] | None = None
+
+
+class AlgorithmParameter(EmsModel):
+    algorithm_parameter_id: str
+    algorithm: Algorithm
+    evaluation_results: str | None = None
+    created_at: datetime | None = None
+    absolute_s3_path: str = Field(min_length=1)
 
 
 class VariantUpdateAlgorithmInput(EmsModel):
+    model_config = ConfigDict(extra="forbid")
+
     algorithm_name: str = Field(min_length=1)
     algorithm_version: str = Field(min_length=1)
 
 
 class ChangeRampUpPercentageInput(EmsModel):
+    model_config = ConfigDict(extra="forbid")
+
     new_ramp_up_percentage: int = Field(le=100)
 
 
 class AlgorithmPatch(EmsModel):
+    model_config = ConfigDict(extra="forbid")
+
     state: str = Field(pattern="ACTIVE|INACTIVE")
 
 
@@ -280,9 +301,10 @@ Experiment.model_rebuild()
 Variant.model_rebuild()
 ExperimentCreate.model_rebuild()
 ExperimentVariantInput.model_rebuild()
-AlgorithmParameter.model_rebuild()
+AlgorithmParameterSummary.model_rebuild()
 AlgorithmWithLatestParameter.model_rebuild()
 AlgorithmCreate.model_rebuild()
+AlgorithmParameter.model_rebuild()
 VariantUpdateAlgorithmInput.model_rebuild()
 ChangeRampUpPercentageInput.model_rebuild()
 AlgorithmPatch.model_rebuild()
@@ -319,9 +341,10 @@ __all__ = [
     "Variant",
     "ExperimentCreate",
     "ExperimentVariantInput",
-    "AlgorithmParameter",
+    "AlgorithmParameterSummary",
     "AlgorithmWithLatestParameter",
     "AlgorithmCreate",
+    "AlgorithmParameter",
     "VariantUpdateAlgorithmInput",
     "ChangeRampUpPercentageInput",
     "AlgorithmPatch",

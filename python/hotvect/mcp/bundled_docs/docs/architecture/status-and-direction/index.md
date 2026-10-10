@@ -23,7 +23,7 @@ promise that the current release implements it.
 | Configuration provenance | Embedded definitions, explicit overrides, saved effective definitions, and separate parameter identity |
 | Experiment Management Service (EMS) runtime integration | Configured EMS reads, slot snapshots, deterministic variant assignment, periodic refresh, and algorithm loading |
 | EMS control-plane server | A standalone EMS repository provides the Spring Boot persistence, migrations, REST API, and deployment |
-| Experiment inspection | Read-only `hv exp` queries for slots, experiments, ramp-up, algorithms, parameters, and online results |
+| Experiment operations | `hv exp` inspection, snapshots, online results, and typed mutations subject to EMS dual approval |
 | Python inference workers | Managed local subprocesses over Unix domain sockets |
 | Runtime-local filesystem state | Lazy private-directory allocation; algorithm factories own cleanup |
 | Remote offline work | Whole train/backtest/one-shot jobs submitted to SageMaker |
@@ -37,7 +37,7 @@ promise that the current release implements it.
   selection and traffic behavior.
 - The EMS server is maintained and deployed outside Hotvect. Hotvect documents the contract and provides compatible
   clients; the EMS deployment owns PostgreSQL, OAuth token introspection, artifact publication, and operations.
-  `hv exp` intentionally exposes inspection, not experiment mutations.
+  `hv exp` exposes typed mutations through the deployment's server-backed dual-approval workflow.
 - Host-provided external bindings can wrap clients, but Hotvect does not supply a generic remote proxy.
 - A host binding replaces construction of the declared dependency by name; packaged definitions may still be inspected
   to discover reachable EMS slots.

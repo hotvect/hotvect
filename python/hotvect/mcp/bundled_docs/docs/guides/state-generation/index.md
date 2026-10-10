@@ -33,7 +33,8 @@ named source paths
 ```
 
 The generator and runtime factory are two halves of one contract. The generator writes a format; the runtime factory
-must read that exact format from the packaged parameters. The current parameter-package format is a ZIP.
+must read that exact format from the packaged parameters. Local runs use a parameter source directory; Hotvect creates
+a ZIP only when parameters are cached, published, or explicitly requested as a package.
 
 ## The definition fields
 
@@ -42,8 +43,7 @@ must read that exact format from the packaged parameters. The current parameter-
 | `generator_factory_classname` | No-argument `StateGeneratorFactory` that creates the offline generator. |
 | `algorithm_factory_classname` | Runtime factory for the packaged state. The managed Python pipeline currently requires this field; state components normally use `NonCompositeStateFactory`. |
 | `source_data` | Named input channels. Each name becomes a key in the generator's `Map<String, List<File>>`. |
-| `state_output_filename` | Relative file or directory below the algorithm output root that Hotvect passes as the generator destination and later packages. |
-| `hotvect_execution_parameters.package_state_as_predict_parameters` | Whether to create a standalone parameter ZIP; defaults to `true`. |
+| `state_output_filename` | Relative file or directory below the algorithm's parameter-source directory that Hotvect passes as the generator destination. |
 
 For each `source_data` entry, `data_prefix` resolves below `--data-base-dir`. With no date fields, Hotvect passes that
 directory to the generator. For date-partitioned data, set both `number_of_days` and `lag_days`; Hotvect resolves the
@@ -193,9 +193,9 @@ public final class RecordCountStateFactory
 }
 ```
 
-The parameter-map key is the generated path relative to this algorithm's directory inside the ZIP. The API's
-preferred entry point is `create(...)`, but this release still requires implementations to provide the deprecated
-`apply(...)` method.
+The parameter-map key is the generated path relative to this algorithm's directory in the parameter source or ZIP
+package. The API's preferred entry point is `create(...)`, but this release still requires implementations to provide
+the deprecated `apply(...)` method.
 
 Create `src/main/resources/example-record-count-state-algorithm-definition.json`:
 
@@ -257,14 +257,15 @@ The final command prints:
 ```
 
 Hotvect resolved `data/record-source`, passed it under the `records` channel, generated
-`state/record-count.txt`, wrote generator metadata, and packaged both the state and `algorithm-parameters.json` under
-the algorithm's directory in the ZIP. A state component skips encode, train, predict, evaluation, and performance
-testing; its lifecycle result is the packaged state.
+`state/record-count.txt`, wrote generator metadata, and assembled both the state and `algorithm-parameters.json`
+under the algorithm's directory. Because this command uses `--target parameters`, it also materialized that source as
+a ZIP. A state component skips encode, train, predict, evaluation, and performance testing; its lifecycle result is
+the generated state and, when requested, its package.
 
-If `state_output_filename` names a directory, Hotvect packages its files recursively. If the field is omitted, the
-algorithm output directory is the state root. Keep it explicit when possible so the generator and runtime factory
-share an obvious path contract. Setting `package_state_as_predict_parameters` to `false` suppresses the standalone
-ZIP; parent preparation can still include the child's generated files in the parent's artifact.
+If `state_output_filename` names a directory, its files become part of the parameter source recursively. If the field
+is omitted, the algorithm's parameter-source directory is the state root. Keep it explicit when possible so the
+generator and runtime factory share an obvious path contract. When a state component is prepared as a dependency, it
+writes directly into the top-level source; the child does not need an intermediate ZIP.
 
 ## Run only the generator
 

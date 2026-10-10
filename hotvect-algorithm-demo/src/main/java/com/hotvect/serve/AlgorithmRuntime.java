@@ -13,7 +13,7 @@ import com.hotvect.api.execution.InputSemantic;
 import com.hotvect.api.execution.WorkloadMode;
 import com.hotvect.onlineutils.hotdeploy.AlgorithmGraph;
 import com.hotvect.onlineutils.hotdeploy.AlgorithmInstanceFactory;
-import com.hotvect.onlineutils.hotdeploy.util.ZipFiles;
+import com.hotvect.onlineutils.hotdeploy.util.AlgorithmParameterSource;
 import com.hotvect.utils.AlgorithmDefinitionOverrideUtils;
 import com.hotvect.utils.AlgorithmDefinitionReader;
 import org.slf4j.Logger;
@@ -157,9 +157,8 @@ final class AlgorithmRuntime implements AutoCloseable {
     private static JsonNode readAlgorithmParameterMetadataJson(
             AlgorithmDefinition algorithmDefinition,
             File parameterPath) throws IOException {
-        String entryName = algorithmDefinition.algorithmId().algorithmName() + "/algorithm-parameters.json";
-        try (ZipFile zipFile = new ZipFile(parameterPath);
-             InputStream input = ZipFiles.readFromZipByName(zipFile, entryName)) {
+        try (AlgorithmParameterSource parameterSource = AlgorithmParameterSource.open(parameterPath);
+             InputStream input = parameterSource.readMetadata(algorithmDefinition.algorithmId())) {
             return OM.readTree(input);
         }
     }

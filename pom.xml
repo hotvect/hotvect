@@ -4,7 +4,7 @@
 
     <groupId>com.hotvect</groupId>
     <artifactId>hotvect-parent</artifactId>
-        <version>11.0.2</version>
+        <version>11.2.4</version>
     <packaging>pom</packaging>
 
     <name>Hotvect Project</name>

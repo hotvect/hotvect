@@ -15,6 +15,7 @@ import s3fs
 from sagemaker_training.environment import Environment
 
 from hotvect.experiment_management import (
+    Algorithm,
     AlgorithmParameter,
     ExperimentManagementClient,
     SecretsManagerAuth,
@@ -22,6 +23,7 @@ from hotvect.experiment_management import (
 from hotvect.experiment_management.hotvect_config import create_client_from_hotvect_config
 from hotvect.pyhotvect import AlgorithmPipeline
 from hotvect.sagemaker import (
+    SHOULD_UPDATE_EMS_PARAMETER_HYPERPARAMETER,
     WRITE_METADATA_ENV_VARIABLE,
     WRITE_OUTPUT_ENV_VARIABLE,
     SagemakerAlgorithmPipelineRebuilder,
@@ -31,7 +33,7 @@ from hotvect.sagemaker_tasks import run_one_shot_from_sagemaker_env
 
 logger = logging.getLogger(__name__)
 
-SHOULD_UPDATE_EMS_PARAMETER_VAR = "should_update_ems_parameter"
+SHOULD_UPDATE_EMS_PARAMETER_VAR = SHOULD_UPDATE_EMS_PARAMETER_HYPERPARAMETER
 EMS_S3_OUTPUT_PREFIX_VAR = "ems_s3_output_prefix"
 EMS_URI_VAR = "ems_uri"
 EMS_TOKEN_SECRET_ID_VAR = "ems_token_secret_id"
@@ -143,6 +145,7 @@ class ExperimentManagementUpdaterAgent:
         parameter_zip_s3_uri = path.join(
             self._output_s3_path, f"{self._algorithm_pipeline.parameter_version}.parameters.zip"
         )
+        parameter_zip_path = self._algorithm_pipeline.materialize_predict_parameter_package()
 
         fs = s3fs.S3FileSystem()
         fs.put(
@@ -150,7 +153,7 @@ class ExperimentManagementUpdaterAgent:
             metadata_remote_path,
             recursive=True,
         )
-        fs.put(self._algorithm_pipeline.predict_parameter_file_path(), parameter_zip_s3_uri)
+        fs.put(parameter_zip_path, parameter_zip_s3_uri)
 
     def _update_parameter_in_ems(self):
         logger.info("Updating experiment-management (EMS) with the training parameters.")
@@ -163,7 +166,7 @@ class ExperimentManagementUpdaterAgent:
         )
         algorithm_parameter = AlgorithmParameter(
             algorithm_parameter_id=self._algorithm_pipeline.parameter_version,
-            algorithm=algorithm,
+            algorithm=Algorithm.model_validate(algorithm.model_dump(exclude={"latest_algorithm_parameter"})),
             evaluation_results="",
             absolute_s3_path=parameter_zip_s3_uri,
         )

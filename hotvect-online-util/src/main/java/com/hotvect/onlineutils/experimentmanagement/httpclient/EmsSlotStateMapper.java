@@ -14,7 +14,7 @@ import com.hotvect.onlineutils.experimentmanagement.models.UserForcedAssignment;
 import com.hotvect.onlineutils.experimentmanagement.models.Variant;
 import java.util.Objects;
 
-/** Maps the generated direct Stage 2 EMS wire contract into the online runtime model. */
+/** Maps the generated released EMS wire contract into the online runtime model. */
 final class EmsSlotStateMapper {
     private EmsSlotStateMapper() {
     }

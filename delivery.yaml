@@ -22,7 +22,7 @@ shared_vars: &SHARED_ENV
   UV_PUBLISH_URL: "https://example.com/pypi/internal/"
   UV_PUBLISH_USERNAME: "root"
   UV_PUBLISH_PASSWORD: ""
-  HOTVECT_VERSION: "11.0.2"
+  HOTVECT_VERSION: "11.2.4"
   IMAGE_NAME: &IMAGE_NAME "#{CDP_ZAPPR_TEAM}/hotvect"
 
 pipeline:
@@ -100,6 +100,9 @@ pipeline:
       - desc: "Stash hotvect algorithm demo jar so that python step can use it"
         cmd: |
           cdp-tool stash push snapshot-hotvect-algorithm-demo-target hotvect-algorithm-demo/target/*-jar-with-dependencies.jar
+      - desc: "Stash product ranker jar for Python integration tests"
+        cmd: |
+          cdp-tool stash push snapshot-hotvect-example-product-ranker-target examples/product-search-and-ranking/product-ranker/target/*-shaded.jar
 
   - id: demo-ui-e2e-check
     desc: Validates demo UI E2E project wiring (does not run browsers).
@@ -139,7 +142,16 @@ pipeline:
       image: cdp-runtime/python-3.11
     env:
       <<: *SHARED_ENV
+      JAVA_HOME: /opt/java/openjdk
     commands:
+      - desc: "Install Java 21 for integration tests"
+        cmd: |
+          set -euxo pipefail
+          mkdir -p "${JAVA_HOME}"
+          jdk_test_container="$(docker create "${DEP_JDK_BASE_IMAGE_REF}:${DEP_JDK_BASE_IMAGE_VERSION}")"
+          docker cp "${jdk_test_container}:/opt/java/openjdk/." "${JAVA_HOME}"
+          docker rm "${jdk_test_container}"
+          "${JAVA_HOME}/bin/java" -version
       - desc: "Checks install requirements"
         cmd: |
           cd python
@@ -161,10 +173,12 @@ pipeline:
 
           copy_stashed_jars_to_target stashed/snapshot-hotvect-offline-util-target hotvect-offline-util/target
           copy_stashed_jars_to_target stashed/snapshot-hotvect-algorithm-demo-target hotvect-algorithm-demo/target
+          copy_stashed_jars_to_target stashed/snapshot-hotvect-example-product-ranker-target examples/product-search-and-ranking/product-ranker/target
           ls -la hotvect-offline-util/target/
           ls -la hotvect-algorithm-demo/target/
       - desc: "Runs unittests"
         cmd: |
+          export PATH="${JAVA_HOME}/bin:${PATH}"
           cd python
           uv run scripts/copy_jar.py
           uv run pytest
@@ -418,8 +432,8 @@ pipeline:
           docker push ${TAG}
           cdp-promote-image ${TAG}
 
-  - id: build-training-image-cuda121-torch
-    desc: Builds CUDA 12.1 PyTorch training docker image (extends base image).
+  - id: build-training-image-cuda130-torch
+    desc: Builds CUDA 13.0 PyTorch training docker image (extends base image).
     type: script
     vm_config:
       type: linux
@@ -433,11 +447,11 @@ pipeline:
     env:
       <<: *SHARED_ENV
     commands:
-      - desc: "Build and push CUDA 12.1 PyTorch image"
+      - desc: "Build and push CUDA 13.0 PyTorch image"
         cmd: |
           BASE_TAG="${CDP_REGISTRY}/${IMAGE_NAME}:${HOTVECT_VERSION}"
-          TAG="${CDP_REGISTRY}/${IMAGE_NAME}:${HOTVECT_VERSION}-cuda121-torch"
-          docker build --network=host -f Dockerfile.torch -t ${TAG} --build-arg HOTVECT_BASE_IMAGE=${BASE_TAG} --build-arg HOTVECT_TORCH_BACKEND=cu121 .
+          TAG="${CDP_REGISTRY}/${IMAGE_NAME}:${HOTVECT_VERSION}-cuda130-torch"
+          docker build --network=host -f Dockerfile.torch -t ${TAG} --build-arg HOTVECT_BASE_IMAGE=${BASE_TAG} --build-arg HOTVECT_TORCH_BACKEND=cu130 .
           docker push ${TAG}
           cdp-promote-image ${TAG}
 
@@ -464,14 +478,14 @@ pipeline:
           docker push ${TAG}
           cdp-promote-image ${TAG}
 
-  - id: build-training-image-cuda121-torch-tensorflow
-    desc: Builds CUDA 12.1 PyTorch+TensorFlow training docker image (extends CUDA 12.1 torch image).
+  - id: build-training-image-cuda130-torch-tensorflow
+    desc: Builds CUDA 13.0 PyTorch+TensorFlow training docker image (extends CUDA 13.0 torch image).
     type: script
     vm_config:
       type: linux
       image: cdp-runtime/python-3.11
     depends_on:
-      - build-training-image-cuda121-torch
+      - build-training-image-cuda130-torch
     when:
       event: push
       CDP_TARGET_BRANCH:
@@ -479,10 +493,10 @@ pipeline:
     env:
       <<: *SHARED_ENV
     commands:
-      - desc: "Build and push CUDA 12.1 PyTorch+TensorFlow image"
+      - desc: "Build and push CUDA 13.0 PyTorch+TensorFlow image"
         cmd: |
-          BASE_TAG="${CDP_REGISTRY}/${IMAGE_NAME}:${HOTVECT_VERSION}-cuda121-torch"
-          TAG="${CDP_REGISTRY}/${IMAGE_NAME}:${HOTVECT_VERSION}-cuda121-torch-tensorflow"
+          BASE_TAG="${CDP_REGISTRY}/${IMAGE_NAME}:${HOTVECT_VERSION}-cuda130-torch"
+          TAG="${CDP_REGISTRY}/${IMAGE_NAME}:${HOTVECT_VERSION}-cuda130-torch-tensorflow"
           docker build --network=host -f Dockerfile.torch-tensorflow -t ${TAG} --build-arg HOTVECT_BASE_IMAGE=${BASE_TAG} .
           docker push ${TAG}
           cdp-promote-image ${TAG}

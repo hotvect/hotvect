@@ -44,6 +44,12 @@ need the mental model, the [system map](../components/index.md) when you need co
 
     [Open Python EMS client](python-ems-client/index.md){ .hv-btn }
 
+-   **EMS server API**
+
+    The complete static OpenAPI endpoint and schema reference exported from the standalone EMS service.
+
+    [Open EMS server API](ems-server-api/index.md){ .hv-btn }
+
 -   **Algorithm definition**
 
     Definition fields, override semantics, runtime settings, worker configuration, and dependency overrides.

@@ -1234,8 +1234,8 @@ class JavaCommand(BaseCommand):
         parser.add_argument(
             "--parameter-path",
             help=(
-                "Path to the trained model parameter file (optional for encode, predict, and performance-test; "
-                "required for audit, serve, and worker serve)"
+                "Path to the parameter source directory or ZIP package (optional for encode, predict, and "
+                "performance-test; required for audit)"
             ),
         )
         parser.add_argument(
@@ -2586,7 +2586,8 @@ class ServeCommand(BaseCommand):
             help=_ALGORITHM_OVERRIDE_HELP,
         )
         parser.add_argument(
-            "--parameter-path", help="Path to parameters ZIP from training (required in single-runtime local mode)"
+            "--parameter-path",
+            help="Path to parameter source directory or ZIP package from training (required in single-runtime local mode)",
         )
         parser.add_argument(
             "--local-runtime-config",
@@ -3598,7 +3599,7 @@ def _build_parser() -> tuple[argparse.ArgumentParser, dict[str, BaseCommand], di
     qa_parser = subparsers.add_parser("qa", help="Release-quality validation workflows")
     register_canonical_arguments(qa_parser)
 
-    exp_parser = subparsers.add_parser("exp", help="Experiment-management snapshots and inspection")
+    exp_parser = subparsers.add_parser("exp", help="Experiment-management inspection, modifications, and approval requests")
     ExperimentCommand.register_parser(exp_parser)
 
     config_parser = subparsers.add_parser("config", help="Show or initialize Hotvect configuration")
@@ -3678,8 +3679,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "exp":
         from hotvect.experiment_management.commands import ExperimentCommand
 
-        ExperimentCommand().execute(args)
-        return 0
+        return ExperimentCommand().execute(args)
     if command is None:
         parser.error(f"Unknown command {args.command}")
     if args.command == "data":

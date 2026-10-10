@@ -54,9 +54,8 @@ Every request path that requires the same assignment must use the same value.
 
 A null assignment key is treated as test traffic and receives a random value for that call, so it is not sticky.
 
-Refreshing the slot salt changes the input to all three hashes and therefore redistributes non-forced traffic. Use salt
-rotation only when that redistribution is intentional, and ensure online runtimes have refreshed before evaluating the
-new distribution.
+Changing the slot salt changes the input to all three hashes and redistributes non-forced traffic. Online runtimes
+must refresh before the new distribution can be evaluated.
 
 ## Ramp-up changes
 

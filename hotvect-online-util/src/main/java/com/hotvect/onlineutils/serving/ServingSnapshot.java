@@ -124,8 +124,27 @@ final class ServingSnapshot implements AutoCloseable {
     }
 
     PreparedComposition select(String rootSlot, String assignmentKey) {
+        return selectRootVariant(rootSlot, assignmentKey, assign(rootSlot, assignmentKey));
+    }
+
+    PreparedComposition selectForcedRootVariant(String rootSlot, String assignmentKey, String rootVariantId) {
+        // EMS still represents variant IDs as integers; convert only at this lookup boundary.
+        Variant variant = slotState(rootSlot).variants().get(Integer.valueOf(rootVariantId));
+        if (variant == null) {
+            throw new IllegalArgumentException(
+                    "Forced variant ID " + rootVariantId + " is not active for root slot " + rootSlot);
+        }
+        return selectRootVariant(rootSlot, assignmentKey, variant);
+    }
+
+    private PreparedComposition selectRootVariant(String rootSlot, String assignmentKey, Variant rootVariant) {
         TreeMap<String, Variant> selected = new TreeMap<>();
-        selectVariant(rootSlot, assignmentKey, selected, new LinkedHashSet<>());
+        selected.put(rootSlot, rootVariant);
+        LinkedHashSet<String> resolvingSlots = new LinkedHashSet<>();
+        resolvingSlots.add(rootSlot);
+        for (String dependencySlot : requiredSlots(rootSlot, rootVariant)) {
+            selectVariant(dependencySlot, assignmentKey, selected, resolvingSlots);
+        }
         ServingCompositionKey key = ServingCompositionKey.from(selected);
         PreparedComposition composition = roots(rootSlot).get(key);
         if (composition == null) {

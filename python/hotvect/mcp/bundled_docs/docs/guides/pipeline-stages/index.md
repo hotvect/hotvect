@@ -38,7 +38,7 @@ are unfamiliar, read
 
 | Target | Intended result | Inference input | Final stages |
 |---|---|---|---|
-| `parameters` | Prepare a reusable parameter package (`predict-parameters.zip`) | none | Stops after packaging |
+| `parameters` | Prepare a reusable ZIP parameter package | none | Stops after packaging |
 | `predict` | Train or load parameters, then publish batch predictions | `prediction_spec` | Predicts and publishes; does not evaluate or performance-test |
 | `evaluate` | Measure a version on historical examples | `test_data_spec` | Predicts, evaluates, and normally performance-tests |
 
@@ -64,8 +64,19 @@ This flow has two preparation branches:
 A definition with neither field can still describe a parameterless or pre-parameterized algorithm. Hotvect skips
 encode and train, packages the available runtime material, and continues according to the selected target.
 
-Packaging is the boundary between preparation and use. The resulting parameter package is currently written as a
-predict-parameters ZIP; later prediction, performance testing, and runtime loading consume it.
+Each top-level run owns one parameter source directory with the same namespaced layout as a ZIP package. The root
+algorithm and every dependency write their artifacts directly into their directory in that source. Local encode,
+training, prediction, performance testing, and runtime loading consume it directly. Hotvect creates a ZIP only when
+it is needed: the `parameters` target, parameter-cache persistence, or an upload/publication boundary. Previously
+cached or explicitly supplied ZIP packages are extracted into that source.
+
+Imported ZIPs must contain `<algorithm>/algorithm-parameters.json`, and every file must be inside an algorithm
+directory. Hotvect validates these requirements before clearing or merging the source. Packaging fails if a selected
+algorithm directory is missing rather than silently omitting it.
+
+Both ZIP and directory readers accept legacy parameter directories named `<algorithm>@<suffix>/` alongside
+`<algorithm>/`. Metadata remains in the unsuffixed directory. The suffix does not select a version or establish
+precedence: duplicate relative parameter filenames across matching directories are rejected.
 
 ## Outputs and metadata are separate
 
@@ -110,8 +121,23 @@ If the definition declares child algorithms under `dependencies`, Hotvect prepar
 parent. A child normally runs only far enough to produce parameters. A child that explicitly enables prediction,
 evaluation, or performance testing may run the evaluate path as well.
 
-The parent later packages child artifacts with its own so that the complete composition can be reconstructed. Start a
-normal run at the top-level algorithm; target a child directly only when investigating the stage it owns.
+Children write directly into the top-level source under their own algorithm names. The parent materializes that whole
+source only when a ZIP is required. Start a normal run at the top-level algorithm; target a child directly only when
+investigating the stage it owns.
+
+Each algorithm's cache ZIP contains its own namespace and its transitive dependencies, including namespaces supplied
+by a pinned parameter package.
+
+Because a cached package already carries the whole subtree, an algorithm imports its predict- or encode-parameter
+cache *before* preparing dependencies. Children reuse those artifacts without training, generating state, or rewriting
+parameter metadata. Explicitly enabled child prediction, evaluation, and performance testing still run against the
+hydrated source, including for transitive dependencies. `result.json` records these child stage outcomes.
+An explicit `with_parameter` continues to skip dependency execution entirely.
+
+Hotvect creates ZIPs automatically for `--target parameters`, configured cache writes, and SageMaker/EMS publication.
+Local evaluation and serving use the source directory. For later external publication, package the saved evaluated
+source at that boundary, including when it came from a cache hit; see
+[Change to a live experiment](../change-to-live-experiment/index.md#4-prepare-the-two-packages-for-publication).
 
 <div class="hv-flow">
   <div class="hv-flow__step"><span>01</span><strong>Select</strong><small>top-level algorithm</small></div>
@@ -126,21 +152,21 @@ normal run at the top-level algorithm; target a child directly only when investi
 `generate-state` runs only for a definition with `generator_factory_classname`.
 
 - **Input:** paths resolved from the definition's `source_data` entries.
-- **Output:** a generated file or directory under the algorithm output root.
+- **Output:** a generated file or directory under the algorithm's directory in the parameter source.
 - **Next consumer:** parameter packaging, then usually a parent algorithm or runtime factory.
 
 Examples of neutral state artifacts are an ID mapping, aggregate counts, or a directory of fixed lookup files. The
 generator's output is an offline lifecycle role; it is not a separate public algorithm request or response type.
 
-If `state_output_filename` is present, it selects the relative file or directory to package. Otherwise the algorithm
-output directory is the state root. The definition's own run skips encode, train, predict, evaluate, and
-performance-test after generating and packaging the state.
+If `state_output_filename` is present, it selects the relative file or directory to write. Otherwise the algorithm's
+directory in the parameter source is the state root. The definition's own run skips encode, train, predict, evaluate,
+and performance-test after generating and recording the state.
 
 ### Prepare encode parameters
 
-Before encoding a trainable algorithm, Hotvect creates an encode-parameters ZIP. It contains material the transformer
-or encoder needs during encode, including prepared dependency artifacts. In `result.json`, this step is named
-`package_encode_params`.
+Before encoding a trainable algorithm, Hotvect writes its encode metadata into the shared parameter source. It already
+contains prepared dependency artifacts. An encode ZIP is created only when that source must be persisted in the
+parameter cache. In `result.json`, this step is named `package_encode_params`.
 
 This is a pipeline bridge rather than a separate model-development stage. You normally inspect it only when child
 state or transformer loading fails during encode.
@@ -150,8 +176,8 @@ state or transformer loading fails during encode.
 `encode` converts raw offline examples into the format expected by the training command.
 
 - **Input:** training partitions, train decoder, feature transformer or vectorizer, reward function, and encoder.
-- **Output:** an `encoded/` directory of `part-*` files plus `encoded-schema-description` when the encoder supplies a
-  schema.
+- **Output:** an `encoded/` directory of `part-*` files plus `encoded-schema-description` in the algorithm's parameter
+  source directory when the encoder supplies a schema.
 - **Next consumer:** the command in `training_command`.
 
 Part-file extensions come from the encoder, for example `.jsonl`, `.tsv`, or `.tfrecord`. Encoded output is a directory,
@@ -161,9 +187,10 @@ not one guaranteed file.
 
 `train` exists when the algorithm definition contains `training_command`.
 
-- **Input:** the encoded directory, schema description, effective definition, algorithm JAR, encode-parameters ZIP,
+- **Input:** the encoded directory, schema description, effective definition, algorithm JAR, encode-parameter source
+  directory,
   and a scratch directory exposed as template variables.
-- **Output:** trainer-owned files under `model_parameter/`.
+- **Output:** trainer-owned files under the algorithm's `model_parameter/` directory in the parameter source.
 - **Next consumer:** predict-parameter packaging.
 
 Hotvect renders `training_command` and executes it. The trainer decides the internal model layout; Hotvect does not
@@ -171,8 +198,8 @@ infer a model format from the directory contents.
 
 ### Package predict parameters
 
-After generation or training, Hotvect packages inference-time files and parameter metadata. In `result.json`, the step
-is `package_predict_params`.
+After generation or training, Hotvect writes inference-time parameter metadata into the same source directory. In
+`result.json`, the step is `package_predict_params`.
 
 The normal filename is:
 
@@ -180,16 +207,14 @@ The normal filename is:
 <hyperparameter_slug>@<parameter_version>.parameters.zip
 ```
 
-The archive can contain model files, generated state, and child artifacts, each under its algorithm-name namespace.
-This package is the reusable result for a `parameters` target and the input to subsequent inference stages.
-
-A state-producing definition can disable its standalone ZIP with
-`hotvect_execution_parameters.package_state_as_predict_parameters=false`; parent preparation can still package its raw
-state and metadata.
+The ZIP can contain model files, generated state, and child artifacts, each under its algorithm-name namespace. It is
+the reusable result for a `parameters` target. Other local stages consume the source directory, while cache persistence
+and publication materialize that same layout as a ZIP.
 
 ### `predict`
 
-`predict` loads the complete algorithm from the JAR and parameter ZIP, decodes examples, and writes decisions.
+`predict` loads the complete algorithm from the JAR and predict-parameter source directory, decodes examples, and
+writes decisions.
 
 - For `target=evaluate`, it reads the historical slice declared by `test_data_spec` and writes the run-local
   `prediction/` directory.
@@ -213,7 +238,7 @@ values across algorithms.
 
 `performance-test` loads the same algorithm artifact and repeatedly executes decoded requests.
 
-- **Input:** the test examples plus the JAR and predict-parameters ZIP.
+- **Input:** the test examples plus the JAR and predict-parameter source directory.
 - **Output:** `performance-test/metadata.json` under the metadata root.
 
 The metadata includes response-time percentiles such as `p50`, `p95`, and `p99`, throughput, workload mode, and sample
@@ -234,7 +259,7 @@ path.
 
 A skipped stage is often expected. Common reasons are:
 
-- a cached or explicitly supplied parameter ZIP made encode and train unnecessary;
+- a cached or explicitly supplied parameter package made encode and train unnecessary;
 - the definition has no `training_command`;
 - the definition is state-producing;
 - the selected target is `parameters` or `predict`;
@@ -247,7 +272,8 @@ corresponding timing is normally zero.
 ## Parameters and hyperparameters
 
 - **Parameters** are files consumed at runtime: learned weights, lookup tables, thresholds, generated state, or other
-  model material. Hotvect packages them into the predict-parameters ZIP.
+  model material. Hotvect writes them into a local source directory and packages that layout into a ZIP only when it
+  crosses a cache or distribution boundary.
 - **Hyperparameters** are choices made before training that influence how those files are produced. They affect run
   identity, but they are not the runtime artifact themselves.
 - Definition fields such as `algorithm_parameters` and `transformer_parameters` are JSON construction configuration.
@@ -258,7 +284,8 @@ corresponding timing is normally zero.
 Start with four things:
 
 1. `result.json` — target, effective definition, child results, stage outcomes, skip reasons, and timings.
-2. The predict-parameters ZIP — the reusable runtime artifact and its namespaced contents.
+2. The predict-parameter source directory, or the ZIP produced by a `parameters` run — the namespaced runtime
+   artifact.
 3. `prediction/part-*` — decisions written for the historical evaluate slice, when prediction ran.
 4. `hv.log` and stage `stdout-stderr.log` files — command output and failure context.
 
